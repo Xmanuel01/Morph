@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.3.0
+
+### Features
+- Public exports + re-exports via `pub` and `pub use`.
+- Labeled-span diagnostics for parse/loader errors.
+- Local path dependencies in `morph.toml`.
+- Policy filters for `domain` and `path_prefix`.
+- `std.string` helpers and `std.fs` read/write (policy-gated).
+
+### Breaking changes
+- Importing private symbols now errors; only `pub` exports are importable.
+
 ## v0.2.0
 
 ### Features

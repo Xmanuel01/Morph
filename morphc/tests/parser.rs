@@ -125,10 +125,10 @@ fn parse_error_includes_snippet() {
     let source = "let x = 1\n";
     let err = parse_module(source).expect_err("should fail");
     let message = err.to_string();
-    assert!(message.contains("Use ':='"));
-    assert!(message.contains("at 1:7"));
-    assert!(message.contains("let x = 1"));
-    assert!(message.contains("^"));
+    assert!(message.contains("error: Use ':='"));
+    assert!(message.contains("--> 1:7"));
+    assert!(message.contains("| let x = 1"));
+    assert!(message.contains("^ here"));
 }
 
 #[test]
@@ -136,7 +136,28 @@ fn parse_error_handles_crlf() {
     let source = "let x = 1\r\n";
     let err = parse_module(source).expect_err("should fail");
     let message = err.to_string();
-    assert!(message.contains("at 1:7"));
-    assert!(message.contains("let x = 1"));
+    assert!(message.contains("--> 1:7"));
+    assert!(message.contains("| let x = 1"));
     assert!(!message.contains('\r'));
+}
+
+#[test]
+fn parses_use_list() {
+    let source = "\
+use math::{add, sub}
+fn main() -> Int ::
+    return 0
+::
+";
+    let module = parse_module(source).expect("module should parse");
+    assert!(!module.items.is_empty());
+}
+
+#[test]
+fn rejects_pub_on_non_exportable_item() {
+    let source = "pub tool web.search(query: String) -> String\n";
+    let err = parse_module(source).expect_err("should fail");
+    assert!(err
+        .to_string()
+        .contains("Only fn, type, enum, and use can be public"));
 }

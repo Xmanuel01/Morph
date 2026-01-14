@@ -137,3 +137,19 @@ match 1 ::
     let interpreter = eval(source);
     assert_eq!(interpreter.get_global("result"), Some(Value::Int(42)));
 }
+
+#[test]
+fn runs_string_functions() {
+    let source = "\
+let a := std.string.len(\"hello\")
+let b := std.string.contains(\"hello\", \"ell\")
+let c := std.string.slice(\"hello\", 1, 4)
+";
+    let interpreter = eval(source);
+    assert_eq!(interpreter.get_global("a"), Some(Value::Int(5)));
+    assert_eq!(interpreter.get_global("b"), Some(Value::Bool(true)));
+    assert_eq!(
+        interpreter.get_global("c"),
+        Some(Value::String("ell".to_string()))
+    );
+}

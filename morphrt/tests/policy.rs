@@ -1,5 +1,8 @@
+use std::fs;
+
 use morphc::parser::parse_module;
 use morphrt::{Interpreter, Value};
+use tempfile::tempdir;
 
 fn eval_main(source: &str) -> Result<Option<Value>, String> {
     let module = parse_module(source).map_err(|err| err.to_string())?;
@@ -12,6 +15,14 @@ fn eval_main(source: &str) -> Result<Option<Value>, String> {
 
 fn eval_err(source: &str) -> String {
     eval_main(source).expect_err("expected error")
+}
+
+fn escape_path(path: &std::path::Path) -> String {
+    path.to_string_lossy().replace('\\', "\\\\")
+}
+
+fn escape_backslash_path(raw: &str) -> String {
+    raw.replace('\\', "\\\\")
 }
 
 #[test]
@@ -113,19 +124,17 @@ fn default_deny_blocks_restricted_operations() {
 }
 
 #[test]
-fn allowlist_allows_fs_read_but_stub_fails() {
-    let source = "\
-policy default ::
-    allow fs.read
-::
-fn main() -> Int ::
-    std.fs.read(\"a\")
-    return 0
-::
-";
-    let err = eval_err(source);
-    assert!(err.contains("not implemented"));
-    assert!(!err.contains("Policy denied"));
+fn allowlist_allows_fs_read() {
+    let dir = tempdir().expect("tempdir");
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "hello").expect("write");
+    let path = escape_path(&file);
+    let source = format!(
+        "policy default ::\n    allow fs.read\n::\nfn main() -> Int ::\n    let data := std.fs.read(\"{}\")\n    return std.collections.len(data)\n::\n",
+        path
+    );
+    let result = eval_main(&source).expect("run").expect("value");
+    assert_eq!(result, Value::Int(5));
 }
 
 #[test]
@@ -142,4 +151,85 @@ fn main() -> Int ::
 ";
     let err = eval_err(source);
     assert!(err.contains("Policy denied"));
+}
+
+#[test]
+fn allows_path_prefix_filter() {
+    let dir = tempdir().expect("tempdir");
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "ok").expect("write");
+    let prefix = escape_path(dir.path());
+    let path = escape_path(&file);
+    let source = format!(
+        "policy default ::\n    allow fs.read path_prefix=\"{}\"\n::\nfn main() -> Int ::\n    let data := std.fs.read(\"{}\")\n    return std.collections.len(data)\n::\n",
+        prefix, path
+    );
+    let result = eval_main(&source).expect("run").expect("value");
+    assert_eq!(result, Value::Int(2));
+}
+
+#[test]
+fn denies_when_path_prefix_mismatches() {
+    let dir = tempdir().expect("tempdir");
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "no").expect("write");
+    let path = escape_path(&file);
+    let source = format!(
+        "policy default ::\n    allow fs.read path_prefix=\"/tmp/other\"\n::\nfn main() -> Int ::\n    std.fs.read(\"{}\")\n    return 0\n::\n",
+        path
+    );
+    let err = eval_err(&source);
+    assert!(err.contains("Policy denied"));
+}
+
+#[test]
+fn allows_domain_filter() {
+    let source = "\
+policy default ::
+    allow net.connect domain=\".example.com\"
+::
+fn main() -> Int ::
+    std.net.connect(\"api.example.com\")
+    return 0
+::
+";
+    let err = eval_err(source);
+    assert!(err.contains("not implemented"));
+    assert!(!err.contains("Policy denied"));
+}
+
+#[test]
+fn allows_domain_suffix_without_dot() {
+    let source = "\
+policy default ::
+    allow net.connect domain=\"example.com\"
+::
+fn main() -> Int ::
+    std.net.connect(\"api.example.com\")
+    return 0
+::
+";
+    let err = eval_err(source);
+    assert!(err.contains("not implemented"));
+    assert!(!err.contains("Policy denied"));
+}
+
+#[test]
+fn allows_path_prefix_with_normalization() {
+    let dir = tempdir().expect("tempdir");
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "ok").expect("write");
+    let prefix_raw = dir.path().join("sub").join("..");
+    let mut prefix = prefix_raw.to_string_lossy().replace('/', "\\");
+    if cfg!(windows) {
+        prefix = prefix.to_ascii_uppercase();
+    }
+    let prefix = escape_backslash_path(&prefix);
+    let path = escape_path(&file);
+    let source = format!(
+        "policy default ::\n    allow fs.read path_prefix=\"{}\"\n::\nfn main() -> Int ::\n    let data := std.fs.read(\"{}\")\n    return std.collections.len(data)\n::\n",
+        prefix, path
+    );
+    let result = eval_main(&source).expect("run").expect("value");
+    assert_eq!(result, Value::Int(2));
 }

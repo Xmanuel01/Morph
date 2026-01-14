@@ -1,28 +1,19 @@
 use std::fmt;
 
 use crate::ast::*;
+use crate::diagnostic::{Diagnostic, Span};
 use crate::lexer::{tokenize, LexerError, Token, TokenKind};
 
 #[derive(Debug, Clone)]
 pub struct ParseError {
-    pub message: String,
+    pub diagnostic: Diagnostic,
     pub line: usize,
     pub col: usize,
-    pub source_name: Option<String>,
-    pub snippet: Option<String>,
 }
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(name) = &self.source_name {
-            write!(f, "{}:{}:{}: {}", name, self.line, self.col, self.message)?;
-        } else {
-            write!(f, "{} at {}:{}", self.message, self.line, self.col)?;
-        }
-        if let Some(snippet) = &self.snippet {
-            write!(f, "\n{}", snippet)?;
-        }
-        Ok(())
+        write!(f, "{}", self.diagnostic)
     }
 }
 
@@ -30,25 +21,25 @@ impl std::error::Error for ParseError {}
 
 impl From<LexerError> for ParseError {
     fn from(err: LexerError) -> Self {
+        let diagnostic =
+            Diagnostic::new(&err.message, None).with_span("here", Span::single(err.line, err.col));
         Self {
-            message: err.message,
+            diagnostic,
             line: err.line,
             col: err.col,
-            source_name: None,
-            snippet: None,
         }
     }
 }
 
 impl ParseError {
     fn from_lexer(err: LexerError, source: &str, source_name: Option<&str>) -> Self {
-        let snippet = format_snippet(source, err.line, err.col);
+        let diagnostic = Diagnostic::new(&err.message, source_name)
+            .with_span("here", Span::single(err.line, err.col))
+            .with_source(source);
         Self {
-            message: err.message,
+            diagnostic,
             line: err.line,
             col: err.col,
-            source_name: source_name.map(|name| name.to_string()),
-            snippet,
         }
     }
 }
@@ -67,7 +58,7 @@ pub fn parse_module_named(source: &str, source_name: Option<&str>) -> Result<Mod
 struct Parser {
     tokens: Vec<Token>,
     pos: usize,
-    source_lines: Vec<String>,
+    source: String,
     source_name: Option<String>,
 }
 
@@ -76,7 +67,7 @@ impl Parser {
         Self {
             tokens,
             pos: 0,
-            source_lines: source.lines().map(|line| line.to_string()).collect(),
+            source: source.to_string(),
             source_name: source_name.map(|name| name.to_string()),
         }
     }
@@ -96,66 +87,115 @@ impl Parser {
     }
 
     fn parse_item(&mut self) -> Result<Item, ParseError> {
-        if self.matches(TokenKind::Use) {
-            return Ok(Item::Use(self.parse_use_decl()?));
-        }
         if self.matches(TokenKind::Pub) {
-            if !self.check(TokenKind::Fn) {
-                let token = self.current();
-                return Err(self.error("Expected 'fn' after 'pub'", token));
-            }
-            self.advance();
-            return Ok(Item::Fn(self.parse_fn_decl(true)?));
+            return self.parse_pub_item();
+        }
+        if self.matches(TokenKind::Use) {
+            return Ok(Item::Use(self.parse_use_decl(false)?));
         }
         if self.matches(TokenKind::Fn) {
             return Ok(Item::Fn(self.parse_fn_decl(false)?));
         }
         if self.matches(TokenKind::Type) {
-            return Ok(Item::Type(self.parse_type_decl()?));
+            return Ok(Item::Type(self.parse_type_decl(false)?));
         }
         if self.matches(TokenKind::Enum) {
-            return Ok(Item::Enum(self.parse_enum_decl()?));
+            return Ok(Item::Enum(self.parse_enum_decl(false)?));
         }
         if self.matches(TokenKind::Impl) {
             return Ok(Item::Impl(self.parse_impl_decl()?));
         }
         if self.matches(TokenKind::Tool) {
-            return Ok(Item::Tool(self.parse_tool_decl()?));
+            return Ok(Item::Tool(self.parse_tool_decl(false)?));
         }
         if self.matches(TokenKind::Policy) {
-            return Ok(Item::Policy(self.parse_policy_decl()?));
+            return Ok(Item::Policy(self.parse_policy_decl(false)?));
         }
         if self.matches(TokenKind::Prompt) {
-            return Ok(Item::Prompt(self.parse_prompt_decl()?));
+            return Ok(Item::Prompt(self.parse_prompt_decl(false)?));
         }
         if self.matches(TokenKind::Model) {
-            return Ok(Item::Model(self.parse_model_decl()?));
+            return Ok(Item::Model(self.parse_model_decl(false)?));
         }
         if self.matches(TokenKind::Agent) {
-            return Ok(Item::Agent(self.parse_agent_decl()?));
+            return Ok(Item::Agent(self.parse_agent_decl(false)?));
         }
         if self.matches(TokenKind::Async) {
             let token = self.previous();
-            return Err(self.error("Async functions are not supported in v0.1", token));
+            return Err(self.error("Async functions are not supported yet", token));
         }
         Ok(Item::Stmt(self.parse_stmt()?))
     }
 
-    fn parse_use_decl(&mut self) -> Result<UseDecl, ParseError> {
-        let path = self.parse_path()?;
+    fn parse_pub_item(&mut self) -> Result<Item, ParseError> {
+        if self.matches(TokenKind::Use) {
+            return Ok(Item::Use(self.parse_use_decl(true)?));
+        }
+        if self.matches(TokenKind::Fn) {
+            return Ok(Item::Fn(self.parse_fn_decl(true)?));
+        }
+        if self.matches(TokenKind::Type) {
+            return Ok(Item::Type(self.parse_type_decl(true)?));
+        }
+        if self.matches(TokenKind::Enum) {
+            return Ok(Item::Enum(self.parse_enum_decl(true)?));
+        }
+        if self.matches(TokenKind::Async) {
+            let token = self.previous();
+            return Err(self.error("Async functions are not supported yet", token));
+        }
+        let token = self.current();
+        Err(self.error("Only fn, type, enum, and use can be public", token))
+    }
+
+    fn parse_use_decl(&mut self, is_pub: bool) -> Result<UseDecl, ParseError> {
+        let (path, spans) = self.parse_path_with_spans()?;
+        let mut symbols = Vec::new();
+        if self.matches(TokenKind::ColonColon) {
+            self.expect(TokenKind::LBrace)?;
+            self.consume_newlines();
+            if self.check(TokenKind::RBrace) {
+                let token = self.current();
+                return Err(self.error("Expected symbol in use list", token));
+            }
+            loop {
+                let (name, span) = self.expect_ident_with_span()?;
+                symbols.push(UseSymbol { name, span });
+                self.consume_newlines();
+                if self.matches(TokenKind::Comma) {
+                    self.consume_newlines();
+                    if self.check(TokenKind::RBrace) {
+                        break;
+                    }
+                    continue;
+                }
+                break;
+            }
+            self.expect(TokenKind::RBrace)?;
+        }
         let alias = if self.matches(TokenKind::As) {
             Some(self.expect_ident()?)
         } else {
             None
         };
+        if !symbols.is_empty() && alias.is_some() {
+            let token = self.previous();
+            return Err(self.error("Alias is not supported for use lists", token));
+        }
         self.consume_stmt_end()?;
-        Ok(UseDecl { path, alias })
+        Ok(UseDecl {
+            path,
+            alias,
+            is_pub,
+            spans,
+            symbols,
+        })
     }
 
     fn parse_fn_decl(&mut self, is_pub: bool) -> Result<FnDecl, ParseError> {
         if self.matches(TokenKind::Async) {
             let token = self.previous();
-            return Err(self.error("Async functions are not supported in v0.1", token));
+            return Err(self.error("Async functions are not supported yet", token));
         }
         let name = self.expect_ident()?;
         let params = self.parse_param_list()?;
@@ -174,7 +214,7 @@ impl Parser {
         })
     }
 
-    fn parse_type_decl(&mut self) -> Result<TypeDecl, ParseError> {
+    fn parse_type_decl(&mut self, is_pub: bool) -> Result<TypeDecl, ParseError> {
         let name = self.expect_ident()?;
         let mut fields = Vec::new();
         self.expect(TokenKind::BlockStart)?;
@@ -191,10 +231,14 @@ impl Parser {
             self.consume_newlines();
         }
         self.expect(TokenKind::BlockEnd)?;
-        Ok(TypeDecl { name, fields })
+        Ok(TypeDecl {
+            name,
+            fields,
+            is_pub,
+        })
     }
 
-    fn parse_enum_decl(&mut self) -> Result<EnumDecl, ParseError> {
+    fn parse_enum_decl(&mut self, is_pub: bool) -> Result<EnumDecl, ParseError> {
         let name = self.expect_ident()?;
         let mut variants = Vec::new();
         self.expect(TokenKind::BlockStart)?;
@@ -206,7 +250,11 @@ impl Parser {
             self.consume_newlines();
         }
         self.expect(TokenKind::BlockEnd)?;
-        Ok(EnumDecl { name, variants })
+        Ok(EnumDecl {
+            name,
+            variants,
+            is_pub,
+        })
     }
 
     fn parse_impl_decl(&mut self) -> Result<ImplDecl, ParseError> {
@@ -227,7 +275,7 @@ impl Parser {
         Ok(ImplDecl { name, methods })
     }
 
-    fn parse_tool_decl(&mut self) -> Result<ToolDecl, ParseError> {
+    fn parse_tool_decl(&mut self, is_pub: bool) -> Result<ToolDecl, ParseError> {
         let path = self.parse_path()?;
         let params = self.parse_param_list()?;
         let return_type = if self.matches(TokenKind::Arrow) {
@@ -240,10 +288,11 @@ impl Parser {
             path,
             params,
             return_type,
+            is_pub,
         })
     }
 
-    fn parse_policy_decl(&mut self) -> Result<PolicyDecl, ParseError> {
+    fn parse_policy_decl(&mut self, is_pub: bool) -> Result<PolicyDecl, ParseError> {
         let name = self.expect_ident()?;
         self.expect(TokenKind::BlockStart)?;
         let mut rules = Vec::new();
@@ -253,7 +302,11 @@ impl Parser {
             self.consume_newlines();
         }
         self.expect(TokenKind::BlockEnd)?;
-        Ok(PolicyDecl { name, rules })
+        Ok(PolicyDecl {
+            name,
+            rules,
+            is_pub,
+        })
     }
 
     fn parse_policy_rule(&mut self) -> Result<PolicyRule, ParseError> {
@@ -299,7 +352,7 @@ impl Parser {
         })
     }
 
-    fn parse_prompt_decl(&mut self) -> Result<PromptDecl, ParseError> {
+    fn parse_prompt_decl(&mut self, is_pub: bool) -> Result<PromptDecl, ParseError> {
         let name = self.expect_ident()?;
         self.expect(TokenKind::BlockStart)?;
         let mut input_fields = Vec::new();
@@ -357,18 +410,19 @@ impl Parser {
             input_fields,
             output_type,
             template,
+            is_pub,
         })
     }
 
-    fn parse_model_decl(&mut self) -> Result<ModelDecl, ParseError> {
+    fn parse_model_decl(&mut self, is_pub: bool) -> Result<ModelDecl, ParseError> {
         let name = self.expect_ident()?;
         self.expect(TokenKind::Assign)?;
         let expr = self.parse_expr()?;
         self.consume_stmt_end()?;
-        Ok(ModelDecl { name, expr })
+        Ok(ModelDecl { name, expr, is_pub })
     }
 
-    fn parse_agent_decl(&mut self) -> Result<AgentDecl, ParseError> {
+    fn parse_agent_decl(&mut self, is_pub: bool) -> Result<AgentDecl, ParseError> {
         let name = self.expect_ident()?;
         self.expect(TokenKind::BlockStart)?;
         let mut items = Vec::new();
@@ -388,7 +442,11 @@ impl Parser {
             self.consume_newlines();
         }
         self.expect(TokenKind::BlockEnd)?;
-        Ok(AgentDecl { name, items })
+        Ok(AgentDecl {
+            name,
+            items,
+            is_pub,
+        })
     }
 
     fn parse_memory_decl(&mut self) -> Result<MemoryDecl, ParseError> {
@@ -1015,12 +1073,21 @@ impl Parser {
     }
 
     fn parse_path(&mut self) -> Result<Vec<String>, ParseError> {
-        let mut path = Vec::new();
-        path.push(self.expect_ident()?);
-        while self.matches(TokenKind::Dot) {
-            path.push(self.expect_ident()?);
-        }
+        let (path, _) = self.parse_path_with_spans()?;
         Ok(path)
+    }
+
+    fn parse_path_with_spans(&mut self) -> Result<(Vec<String>, Vec<Span>), ParseError> {
+        let mut path = Vec::new();
+        let (name, span) = self.expect_ident_with_span()?;
+        path.push(name);
+        let mut spans = vec![span];
+        while self.matches(TokenKind::Dot) {
+            let (name, span) = self.expect_ident_with_span()?;
+            path.push(name);
+            spans.push(span);
+        }
+        Ok((path, spans))
     }
 
     fn parse_capability_path(&mut self) -> Result<Vec<String>, ParseError> {
@@ -1167,6 +1234,16 @@ impl Parser {
         }
     }
 
+    fn expect_ident_with_span(&mut self) -> Result<(String, Span), ParseError> {
+        let token = self.advance();
+        if let TokenKind::Ident(name) = token.kind {
+            let span = Span::with_length(token.line, token.col, name.len());
+            Ok((name, span))
+        } else {
+            Err(self.error("Expected identifier", &token))
+        }
+    }
+
     fn current(&self) -> &Token {
         self.tokens
             .get(self.pos)
@@ -1198,35 +1275,13 @@ impl Parser {
     }
 
     fn error(&self, message: &str, token: &Token) -> ParseError {
+        let diagnostic = Diagnostic::new(message, self.source_name.as_deref())
+            .with_span("here", Span::single(token.line, token.col))
+            .with_source(&self.source);
         ParseError {
-            message: message.to_string(),
+            diagnostic,
             line: token.line,
             col: token.col,
-            source_name: self.source_name.clone(),
-            snippet: format_snippet_from_lines(&self.source_lines, token.line, token.col),
         }
     }
-}
-
-fn format_snippet(source: &str, line: usize, col: usize) -> Option<String> {
-    let lines: Vec<&str> = source.lines().collect();
-    format_snippet_from_lines(
-        &lines
-            .iter()
-            .map(|line| (*line).to_string())
-            .collect::<Vec<_>>(),
-        line,
-        col,
-    )
-}
-
-fn format_snippet_from_lines(lines: &[String], line: usize, col: usize) -> Option<String> {
-    let line_text = lines.get(line.saturating_sub(1))?;
-    let mut caret = String::new();
-    let caret_pos = col.saturating_sub(1);
-    for _ in 0..caret_pos {
-        caret.push(' ');
-    }
-    caret.push('^');
-    Some(format!("{}\n{}", line_text, caret))
 }

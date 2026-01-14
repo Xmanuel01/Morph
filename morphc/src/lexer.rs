@@ -66,6 +66,8 @@ pub enum TokenKind {
     RParen,
     LBracket,
     RBracket,
+    LBrace,
+    RBrace,
     Comma,
     Colon,
     Semicolon,
@@ -250,12 +252,15 @@ impl Lexer {
                 self.line_tokens[pos].kind = TokenKind::BlockStart;
                 self.block_depth += 1;
             } else {
-                let token = &self.line_tokens[pos];
-                return Err(self.error(
-                    "'::' must appear at end of line or alone",
-                    token.line,
-                    token.col,
-                ));
+                let next = self.line_tokens.get(pos + 1).map(|token| &token.kind);
+                if !matches!(next, Some(TokenKind::LBrace)) {
+                    let token = &self.line_tokens[pos];
+                    return Err(self.error(
+                        "'::' must appear at end of line or alone",
+                        token.line,
+                        token.col,
+                    ));
+                }
             }
         }
 
@@ -457,6 +462,8 @@ impl Lexer {
                     ')' => TokenKind::RParen,
                     '[' => TokenKind::LBracket,
                     ']' => TokenKind::RBracket,
+                    '{' => TokenKind::LBrace,
+                    '}' => TokenKind::RBrace,
                     ',' => TokenKind::Comma,
                     ':' => TokenKind::Colon,
                     ';' => TokenKind::Semicolon,

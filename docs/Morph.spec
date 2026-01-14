@@ -49,7 +49,7 @@ Operators and punctuation:
 - Comparison: < <= > >= == !=
 - Logical: and or not
 - Access: .
-- Delimiters: ( ) [ ] , : ;
+- Delimiters: ( ) [ ] { } , : ;
 
 Note: "=" is only used for named arguments and configuration fields, not for
 binding or assignment.
@@ -98,7 +98,8 @@ item          = use_decl
               | fn_decl
               | stmt ;
 
-use_decl      = "use" module_path [ "as" ident ] stmt_end ;
+use_decl      = [ "pub" ] "use" module_path [ use_list ] [ "as" ident ] stmt_end ;
+use_list      = "::" "{" ident { "," ident } "}" ;
 module_path   = ident { "." ident } ;
 
 fn_decl       = [ "pub" ] [ "async" ] "fn" ident "(" param_list? ")"
@@ -106,8 +107,8 @@ fn_decl       = [ "pub" ] [ "async" ] "fn" ident "(" param_list? ")"
 param_list    = param { "," param } ;
 param         = ident ":" type_ref [ "=" expr ] ;
 
-type_decl     = "type" ident type_params? block ;
-enum_decl     = "enum" ident type_params? block ;
+type_decl     = [ "pub" ] "type" ident type_params? block ;
+enum_decl     = [ "pub" ] "enum" ident type_params? block ;
 impl_decl     = "impl" ident type_params? block ;
 type_params   = "<" ident { "," ident } ">" ;
 
@@ -234,6 +235,17 @@ Module resolution:
 - use foo.bar resolves to src/foo/bar.morph or src/foo/bar/index.morph.
 - A file defines a module with the same path.
 
+Exports and visibility (v0.3):
+- Items are private unless declared with pub.
+- pub applies to fn, type, enum, and use only.
+- pub use re-exports a module or symbol.
+- Re-export syntax: pub use foo.bar or pub use foo.bar::{add, sub}.
+- use lists do not support aliases.
+- use foo.bar imports a module when foo.bar resolves to a module file.
+- If the full path does not resolve to a module file, the last segment is
+  treated as a symbol in the parent module path.
+- Importing a private symbol is an error.
+
 Package manifest (morph.toml):
 [package]
 name = "morph_app"
@@ -241,6 +253,11 @@ version = "0.1.0"
 
 [dependencies]
 net = "0.3"
+
+Local path dependencies (v0.3):
+[dependencies]
+utils = { path = "../utils" }
+- Dependency module root name is the dependency key (utils -> that dep's src/).
 
 -------------------------------------------------------------------------------
 6. Standard library design (v1.0)
@@ -318,6 +335,12 @@ Rules:
 - All IO, network, model, tool, and FFI calls require explicit allow.
 - A denied operation raises PolicyError at runtime.
 
+Filters (v0.3):
+- path_prefix="...": paths are normalized ("/" vs "\\", collapse "..") and
+  compared as prefix; Windows comparisons are case-insensitive.
+- domain="...": matches if the request domain ends with the filter value.
+- Filters may be specified as lists; any matching value satisfies the filter.
+
 Enforcement:
 - Compiler emits a manifest of required capabilities per module.
 - Runtime enforces allow/deny checks at each capability boundary.
@@ -329,4 +352,9 @@ Enforcement:
 
 - Map/Set literal syntax is optional in v1.0 (use std.collections constructors).
 - Pattern matching can be expanded with destructuring in later versions.
-- Error types and diagnostics format are to be specified separately.
+- Diagnostics include line/col, snippets, and labeled spans where possible.
+- Diagnostics output contract (v0.3):
+  error: <message>
+  --> file:line:col
+  <line_no> | <source line>
+            | ^ label
