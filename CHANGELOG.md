@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.3.1
+
+### Fixes
+- Correct loader diagnostics for private symbol imports and reduce `use` resolution duplication.
+- Use-list edge case diagnostics and expanded parser coverage for visibility rules.
+- Policy filter matching now uses path components normalization and list-valued tests.
+- Added tests for string native error paths and dependency manifest variants.
+
 ## v0.3.0
 
 ### Features

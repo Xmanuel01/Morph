@@ -8,6 +8,15 @@ fn eval(source: &str) -> Interpreter {
     interpreter
 }
 
+fn eval_err(source: &str) -> String {
+    let module = parse_module(source).expect("parse");
+    let mut interpreter = Interpreter::new();
+    let err = interpreter
+        .eval_module(&module)
+        .expect_err("expected error");
+    err.to_string()
+}
+
 #[test]
 fn runs_control_flow_and_loops() {
     let source = "\
@@ -152,4 +161,50 @@ let c := std.string.slice(\"hello\", 1, 4)
         interpreter.get_global("c"),
         Some(Value::String("ell".to_string()))
     );
+}
+
+#[test]
+fn string_functions_validate_args() {
+    let cases = [
+        (
+            "let a := std.string.len()\n",
+            "string.len expects one argument",
+        ),
+        (
+            "let a := std.string.contains(\"hi\")\n",
+            "string.contains expects two arguments",
+        ),
+        (
+            "let a := std.string.slice(\"hi\", 0)\n",
+            "string.slice expects three arguments",
+        ),
+        (
+            "let a := std.string.contains(1, \"a\")\n",
+            "string.contains expects strings",
+        ),
+        (
+            "let a := std.string.slice(1, 0, 1)\n",
+            "string.slice expects a string",
+        ),
+        (
+            "let a := std.string.slice(\"abc\", 0, \"1\")\n",
+            "string.slice expects integer indices",
+        ),
+        (
+            "let a := std.string.slice(\"abc\", -1, 1)\n",
+            "string.slice indices must be >= 0",
+        ),
+        (
+            "let a := std.string.slice(\"abc\", 2, 1)\n",
+            "string.slice start > end",
+        ),
+        (
+            "let a := std.string.slice(\"abc\", 0, 4)\n",
+            "string.slice index out of range",
+        ),
+    ];
+    for (source, expected) in cases {
+        let err = eval_err(source);
+        assert!(err.contains(expected), "{}", err);
+    }
 }

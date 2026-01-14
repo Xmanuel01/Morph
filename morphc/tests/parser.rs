@@ -155,9 +155,117 @@ fn main() -> Int ::
 
 #[test]
 fn rejects_pub_on_non_exportable_item() {
-    let source = "pub tool web.search(query: String) -> String\n";
+    let sources = [
+        "pub tool web.search(query: String) -> String\n",
+        "pub policy default ::\n    allow io.print\n::\n",
+        "pub prompt Ask ::\n    input ::\n        topic: String\n    ::\n::\n",
+        "pub model m := 1\n",
+        "pub agent Bot ::\n::\n",
+    ];
+    for source in sources {
+        let err = parse_module(source).expect_err("should fail");
+        assert!(err
+            .to_string()
+            .contains("Only fn, type, enum, and use can be public"));
+    }
+}
+
+#[test]
+fn rejects_use_list_alias() {
+    let source = "pub use foo::{bar} as baz\n";
     let err = parse_module(source).expect_err("should fail");
     assert!(err
         .to_string()
-        .contains("Only fn, type, enum, and use can be public"));
+        .contains("Alias is not supported for use lists"));
+}
+
+#[test]
+fn rejects_empty_use_list() {
+    let source = "use foo::{}\n";
+    let err = parse_module(source).expect_err("should fail");
+    assert!(err.to_string().contains("Expected symbol in use list"));
+}
+
+#[test]
+fn sets_pub_flags_for_decls() {
+    let source = "\
+pub fn pub_fn() -> Int ::
+    return 1
+::
+fn priv_fn() -> Int ::
+    return 0
+::
+pub type PubType ::
+    value: Int
+::
+type PrivType ::
+    value: Int
+::
+pub enum PubEnum ::
+    A
+::
+enum PrivEnum ::
+    B
+::
+pub use foo.bar
+use foo.baz
+";
+    let module = parse_module(source).expect("module should parse");
+    let mut saw_pub_fn = false;
+    let mut saw_priv_fn = false;
+    let mut saw_pub_type = false;
+    let mut saw_priv_type = false;
+    let mut saw_pub_enum = false;
+    let mut saw_priv_enum = false;
+    let mut saw_pub_use = false;
+    let mut saw_priv_use = false;
+    for item in module.items {
+        match item {
+            morphc::ast::Item::Fn(decl) if decl.name == "pub_fn" => {
+                assert!(decl.is_pub);
+                saw_pub_fn = true;
+            }
+            morphc::ast::Item::Fn(decl) if decl.name == "priv_fn" => {
+                assert!(!decl.is_pub);
+                saw_priv_fn = true;
+            }
+            morphc::ast::Item::Type(decl) if decl.name == "PubType" => {
+                assert!(decl.is_pub);
+                saw_pub_type = true;
+            }
+            morphc::ast::Item::Type(decl) if decl.name == "PrivType" => {
+                assert!(!decl.is_pub);
+                saw_priv_type = true;
+            }
+            morphc::ast::Item::Enum(decl) if decl.name == "PubEnum" => {
+                assert!(decl.is_pub);
+                saw_pub_enum = true;
+            }
+            morphc::ast::Item::Enum(decl) if decl.name == "PrivEnum" => {
+                assert!(!decl.is_pub);
+                saw_priv_enum = true;
+            }
+            morphc::ast::Item::Use(decl)
+                if decl.path == vec!["foo".to_string(), "bar".to_string()] =>
+            {
+                assert!(decl.is_pub);
+                saw_pub_use = true;
+            }
+            morphc::ast::Item::Use(decl)
+                if decl.path == vec!["foo".to_string(), "baz".to_string()] =>
+            {
+                assert!(!decl.is_pub);
+                saw_priv_use = true;
+            }
+            _ => {}
+        }
+    }
+    assert!(saw_pub_fn);
+    assert!(saw_priv_fn);
+    assert!(saw_pub_type);
+    assert!(saw_priv_type);
+    assert!(saw_pub_enum);
+    assert!(saw_priv_enum);
+    assert!(saw_pub_use);
+    assert!(saw_priv_use);
 }

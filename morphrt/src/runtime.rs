@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs;
 use std::io::{self, Read};
+use std::path::{Component, Path};
 use std::rc::Rc;
 
 use morphc::ast::{
@@ -176,24 +177,18 @@ struct PolicyFilterRuntime {
 }
 
 #[derive(Debug, Clone)]
-struct CapabilityContext {
-    path: Option<String>,
-    domain: Option<String>,
+enum CapabilityContext {
+    Path(String),
+    Domain(String),
 }
 
 impl CapabilityContext {
     fn for_path(path: &str) -> Self {
-        Self {
-            path: Some(path.to_string()),
-            domain: None,
-        }
+        CapabilityContext::Path(path.to_string())
     }
 
     fn for_domain(domain: &str) -> Self {
-        Self {
-            path: None,
-            domain: Some(domain.to_string()),
-        }
+        CapabilityContext::Domain(domain.to_string())
     }
 }
 
@@ -360,15 +355,17 @@ impl Interpreter {
             in_loop: false,
         };
         let mut exports = HashMap::new();
-        let mut resolved_uses = module_info.map(|info| info.resolved_uses.iter());
+        let mut use_index = 0usize;
         self.with_policy_override(module_policy.clone(), |this| {
             for item in &module.items {
                 match item {
                     Item::Use(decl) => {
-                        if let Some(iter) = resolved_uses.as_mut() {
-                            let group = iter
-                                .next()
+                        if let Some(info) = module_info {
+                            let group = info
+                                .resolved_uses
+                                .get(use_index)
                                 .ok_or_else(|| RuntimeError::new("Use resolution missing"))?;
+                            use_index += 1;
                             for resolved in group {
                                 this.eval_resolved_use(
                                     resolved,
@@ -599,37 +596,21 @@ impl Interpreter {
         let mut std_string = HashMap::new();
         std_string.insert(
             "len".to_string(),
-            Value::NativeFunction(Rc::new(NativeFunction {
-                name: "string.len".to_string(),
-                capability: None,
-                func: Box::new(|_, args| {
-                    if args.len() != 1 {
-                        return Err(RuntimeError::new("string.len expects one argument"));
-                    }
-                    match &args[0] {
-                        Value::String(value) => Ok(Value::Int(value.chars().count() as i64)),
-                        _ => Err(RuntimeError::new("string.len expects a string")),
-                    }
-                }),
-            })),
+            string_unary_native(
+                "string.len",
+                "string.len expects one argument",
+                "string.len expects a string",
+                |value| Ok(Value::Int(value.chars().count() as i64)),
+            ),
         );
         std_string.insert(
             "contains".to_string(),
-            Value::NativeFunction(Rc::new(NativeFunction {
-                name: "string.contains".to_string(),
-                capability: None,
-                func: Box::new(|_, args| {
-                    if args.len() != 2 {
-                        return Err(RuntimeError::new("string.contains expects two arguments"));
-                    }
-                    match (&args[0], &args[1]) {
-                        (Value::String(haystack), Value::String(needle)) => {
-                            Ok(Value::Bool(haystack.contains(needle)))
-                        }
-                        _ => Err(RuntimeError::new("string.contains expects strings")),
-                    }
-                }),
-            })),
+            string_binary_native(
+                "string.contains",
+                "string.contains expects two arguments",
+                "string.contains expects strings",
+                |haystack, needle| Ok(Value::Bool(haystack.contains(needle))),
+            ),
         );
         std_string.insert(
             "slice".to_string(),
@@ -800,22 +781,12 @@ impl Interpreter {
             }
             return Ok(());
         }
-        let mut current = Env::get(&self.globals, &decl.path[0])
-            .ok_or_else(|| RuntimeError::new("Module not found"))?;
-        for segment in &decl.path[1..] {
-            current = match current {
-                Value::Record(map) => map
-                    .get(segment)
-                    .cloned()
-                    .ok_or_else(|| RuntimeError::new("Module not found"))?,
-                _ => return Err(RuntimeError::new("Module not found")),
-            };
-        }
         let name = decl
             .alias
             .as_deref()
             .unwrap_or_else(|| decl.path.last().unwrap().as_str());
-        Env::define(env, name, current);
+        let value = self.lookup_module_value(&decl.path)?;
+        Env::define(env, name, value);
         Ok(())
     }
 
@@ -1619,6 +1590,60 @@ fn stub_native(name: &str, capability: Vec<String>) -> Value {
     }))
 }
 
+fn string_unary_native(
+    name: &str,
+    arg_error: &str,
+    type_error: &str,
+    f: impl Fn(&str) -> Result<Value, RuntimeError> + 'static,
+) -> Value {
+    let name = name.to_string();
+    let arg_error = arg_error.to_string();
+    let type_error = type_error.to_string();
+    Value::NativeFunction(Rc::new(NativeFunction {
+        name,
+        capability: None,
+        func: Box::new(move |_, args| {
+            if args.len() != 1 {
+                return Err(RuntimeError::new(&arg_error));
+            }
+            let value = match &args[0] {
+                Value::String(value) => value.as_str(),
+                _ => return Err(RuntimeError::new(&type_error)),
+            };
+            f(value)
+        }),
+    }))
+}
+
+fn string_binary_native(
+    name: &str,
+    arg_error: &str,
+    type_error: &str,
+    f: impl Fn(&str, &str) -> Result<Value, RuntimeError> + 'static,
+) -> Value {
+    let name = name.to_string();
+    let arg_error = arg_error.to_string();
+    let type_error = type_error.to_string();
+    Value::NativeFunction(Rc::new(NativeFunction {
+        name,
+        capability: None,
+        func: Box::new(move |_, args| {
+            if args.len() != 2 {
+                return Err(RuntimeError::new(&arg_error));
+            }
+            let left = match &args[0] {
+                Value::String(value) => value.as_str(),
+                _ => return Err(RuntimeError::new(&type_error)),
+            };
+            let right = match &args[1] {
+                Value::String(value) => value.as_str(),
+                _ => return Err(RuntimeError::new(&type_error)),
+            };
+            f(left, right)
+        }),
+    }))
+}
+
 fn policy_filters_to_runtime(filters: &[morphc::ast::PolicyFilter]) -> Vec<PolicyFilterRuntime> {
     let mut out = Vec::new();
     for filter in filters {
@@ -1664,21 +1689,15 @@ fn filters_match(filters: &[PolicyFilterRuntime], context: Option<&CapabilityCon
 }
 
 fn filter_matches(filter: &PolicyFilterRuntime, context: &CapabilityContext) -> bool {
-    match filter.name.as_str() {
-        "path_prefix" => match &context.path {
-            Some(path) => filter
-                .values
-                .iter()
-                .any(|value| path_prefix_matches(value, path)),
-            None => false,
-        },
-        "domain" => match &context.domain {
-            Some(domain) => filter
-                .values
-                .iter()
-                .any(|value| domain_matches(value, domain)),
-            None => false,
-        },
+    match (filter.name.as_str(), context) {
+        ("path_prefix", CapabilityContext::Path(path)) => filter
+            .values
+            .iter()
+            .any(|value| path_prefix_matches(value, path)),
+        ("domain", CapabilityContext::Domain(domain)) => filter
+            .values
+            .iter()
+            .any(|value| domain_matches(value, domain)),
         _ => false,
     }
 }
@@ -1700,47 +1719,47 @@ fn path_prefix_matches(prefix: &str, path: &str) -> bool {
 }
 
 fn normalize_path(path: &str) -> String {
-    let mut raw = path.replace('\\', "/");
-    let mut drive: Option<String> = None;
-    let mut is_absolute = false;
-    if raw.len() >= 2 && raw.as_bytes()[1] == b':' {
-        drive = Some(raw[..2].to_string());
-        raw = raw.split_off(2);
-        is_absolute = true;
-        if raw.starts_with('/') {
-            raw.remove(0);
-        }
-    } else if raw.starts_with('/') {
-        is_absolute = true;
-        raw = raw.trim_start_matches('/').to_string();
-    }
-    let mut components = Vec::new();
-    for part in raw.split('/') {
-        if part.is_empty() || part == "." {
-            continue;
-        }
-        if part == ".." {
-            if let Some(last) = components.last() {
-                if last != ".." {
-                    components.pop();
-                    continue;
+    let mut parts = Vec::new();
+    let mut prefix: Option<String> = None;
+    let mut has_root = false;
+    for component in Path::new(path).components() {
+        match component {
+            Component::Prefix(value) => {
+                prefix = Some(value.as_os_str().to_string_lossy().replace('\\', "/"));
+            }
+            Component::RootDir => {
+                has_root = true;
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if let Some(last) = parts.last() {
+                    if last != ".." {
+                        parts.pop();
+                        continue;
+                    }
+                }
+                if !has_root {
+                    parts.push("..".to_string());
                 }
             }
-            if !is_absolute {
-                components.push("..".to_string());
+            Component::Normal(value) => {
+                parts.push(value.to_string_lossy().to_string());
             }
-            continue;
         }
-        components.push(part.to_string());
     }
     let mut normalized = String::new();
-    if let Some(drive) = drive {
-        normalized.push_str(&drive);
-        normalized.push('/');
-    } else if is_absolute {
+    if let Some(prefix) = prefix {
+        normalized.push_str(&prefix);
+        if has_root {
+            normalized.push('/');
+        }
+    } else if has_root {
         normalized.push('/');
     }
-    normalized.push_str(&components.join("/"));
+    if !normalized.ends_with('/') && !normalized.is_empty() && !parts.is_empty() {
+        normalized.push('/');
+    }
+    normalized.push_str(&parts.join("/"));
     if cfg!(windows) {
         normalized = normalized.to_ascii_lowercase();
     }

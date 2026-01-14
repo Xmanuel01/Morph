@@ -160,22 +160,9 @@ impl ModuleLoader {
         let uses = info.uses.clone();
         self.modules.insert(path.clone(), info);
         for decl in uses {
-            let module_path = if !decl.symbols.is_empty() {
-                if !is_std_path(&decl.path) && self.resolve_module_file(&decl.path).is_none() {
-                    return Err(self.missing_module_error(&path, &decl, &decl.path));
-                }
-                decl.path.clone()
-            } else {
-                let target = self.resolve_use_target(&path, &decl)?;
-                match target {
-                    UseTarget::Module { path } => path,
-                    UseTarget::Symbol { module_path, .. } => module_path,
-                }
-            };
-            if is_std_path(&module_path) {
-                continue;
+            if let Some(module_path) = self.use_decl_module_path(&path, &decl)? {
+                self.load_module_path(module_path)?;
             }
-            self.load_module_path(module_path)?;
         }
         Ok(())
     }
@@ -195,22 +182,9 @@ impl ModuleLoader {
         let uses = info.uses.clone();
         self.modules.insert(path.clone(), info);
         for decl in uses {
-            let module_path = if !decl.symbols.is_empty() {
-                if !is_std_path(&decl.path) && self.resolve_module_file(&decl.path).is_none() {
-                    return Err(self.missing_module_error(&path, &decl, &decl.path));
-                }
-                decl.path.clone()
-            } else {
-                let target = self.resolve_use_target(&path, &decl)?;
-                match target {
-                    UseTarget::Module { path } => path,
-                    UseTarget::Symbol { module_path, .. } => module_path,
-                }
-            };
-            if is_std_path(&module_path) {
-                continue;
+            if let Some(module_path) = self.use_decl_module_path(&path, &decl)? {
+                self.load_module_path(module_path)?;
             }
-            self.load_module_path(module_path)?;
         }
         self.loading.remove(&path);
         Ok(())
@@ -270,74 +244,7 @@ impl ModuleLoader {
             .clone();
         let mut resolved = Vec::new();
         for decl in &uses {
-            let mut group = Vec::new();
-            if !decl.symbols.is_empty() {
-                let target_path = decl.path.clone();
-                if !is_std_path(&target_path) && self.resolve_module_file(&target_path).is_none() {
-                    return Err(self.missing_module_error(module_path, decl, &target_path));
-                }
-                for symbol in &decl.symbols {
-                    if !is_std_path(&target_path) {
-                        let exports = self.public_exports(&target_path)?;
-                        if !exports.contains(&symbol.name) {
-                            return Err(self.visibility_error(
-                                module_path,
-                                decl,
-                                Some(symbol.span.clone()),
-                                "Symbol is private",
-                            ));
-                        }
-                    }
-                    group.push(ResolvedUse {
-                        alias: symbol.name.clone(),
-                        target: UseTarget::Symbol {
-                            module_path: target_path.clone(),
-                            symbol: symbol.name.clone(),
-                        },
-                        is_pub: decl.is_pub,
-                        spans: decl.spans.clone(),
-                    });
-                }
-                resolved.push(group);
-                continue;
-            }
-            let target = self.resolve_use_target(module_path, decl)?;
-            match &target {
-                UseTarget::Module { path } => {
-                    let name = decl
-                        .alias
-                        .clone()
-                        .unwrap_or_else(|| path.last().cloned().unwrap_or_default());
-                    group.push(ResolvedUse {
-                        alias: name,
-                        target,
-                        is_pub: decl.is_pub,
-                        spans: decl.spans.clone(),
-                    });
-                }
-                UseTarget::Symbol {
-                    module_path,
-                    symbol,
-                } => {
-                    let exports = self.public_exports(module_path)?;
-                    if !exports.contains(symbol) {
-                        return Err(self.visibility_error(
-                            module_path,
-                            decl,
-                            None,
-                            "Symbol is private",
-                        ));
-                    }
-                    let name = decl.alias.clone().unwrap_or_else(|| symbol.clone());
-                    group.push(ResolvedUse {
-                        alias: name,
-                        target,
-                        is_pub: decl.is_pub,
-                        spans: decl.spans.clone(),
-                    });
-                }
-            }
-            resolved.push(group);
+            resolved.push(self.resolve_use_decl(module_path, decl)?);
         }
         Ok(resolved)
     }
@@ -381,60 +288,119 @@ impl ModuleLoader {
                 if !decl.is_pub {
                     continue;
                 }
-                if !decl.symbols.is_empty() {
-                    let target_path = decl.path.clone();
-                    if !is_std_path(&target_path)
-                        && self.resolve_module_file(&target_path).is_none()
-                    {
-                        return Err(self.missing_module_error(path, decl, &target_path));
-                    }
-                    for symbol in &decl.symbols {
-                        if !is_std_path(&target_path) {
-                            let target_exports = self.public_exports(&target_path)?;
-                            if !target_exports.contains(&symbol.name) {
-                                return Err(self.visibility_error(
-                                    path,
-                                    decl,
-                                    Some(symbol.span.clone()),
-                                    "Symbol is private",
-                                ));
-                            }
-                        }
-                        exports.insert(symbol.name.clone());
-                    }
-                    continue;
-                }
-                let target = self.resolve_use_target(path, decl)?;
-                match target {
-                    UseTarget::Module { path: target_path } => {
-                        let name = decl
-                            .alias
-                            .clone()
-                            .unwrap_or_else(|| target_path.last().cloned().unwrap_or_default());
-                        exports.insert(name);
-                    }
-                    UseTarget::Symbol {
-                        module_path,
-                        symbol,
-                    } => {
-                        let target_exports = self.public_exports(&module_path)?;
-                        if !target_exports.contains(&symbol) {
-                            return Err(self.visibility_error(
-                                path,
-                                decl,
-                                None,
-                                "Symbol is private",
-                            ));
-                        }
-                        let name = decl.alias.clone().unwrap_or_else(|| symbol.clone());
-                        exports.insert(name);
-                    }
+                let group = self.resolve_use_decl(path, decl)?;
+                for resolved in group {
+                    exports.insert(resolved.alias);
                 }
             }
         }
         self.export_visiting.remove(path);
         self.export_cache.insert(path.to_vec(), exports.clone());
         Ok(exports)
+    }
+
+    fn use_decl_module_path(
+        &self,
+        current_module: &[String],
+        decl: &UseDecl,
+    ) -> Result<Option<Vec<String>>, LoadError> {
+        let module_path = if !decl.symbols.is_empty() {
+            if !is_std_path(&decl.path) && self.resolve_module_file(&decl.path).is_none() {
+                return Err(self.missing_module_error(current_module, decl, &decl.path));
+            }
+            decl.path.clone()
+        } else {
+            let target = self.resolve_use_target(current_module, decl)?;
+            match target {
+                UseTarget::Module { path } => path,
+                UseTarget::Symbol { module_path, .. } => module_path,
+            }
+        };
+        if is_std_path(&module_path) {
+            return Ok(None);
+        }
+        Ok(Some(module_path))
+    }
+
+    fn resolve_use_decl(
+        &mut self,
+        module_path: &[String],
+        decl: &UseDecl,
+    ) -> Result<Vec<ResolvedUse>, LoadError> {
+        let mut group = Vec::new();
+        if !decl.symbols.is_empty() {
+            let target_path = decl.path.clone();
+            if !is_std_path(&target_path) && self.resolve_module_file(&target_path).is_none() {
+                return Err(self.missing_module_error(module_path, decl, &target_path));
+            }
+            let target_exports = if is_std_path(&target_path) {
+                None
+            } else {
+                Some(self.public_exports(&target_path)?)
+            };
+            for symbol in &decl.symbols {
+                if let Some(exports) = &target_exports {
+                    if !exports.contains(&symbol.name) {
+                        return Err(self.visibility_error(
+                            module_path,
+                            decl,
+                            Some(symbol.span.clone()),
+                            "Symbol is private",
+                        ));
+                    }
+                }
+                group.push(ResolvedUse {
+                    alias: symbol.name.clone(),
+                    target: UseTarget::Symbol {
+                        module_path: target_path.clone(),
+                        symbol: symbol.name.clone(),
+                    },
+                    is_pub: decl.is_pub,
+                    spans: decl.spans.clone(),
+                });
+            }
+            return Ok(group);
+        }
+
+        let target = self.resolve_use_target(module_path, decl)?;
+        match &target {
+            UseTarget::Module { path } => {
+                let name = decl
+                    .alias
+                    .clone()
+                    .unwrap_or_else(|| path.last().cloned().unwrap_or_default());
+                group.push(ResolvedUse {
+                    alias: name,
+                    target,
+                    is_pub: decl.is_pub,
+                    spans: decl.spans.clone(),
+                });
+            }
+            UseTarget::Symbol {
+                module_path: target_module_path,
+                symbol,
+            } => {
+                if !is_std_path(target_module_path) {
+                    let exports = self.public_exports(target_module_path)?;
+                    if !exports.contains(symbol) {
+                        return Err(self.visibility_error(
+                            module_path,
+                            decl,
+                            None,
+                            "Symbol is private",
+                        ));
+                    }
+                }
+                let name = decl.alias.clone().unwrap_or_else(|| symbol.clone());
+                group.push(ResolvedUse {
+                    alias: name,
+                    target,
+                    is_pub: decl.is_pub,
+                    spans: decl.spans.clone(),
+                });
+            }
+        }
+        Ok(group)
     }
 
     fn resolve_use_target(
@@ -504,15 +470,10 @@ impl ModuleLoader {
     }
 
     fn use_error(&self, module_path: &[String], message: &str, spans: &[Span]) -> LoadError {
-        let info = match self.modules.get(module_path) {
-            Some(info) => info,
-            None => {
-                return LoadError::MissingModule {
-                    path: module_path.to_vec(),
-                }
-            }
+        let (mut diagnostic, info) = match self.diagnostic_for_module(module_path, message) {
+            Ok(value) => value,
+            Err(err) => return err,
         };
-        let mut diagnostic = Diagnostic::new(message, Some(info.file.to_string_lossy().as_ref()));
         if let Some(span) = join_spans(spans) {
             diagnostic = diagnostic.with_span("use path", span);
         }
@@ -527,15 +488,10 @@ impl ModuleLoader {
         symbol_span: Option<Span>,
         message: &str,
     ) -> LoadError {
-        let info = match self.modules.get(module_path) {
-            Some(info) => info,
-            None => {
-                return LoadError::MissingModule {
-                    path: module_path.to_vec(),
-                }
-            }
+        let (mut diagnostic, info) = match self.diagnostic_for_module(module_path, message) {
+            Ok(value) => value,
+            Err(err) => return err,
         };
-        let mut diagnostic = Diagnostic::new(message, Some(info.file.to_string_lossy().as_ref()));
         if let Some(span) = symbol_span {
             if let Some(module_span) = join_spans(&decl.spans) {
                 diagnostic = diagnostic.with_span("module", module_span);
@@ -553,6 +509,21 @@ impl ModuleLoader {
         }
         diagnostic = diagnostic.with_source(&info.source);
         LoadError::Diagnostic(Box::new(diagnostic))
+    }
+
+    fn diagnostic_for_module(
+        &self,
+        module_path: &[String],
+        message: &str,
+    ) -> Result<(Diagnostic, &ModuleInfo), LoadError> {
+        let info = self
+            .modules
+            .get(module_path)
+            .ok_or_else(|| LoadError::MissingModule {
+                path: module_path.to_vec(),
+            })?;
+        let diagnostic = Diagnostic::new(message, Some(info.file.to_string_lossy().as_ref()));
+        Ok((diagnostic, info))
     }
 
     fn resolve_module_file(&self, path: &[String]) -> Option<PathBuf> {

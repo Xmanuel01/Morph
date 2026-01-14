@@ -233,3 +233,63 @@ fn allows_path_prefix_with_normalization() {
     let result = eval_main(&source).expect("run").expect("value");
     assert_eq!(result, Value::Int(2));
 }
+
+#[test]
+fn list_valued_filters_match_any_domain() {
+    let source = "\
+policy default ::
+    allow net.connect domain=[\".example.com\", \".example.org\"]
+::
+fn main() -> Int ::
+    std.net.connect(\"api.example.org\")
+    return 0
+::
+";
+    let err = eval_err(source);
+    assert!(err.contains("not implemented"));
+    assert!(!err.contains("Policy denied"));
+}
+
+#[test]
+fn list_valued_filters_match_any_path_prefix() {
+    let dir = tempdir().expect("tempdir");
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "ok").expect("write");
+    let prefix = escape_path(dir.path());
+    let path = escape_path(&file);
+    let source = format!(
+        "policy default ::\n    allow fs.read path_prefix=[\"/nope\", \"{}\"]\n::\nfn main() -> Int ::\n    let data := std.fs.read(\"{}\")\n    return std.collections.len(data)\n::\n",
+        prefix, path
+    );
+    let result = eval_main(&source).expect("run").expect("value");
+    assert_eq!(result, Value::Int(2));
+}
+
+#[test]
+fn list_valued_filters_deny_on_miss() {
+    let dir = tempdir().expect("tempdir");
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "ok").expect("write");
+    let path = escape_path(&file);
+    let source = format!(
+        "policy default ::\n    allow fs.read path_prefix=[\"/nope\", \"/missing\"]\n::\nfn main() -> Int ::\n    std.fs.read(\"{}\")\n    return 0\n::\n",
+        path
+    );
+    let err = eval_err(&source);
+    assert!(err.contains("Policy denied"));
+}
+
+#[test]
+fn filters_with_missing_context_are_denied() {
+    let source = "\
+policy default ::
+    allow io.print path_prefix=\"/tmp\"
+::
+fn main() -> Int ::
+    print(\"hi\")
+    return 0
+::
+";
+    let err = eval_err(source);
+    assert!(err.contains("Policy denied"));
+}
