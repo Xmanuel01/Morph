@@ -119,3 +119,24 @@ if true :: / / not_a_comment
 ";
     assert!(tokenize(source).is_err());
 }
+
+#[test]
+fn parse_error_includes_snippet() {
+    let source = "let x = 1\n";
+    let err = parse_module(source).expect_err("should fail");
+    let message = err.to_string();
+    assert!(message.contains("Use ':='"));
+    assert!(message.contains("at 1:7"));
+    assert!(message.contains("let x = 1"));
+    assert!(message.contains("^"));
+}
+
+#[test]
+fn parse_error_handles_crlf() {
+    let source = "let x = 1\r\n";
+    let err = parse_module(source).expect_err("should fail");
+    let message = err.to_string();
+    assert!(message.contains("at 1:7"));
+    assert!(message.contains("let x = 1"));
+    assert!(!message.contains('\r'));
+}

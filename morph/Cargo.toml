@@ -1,6 +1,6 @@
 [package]
 name = "morph"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Morph CLI (run, fmt, test)."
@@ -8,3 +8,6 @@ description = "Morph CLI (run, fmt, test)."
 [dependencies]
 morphc = { path = "../morphc" }
 morphrt = { path = "../morphrt" }
+
+[dev-dependencies]
+tempfile = "3.10"

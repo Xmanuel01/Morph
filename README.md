@@ -4,13 +4,16 @@ MORPH PROGRAMMING LANGUAGE
 Overview
 Morph is a programming language with block structure defined by :: tokens, a clean
 assignment operator (:=), and an AI-native roadmap (tools, agents, memory, policy).
-This repository contains the v0.1 implementation in Rust.
+This repository contains the v0.2 implementation in Rust.
 
-Status (v0.1)
+Status (v0.2)
 - Lexer + parser + AST (per docs/Morph.spec)
 - Tree-walk interpreter
-- Minimal stdlib stubs (print, readline, len)
-- CLI wrapper (morph run, morph fmt/test stubs)
+- Module loading + use resolution
+- Diagnostics with line/col + snippet
+- Runtime stack traces
+- Minimal formatter (morph fmt --check)
+- Policy enforcement MVP (default deny + allow rules)
 
 Workspace structure
 - morphc: compiler front-end (lexer/parser/AST/type-check stubs)
@@ -30,6 +33,8 @@ print(msg)
 
 Running
 - cargo run -p morph -- run path\\to\\file.morph
+- cargo run -p morph -- run examples\\project_v02
+- cargo run -p morph -- fmt --check examples\\project_v02\\src\\main.morph
 - cargo test
 
 License
