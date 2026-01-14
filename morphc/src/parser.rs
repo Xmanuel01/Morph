@@ -8,11 +8,21 @@ pub struct ParseError {
     pub message: String,
     pub line: usize,
     pub col: usize,
+    pub source_name: Option<String>,
+    pub snippet: Option<String>,
 }
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} at {}:{}", self.message, self.line, self.col)
+        if let Some(name) = &self.source_name {
+            write!(f, "{}:{}:{}: {}", name, self.line, self.col, self.message)?;
+        } else {
+            write!(f, "{} at {}:{}", self.message, self.line, self.col)?;
+        }
+        if let Some(snippet) = &self.snippet {
+            write!(f, "\n{}", snippet)?;
+        }
+        Ok(())
     }
 }
 
@@ -24,24 +34,51 @@ impl From<LexerError> for ParseError {
             message: err.message,
             line: err.line,
             col: err.col,
+            source_name: None,
+            snippet: None,
+        }
+    }
+}
+
+impl ParseError {
+    fn from_lexer(err: LexerError, source: &str, source_name: Option<&str>) -> Self {
+        let snippet = format_snippet(source, err.line, err.col);
+        Self {
+            message: err.message,
+            line: err.line,
+            col: err.col,
+            source_name: source_name.map(|name| name.to_string()),
+            snippet,
         }
     }
 }
 
 pub fn parse_module(source: &str) -> Result<Module, ParseError> {
-    let tokens = tokenize(source)?;
-    let mut parser = Parser::new(tokens);
+    parse_module_named(source, None)
+}
+
+pub fn parse_module_named(source: &str, source_name: Option<&str>) -> Result<Module, ParseError> {
+    let tokens =
+        tokenize(source).map_err(|err| ParseError::from_lexer(err, source, source_name))?;
+    let mut parser = Parser::new(tokens, source, source_name);
     parser.parse_module()
 }
 
 struct Parser {
     tokens: Vec<Token>,
     pos: usize,
+    source_lines: Vec<String>,
+    source_name: Option<String>,
 }
 
 impl Parser {
-    fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, pos: 0 }
+    fn new(tokens: Vec<Token>, source: &str, source_name: Option<&str>) -> Self {
+        Self {
+            tokens,
+            pos: 0,
+            source_lines: source.lines().map(|line| line.to_string()).collect(),
+            source_name: source_name.map(|name| name.to_string()),
+        }
     }
 
     fn parse_module(&mut self) -> Result<Module, ParseError> {
@@ -228,7 +265,7 @@ impl Parser {
             let token = self.current();
             return Err(self.error("Expected 'allow' or 'deny' in policy rule", token));
         };
-        let capability = self.parse_path()?;
+        let capability = self.parse_capability_path()?;
         let mut filters = Vec::new();
         if self.matches(TokenKind::Comma) {
             // no-op to allow leading commas
@@ -986,6 +1023,32 @@ impl Parser {
         Ok(path)
     }
 
+    fn parse_capability_path(&mut self) -> Result<Vec<String>, ParseError> {
+        let mut path = Vec::new();
+        path.push(self.expect_capability_segment()?);
+        while self.matches(TokenKind::Dot) {
+            path.push(self.expect_capability_segment()?);
+        }
+        Ok(path)
+    }
+
+    fn expect_capability_segment(&mut self) -> Result<String, ParseError> {
+        if self.check_ident() {
+            return self.expect_ident();
+        }
+        if self.matches(TokenKind::Tool) {
+            return Ok("tool".to_string());
+        }
+        if self.matches(TokenKind::Model) {
+            return Ok("model".to_string());
+        }
+        if self.matches(TokenKind::Memory) {
+            return Ok("memory".to_string());
+        }
+        let token = self.current();
+        Err(self.error("Expected identifier", token))
+    }
+
     fn consume_stmt_end(&mut self) -> Result<(), ParseError> {
         if self.matches(TokenKind::Semicolon) {
             self.consume_newlines();
@@ -1139,6 +1202,31 @@ impl Parser {
             message: message.to_string(),
             line: token.line,
             col: token.col,
+            source_name: self.source_name.clone(),
+            snippet: format_snippet_from_lines(&self.source_lines, token.line, token.col),
         }
     }
+}
+
+fn format_snippet(source: &str, line: usize, col: usize) -> Option<String> {
+    let lines: Vec<&str> = source.lines().collect();
+    format_snippet_from_lines(
+        &lines
+            .iter()
+            .map(|line| (*line).to_string())
+            .collect::<Vec<_>>(),
+        line,
+        col,
+    )
+}
+
+fn format_snippet_from_lines(lines: &[String], line: usize, col: usize) -> Option<String> {
+    let line_text = lines.get(line.saturating_sub(1))?;
+    let mut caret = String::new();
+    let caret_pos = col.saturating_sub(1);
+    for _ in 0..caret_pos {
+        caret.push(' ');
+    }
+    caret.push('^');
+    Some(format!("{}\n{}", line_text, caret))
 }

@@ -1,13 +1,14 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::io::{self, Read};
 use std::rc::Rc;
 
 use morphc::ast::{
     AgentDecl, AgentItem, Arg, ArmBody, Block, Expr, Item, LValue, LValueAccess, Literal, MatchArm,
-    MemoryDecl, Module, Pattern, Stmt,
+    MemoryDecl, Module, Pattern, PolicyDecl, Stmt,
 };
+use morphc::loader::Package;
 
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -72,22 +73,41 @@ impl PartialEq for Value {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+struct CallFrame {
+    name: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct RuntimeError {
     pub message: String,
+    stack: Vec<CallFrame>,
 }
 
 impl RuntimeError {
     fn new(message: &str) -> Self {
         Self {
             message: message.to_string(),
+            stack: Vec::new(),
         }
+    }
+
+    fn add_frame(&mut self, name: String) {
+        self.stack.push(CallFrame { name });
     }
 }
 
 impl fmt::Display for RuntimeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.message)
+        write!(f, "{}", self.message)?;
+        if !self.stack.is_empty() {
+            writeln!(f)?;
+            writeln!(f, "Stack trace:")?;
+            for frame in self.stack.iter().rev() {
+                writeln!(f, "  at {}", frame.name)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -99,18 +119,47 @@ pub struct Function {
     params: Vec<morphc::ast::Param>,
     body: Block,
     env: EnvRef,
+    policy: Option<String>,
 }
 
 pub struct NativeFunction {
     name: String,
     func: Box<dyn Fn(Vec<Value>) -> Result<Value, RuntimeError>>,
+    capability: Option<Vec<String>>,
 }
 
 impl fmt::Debug for NativeFunction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("NativeFunction")
             .field("name", &self.name)
+            .field("capability", &self.capability)
             .finish()
+    }
+}
+
+#[derive(Debug, Clone)]
+struct Policy {
+    rules: Vec<PolicyRuleRuntime>,
+}
+
+#[derive(Debug, Clone)]
+struct PolicyRuleRuntime {
+    allow: bool,
+    capability: Vec<String>,
+}
+
+impl Policy {
+    fn is_allowed(&self, capability: &[String]) -> bool {
+        let mut allowed = false;
+        for rule in &self.rules {
+            if capability_matches(&rule.capability, capability) {
+                if !rule.allow {
+                    return false;
+                }
+                allowed = true;
+            }
+        }
+        allowed
     }
 }
 
@@ -172,6 +221,9 @@ enum Flow {
 
 pub struct Interpreter {
     globals: EnvRef,
+    modules: HashMap<Vec<String>, Value>,
+    policies: HashMap<String, Policy>,
+    active_policy: Option<String>,
 }
 
 impl Default for Interpreter {
@@ -183,62 +235,135 @@ impl Default for Interpreter {
 impl Interpreter {
     pub fn new() -> Self {
         let globals = Env::new(None);
-        let mut interpreter = Self { globals };
+        let mut interpreter = Self {
+            globals,
+            modules: HashMap::new(),
+            policies: HashMap::new(),
+            active_policy: None,
+        };
         interpreter.install_builtins();
         interpreter
     }
 
+    pub fn eval_package(&mut self, package: &Package) -> Result<(), RuntimeError> {
+        let entry = package
+            .modules
+            .get(&package.entry)
+            .ok_or_else(|| RuntimeError::new("Entry module not found"))?;
+        let mut visiting = HashSet::new();
+        for dep in &entry.uses {
+            if is_std_path(dep) {
+                continue;
+            }
+            self.eval_module_record(package, dep, &mut visiting)?;
+        }
+        self.eval_module_in_env(&entry.module, self.globals.clone(), false)?;
+        Ok(())
+    }
+
     pub fn eval_module(&mut self, module: &Module) -> Result<Value, RuntimeError> {
+        self.eval_module_in_env(module, self.globals.clone(), false)?;
+        Ok(Value::None)
+    }
+
+    fn eval_module_record(
+        &mut self,
+        package: &Package,
+        path: &[String],
+        visiting: &mut HashSet<Vec<String>>,
+    ) -> Result<(), RuntimeError> {
+        if self.modules.contains_key(path) {
+            return Ok(());
+        }
+        if visiting.contains(path) {
+            return Err(RuntimeError::new(&format!(
+                "Cyclic module dependency: {}",
+                path.join(".")
+            )));
+        }
+        visiting.insert(path.to_vec());
+        let info = package
+            .modules
+            .get(path)
+            .ok_or_else(|| RuntimeError::new(&format!("Module not found: {}", path.join("."))))?;
+        for dep in &info.uses {
+            if is_std_path(dep) {
+                continue;
+            }
+            self.eval_module_record(package, dep, visiting)?;
+        }
+        let module_env = Env::new(Some(self.globals.clone()));
+        let exports = self.eval_module_in_env(&info.module, module_env, true)?;
+        let record = Value::Record(exports);
+        define_path(&self.globals, path, record.clone())?;
+        self.modules.insert(path.to_vec(), record);
+        visiting.remove(path);
+        Ok(())
+    }
+
+    fn eval_module_in_env(
+        &mut self,
+        module: &Module,
+        env: EnvRef,
+        export_public_only: bool,
+    ) -> Result<HashMap<String, Value>, RuntimeError> {
+        let module_policy = self.register_module_policies(module)?;
         let ctx = EvalContext {
             in_function: false,
             in_loop: false,
         };
-        for item in &module.items {
-            match item {
-                Item::Use(decl) => {
-                    self.eval_use_decl(&decl.path, decl.alias.as_deref())?;
-                }
-                Item::Fn(decl) => {
-                    let func = Function {
-                        name: Some(decl.name.clone()),
-                        params: decl.params.clone(),
-                        body: decl.body.clone(),
-                        env: self.globals.clone(),
-                    };
-                    Env::define(&self.globals, &decl.name, Value::Function(Rc::new(func)));
-                }
-                Item::Type(_) | Item::Enum(_) | Item::Impl(_) | Item::Policy(_) => {
-                    // Declarations without runtime behavior in v0.1.
-                }
-                Item::Tool(decl) => {
-                    self.define_tool_stub(&decl.path)?;
-                }
-                Item::Prompt(decl) => {
-                    Env::define(
-                        &self.globals,
-                        &decl.name,
-                        Value::Stub(format!("prompt {}", decl.name)),
-                    );
-                }
-                Item::Model(decl) => {
-                    Env::define(
-                        &self.globals,
-                        &decl.name,
-                        Value::Stub(format!("model {}", decl.name)),
-                    );
-                }
-                Item::Agent(decl) => {
-                    self.eval_agent_decl(decl)?;
-                }
-                Item::Stmt(stmt) => {
-                    let flow = self.eval_stmt(stmt, self.globals.clone(), ctx)?;
-                    if let Flow::Return(_) = flow {
-                        return Err(RuntimeError::new("Return outside of function"));
+        let mut exports = HashMap::new();
+        self.with_policy_override(module_policy.clone(), |this| {
+            for item in &module.items {
+                match item {
+                    Item::Use(decl) => {
+                        this.eval_use_decl(&decl.path, decl.alias.as_deref(), &env)?;
+                    }
+                    Item::Fn(decl) => {
+                        let func = Function {
+                            name: Some(decl.name.clone()),
+                            params: decl.params.clone(),
+                            body: decl.body.clone(),
+                            env: env.clone(),
+                            policy: module_policy.clone(),
+                        };
+                        let value = Value::Function(Rc::new(func));
+                        Env::define(&env, &decl.name, value.clone());
+                        if !export_public_only || decl.is_pub {
+                            exports.insert(decl.name.clone(), value);
+                        }
+                    }
+                    Item::Type(_) | Item::Enum(_) | Item::Impl(_) | Item::Policy(_) => {
+                        // Declarations without runtime behavior in v0.2.
+                    }
+                    Item::Tool(decl) => {
+                        this.define_tool_stub(&decl.path)?;
+                    }
+                    Item::Prompt(decl) => {
+                        let value = Value::Stub(format!("prompt {}", decl.name));
+                        Env::define(&env, &decl.name, value.clone());
+                        exports.insert(decl.name.clone(), value);
+                    }
+                    Item::Model(decl) => {
+                        let value = Value::Stub(format!("model {}", decl.name));
+                        Env::define(&env, &decl.name, value.clone());
+                        exports.insert(decl.name.clone(), value);
+                    }
+                    Item::Agent(decl) => {
+                        let value = this.eval_agent_decl(decl, &env, module_policy.clone())?;
+                        exports.insert(decl.name.clone(), value);
+                    }
+                    Item::Stmt(stmt) => {
+                        let flow = this.eval_stmt(stmt, env.clone(), ctx)?;
+                        if let Flow::Return(_) = flow {
+                            return Err(RuntimeError::new("Return outside of function"));
+                        }
                     }
                 }
             }
-        }
-        Ok(Value::None)
+            Ok(())
+        })?;
+        Ok(exports)
     }
 
     pub fn call_main(&mut self) -> Result<Option<Value>, RuntimeError> {
@@ -256,9 +381,90 @@ impl Interpreter {
         Env::get(&self.globals, name)
     }
 
+    fn with_policy_override<T>(
+        &mut self,
+        policy: Option<String>,
+        f: impl FnOnce(&mut Self) -> Result<T, RuntimeError>,
+    ) -> Result<T, RuntimeError> {
+        let prev = self.active_policy.clone();
+        self.active_policy = policy;
+        let result = f(self);
+        self.active_policy = prev;
+        result
+    }
+
+    fn with_policy_inherit<T>(
+        &mut self,
+        policy: Option<String>,
+        f: impl FnOnce(&mut Self) -> Result<T, RuntimeError>,
+    ) -> Result<T, RuntimeError> {
+        if let Some(name) = policy {
+            self.with_policy_override(Some(name), f)
+        } else {
+            f(self)
+        }
+    }
+
+    fn register_module_policies(
+        &mut self,
+        module: &Module,
+    ) -> Result<Option<String>, RuntimeError> {
+        let mut default_policy = None;
+        for item in &module.items {
+            if let Item::Policy(decl) = item {
+                self.register_policy(decl)?;
+                if decl.name == "default" {
+                    if default_policy.is_some() {
+                        return Err(RuntimeError::new("Multiple default policies defined"));
+                    }
+                    default_policy = Some(decl.name.clone());
+                }
+            }
+        }
+        Ok(default_policy)
+    }
+
+    fn register_policy(&mut self, decl: &PolicyDecl) -> Result<(), RuntimeError> {
+        if self.policies.contains_key(&decl.name) {
+            return Err(RuntimeError::new(&format!(
+                "Duplicate policy: {}",
+                decl.name
+            )));
+        }
+        let rules = decl
+            .rules
+            .iter()
+            .map(|rule| PolicyRuleRuntime {
+                allow: rule.allow,
+                capability: rule.capability.clone(),
+            })
+            .collect();
+        self.policies.insert(decl.name.clone(), Policy { rules });
+        Ok(())
+    }
+
+    fn check_capability(&self, capability: &[String]) -> Result<(), RuntimeError> {
+        let policy_name = self.active_policy.clone().ok_or_else(|| {
+            RuntimeError::new(&format!("Policy denied: {}", capability.join(".")))
+        })?;
+        let policy = self
+            .policies
+            .get(&policy_name)
+            .ok_or_else(|| RuntimeError::new(&format!("Unknown policy: {}", policy_name)))?;
+        if policy.is_allowed(capability) {
+            Ok(())
+        } else {
+            Err(RuntimeError::new(&format!(
+                "Policy denied: {}",
+                capability.join(".")
+            )))
+        }
+    }
+
     fn install_builtins(&mut self) {
         let print_fn = Value::NativeFunction(Rc::new(NativeFunction {
             name: "print".to_string(),
+            capability: Some(vec!["io".to_string(), "print".to_string()]),
             func: Box::new(|args| {
                 let output = args
                     .iter()
@@ -272,6 +478,7 @@ impl Interpreter {
 
         let readline_fn = Value::NativeFunction(Rc::new(NativeFunction {
             name: "readline".to_string(),
+            capability: Some(vec!["io".to_string(), "read".to_string()]),
             func: Box::new(|_| {
                 let mut input = String::new();
                 io::stdin()
@@ -294,6 +501,7 @@ impl Interpreter {
             "len".to_string(),
             Value::NativeFunction(Rc::new(NativeFunction {
                 name: "len".to_string(),
+                capability: None,
                 func: Box::new(|args| {
                     if args.len() != 1 {
                         return Err(RuntimeError::new("len expects one argument"));
@@ -306,14 +514,70 @@ impl Interpreter {
                 }),
             })),
         );
+        let mut std_fs = HashMap::new();
+        std_fs.insert(
+            "read".to_string(),
+            stub_native("fs.read", vec!["fs".to_string(), "read".to_string()]),
+        );
+        std_fs.insert(
+            "write".to_string(),
+            stub_native("fs.write", vec!["fs".to_string(), "write".to_string()]),
+        );
+        let mut std_net = HashMap::new();
+        std_net.insert(
+            "connect".to_string(),
+            stub_native(
+                "net.connect",
+                vec!["net".to_string(), "connect".to_string()],
+            ),
+        );
+        let mut std_process = HashMap::new();
+        std_process.insert(
+            "exec".to_string(),
+            stub_native(
+                "process.exec",
+                vec!["process".to_string(), "exec".to_string()],
+            ),
+        );
+        let mut std_ai = HashMap::new();
+        std_ai.insert(
+            "model_invoke".to_string(),
+            stub_native(
+                "model.invoke",
+                vec!["model".to_string(), "invoke".to_string()],
+            ),
+        );
+        std_ai.insert(
+            "memory_read".to_string(),
+            stub_native(
+                "memory.read",
+                vec!["memory".to_string(), "read".to_string()],
+            ),
+        );
+        std_ai.insert(
+            "memory_write".to_string(),
+            stub_native(
+                "memory.write",
+                vec!["memory".to_string(), "write".to_string()],
+            ),
+        );
         let mut std = HashMap::new();
         std.insert("core".to_string(), Value::Record(std_core));
         std.insert("io".to_string(), Value::Record(std_io));
         std.insert("collections".to_string(), Value::Record(std_collections));
+        std.insert("fs".to_string(), Value::Record(std_fs));
+        std.insert("net".to_string(), Value::Record(std_net));
+        std.insert("process".to_string(), Value::Record(std_process));
+        std.insert("ai".to_string(), Value::Record(std_ai));
         Env::define(&self.globals, "std", Value::Record(std));
     }
 
-    fn eval_use_decl(&self, path: &[String], alias: Option<&str>) -> Result<(), RuntimeError> {
+    fn eval_use_decl(
+        &self,
+        path: &[String],
+        alias: Option<&str>,
+        env: &EnvRef,
+    ) -> Result<(), RuntimeError> {
         if path.is_empty() {
             return Err(RuntimeError::new("Empty module path"));
         }
@@ -329,7 +593,7 @@ impl Interpreter {
             };
         }
         let name = alias.unwrap_or_else(|| path.last().unwrap().as_str());
-        Env::define(&self.globals, name, current);
+        Env::define(env, name, current);
         Ok(())
     }
 
@@ -340,6 +604,7 @@ impl Interpreter {
         let stub_name = path.join(".");
         let stub_value = Value::NativeFunction(Rc::new(NativeFunction {
             name: stub_name.clone(),
+            capability: Some(tool_capability(path)),
             func: Box::new(move |_| {
                 Err(RuntimeError::new(&format!(
                     "Tool not implemented: {}",
@@ -351,11 +616,24 @@ impl Interpreter {
         Ok(())
     }
 
-    fn eval_agent_decl(&mut self, decl: &AgentDecl) -> Result<(), RuntimeError> {
+    fn eval_agent_decl(
+        &mut self,
+        decl: &AgentDecl,
+        env: &EnvRef,
+        module_policy: Option<String>,
+    ) -> Result<Value, RuntimeError> {
         let mut agent_record = HashMap::new();
+        let mut agent_policy = None;
         for item in &decl.items {
             match item {
                 AgentItem::PolicyUse(name) => {
+                    if !self.policies.contains_key(name) {
+                        return Err(RuntimeError::new(&format!("Unknown policy: {}", name)));
+                    }
+                    if agent_policy.is_some() {
+                        return Err(RuntimeError::new("Agent policy is already set"));
+                    }
+                    agent_policy = Some(name.clone());
                     agent_record.insert(
                         "policy".to_string(),
                         Value::Stub(format!("policy {}", name)),
@@ -374,17 +652,19 @@ impl Interpreter {
                         name: Some(func.name.clone()),
                         params: func.params.clone(),
                         body: func.body.clone(),
-                        env: self.globals.clone(),
+                        env: env.clone(),
+                        policy: agent_policy.clone().or_else(|| module_policy.clone()),
                     };
                     agent_record.insert(func.name.clone(), Value::Function(Rc::new(function)));
                 }
                 AgentItem::Stmt(_) => {
-                    // Agent bodies are not executed in v0.1.
+                    // Agent bodies are not executed in v0.2.
                 }
             }
         }
-        Env::define(&self.globals, &decl.name, Value::Record(agent_record));
-        Ok(())
+        let value = Value::Record(agent_record);
+        Env::define(env, &decl.name, value.clone());
+        Ok(value)
     }
 
     fn eval_stmt(
@@ -609,6 +889,7 @@ impl Interpreter {
                         stmts: vec![Stmt::Expr(*body.clone())],
                     },
                     env,
+                    policy: self.active_policy.clone(),
                 };
                 Ok(Value::Function(Rc::new(function)))
             }
@@ -646,7 +927,17 @@ impl Interpreter {
 
     fn eval_call(&mut self, callee: Value, args: Vec<ArgValue>) -> Result<Value, RuntimeError> {
         match callee {
-            Value::Function(func) => self.call_user_function(&func, args),
+            Value::Function(func) => {
+                let name = func.name.clone().unwrap_or_else(|| "<lambda>".to_string());
+                let result = self.call_user_function(&func, args);
+                match result {
+                    Ok(value) => Ok(value),
+                    Err(mut err) => {
+                        err.add_frame(name);
+                        Err(err)
+                    }
+                }
+            }
             Value::NativeFunction(func) => {
                 if args.iter().any(|arg| matches!(arg, ArgValue::Named(_, _))) {
                     return Err(RuntimeError::new(
@@ -659,7 +950,17 @@ impl Interpreter {
                         values.push(value);
                     }
                 }
-                (func.func)(values)
+                if let Some(capability) = &func.capability {
+                    self.check_capability(capability)?;
+                }
+                let result = (func.func)(values);
+                match result {
+                    Ok(value) => Ok(value),
+                    Err(mut err) => {
+                        err.add_frame(func.name.clone());
+                        Err(err)
+                    }
+                }
             }
             Value::Stub(name) => Err(RuntimeError::new(&format!("{} is not implemented", name))),
             _ => Err(RuntimeError::new("Value is not callable")),
@@ -671,60 +972,63 @@ impl Interpreter {
         func: &Function,
         args: Vec<ArgValue>,
     ) -> Result<Value, RuntimeError> {
-        let mut positional = Vec::new();
-        let mut named = HashMap::new();
-        for arg in args {
-            match arg {
-                ArgValue::Positional(value) => positional.push(value),
-                ArgValue::Named(name, value) => {
-                    if named.contains_key(&name) {
-                        return Err(RuntimeError::new("Duplicate named argument"));
+        let policy = func.policy.clone();
+        self.with_policy_inherit(policy, |this| {
+            let mut positional = Vec::new();
+            let mut named = HashMap::new();
+            for arg in args {
+                match arg {
+                    ArgValue::Positional(value) => positional.push(value),
+                    ArgValue::Named(name, value) => {
+                        if named.contains_key(&name) {
+                            return Err(RuntimeError::new("Duplicate named argument"));
+                        }
+                        named.insert(name, value);
                     }
-                    named.insert(name, value);
                 }
             }
-        }
 
-        if positional.len() > func.params.len() {
-            return Err(RuntimeError::new("Too many arguments"));
-        }
-
-        let call_env = Env::new(Some(func.env.clone()));
-        for (idx, param) in func.params.iter().enumerate() {
-            let value = if idx < positional.len() {
-                positional[idx].clone()
-            } else if let Some(value) = named.remove(&param.name) {
-                value
-            } else if let Some(default) = &param.default {
-                self.eval_expr(
-                    default,
-                    call_env.clone(),
-                    EvalContext {
-                        in_function: false,
-                        in_loop: false,
-                    },
-                )?
-            } else {
-                return Err(RuntimeError::new("Missing argument"));
-            };
-            Env::define(&call_env, &param.name, value);
-        }
-
-        if !named.is_empty() {
-            return Err(RuntimeError::new("Unknown named argument"));
-        }
-
-        let ctx = EvalContext {
-            in_function: true,
-            in_loop: false,
-        };
-        match self.eval_block(&func.body, call_env, ctx)? {
-            Flow::Return(value) => Ok(value),
-            Flow::Value(value) => Ok(value),
-            Flow::Break | Flow::Continue => {
-                Err(RuntimeError::new("Invalid control flow in function"))
+            if positional.len() > func.params.len() {
+                return Err(RuntimeError::new("Too many arguments"));
             }
-        }
+
+            let call_env = Env::new(Some(func.env.clone()));
+            for (idx, param) in func.params.iter().enumerate() {
+                let value = if idx < positional.len() {
+                    positional[idx].clone()
+                } else if let Some(value) = named.remove(&param.name) {
+                    value
+                } else if let Some(default) = &param.default {
+                    this.eval_expr(
+                        default,
+                        call_env.clone(),
+                        EvalContext {
+                            in_function: false,
+                            in_loop: false,
+                        },
+                    )?
+                } else {
+                    return Err(RuntimeError::new("Missing argument"));
+                };
+                Env::define(&call_env, &param.name, value);
+            }
+
+            if !named.is_empty() {
+                return Err(RuntimeError::new("Unknown named argument"));
+            }
+
+            let ctx = EvalContext {
+                in_function: true,
+                in_loop: false,
+            };
+            match this.eval_block(&func.body, call_env, ctx)? {
+                Flow::Return(value) => Ok(value),
+                Flow::Value(value) => Ok(value),
+                Flow::Break | Flow::Continue => {
+                    Err(RuntimeError::new("Invalid control flow in function"))
+                }
+            }
+        })
     }
 
     fn eval_match_expr(
@@ -1032,4 +1336,31 @@ fn define_path(env: &EnvRef, path: &[String], value: Value) -> Result<(), Runtim
     ptr.insert(path.last().unwrap().clone(), value);
     Env::define(env, head, Value::Record(record));
     Ok(())
+}
+
+fn stub_native(name: &str, capability: Vec<String>) -> Value {
+    let label = name.to_string();
+    Value::NativeFunction(Rc::new(NativeFunction {
+        name: label.clone(),
+        capability: Some(capability),
+        func: Box::new(move |_| Err(RuntimeError::new(&format!("{} is not implemented", label)))),
+    }))
+}
+
+fn capability_matches(rule: &[String], requested: &[String]) -> bool {
+    if rule.len() > requested.len() {
+        return false;
+    }
+    rule.iter().zip(requested.iter()).all(|(a, b)| a == b)
+}
+
+fn tool_capability(path: &[String]) -> Vec<String> {
+    let mut capability = Vec::with_capacity(path.len() + 1);
+    capability.push("tool".to_string());
+    capability.extend(path.iter().cloned());
+    capability
+}
+
+fn is_std_path(path: &[String]) -> bool {
+    matches!(path.first(), Some(segment) if segment == "std")
 }
