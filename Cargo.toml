@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "morphc",
+    "morphrt",
+    "morph"
+]
+
+resolver = "2"
