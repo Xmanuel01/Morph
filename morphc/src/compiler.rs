@@ -4,7 +4,7 @@ use bumpalo::Bump;
 
 use crate::arena::CompilerArena;
 use crate::ast::*;
-use crate::bytecode::{ByteFunction, Chunk, Constant, Instruction, Program};
+use crate::bytecode::{ByteFunction, Chunk, Constant, FfiSignature, FfiType, Instruction, Program};
 use crate::diagnostic::{Diagnostic, Span};
 use crate::modules::{ModuleId, ModuleInfo, Package};
 use crate::symbols::SymbolTable;
@@ -291,6 +291,41 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                 Item::Stmt(stmt) => self.compile_stmt(stmt)?,
                 Item::Import(_) => {
                     // imports handled in emit_imports
+                }
+                Item::NativeImport(decl) => {
+                    for func in &decl.functions {
+                        let mut params = Vec::new();
+                        for param in &func.params {
+                            let ffi_ty = ffi_type_from_ref(&param.type_ann).ok_or_else(|| {
+                                CompileError::new("Unsupported FFI parameter type")
+                                    .with_span(param.name_span.clone())
+                            })?;
+                            if matches!(ffi_ty, FfiType::Void) {
+                                return Err(CompileError::new("FFI parameter cannot be Void")
+                                    .with_span(param.name_span.clone()));
+                            }
+                            params.push(ffi_ty);
+                        }
+                        let ret = ffi_type_from_ref(&func.return_type).ok_or_else(|| {
+                            CompileError::new("Unsupported FFI return type")
+                                .with_span(func.name_span.clone())
+                        })?;
+                        let global_name = mangle_symbol(&self.module.prefix, &func.name);
+                        let global = self.enclosing.ensure_global(&global_name);
+                        let signature = FfiSignature { params, ret };
+                        let native_decl = crate::bytecode::NativeFunctionDecl {
+                            library: decl.library.clone(),
+                            name: func.name.clone(),
+                            signature,
+                        };
+                        let const_idx = self
+                            .chunk
+                            .add_constant(Constant::NativeFunction(native_decl));
+                        self.chunk
+                            .write(Instruction::Const(const_idx), func.name_span.line);
+                        self.chunk
+                            .write(Instruction::StoreGlobal(global), func.name_span.line);
+                    }
                 }
                 Item::Fn(decl) => {
                     let global_name = mangle_symbol(&self.module.prefix, &decl.name);
@@ -707,6 +742,28 @@ fn line_for_item(item: &Item) -> usize {
         },
         Item::Fn(decl) => decl.name_span.line,
         _ => 0,
+    }
+}
+
+fn ffi_type_from_ref(ty: &TypeRef) -> Option<FfiType> {
+    match ty {
+        TypeRef::Named { path, optional, .. } => {
+            let base = match path.last().map(|s| s.as_str()) {
+                Some("Int") => FfiType::Int,
+                Some("Float") => FfiType::Float,
+                Some("Bool") => FfiType::Bool,
+                Some("String") => FfiType::String,
+                Some("Buffer") => FfiType::Buffer,
+                Some("Void") => FfiType::Void,
+                _ => return None,
+            };
+            if *optional {
+                Some(FfiType::Optional(Box::new(base)))
+            } else {
+                Some(base)
+            }
+        }
+        TypeRef::Function { .. } => None,
     }
 }
 

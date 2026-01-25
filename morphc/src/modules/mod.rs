@@ -154,6 +154,12 @@ fn resolve_module_file(root: &Path, id: &ModuleId) -> Result<PathBuf, ModuleErro
     if id.0.is_empty() {
         return Err(ModuleError::MissingModule { path: id.0.clone() });
     }
+    if matches!(id.0.first(), Some(first) if first == "std") {
+        if let Some(path) = resolve_std_module(root, &id.0[1..]) {
+            return Ok(path);
+        }
+        return Err(ModuleError::MissingModule { path: id.0.clone() });
+    }
     let mut path = root.to_path_buf();
     for segment in &id.0 {
         path.push(segment);
@@ -163,6 +169,33 @@ fn resolve_module_file(root: &Path, id: &ModuleId) -> Result<PathBuf, ModuleErro
         return Ok(path);
     }
     Err(ModuleError::MissingModule { path: id.0.clone() })
+}
+
+fn resolve_std_module(root: &Path, segments: &[String]) -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    candidates.push(root.join("std"));
+    if let Ok(env_root) = std::env::var("MORPH_STD") {
+        candidates.push(PathBuf::from(env_root));
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("std"));
+            if let Some(parent) = dir.parent() {
+                candidates.push(parent.join("std"));
+            }
+        }
+    }
+    for base in candidates {
+        let mut path = base.clone();
+        for segment in segments {
+            path.push(segment);
+        }
+        path.set_extension("morph");
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    None
 }
 
 fn module_id_from_file(root: &Path, file: &Path) -> ModuleId {

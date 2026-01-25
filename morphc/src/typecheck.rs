@@ -94,6 +94,28 @@ impl TypeChecker {
         }
     }
 
+    fn check_native_import(&self, decl: &NativeImportDecl) -> Result<(), TypeError> {
+        for func in &decl.functions {
+            for param in &func.params {
+                let ty = type_from_ref(param.type_ann.clone());
+                if !ffi_param_type_allowed(&ty) {
+                    return Err(self.error(
+                        format!("Invalid FFI parameter type {}", ty.display()),
+                        param.name_span.clone(),
+                    ));
+                }
+            }
+            let ret = type_from_ref(func.return_type.clone());
+            if !ffi_return_type_allowed(&ret) {
+                return Err(self.error(
+                    format!("Invalid FFI return type {}", ret.display()),
+                    func.name_span.clone(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
     pub fn check_module(&mut self, module: &Module) -> Result<(), TypeError> {
         for alias in self.imports.keys().cloned().collect::<Vec<_>>() {
             self.define(&alias, Type::Unknown);
@@ -108,6 +130,16 @@ impl TypeChecker {
                     Box::new(type_from_ref_opt(decl.return_type.clone())),
                 );
                 self.define(&decl.name, fn_type);
+            } else if let Item::NativeImport(decl) = item {
+                for func in &decl.functions {
+                    let params = func
+                        .params
+                        .iter()
+                        .map(|p| type_from_ref(p.type_ann.clone()))
+                        .collect();
+                    let ret = type_from_ref(func.return_type.clone());
+                    self.define(&func.name, Type::Function(params, Box::new(ret)));
+                }
             }
         }
         for item in &module.items {
@@ -144,6 +176,9 @@ impl TypeChecker {
                     self.check_stmt(stmt, type_from_ref_opt(decl.return_type.clone()))?;
                 }
                 self.pop();
+            }
+            Item::NativeImport(decl) => {
+                self.check_native_import(decl)?;
             }
             Item::Stmt(stmt) => {
                 self.check_stmt(stmt, Type::Void)?;
@@ -407,6 +442,7 @@ fn type_from_ref(r: TypeRef) -> Type {
                 Some("Float") => Type::Float,
                 Some("Bool") => Type::Bool,
                 Some("String") => Type::String,
+                Some("Buffer") => Type::Buffer,
                 Some("Void") => Type::Void,
                 _ => Type::Unknown,
             };
@@ -431,6 +467,21 @@ fn compatible(expected: &Type, found: &Type) -> bool {
         (Type::Optional(inner), Type::Optional(f)) => compatible(inner, f),
         (Type::Optional(inner), f) => compatible(inner, f), // allow T to satisfy Optional<T>
         _ => false,
+    }
+}
+
+fn ffi_param_type_allowed(ty: &Type) -> bool {
+    match ty {
+        Type::Int | Type::Float | Type::Bool | Type::String | Type::Buffer => true,
+        Type::Optional(inner) => ffi_param_type_allowed(inner),
+        _ => false,
+    }
+}
+
+fn ffi_return_type_allowed(ty: &Type) -> bool {
+    match ty {
+        Type::Void => true,
+        _ => ffi_param_type_allowed(ty),
     }
 }
 

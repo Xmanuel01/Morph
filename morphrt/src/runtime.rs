@@ -362,6 +362,9 @@ impl Interpreter {
                     Item::Import(_) => {
                         // import is handled by the compiler in v0.5
                     }
+                    Item::NativeImport(_) => {
+                        // native imports are handled by the VM/FFI layer
+                    }
                     Item::Use(decl) => {
                         if let Some(info) = module_info {
                             let group = info

@@ -1,0 +1,14 @@
+// Lesson 13: FFI basics
+// Expected: prints 5
+
+native::import "morph_native" ::
+    fn add_i64(a: Int, b: Int) -> Int
+::
+
+print(add_i64(2, 3))
+
+// Common error: missing symbol
+// native::import "morph_native" ::
+//     fn missing() -> Int
+// ::
+// print(missing())

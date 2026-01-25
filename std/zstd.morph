@@ -1,0 +1,13 @@
+// Native-backed compression via zstd
+native::import "morph_native" ::
+    fn zstd_compress(data: Buffer, level: Int) -> Buffer
+    fn zstd_decompress(data: Buffer) -> Buffer
+::
+
+pub fn compress(data: Buffer, level: Int) -> Buffer ::
+    return zstd_compress(data, level)
+::
+
+pub fn decompress(data: Buffer) -> Buffer ::
+    return zstd_decompress(data)
+::

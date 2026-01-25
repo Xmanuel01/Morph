@@ -1,0 +1,13 @@
+// Native-backed hashing helpers
+native::import "morph_native" ::
+    fn hash_sha256(data: Buffer) -> Buffer
+    fn buffer_from_string(data: String) -> Buffer
+::
+
+pub fn sha256(data: Buffer) -> Buffer ::
+    return hash_sha256(data)
+::
+
+pub fn sha256_from_string(data: String) -> Buffer ::
+    return hash_sha256(buffer_from_string(data))
+::

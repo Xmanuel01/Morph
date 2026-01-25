@@ -8,6 +8,7 @@ pub struct Module {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     Import(ImportDecl),
+    NativeImport(NativeImportDecl),
     Use(UseDecl),
     Fn(FnDecl),
     Type(TypeDecl),
@@ -26,6 +27,28 @@ pub struct ImportDecl {
     pub path: Vec<String>,
     pub alias: Option<String>,
     pub spans: Vec<Span>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct NativeImportDecl {
+    pub library: String,
+    pub library_span: Span,
+    pub functions: Vec<NativeFnDecl>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct NativeFnDecl {
+    pub name: String,
+    pub name_span: Span,
+    pub params: Vec<NativeParam>,
+    pub return_type: TypeRef,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct NativeParam {
+    pub name: String,
+    pub name_span: Span,
+    pub type_ann: TypeRef,
 }
 
 #[derive(Debug, Clone, PartialEq)]

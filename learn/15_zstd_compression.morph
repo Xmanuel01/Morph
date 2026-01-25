@@ -1,0 +1,19 @@
+// Lesson 15: Zstd compression
+// Expected: prints true
+
+import std::zstd
+
+native::import "morph_native" ::
+    fn buffer_from_string(data: String) -> Buffer
+    fn buffer_eq(a: Buffer, b: Buffer) -> Bool
+::
+
+let input := buffer_from_string("hello")
+let compressed := zstd.compress(input, 1)
+let output := zstd.decompress(compressed)
+print(buffer_eq(input, output))
+
+// Common error: invalid library name
+// native::import "missing_lib" ::
+//     fn add_i64(a: Int, b: Int) -> Int
+// ::

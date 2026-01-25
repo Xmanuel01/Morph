@@ -4,6 +4,7 @@ pub enum Type {
     Float,
     Bool,
     String,
+    Buffer,
     Void,
     Optional(Box<Type>),
     Function(Vec<Type>, Box<Type>),
@@ -17,6 +18,7 @@ impl Type {
             Type::Float => "Float".to_string(),
             Type::Bool => "Bool".to_string(),
             Type::String => "String".to_string(),
+            Type::Buffer => "Buffer".to_string(),
             Type::Void => "Void".to_string(),
             Type::Optional(inner) => format!("{}?", inner.display()),
             Type::Function(params, ret) => {

@@ -39,3 +39,9 @@ fn return_type_error() {
     let msg = type_err("fn f() -> Int ::\n    return true\n::\n");
     assert!(msg.contains("Return type mismatch"));
 }
+
+#[test]
+fn native_import_rejects_invalid_type() {
+    let msg = type_err("native::import \"libdemo\" ::\n    fn bad(a: List) -> Int\n::\n");
+    assert!(msg.contains("Invalid FFI parameter type"));
+}

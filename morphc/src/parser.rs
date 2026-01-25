@@ -76,12 +76,16 @@ impl Parser {
         let mut items = Vec::new();
         self.consume_newlines();
         // imports must appear at top of file
-        while self.matches(TokenKind::Import) {
-            items.push(Item::Import(self.parse_import_decl()?));
+        while self.check(TokenKind::Import) || self.is_native_import_start() {
+            if self.matches(TokenKind::Import) {
+                items.push(Item::Import(self.parse_import_decl()?));
+            } else if self.is_native_import_start() {
+                items.push(Item::NativeImport(self.parse_native_import_decl()?));
+            }
             self.consume_newlines();
         }
         while !self.at_end() {
-            if self.check(TokenKind::Import) {
+            if self.check(TokenKind::Import) || self.is_native_import_start() {
                 let token = self.current();
                 return Err(self.error("Imports must appear before other items", token));
             }
@@ -104,6 +108,9 @@ impl Parser {
         }
         if self.matches(TokenKind::Import) {
             return Ok(Item::Import(self.parse_import_decl()?));
+        }
+        if self.is_native_import_start() {
+            return Ok(Item::NativeImport(self.parse_native_import_decl()?));
         }
         if self.matches(TokenKind::Fn) {
             return Ok(Item::Fn(self.parse_fn_decl(false)?));
@@ -213,6 +220,80 @@ impl Parser {
         };
         self.consume_stmt_end()?;
         Ok(ImportDecl { path, alias, spans })
+    }
+
+    fn parse_native_import_decl(&mut self) -> Result<NativeImportDecl, ParseError> {
+        let (name, _name_span) = self.expect_ident_with_span()?;
+        if name != "native" {
+            return Err(self.error("Expected native::import", self.previous()));
+        }
+        if !self.matches(TokenKind::ColonColon) {
+            return Err(self.error("Expected native::import", self.current()));
+        }
+        if !self.matches(TokenKind::Import) {
+            return Err(self.error("Expected native::import", self.current()));
+        }
+        let (library, library_span) = self.expect_string_with_span()?;
+        self.expect(TokenKind::BlockStart)?;
+        self.consume_newlines();
+        let mut functions = Vec::new();
+        while !self.check(TokenKind::BlockEnd) && !self.at_end() {
+            if !self.matches(TokenKind::Fn) {
+                let token = self.current();
+                return Err(self.error("Expected fn in native import block", token));
+            }
+            functions.push(self.parse_native_fn_decl()?);
+            self.consume_newlines();
+        }
+        self.expect(TokenKind::BlockEnd)?;
+        Ok(NativeImportDecl {
+            library,
+            library_span,
+            functions,
+        })
+    }
+
+    fn parse_native_fn_decl(&mut self) -> Result<NativeFnDecl, ParseError> {
+        let (name, name_span) = self.expect_ident_with_span()?;
+        let params = self.parse_native_param_list()?;
+        self.expect(TokenKind::Arrow)?;
+        let return_type = self.parse_type_ref()?;
+        Ok(NativeFnDecl {
+            name,
+            name_span,
+            params,
+            return_type,
+        })
+    }
+
+    fn parse_native_param_list(&mut self) -> Result<Vec<NativeParam>, ParseError> {
+        self.expect(TokenKind::LParen)?;
+        let mut params = Vec::new();
+        if !self.check(TokenKind::RParen) {
+            params.push(self.parse_native_param()?);
+            while self.matches(TokenKind::Comma) {
+                params.push(self.parse_native_param()?);
+            }
+        }
+        self.expect(TokenKind::RParen)?;
+        Ok(params)
+    }
+
+    fn parse_native_param(&mut self) -> Result<NativeParam, ParseError> {
+        let (name, name_span) = self.expect_ident_with_span()?;
+        if !self.matches(TokenKind::Colon) {
+            return Err(self.error("Expected type annotation", self.current()));
+        }
+        let type_ann = self.parse_type_ref()?;
+        if self.matches(TokenKind::Equal) {
+            let token = self.previous();
+            return Err(self.error("Default values are not allowed in native signatures", token));
+        }
+        Ok(NativeParam {
+            name,
+            name_span,
+            type_ann,
+        })
     }
 
     fn parse_fn_decl(&mut self, is_pub: bool) -> Result<FnDecl, ParseError> {
@@ -1341,6 +1422,18 @@ impl Parser {
             .unwrap_or(false)
     }
 
+    fn is_native_import_start(&self) -> bool {
+        matches!(self.peek().kind, TokenKind::Ident(ref name) if name == "native")
+            && matches!(
+                self.tokens.get(self.pos + 1).map(|t| &t.kind),
+                Some(TokenKind::ColonColon)
+            )
+            && matches!(
+                self.tokens.get(self.pos + 2).map(|t| &t.kind),
+                Some(TokenKind::Import)
+            )
+    }
+
     fn matches(&mut self, kind: TokenKind) -> bool {
         if self.check(kind.clone()) {
             self.advance();
@@ -1375,6 +1468,16 @@ impl Parser {
             Ok((name, span))
         } else {
             Err(self.error("Expected identifier", &token))
+        }
+    }
+
+    fn expect_string_with_span(&mut self) -> Result<(String, Span), ParseError> {
+        let token = self.advance();
+        if let TokenKind::String(value) = token.kind {
+            let span = Span::with_length(token.line, token.col, value.len());
+            Ok((value, span))
+        } else {
+            Err(self.error("Expected string literal", &token))
         }
     }
 

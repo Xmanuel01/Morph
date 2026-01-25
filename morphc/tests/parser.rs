@@ -161,8 +161,35 @@ fn parses_import_decl() {
 }
 
 #[test]
+fn parses_native_import_decl() {
+    let source = "\
+native::import \"libdemo\" ::
+    fn add(a: Int, b: Int) -> Int
+::
+fn main() -> Int ::
+    return 0
+::
+";
+    let module = parse_module(source).expect("module should parse");
+    assert!(!module.items.is_empty());
+}
+
+#[test]
 fn rejects_import_after_items() {
     let source = "fn main() -> Int ::\n    return 0\n::\nimport app::utils\n";
+    assert!(parse_module(source).is_err());
+}
+
+#[test]
+fn rejects_native_import_after_items() {
+    let source = "\
+fn main() -> Int ::
+    return 0
+::
+native::import \"libdemo\" ::
+    fn add(a: Int, b: Int) -> Int
+::
+";
     assert!(parse_module(source).is_err());
 }
 

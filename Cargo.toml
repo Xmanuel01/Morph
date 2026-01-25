@@ -2,7 +2,8 @@
 members = [
     "morphc",
     "morphrt",
-    "morph"
+    "morph",
+    "morph_native"
 ]
 
 resolver = "2"

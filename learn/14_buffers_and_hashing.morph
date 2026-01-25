@@ -1,0 +1,10 @@
+// Lesson 14: Buffers and hashing
+// Expected: prints <buffer 32 bytes>
+
+import std::hash
+
+print(hash.sha256_from_string("abc"))
+
+// Common error: missing module
+// import std::missing
+// print(hash.sha256_from_string("abc"))

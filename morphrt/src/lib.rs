@@ -1,4 +1,5 @@
 pub mod error;
+pub mod ffi;
 pub mod object;
 pub mod runtime;
 pub mod value;

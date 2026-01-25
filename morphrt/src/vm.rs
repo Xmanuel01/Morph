@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use morphc::bytecode::{Constant, Instruction, Program};
 
 use crate::error::{RuntimeError, RuntimeFrame};
-use crate::object::{function_value, record_value, string_value, NativeFunction, Obj};
+use crate::ffi::FfiLoader;
+use crate::object::{function_value, record_value, string_value, NativeFunction, NativeImpl, Obj};
 use crate::value::{ObjRef, Value};
 
 #[derive(Debug)]
@@ -21,6 +22,7 @@ pub struct VM {
     globals_map: HashMap<String, u16>,
     trace: bool,
     disasm: bool,
+    ffi_loader: FfiLoader,
 }
 
 impl VM {
@@ -32,6 +34,7 @@ impl VM {
             globals_map: HashMap::new(),
             trace,
             disasm,
+            ffi_loader: FfiLoader::new(),
         }
     }
 
@@ -65,10 +68,10 @@ impl VM {
         let print = Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
             name: "print".to_string(),
             arity: 1,
-            func: std::rc::Rc::new(|_, args| {
+            kind: NativeImpl::Rust(std::rc::Rc::new(|_, args| {
                 println!("{}", display_value(&args[0]));
                 Ok(Value::Null)
-            }),
+            })),
         })));
         if let Some(idx) = self.globals_map.get("print").copied() {
             self.globals[idx as usize] = print;
@@ -337,7 +340,10 @@ impl VM {
                     }
                     let args_start = self.stack.len() - argc;
                     let args: Vec<Value> = self.stack[args_start..].to_vec();
-                    let result = (nf.func)(self, &args)?;
+                    let result = match &nf.kind {
+                        NativeImpl::Rust(func) => (func)(self, &args)?,
+                        NativeImpl::Ffi(func) => func.call(&args)?,
+                    };
                     self.stack.truncate(callee_index);
                     self.stack.push(result);
                 }
@@ -371,7 +377,11 @@ impl VM {
         frames
     }
 
-    fn constant_to_value(&self, c: &Constant, program: &Program) -> Result<Value, RuntimeError> {
+    fn constant_to_value(
+        &mut self,
+        c: &Constant,
+        program: &Program,
+    ) -> Result<Value, RuntimeError> {
         Ok(match c {
             Constant::Int(i) => Value::Int(*i),
             Constant::Float(f) => Value::Float(*f),
@@ -379,6 +389,14 @@ impl VM {
             Constant::Null => Value::Null,
             Constant::String(s) => string_value(s),
             Constant::Function(idx) => function_value(*idx, program),
+            Constant::NativeFunction(decl) => {
+                let ffi = self.ffi_loader.bind(decl)?;
+                Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                    name: decl.name.clone(),
+                    arity: ffi.arity() as u16,
+                    kind: NativeImpl::Ffi(ffi),
+                })))
+            }
         })
     }
 }
@@ -425,6 +443,7 @@ fn display_value(v: &Value) -> String {
         Value::Null => "null".to_string(),
         Value::Obj(obj) => match obj.as_obj() {
             Obj::String(s) => s.clone(),
+            Obj::Buffer(bytes) => format!("<buffer {} bytes>", bytes.len()),
             Obj::Function(f) => format!("<fn {}>", f.name.clone().unwrap_or_default()),
             Obj::NativeFunction(n) => format!("<native {}>", n.name),
             Obj::Record(_) => "<record>".to_string(),

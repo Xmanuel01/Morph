@@ -6,6 +6,31 @@ pub enum Constant {
     Null,
     String(String),
     Function(u16), // index into Program.functions
+    NativeFunction(NativeFunctionDecl),
+}
+
+#[derive(Debug, Clone)]
+pub struct NativeFunctionDecl {
+    pub library: String,
+    pub name: String,
+    pub signature: FfiSignature,
+}
+
+#[derive(Debug, Clone)]
+pub struct FfiSignature {
+    pub params: Vec<FfiType>,
+    pub ret: FfiType,
+}
+
+#[derive(Debug, Clone)]
+pub enum FfiType {
+    Int,
+    Float,
+    Bool,
+    String,
+    Buffer,
+    Void,
+    Optional(Box<FfiType>),
 }
 
 #[derive(Debug, Clone)]

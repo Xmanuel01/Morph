@@ -2,6 +2,7 @@ use std::rc::Rc;
 
 use morphc::bytecode::Program;
 
+use crate::ffi::native_fn::FfiFunction;
 use crate::value::{ObjRef, Value};
 
 pub type NativeFunc =
@@ -10,6 +11,7 @@ pub type NativeFunc =
 #[derive(Debug)]
 pub enum Obj {
     String(String),
+    Buffer(Vec<u8>),
     Function(FunctionObj),
     NativeFunction(NativeFunction),
     Record(std::collections::HashMap<String, Value>),
@@ -19,6 +21,7 @@ impl Obj {
     pub fn type_name(&self) -> &'static str {
         match self {
             Obj::String(_) => "String",
+            Obj::Buffer(_) => "Buffer",
             Obj::Function(_) => "Function",
             Obj::NativeFunction(_) => "NativeFunction",
             Obj::Record(_) => "Record",
@@ -34,10 +37,15 @@ pub struct FunctionObj {
 }
 
 #[derive(Clone)]
+pub enum NativeImpl {
+    Rust(Rc<NativeFunc>),
+    Ffi(FfiFunction),
+}
+
 pub struct NativeFunction {
     pub name: String,
     pub arity: u16,
-    pub func: Rc<NativeFunc>,
+    pub kind: NativeImpl,
 }
 
 impl std::fmt::Debug for NativeFunction {
@@ -60,6 +68,10 @@ pub fn function_value(func_index: u16, program: &Program) -> Value {
 
 pub fn string_value(s: &str) -> Value {
     Value::Obj(ObjRef::new(Obj::String(s.to_string())))
+}
+
+pub fn buffer_value(bytes: Vec<u8>) -> Value {
+    Value::Obj(ObjRef::new(Obj::Buffer(bytes)))
 }
 
 pub fn record_value(map: std::collections::HashMap<String, Value>) -> Value {
