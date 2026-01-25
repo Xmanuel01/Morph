@@ -1,0 +1,11 @@
+// This file is meant to fail type checking. Run `morph check learn/08_type_errors.morph`.
+
+let x: Int := "wrong"
+
+fn bad() -> Int ::
+    return true
+::
+
+// Expected errors:
+// - Type mismatch on x
+// - Return type mismatch in bad()

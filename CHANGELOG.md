@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.4.0
+
+### Highlights
+- Introduced the bytecode + VM execution pipeline with chunk constants, stack safety, globals, and CLI flags (`--trace-vm`/`--disasm`).
+- Added deep scope-aware symbol allocation, short-circuit logic ops, and Optional[T] coverage in the new type checker.
+- Published learn/docs axes (learn lessons + docs/dev_debugging) and stabilized the CLI to always run `morph check` before execution.
+
+### Fixes
+- Stabilized parser/compiler/VM tests, cleaned warnings, and ensured `cargo fmt`, `cargo clippy -D warnings`, and `cargo test` pass in the v0.4 path.
+
 ## v0.3.1
 
 ### Fixes

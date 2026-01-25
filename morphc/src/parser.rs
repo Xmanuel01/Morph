@@ -197,7 +197,7 @@ impl Parser {
             let token = self.previous();
             return Err(self.error("Async functions are not supported yet", token));
         }
-        let name = self.expect_ident()?;
+        let (name, name_span) = self.expect_ident_with_span()?;
         let params = self.parse_param_list()?;
         let return_type = if self.matches(TokenKind::Arrow) {
             Some(self.parse_type_ref()?)
@@ -207,6 +207,7 @@ impl Parser {
         let body = self.parse_block()?;
         Ok(FnDecl {
             name,
+            name_span,
             params,
             return_type,
             body,
@@ -215,7 +216,7 @@ impl Parser {
     }
 
     fn parse_type_decl(&mut self, is_pub: bool) -> Result<TypeDecl, ParseError> {
-        let name = self.expect_ident()?;
+        let (name, _name_span) = self.expect_ident_with_span()?;
         let mut fields = Vec::new();
         self.expect(TokenKind::BlockStart)?;
         self.consume_newlines();
@@ -329,15 +330,20 @@ impl Parser {
             let value = if self.matches(TokenKind::LBracket) {
                 let mut values = Vec::new();
                 if !self.check(TokenKind::RBracket) {
-                    values.push(self.parse_literal()?);
+                    let (literal, _) = self.parse_literal()?;
+                    values.push(literal);
                     while self.matches(TokenKind::Comma) {
-                        values.push(self.parse_literal()?);
+                        let (literal, _) = self.parse_literal()?;
+                        values.push(literal);
                     }
                 }
                 self.expect(TokenKind::RBracket)?;
                 LiteralOrList::List(values)
             } else {
-                LiteralOrList::Literal(self.parse_literal()?)
+                LiteralOrList::Literal({
+                    let (literal, _) = self.parse_literal()?;
+                    literal
+                })
             };
             filters.push(PolicyFilter { name, value });
             if !self.matches(TokenKind::Comma) {
@@ -505,7 +511,7 @@ impl Parser {
     }
 
     fn parse_let_stmt(&mut self) -> Result<Stmt, ParseError> {
-        let name = self.expect_ident()?;
+        let (name, name_span) = self.expect_ident_with_span()?;
         let type_ann = if self.matches(TokenKind::Colon) {
             Some(self.parse_type_ref()?)
         } else {
@@ -520,6 +526,7 @@ impl Parser {
         self.consume_stmt_end()?;
         Ok(Stmt::Let {
             name,
+            name_span,
             type_ann,
             expr,
         })
@@ -552,11 +559,16 @@ impl Parser {
     }
 
     fn parse_for_stmt(&mut self) -> Result<Stmt, ParseError> {
-        let var = self.expect_ident()?;
+        let (var, var_span) = self.expect_ident_with_span()?;
         self.expect(TokenKind::In)?;
         let iter = self.parse_expr()?;
         let body = self.parse_block()?;
-        Ok(Stmt::For { var, iter, body })
+        Ok(Stmt::For {
+            var,
+            var_span,
+            iter,
+            body,
+        })
     }
 
     fn parse_match_stmt(&mut self) -> Result<Stmt, ParseError> {
@@ -609,7 +621,7 @@ impl Parser {
     }
 
     fn parse_lvalue(&mut self) -> Result<LValue, ParseError> {
-        let base = self.expect_ident()?;
+        let (base, base_span) = self.expect_ident_with_span()?;
         let mut accesses = Vec::new();
         loop {
             if self.matches(TokenKind::Dot) {
@@ -623,7 +635,11 @@ impl Parser {
                 break;
             }
         }
-        Ok(LValue { base, accesses })
+        Ok(LValue {
+            base,
+            base_span,
+            accesses,
+        })
     }
 
     fn parse_block(&mut self) -> Result<Block, ParseError> {
@@ -673,18 +689,20 @@ impl Parser {
             }
             return Ok(Pattern::Ident(name));
         }
-        Ok(Pattern::Literal(self.parse_literal()?))
+        let (literal, _) = self.parse_literal()?;
+        Ok(Pattern::Literal(literal))
     }
 
-    fn parse_literal(&mut self) -> Result<Literal, ParseError> {
+    fn parse_literal(&mut self) -> Result<(Literal, Span), ParseError> {
         let token = self.advance();
+        let span = Span::single(token.line, token.col);
         match token.kind {
-            TokenKind::Int(value) => Ok(Literal::Int(value)),
-            TokenKind::Float(value) => Ok(Literal::Float(value)),
-            TokenKind::String(value) => Ok(Literal::String(value)),
-            TokenKind::True => Ok(Literal::Bool(true)),
-            TokenKind::False => Ok(Literal::Bool(false)),
-            TokenKind::None => Ok(Literal::None),
+            TokenKind::Int(value) => Ok((Literal::Int(value), span)),
+            TokenKind::Float(value) => Ok((Literal::Float(value), span)),
+            TokenKind::String(value) => Ok((Literal::String(value), span)),
+            TokenKind::True => Ok((Literal::Bool(true), span)),
+            TokenKind::False => Ok((Literal::Bool(false), span)),
+            TokenKind::None => Ok((Literal::None, span)),
             _ => Err(self.error("Expected literal", &token)),
         }
     }
@@ -696,11 +714,14 @@ impl Parser {
     fn parse_or(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.parse_and()?;
         while self.matches(TokenKind::Or) {
+            let token = self.previous();
+            let span = Span::single(token.line, token.col);
             let right = self.parse_and()?;
             expr = Expr::Binary {
                 left: Box::new(expr),
                 op: BinaryOp::Or,
                 right: Box::new(right),
+                span,
             };
         }
         Ok(expr)
@@ -709,11 +730,14 @@ impl Parser {
     fn parse_and(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.parse_equality()?;
         while self.matches(TokenKind::And) {
+            let token = self.previous();
+            let span = Span::single(token.line, token.col);
             let right = self.parse_equality()?;
             expr = Expr::Binary {
                 left: Box::new(expr),
                 op: BinaryOp::And,
                 right: Box::new(right),
+                span,
             };
         }
         Ok(expr)
@@ -723,18 +747,24 @@ impl Parser {
         let mut expr = self.parse_comparison()?;
         loop {
             if self.matches(TokenKind::EqualEqual) {
+                let token = self.previous();
+                let span = Span::single(token.line, token.col);
                 let right = self.parse_comparison()?;
                 expr = Expr::Binary {
                     left: Box::new(expr),
                     op: BinaryOp::Equal,
                     right: Box::new(right),
+                    span,
                 };
             } else if self.matches(TokenKind::BangEqual) {
+                let token = self.previous();
+                let span = Span::single(token.line, token.col);
                 let right = self.parse_comparison()?;
                 expr = Expr::Binary {
                     left: Box::new(expr),
                     op: BinaryOp::NotEqual,
                     right: Box::new(right),
+                    span,
                 };
             } else {
                 break;
@@ -747,22 +777,27 @@ impl Parser {
         let mut expr = self.parse_additive()?;
         loop {
             let op = if self.matches(TokenKind::Less) {
-                Some(BinaryOp::Less)
+                let token = self.previous();
+                Some((BinaryOp::Less, Span::single(token.line, token.col)))
             } else if self.matches(TokenKind::LessEqual) {
-                Some(BinaryOp::LessEqual)
+                let token = self.previous();
+                Some((BinaryOp::LessEqual, Span::single(token.line, token.col)))
             } else if self.matches(TokenKind::Greater) {
-                Some(BinaryOp::Greater)
+                let token = self.previous();
+                Some((BinaryOp::Greater, Span::single(token.line, token.col)))
             } else if self.matches(TokenKind::GreaterEqual) {
-                Some(BinaryOp::GreaterEqual)
+                let token = self.previous();
+                Some((BinaryOp::GreaterEqual, Span::single(token.line, token.col)))
             } else {
                 None
             };
-            if let Some(op) = op {
+            if let Some((op, span)) = op {
                 let right = self.parse_additive()?;
                 expr = Expr::Binary {
                     left: Box::new(expr),
                     op,
                     right: Box::new(right),
+                    span,
                 };
             } else {
                 break;
@@ -775,18 +810,24 @@ impl Parser {
         let mut expr = self.parse_multiplicative()?;
         loop {
             if self.matches(TokenKind::Plus) {
+                let token = self.previous();
+                let span = Span::single(token.line, token.col);
                 let right = self.parse_multiplicative()?;
                 expr = Expr::Binary {
                     left: Box::new(expr),
                     op: BinaryOp::Add,
                     right: Box::new(right),
+                    span,
                 };
             } else if self.matches(TokenKind::Minus) {
+                let token = self.previous();
+                let span = Span::single(token.line, token.col);
                 let right = self.parse_multiplicative()?;
                 expr = Expr::Binary {
                     left: Box::new(expr),
                     op: BinaryOp::Subtract,
                     right: Box::new(right),
+                    span,
                 };
             } else {
                 break;
@@ -799,25 +840,34 @@ impl Parser {
         let mut expr = self.parse_unary()?;
         loop {
             if self.matches(TokenKind::Star) {
+                let token = self.previous();
+                let span = Span::single(token.line, token.col);
                 let right = self.parse_unary()?;
                 expr = Expr::Binary {
                     left: Box::new(expr),
                     op: BinaryOp::Multiply,
                     right: Box::new(right),
+                    span,
                 };
             } else if self.matches(TokenKind::Slash) {
+                let token = self.previous();
+                let span = Span::single(token.line, token.col);
                 let right = self.parse_unary()?;
                 expr = Expr::Binary {
                     left: Box::new(expr),
                     op: BinaryOp::Divide,
                     right: Box::new(right),
+                    span,
                 };
             } else if self.matches(TokenKind::Percent) {
+                let token = self.previous();
+                let span = Span::single(token.line, token.col);
                 let right = self.parse_unary()?;
                 expr = Expr::Binary {
                     left: Box::new(expr),
                     op: BinaryOp::Modulo,
                     right: Box::new(right),
+                    span,
                 };
             } else {
                 break;
@@ -828,31 +878,43 @@ impl Parser {
 
     fn parse_unary(&mut self) -> Result<Expr, ParseError> {
         if self.matches(TokenKind::Not) {
+            let token = self.previous();
+            let span = Span::single(token.line, token.col);
             let expr = self.parse_unary()?;
             return Ok(Expr::Unary {
                 op: UnaryOp::Not,
                 expr: Box::new(expr),
+                span,
             });
         }
         if self.matches(TokenKind::Minus) {
+            let token = self.previous();
+            let span = Span::single(token.line, token.col);
             let expr = self.parse_unary()?;
             return Ok(Expr::Unary {
                 op: UnaryOp::Negate,
                 expr: Box::new(expr),
+                span,
             });
         }
         if self.matches(TokenKind::Await) {
+            let token = self.previous();
+            let span = Span::single(token.line, token.col);
             let expr = self.parse_unary()?;
             return Ok(Expr::Unary {
                 op: UnaryOp::Await,
                 expr: Box::new(expr),
+                span,
             });
         }
         if self.matches(TokenKind::Spawn) {
+            let token = self.previous();
+            let span = Span::single(token.line, token.col);
             let expr = self.parse_unary()?;
             return Ok(Expr::Unary {
                 op: UnaryOp::Spawn,
                 expr: Box::new(expr),
+                span,
             });
         }
         self.parse_postfix()
@@ -862,26 +924,40 @@ impl Parser {
         let mut expr = self.parse_primary()?;
         loop {
             if self.matches(TokenKind::LParen) {
+                let token = self.previous();
+                let span = Span::single(token.line, token.col);
                 let args = self.parse_arg_list()?;
                 expr = Expr::Call {
                     callee: Box::new(expr),
                     args,
+                    span,
                 };
             } else if self.matches(TokenKind::LBracket) {
+                let token = self.previous();
+                let span = Span::single(token.line, token.col);
                 let index = self.parse_expr()?;
                 self.expect(TokenKind::RBracket)?;
                 expr = Expr::Index {
                     target: Box::new(expr),
                     index: Box::new(index),
+                    span,
                 };
             } else if self.matches(TokenKind::Dot) {
+                let token = self.previous();
+                let span = Span::single(token.line, token.col);
                 let name = self.expect_ident()?;
                 expr = Expr::Field {
                     target: Box::new(expr),
                     name,
+                    span,
                 };
             } else if self.matches(TokenKind::Question) {
-                expr = Expr::Try(Box::new(expr));
+                let token = self.previous();
+                let span = Span::single(token.line, token.col);
+                expr = Expr::Try {
+                    expr: Box::new(expr),
+                    span,
+                };
             } else {
                 break;
             }
@@ -898,31 +974,48 @@ impl Parser {
             ));
         }
         if self.matches(TokenKind::True) {
-            return Ok(Expr::Literal(Literal::Bool(true)));
+            let token = self.previous();
+            return Ok(Expr::Literal {
+                lit: Literal::Bool(true),
+                span: Span::single(token.line, token.col),
+            });
         }
         if self.matches(TokenKind::False) {
-            return Ok(Expr::Literal(Literal::Bool(false)));
+            let token = self.previous();
+            return Ok(Expr::Literal {
+                lit: Literal::Bool(false),
+                span: Span::single(token.line, token.col),
+            });
         }
         if self.matches(TokenKind::None) {
-            return Ok(Expr::Literal(Literal::None));
+            let token = self.previous();
+            return Ok(Expr::Literal {
+                lit: Literal::None,
+                span: Span::single(token.line, token.col),
+            });
         }
         if self.check_literal_start() {
-            let literal = self.parse_literal()?;
-            return Ok(Expr::Literal(literal));
+            let (literal, span) = self.parse_literal()?;
+            return Ok(Expr::Literal { lit: literal, span });
         }
         if self.matches(TokenKind::Match) {
+            let token = self.previous();
+            let span = Span::single(token.line, token.col);
             let expr = self.parse_expr()?;
             let arms = self.parse_match_arms(false)?;
             return Ok(Expr::Match {
                 expr: Box::new(expr),
                 arms,
+                span,
             });
         }
         if self.check_ident() {
-            let name = self.expect_ident()?;
-            return Ok(Expr::Ident(name));
+            let (name, span) = self.expect_ident_with_span()?;
+            return Ok(Expr::Ident { name, span });
         }
         if self.matches(TokenKind::LBracket) {
+            let token = self.previous();
+            let span = Span::single(token.line, token.col);
             let mut values = Vec::new();
             if !self.check(TokenKind::RBracket) {
                 values.push(self.parse_expr()?);
@@ -931,7 +1024,10 @@ impl Parser {
                 }
             }
             self.expect(TokenKind::RBracket)?;
-            return Ok(Expr::List(values));
+            return Ok(Expr::List {
+                items: values,
+                span,
+            });
         }
         if self.check(TokenKind::LParen) {
             if self.looks_like_lambda()? {
@@ -947,7 +1043,8 @@ impl Parser {
     }
 
     fn parse_lambda(&mut self) -> Result<Expr, ParseError> {
-        self.expect(TokenKind::LParen)?;
+        let token = self.expect(TokenKind::LParen)?;
+        let span = Span::single(token.line, token.col);
         let mut params = Vec::new();
         if !self.check(TokenKind::RParen) {
             params.push(self.parse_param()?);
@@ -967,6 +1064,7 @@ impl Parser {
             params,
             return_type,
             body: Box::new(body),
+            span,
         })
     }
 

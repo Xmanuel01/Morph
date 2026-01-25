@@ -9,6 +9,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "812e12b5285cc515a9c72a5c1d3b6d46a19dac5acfef5265968c166106e31dd3"
 
 [[package]]
+name = "bumpalo"
+version = "3.19.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5dd9dc738b7a8311c7ade152424974d8115f2cdad61e8dab8dac9f2362298510"
+
+[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -84,7 +90,7 @@ checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
 
 [[package]]
 name = "morph"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "morphc",
  "morphrt",
@@ -93,15 +99,16 @@ dependencies = [
 
 [[package]]
 name = "morphc"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
+ "bumpalo",
  "tempfile",
  "toml",
 ]
 
 [[package]]
 name = "morphrt"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "morphc",
  "tempfile",

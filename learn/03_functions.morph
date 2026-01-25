@@ -1,0 +1,8 @@
+// Expected: Hello Morph
+fn greet(name: String) -> String ::
+    return "Hello " + name
+::
+print(greet("Morph"))
+
+// Error example:
+// greet(123) // type error: expected String

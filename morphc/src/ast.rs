@@ -1,3 +1,5 @@
+use crate::diagnostic::Span;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Module {
     pub items: Vec<Item>,
@@ -36,6 +38,7 @@ pub struct UseSymbol {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FnDecl {
     pub name: String,
+    pub name_span: Span,
     pub params: Vec<Param>,
     pub return_type: Option<TypeRef>,
     pub body: Block,
@@ -155,6 +158,7 @@ pub struct Block {
 pub enum Stmt {
     Let {
         name: String,
+        name_span: Span,
         type_ann: Option<TypeRef>,
         expr: Expr,
     },
@@ -174,6 +178,7 @@ pub enum Stmt {
     },
     For {
         var: String,
+        var_span: Span,
         iter: Expr,
         body: Block,
     },
@@ -201,40 +206,59 @@ pub enum ElseBranch {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
-    Literal(Literal),
-    Ident(String),
+    Literal {
+        lit: Literal,
+        span: Span,
+    },
+    Ident {
+        name: String,
+        span: Span,
+    },
     Binary {
         left: Box<Expr>,
         op: BinaryOp,
         right: Box<Expr>,
+        span: Span,
     },
     Unary {
         op: UnaryOp,
         expr: Box<Expr>,
+        span: Span,
     },
     Call {
         callee: Box<Expr>,
         args: Vec<Arg>,
+        span: Span,
     },
     Index {
         target: Box<Expr>,
         index: Box<Expr>,
+        span: Span,
     },
     Field {
         target: Box<Expr>,
         name: String,
+        span: Span,
     },
-    List(Vec<Expr>),
+    List {
+        items: Vec<Expr>,
+        span: Span,
+    },
     Lambda {
         params: Vec<Param>,
         return_type: Option<TypeRef>,
         body: Box<Expr>,
+        span: Span,
     },
     Match {
         expr: Box<Expr>,
         arms: Vec<MatchArm>,
+        span: Span,
     },
-    Try(Box<Expr>),
+    Try {
+        expr: Box<Expr>,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -312,6 +336,7 @@ pub enum TypeRef {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LValue {
     pub base: String,
+    pub base_span: Span,
     pub accesses: Vec<LValueAccess>,
 }
 
@@ -320,4 +345,3 @@ pub enum LValueAccess {
     Field(String),
     Index(Expr),
 }
-use crate::diagnostic::Span;

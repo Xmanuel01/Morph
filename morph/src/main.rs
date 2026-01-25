@@ -3,9 +3,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 
+use morphc::compiler::compile_module;
 use morphc::formatter::{check_format, format_source};
-use morphc::loader::load_package;
-use morphrt::{Interpreter, Value};
+use morphc::parser::parse_module_named;
+use morphc::TypeChecker;
+use morphrt::{Value, VM};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -16,6 +18,7 @@ fn main() {
 
     let exit_code = match args[1].as_str() {
         "run" => run_command(&args[2..]),
+        "check" => check_command(&args[2..]),
         "fmt" => fmt_command(&args[2..]),
         "test" => {
             eprintln!("morph test is not implemented yet. Use cargo test.");
@@ -34,40 +37,110 @@ fn run_command(args: &[String]) -> i32 {
         eprintln!("morph run requires a file or directory");
         return 1;
     }
-    let target = PathBuf::from(&args[0]);
-    let (root, entry) = match resolve_entry(&target) {
+    let mut trace_vm = false;
+    let mut disasm = false;
+    let mut file_arg: Option<String> = None;
+    for arg in args {
+        match arg.as_str() {
+            "--trace-vm" => trace_vm = true,
+            "--disasm" => disasm = true,
+            _ => file_arg = Some(arg.clone()),
+        }
+    }
+    let target = match file_arg {
+        Some(t) => PathBuf::from(t),
+        None => {
+            eprintln!("morph run requires a file or directory");
+            return 1;
+        }
+    };
+    let (_root, entry) = match resolve_entry(&target) {
         Ok(value) => value,
         Err(err) => {
             eprintln!("{}", err);
             return 1;
         }
     };
-    let package = match load_package(&entry, &root) {
-        Ok(package) => package,
+    let source = match fs::read_to_string(&entry) {
+        Ok(s) => s,
+        Err(err) => {
+            eprintln!("Failed to read {}: {}", entry.display(), err);
+            return 1;
+        }
+    };
+    let module = match parse_module_named(&source, entry.to_str()) {
+        Ok(m) => m,
         Err(err) => {
             eprintln!("{}", err);
             return 1;
         }
     };
-    let mut interpreter = Interpreter::new();
-    if let Err(err) = interpreter.eval_package(&package) {
-        eprintln!("Runtime error: {}", err);
+    // type-check
+    let mut checker = TypeChecker::new();
+    if let Err(err) = checker.check_module(&module) {
+        eprintln!(
+            "Type error: {} at {}:{}",
+            err.message, err.span.line, err.span.col
+        );
         return 1;
     }
-    match interpreter.call_main() {
-        Ok(Some(Value::Int(code))) => {
-            if code != 0 {
-                return code as i32;
-            }
-        }
-        Ok(Some(_)) => {}
-        Ok(None) => {}
+    let program = match compile_module(&module) {
+        Ok(p) => p,
         Err(err) => {
-            eprintln!("Runtime error: {}", err);
+            eprintln!("Compile error: {}", err.message);
             return 1;
         }
+    };
+    let mut vm = VM::new(trace_vm, disasm);
+    match vm.run(&program) {
+        Ok(Value::Int(code)) => code as i32,
+        Ok(_) => 0,
+        Err(err) => {
+            eprintln!("Runtime error: {}", err);
+            1
+        }
     }
-    0
+}
+
+fn check_command(args: &[String]) -> i32 {
+    if args.is_empty() {
+        eprintln!("morph check requires a file or directory");
+        return 1;
+    }
+    let target = PathBuf::from(&args[0]);
+    let (_root, entry) = match resolve_entry(&target) {
+        Ok(value) => value,
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    };
+    let source = match fs::read_to_string(&entry) {
+        Ok(s) => s,
+        Err(err) => {
+            eprintln!("Failed to read {}: {}", entry.display(), err);
+            return 1;
+        }
+    };
+    match parse_module_named(&source, entry.to_str()) {
+        Ok(module) => {
+            let mut checker = TypeChecker::new();
+            match checker.check_module(&module) {
+                Ok(_) => 0,
+                Err(err) => {
+                    eprintln!(
+                        "Type error: {} at {}:{}",
+                        err.message, err.span.line, err.span.col
+                    );
+                    1
+                }
+            }
+        }
+        Err(err) => {
+            eprintln!("{}", err);
+            1
+        }
+    }
 }
 
 fn fmt_command(args: &[String]) -> i32 {
@@ -226,7 +299,8 @@ fn normalize_line_endings(input: &str) -> String {
 fn print_usage() {
     eprintln!("Morph CLI");
     eprintln!("Usage:");
-    eprintln!("  morph run <file|dir>");
+    eprintln!("  morph run [--trace-vm] [--disasm] <file|dir>");
+    eprintln!("  morph check <file|dir>");
     eprintln!("  morph fmt [--check] <file|dir>");
     eprintln!("  morph test");
 }
@@ -257,5 +331,14 @@ mod tests {
         let (root, entry) = resolve_entry(dir.path()).expect("resolve");
         assert_eq!(root, dir.path());
         assert_eq!(entry, src.join("main.morph"));
+    }
+
+    #[test]
+    fn run_rejects_type_error() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("bad.morph");
+        fs::write(&file, "fn f() -> Int ::\n    return true\n::\n").unwrap();
+        let code = run_command(&vec![file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
     }
 }

@@ -969,7 +969,9 @@ impl Interpreter {
                 }
                 Ok(Flow::Value(Value::None))
             }
-            Stmt::For { var, iter, body } => {
+            Stmt::For {
+                var, iter, body, ..
+            } => {
                 let values = self.eval_expr(iter, env.clone(), ctx)?;
                 let list = match values {
                     Value::List(items) => items,
@@ -1072,10 +1074,12 @@ impl Interpreter {
         ctx: EvalContext,
     ) -> Result<Value, RuntimeError> {
         match expr {
-            Expr::Literal(lit) => Ok(eval_literal(lit)),
-            Expr::Ident(name) => Env::get(&env, name)
+            Expr::Literal { lit, .. } => Ok(eval_literal(lit)),
+            Expr::Ident { name, .. } => Env::get(&env, name)
                 .ok_or_else(|| RuntimeError::new(&format!("Undefined variable '{}'", name))),
-            Expr::Binary { left, op, right } => {
+            Expr::Binary {
+                left, op, right, ..
+            } => {
                 use morphc::ast::BinaryOp;
                 if matches!(op, BinaryOp::And) {
                     let left_val = self.eval_expr(left, env.clone(), ctx)?;
@@ -1097,30 +1101,30 @@ impl Interpreter {
                 let right_val = self.eval_expr(right, env, ctx)?;
                 eval_binary(op, left_val, right_val)
             }
-            Expr::Unary { op, expr } => {
+            Expr::Unary { op, expr, .. } => {
                 let value = self.eval_expr(expr, env, ctx)?;
                 eval_unary(op, value)
             }
-            Expr::Call { callee, args } => {
+            Expr::Call { callee, args, .. } => {
                 let callee_value = self.eval_expr(callee, env.clone(), ctx)?;
                 let values = self.eval_args(args, env, ctx)?;
                 self.eval_call(callee_value, values)
             }
-            Expr::Index { target, index } => {
+            Expr::Index { target, index, .. } => {
                 let target_value = self.eval_expr(target, env.clone(), ctx)?;
                 let index_value = self.eval_expr(index, env, ctx)?;
                 eval_index(target_value, index_value)
             }
-            Expr::Field { target, name } => {
+            Expr::Field { target, name, .. } => {
                 let target_value = self.eval_expr(target, env, ctx)?;
                 eval_field(target_value, name)
             }
-            Expr::List(values) => {
-                let mut items = Vec::new();
-                for value in values {
-                    items.push(self.eval_expr(value, env.clone(), ctx)?);
+            Expr::List { items, .. } => {
+                let mut values = Vec::new();
+                for value in items {
+                    values.push(self.eval_expr(value, env.clone(), ctx)?);
                 }
-                Ok(Value::List(items))
+                Ok(Value::List(values))
             }
             Expr::Lambda { params, body, .. } => {
                 let function = Function {
@@ -1134,8 +1138,8 @@ impl Interpreter {
                 };
                 Ok(Value::Function(Rc::new(function)))
             }
-            Expr::Match { expr, arms } => self.eval_match_expr(expr, arms, env, ctx),
-            Expr::Try(inner) => self.eval_expr(inner, env, ctx),
+            Expr::Match { expr, arms, .. } => self.eval_match_expr(expr, arms, env, ctx),
+            Expr::Try { expr, .. } => self.eval_expr(expr, env, ctx),
         }
     }
 
