@@ -32,6 +32,8 @@ pub enum Instruction {
     Ge,
     Jump(usize),
     JumpIfFalse(usize),
+    MakeRecord(u16),
+    GetField(u16),
     Call(u16),
     Return,
 }
@@ -74,6 +76,7 @@ pub struct ByteFunction {
     pub name: Option<String>,
     pub arity: u16,
     pub chunk: Chunk,
+    pub source_name: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -89,10 +92,15 @@ impl Program {
     pub fn disassemble(&self) -> String {
         let mut out = String::new();
         for (idx, func) in self.functions.iter().enumerate() {
+            let source = func
+                .source_name
+                .clone()
+                .unwrap_or_else(|| "<unknown>".to_string());
             out.push_str(&format!(
-                "== fn {} ({}) ==\n",
+                "== fn {} ({}) [{}] ==\n",
                 func.name.clone().unwrap_or_else(|| format!("#{}", idx)),
-                func.arity
+                func.arity,
+                source
             ));
             for (i, instr) in func.chunk.code.iter().enumerate() {
                 let line = func.chunk.lines.get(i).copied().unwrap_or(0);

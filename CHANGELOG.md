@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.5.0
+
+### Highlights
+- Added multi-file module imports with caching and circular import detection.
+- Enforced public/private visibility across modules with compile + typecheck validation.
+- Introduced structured diagnostics (source snippets) and runtime stack traces.
+- Shipped deterministic `morph fmt` and a CLI `morph test` runner.
+- Added v0.5 docs and learn lessons for modules, visibility, formatting, and testing.
+
+### Fixes
+- Added regression coverage for formatter/test CLI paths and private access span tracking.
+
 ## v0.4.0
 
 ### Highlights

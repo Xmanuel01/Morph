@@ -23,7 +23,7 @@ fn rejects_stray_block_end() {
 #[test]
 fn rejects_inline_block_marker() {
     let source = "let x := 1 ::\n";
-    assert!(tokenize(source).is_err());
+    assert!(parse_module(source).is_err());
 }
 
 #[test]
@@ -107,7 +107,7 @@ if true ::
     let x := 1
 :: / / not_a_comment
 ";
-    assert!(tokenize(source).is_err());
+    assert!(parse_module(source).is_err());
 }
 
 #[test]
@@ -117,7 +117,7 @@ if true :: / / not_a_comment
     let x := 1
 ::
 ";
-    assert!(tokenize(source).is_err());
+    assert!(parse_module(source).is_err());
 }
 
 #[test]
@@ -151,6 +151,19 @@ fn main() -> Int ::
 ";
     let module = parse_module(source).expect("module should parse");
     assert!(!module.items.is_empty());
+}
+
+#[test]
+fn parses_import_decl() {
+    let source = "import app::utils\nfn main() -> Int ::\n    return 0\n::\n";
+    let module = parse_module(source).expect("module should parse");
+    assert!(!module.items.is_empty());
+}
+
+#[test]
+fn rejects_import_after_items() {
+    let source = "fn main() -> Int ::\n    return 0\n::\nimport app::utils\n";
+    assert!(parse_module(source).is_err());
 }
 
 #[test]

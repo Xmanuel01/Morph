@@ -359,6 +359,9 @@ impl Interpreter {
         self.with_policy_override(module_policy.clone(), |this| {
             for item in &module.items {
                 match item {
+                    Item::Import(_) => {
+                        // import is handled by the compiler in v0.5
+                    }
                     Item::Use(decl) => {
                         if let Some(info) = module_info {
                             let group = info

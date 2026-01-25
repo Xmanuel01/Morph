@@ -75,7 +75,16 @@ impl Parser {
     fn parse_module(&mut self) -> Result<Module, ParseError> {
         let mut items = Vec::new();
         self.consume_newlines();
+        // imports must appear at top of file
+        while self.matches(TokenKind::Import) {
+            items.push(Item::Import(self.parse_import_decl()?));
+            self.consume_newlines();
+        }
         while !self.at_end() {
+            if self.check(TokenKind::Import) {
+                let token = self.current();
+                return Err(self.error("Imports must appear before other items", token));
+            }
             if self.check(TokenKind::BlockEnd) {
                 let token = self.current();
                 return Err(self.error("Unexpected block end", token));
@@ -92,6 +101,9 @@ impl Parser {
         }
         if self.matches(TokenKind::Use) {
             return Ok(Item::Use(self.parse_use_decl(false)?));
+        }
+        if self.matches(TokenKind::Import) {
+            return Ok(Item::Import(self.parse_import_decl()?));
         }
         if self.matches(TokenKind::Fn) {
             return Ok(Item::Fn(self.parse_fn_decl(false)?));
@@ -190,6 +202,17 @@ impl Parser {
             spans,
             symbols,
         })
+    }
+
+    fn parse_import_decl(&mut self) -> Result<ImportDecl, ParseError> {
+        let (path, spans) = self.parse_import_path_with_spans()?;
+        let alias = if self.matches(TokenKind::As) {
+            Some(self.expect_ident()?)
+        } else {
+            None
+        };
+        self.consume_stmt_end()?;
+        Ok(ImportDecl { path, alias, spans })
     }
 
     fn parse_fn_decl(&mut self, is_pub: bool) -> Result<FnDecl, ParseError> {
@@ -1181,6 +1204,19 @@ impl Parser {
         path.push(name);
         let mut spans = vec![span];
         while self.matches(TokenKind::Dot) {
+            let (name, span) = self.expect_ident_with_span()?;
+            path.push(name);
+            spans.push(span);
+        }
+        Ok((path, spans))
+    }
+
+    fn parse_import_path_with_spans(&mut self) -> Result<(Vec<String>, Vec<Span>), ParseError> {
+        let mut path = Vec::new();
+        let (name, span) = self.expect_ident_with_span()?;
+        path.push(name);
+        let mut spans = vec![span];
+        while self.matches(TokenKind::ColonColon) {
             let (name, span) = self.expect_ident_with_span()?;
             path.push(name);
             spans.push(span);

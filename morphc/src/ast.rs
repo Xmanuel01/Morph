@@ -7,6 +7,7 @@ pub struct Module {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
+    Import(ImportDecl),
     Use(UseDecl),
     Fn(FnDecl),
     Type(TypeDecl),
@@ -18,6 +19,13 @@ pub enum Item {
     Model(ModelDecl),
     Agent(AgentDecl),
     Stmt(Stmt),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportDecl {
+    pub path: Vec<String>,
+    pub alias: Option<String>,
+    pub spans: Vec<Span>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

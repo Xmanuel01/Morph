@@ -1,30 +1,68 @@
 use crate::ast::*;
-use crate::diagnostic::Span;
+use crate::diagnostic::{Diagnostic, Span};
+use crate::modules::{ModuleId, Package};
 use crate::types::Type;
 
 #[derive(Debug, Clone)]
 pub struct TypeError {
     pub message: String,
     pub span: Span,
+    pub source_name: Option<String>,
+    pub source: Option<String>,
+}
+
+impl TypeError {
+    pub fn diagnostic(&self) -> Option<Diagnostic> {
+        let source = self.source.as_ref()?;
+        let diagnostic = Diagnostic::new(&self.message, self.source_name.as_deref())
+            .with_span("here", self.span.clone())
+            .with_source(source);
+        Some(diagnostic)
+    }
 }
 
 pub struct TypeChecker {
     scopes: Vec<std::collections::HashMap<String, Type>>,
+    imports: std::collections::HashMap<String, ModuleId>,
+    exports: std::collections::HashMap<ModuleId, std::collections::HashMap<String, Type>>,
+    source_name: Option<String>,
+    source: Option<String>,
 }
 
 impl Default for TypeChecker {
     fn default() -> Self {
         Self {
             scopes: vec![std::collections::HashMap::new()],
+            imports: std::collections::HashMap::new(),
+            exports: std::collections::HashMap::new(),
+            source_name: None,
+            source: None,
         }
     }
 }
 
 impl TypeChecker {
     pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn new_with_imports(
+        imports: std::collections::HashMap<String, ModuleId>,
+        exports: std::collections::HashMap<ModuleId, std::collections::HashMap<String, Type>>,
+    ) -> Self {
         Self {
             scopes: vec![std::collections::HashMap::new()],
+            imports,
+            exports,
+            source_name: None,
+            source: None,
         }
+    }
+
+    fn with_source(mut self, source_name: &str, source: &str) -> Self {
+        self.source_name = Some(source_name.to_string());
+        self.source = Some(source.to_string());
+        self
     }
 
     fn push(&mut self) {
@@ -47,7 +85,19 @@ impl TypeChecker {
         None
     }
 
+    fn error(&self, message: impl Into<String>, span: Span) -> TypeError {
+        TypeError {
+            message: message.into(),
+            span,
+            source_name: self.source_name.clone(),
+            source: self.source.clone(),
+        }
+    }
+
     pub fn check_module(&mut self, module: &Module) -> Result<(), TypeError> {
+        for alias in self.imports.keys().cloned().collect::<Vec<_>>() {
+            self.define(&alias, Type::Unknown);
+        }
         for item in &module.items {
             if let Item::Fn(decl) = item {
                 let fn_type = Type::Function(
@@ -62,6 +112,23 @@ impl TypeChecker {
         }
         for item in &module.items {
             self.check_item(item)?;
+        }
+        Ok(())
+    }
+
+    pub fn check_package(package: &Package) -> Result<(), TypeError> {
+        let mut exports = std::collections::HashMap::new();
+        for (id, info) in &package.modules {
+            exports.insert(id.clone(), collect_export_types(&info.module));
+        }
+        for id in &package.order {
+            let info = package.modules.get(id).expect("module");
+            let mut checker =
+                TypeChecker::new_with_imports(info.import_aliases.clone(), exports.clone());
+            if !info.file.as_os_str().is_empty() {
+                checker = checker.with_source(&info.file.to_string_lossy(), &info.source);
+            }
+            checker.check_module(&info.module)?;
         }
         Ok(())
     }
@@ -98,34 +165,33 @@ impl TypeChecker {
                 if let Some(ann) = type_ann {
                     let ann_t = type_from_ref(ann.clone());
                     if !compatible(&ann_t, &t) {
-                        return Err(TypeError {
-                            message: format!(
+                        return Err(self.error(
+                            format!(
                                 "Type mismatch: expected {}, found {}",
                                 ann_t.display(),
                                 t.display()
                             ),
-                            span: name_span.clone(),
-                        });
+                            name_span.clone(),
+                        ));
                     }
                 }
                 self.define(name, t);
             }
             Stmt::Assign { target, expr } => {
                 let t_expr = self.check_expr(expr)?;
-                let var_t = self.resolve(&target.base).ok_or(TypeError {
-                    message: "Undefined variable".into(),
-                    span: target.base_span.clone(),
-                })?;
+                let var_t = self
+                    .resolve(&target.base)
+                    .ok_or_else(|| self.error("Undefined variable", target.base_span.clone()))?;
                 if var_t != Type::Unknown && !compatible(&var_t, &t_expr) {
-                    return Err(TypeError {
-                        message: format!(
+                    return Err(self.error(
+                        format!(
                             "Type mismatch: variable {} is {}, assigned {}",
                             target.base,
                             var_t.display(),
                             t_expr.display()
                         ),
-                        span: target.base_span.clone(),
-                    });
+                        target.base_span.clone(),
+                    ));
                 }
             }
             Stmt::If {
@@ -135,10 +201,7 @@ impl TypeChecker {
             } => {
                 let t_cond = self.check_expr(cond)?;
                 if t_cond != Type::Bool && t_cond != Type::Unknown {
-                    return Err(TypeError {
-                        message: "Condition must be Bool".into(),
-                        span: line_span(cond),
-                    });
+                    return Err(self.error("Condition must be Bool", line_span(cond)));
                 }
                 self.push();
                 for s in &then_block.stmts {
@@ -161,10 +224,7 @@ impl TypeChecker {
             Stmt::While { cond, body } => {
                 let t_cond = self.check_expr(cond)?;
                 if t_cond != Type::Bool && t_cond != Type::Unknown {
-                    return Err(TypeError {
-                        message: "Condition must be Bool".into(),
-                        span: line_span(cond),
-                    });
+                    return Err(self.error("Condition must be Bool", line_span(cond)));
                 }
                 self.push();
                 for s in &body.stmts {
@@ -179,17 +239,16 @@ impl TypeChecker {
                     Type::Void
                 };
                 if expected_return != Type::Unknown && t_val != expected_return {
-                    return Err(TypeError {
-                        message: format!(
+                    return Err(self.error(
+                        format!(
                             "Return type mismatch: expected {}, found {}",
                             expected_return.display(),
                             t_val.display()
                         ),
-                        span: expr
-                            .as_ref()
+                        expr.as_ref()
                             .map(line_span)
                             .unwrap_or_else(|| Span::single(0, 0)),
-                    });
+                    ));
                 }
             }
             Stmt::Expr(expr) => {
@@ -209,26 +268,19 @@ impl TypeChecker {
                 Literal::String(_) => Type::String,
                 Literal::None => Type::Optional(Box::new(Type::Unknown)),
             }),
-            Expr::Ident { name, span } => self.resolve(name).ok_or(TypeError {
-                message: format!("Undefined variable {}", name),
-                span: span.clone(),
-            }),
+            Expr::Ident { name, span } => self
+                .resolve(name)
+                .ok_or_else(|| self.error(format!("Undefined variable {}", name), span.clone())),
             Expr::Unary { op, expr, span } => {
                 let t = self.check_expr(expr)?;
                 match op {
                     UnaryOp::Negate => match t {
                         Type::Int | Type::Float | Type::Unknown => Ok(t),
-                        _ => Err(TypeError {
-                            message: "Unary '-' expects number".into(),
-                            span: span.clone(),
-                        }),
+                        _ => Err(self.error("Unary '-' expects number", span.clone())),
                     },
                     UnaryOp::Not => match t {
                         Type::Bool | Type::Unknown => Ok(Type::Bool),
-                        _ => Err(TypeError {
-                            message: "Unary 'not' expects Bool".into(),
-                            span: span.clone(),
-                        }),
+                        _ => Err(self.error("Unary 'not' expects Bool", span.clone())),
                     },
                     _ => Ok(Type::Unknown),
                 }
@@ -251,20 +303,14 @@ impl TypeChecker {
                         {
                             Ok(Type::Float)
                         } else {
-                            Err(TypeError {
-                                message: "Arithmetic expects numbers".into(),
-                                span: span.clone(),
-                            })
+                            Err(self.error("Arithmetic expects numbers", span.clone()))
                         }
                     }
                     And | Or => {
                         if lt == Type::Bool && rt == Type::Bool {
                             Ok(Type::Bool)
                         } else {
-                            Err(TypeError {
-                                message: "Logical ops expect Bool".into(),
-                                span: span.clone(),
-                            })
+                            Err(self.error("Logical ops expect Bool", span.clone()))
                         }
                     }
                     Equal | NotEqual | Less | LessEqual | Greater | GreaterEqual => Ok(Type::Bool),
@@ -274,14 +320,14 @@ impl TypeChecker {
                 let ct = self.check_expr(callee)?;
                 if let Type::Function(params, ret) = ct {
                     if params.len() != args.len() {
-                        return Err(TypeError {
-                            message: format!(
+                        return Err(self.error(
+                            format!(
                                 "Arity mismatch: expected {}, got {}",
                                 params.len(),
                                 args.len()
                             ),
-                            span: span.clone(),
-                        });
+                            span.clone(),
+                        ));
                     }
                     for (arg, pt) in args.iter().zip(params.iter()) {
                         let at = self.check_expr(match arg {
@@ -289,26 +335,44 @@ impl TypeChecker {
                             Arg::Named(_, e) => e,
                         })?;
                         if *pt != Type::Unknown && !compatible(pt, &at) {
-                            return Err(TypeError {
-                                message: format!(
+                            return Err(self.error(
+                                format!(
                                     "Argument type mismatch: expected {}, found {}",
                                     pt.display(),
                                     at.display()
                                 ),
-                                span: line_span(match arg {
+                                line_span(match arg {
                                     Arg::Positional(e) => e,
                                     Arg::Named(_, e) => e,
                                 }),
-                            });
+                            ));
                         }
                     }
                     Ok(*ret)
                 } else {
-                    Err(TypeError {
-                        message: "Callee is not a function".into(),
-                        span: span.clone(),
-                    })
+                    Err(self.error("Callee is not a function", span.clone()))
                 }
+            }
+            Expr::Field { target, name, span } => {
+                if let Expr::Ident { name: alias, .. } = &**target {
+                    if let Some(module_id) = self.imports.get(alias) {
+                        if let Some(map) = self.exports.get(module_id) {
+                            if let Some(t) = map.get(name) {
+                                return Ok(t.clone());
+                            }
+                        }
+                        return Err(self.error(
+                            format!(
+                                "Symbol '{}' is private to module {}",
+                                name,
+                                module_id.0.join("::")
+                            ),
+                            span.clone(),
+                        ));
+                    }
+                }
+                self.check_expr(target)?;
+                Ok(Type::Unknown)
             }
             _ => Ok(Type::Unknown),
         }
@@ -368,4 +432,22 @@ fn compatible(expected: &Type, found: &Type) -> bool {
         (Type::Optional(inner), f) => compatible(inner, f), // allow T to satisfy Optional<T>
         _ => false,
     }
+}
+
+fn collect_export_types(module: &Module) -> std::collections::HashMap<String, Type> {
+    let mut out = std::collections::HashMap::new();
+    for item in &module.items {
+        if let Item::Fn(decl) = item {
+            if decl.is_pub {
+                let params = decl
+                    .params
+                    .iter()
+                    .map(|p| type_from_ref_opt(p.type_ann.clone()))
+                    .collect();
+                let ret = type_from_ref_opt(decl.return_type.clone());
+                out.insert(decl.name.clone(), Type::Function(params, Box::new(ret)));
+            }
+        }
+    }
+    out
 }

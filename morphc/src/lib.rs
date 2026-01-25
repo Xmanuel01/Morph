@@ -6,6 +6,7 @@ pub mod diagnostic;
 pub mod formatter;
 pub mod lexer;
 pub mod loader;
+pub mod modules;
 pub mod parser;
 pub mod symbols;
 pub mod typecheck;

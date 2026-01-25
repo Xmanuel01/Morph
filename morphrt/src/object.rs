@@ -12,6 +12,7 @@ pub enum Obj {
     String(String),
     Function(FunctionObj),
     NativeFunction(NativeFunction),
+    Record(std::collections::HashMap<String, Value>),
 }
 
 impl Obj {
@@ -20,6 +21,7 @@ impl Obj {
             Obj::String(_) => "String",
             Obj::Function(_) => "Function",
             Obj::NativeFunction(_) => "NativeFunction",
+            Obj::Record(_) => "Record",
         }
     }
 }
@@ -58,4 +60,8 @@ pub fn function_value(func_index: u16, program: &Program) -> Value {
 
 pub fn string_value(s: &str) -> Value {
     Value::Obj(ObjRef::new(Obj::String(s.to_string())))
+}
+
+pub fn record_value(map: std::collections::HashMap<String, Value>) -> Value {
+    Value::Obj(ObjRef::new(Obj::Record(map)))
 }

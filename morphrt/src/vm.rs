@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use morphc::bytecode::{Constant, Instruction, Program};
 
-use crate::error::RuntimeError;
-use crate::object::{function_value, string_value, NativeFunction, Obj};
+use crate::error::{RuntimeError, RuntimeFrame};
+use crate::object::{function_value, record_value, string_value, NativeFunction, Obj};
 use crate::value::{ObjRef, Value};
 
 #[derive(Debug)]
@@ -42,7 +42,8 @@ impl VM {
         }
         let main_func = function_value(program.main, program);
         self.stack.push(main_func);
-        self.call_value(program, 0)?;
+        self.call_value(program, 0)
+            .map_err(|err| self.with_trace(err, program, 0))?;
         self.execute(program)
     }
 
@@ -69,9 +70,13 @@ impl VM {
                 Ok(Value::Null)
             }),
         })));
-        self.globals_map
-            .insert("print".to_string(), self.globals.len() as u16);
-        self.globals.push(print);
+        if let Some(idx) = self.globals_map.get("print").copied() {
+            self.globals[idx as usize] = print;
+        } else {
+            self.globals_map
+                .insert("print".to_string(), self.globals.len() as u16);
+            self.globals.push(print);
+        }
         Ok(())
     }
 
@@ -82,8 +87,12 @@ impl VM {
             let base = frame_view.base;
             let caller_sp = frame_view.caller_sp;
             let func = &program.functions[func_index as usize];
+            let trace_frames = self.stack_trace(program, ip);
+            let trace = |err: RuntimeError| err.with_frames(trace_frames.clone());
             if ip >= func.chunk.code.len() {
-                return Err(RuntimeError::new("Instruction pointer out of bounds"));
+                return Err(trace(RuntimeError::new(
+                    "Instruction pointer out of bounds",
+                )));
             }
             let instr = func.chunk.code[ip].clone();
             if self.trace {
@@ -97,7 +106,9 @@ impl VM {
             let mut update_ip = true;
             match instr {
                 Instruction::Const(idx) => {
-                    let v = self.constant_to_value(&func.chunk.constants[idx as usize], program)?;
+                    let v = self
+                        .constant_to_value(&func.chunk.constants[idx as usize], program)
+                        .map_err(trace)?;
                     self.stack.push(v);
                 }
                 Instruction::Pop => {
@@ -107,10 +118,10 @@ impl VM {
                     let val = self
                         .stack
                         .pop()
-                        .ok_or_else(|| RuntimeError::new("Stack underflow"))?;
+                        .ok_or_else(|| trace(RuntimeError::new("Stack underflow")))?;
                     let slot = idx as usize;
                     if slot >= self.globals.len() {
-                        return Err(RuntimeError::new("Global not found"));
+                        return Err(trace(RuntimeError::new("Global not found")));
                     }
                     self.globals[slot] = val;
                 }
@@ -119,14 +130,14 @@ impl VM {
                         .stack
                         .get(base + idx as usize)
                         .cloned()
-                        .ok_or_else(|| RuntimeError::new("LoadLocal out of range"))?;
+                        .ok_or_else(|| trace(RuntimeError::new("LoadLocal out of range")))?;
                     self.stack.push(val);
                 }
                 Instruction::StoreLocal(idx) => {
                     let val = self
                         .stack
                         .pop()
-                        .ok_or_else(|| RuntimeError::new("Stack underflow"))?;
+                        .ok_or_else(|| trace(RuntimeError::new("Stack underflow")))?;
                     let slot = base + idx as usize;
                     if slot >= self.stack.len() {
                         self.stack.resize(slot + 1, Value::Null);
@@ -138,17 +149,17 @@ impl VM {
                         .globals
                         .get(idx as usize)
                         .cloned()
-                        .ok_or_else(|| RuntimeError::new("Global not found"))?;
+                        .ok_or_else(|| trace(RuntimeError::new("Global not found")))?;
                     self.stack.push(v);
                 }
                 Instruction::StoreGlobal(idx) => {
                     let val = self
                         .stack
                         .pop()
-                        .ok_or_else(|| RuntimeError::new("Stack underflow"))?;
+                        .ok_or_else(|| trace(RuntimeError::new("Stack underflow")))?;
                     let slot = idx as usize;
                     if slot >= self.globals.len() {
-                        return Err(RuntimeError::new("Global not found"));
+                        return Err(trace(RuntimeError::new("Global not found")));
                     }
                     self.globals[slot] = val;
                 }
@@ -166,23 +177,23 @@ impl VM {
                     let b = self
                         .stack
                         .pop()
-                        .ok_or_else(|| RuntimeError::new("Stack underflow"))?;
+                        .ok_or_else(|| trace(RuntimeError::new("Stack underflow")))?;
                     let a = self
                         .stack
                         .pop()
-                        .ok_or_else(|| RuntimeError::new("Stack underflow"))?;
+                        .ok_or_else(|| trace(RuntimeError::new("Stack underflow")))?;
                     let result = match instr {
-                        Instruction::Add => numeric_op(a, b, |x, y| x + y)?,
-                        Instruction::Sub => numeric_op(a, b, |x, y| x - y)?,
-                        Instruction::Mul => numeric_op(a, b, |x, y| x * y)?,
-                        Instruction::Div => numeric_op(a, b, |x, y| x / y)?,
-                        Instruction::Mod => numeric_mod(a, b)?,
+                        Instruction::Add => numeric_op(a, b, |x, y| x + y).map_err(trace)?,
+                        Instruction::Sub => numeric_op(a, b, |x, y| x - y).map_err(trace)?,
+                        Instruction::Mul => numeric_op(a, b, |x, y| x * y).map_err(trace)?,
+                        Instruction::Div => numeric_op(a, b, |x, y| x / y).map_err(trace)?,
+                        Instruction::Mod => numeric_mod(a, b).map_err(trace)?,
                         Instruction::Eq => Value::Bool(a == b),
                         Instruction::Neq => Value::Bool(a != b),
-                        Instruction::Lt => compare_op(a, b, |x, y| x < y)?,
-                        Instruction::Gt => compare_op(a, b, |x, y| x > y)?,
-                        Instruction::Le => compare_op(a, b, |x, y| x <= y)?,
-                        Instruction::Ge => compare_op(a, b, |x, y| x >= y)?,
+                        Instruction::Lt => compare_op(a, b, |x, y| x < y).map_err(trace)?,
+                        Instruction::Gt => compare_op(a, b, |x, y| x > y).map_err(trace)?,
+                        Instruction::Le => compare_op(a, b, |x, y| x <= y).map_err(trace)?,
+                        Instruction::Ge => compare_op(a, b, |x, y| x >= y).map_err(trace)?,
                         _ => unreachable!(),
                     };
                     self.stack.push(result);
@@ -191,11 +202,11 @@ impl VM {
                     let v = self
                         .stack
                         .pop()
-                        .ok_or_else(|| RuntimeError::new("Stack underflow"))?;
+                        .ok_or_else(|| trace(RuntimeError::new("Stack underflow")))?;
                     let result = match v {
                         Value::Int(i) => Value::Int(-i),
                         Value::Float(f) => Value::Float(-f),
-                        _ => return Err(RuntimeError::new("Neg expects number")),
+                        _ => return Err(trace(RuntimeError::new("Neg expects number"))),
                     };
                     self.stack.push(result);
                 }
@@ -203,7 +214,7 @@ impl VM {
                     let v = self
                         .stack
                         .pop()
-                        .ok_or_else(|| RuntimeError::new("Stack underflow"))?;
+                        .ok_or_else(|| trace(RuntimeError::new("Stack underflow")))?;
                     let b = v.is_truthy();
                     self.stack.push(Value::Bool(!b));
                 }
@@ -214,16 +225,69 @@ impl VM {
                     let cond = self
                         .stack
                         .pop()
-                        .ok_or_else(|| RuntimeError::new("Stack underflow"))?;
+                        .ok_or_else(|| trace(RuntimeError::new("Stack underflow")))?;
                     if !cond.is_truthy() {
                         next_ip = target;
                     }
+                }
+                Instruction::MakeRecord(count) => {
+                    let mut map = std::collections::HashMap::new();
+                    for _ in 0..count {
+                        let value = self
+                            .stack
+                            .pop()
+                            .ok_or_else(|| trace(RuntimeError::new("Stack underflow")))?;
+                        let key = self
+                            .stack
+                            .pop()
+                            .ok_or_else(|| trace(RuntimeError::new("Stack underflow")))?;
+                        let key = match key {
+                            Value::Obj(obj) => match obj.as_obj() {
+                                Obj::String(s) => s.clone(),
+                                _ => {
+                                    return Err(trace(RuntimeError::new(
+                                        "Record key must be string",
+                                    )))
+                                }
+                            },
+                            _ => return Err(trace(RuntimeError::new("Record key must be string"))),
+                        };
+                        map.insert(key, value);
+                    }
+                    self.stack.push(record_value(map));
+                }
+                Instruction::GetField(name_idx) => {
+                    let target = self
+                        .stack
+                        .pop()
+                        .ok_or_else(|| trace(RuntimeError::new("Stack underflow")))?;
+                    let name = match &func.chunk.constants[name_idx as usize] {
+                        Constant::String(s) => s.clone(),
+                        _ => {
+                            return Err(trace(RuntimeError::new(
+                                "Field name must be string constant",
+                            )))
+                        }
+                    };
+                    let value = match target {
+                        Value::Obj(obj) => match obj.as_obj() {
+                            Obj::Record(map) => map
+                                .get(&name)
+                                .cloned()
+                                .ok_or_else(|| trace(RuntimeError::new("Unknown field")))?,
+                            _ => {
+                                return Err(trace(RuntimeError::new("Field access expects record")))
+                            }
+                        },
+                        _ => return Err(trace(RuntimeError::new("Field access expects record"))),
+                    };
+                    self.stack.push(value);
                 }
                 Instruction::Call(argc) => {
                     if let Some(caller) = self.frames.last_mut() {
                         caller.ip = next_ip;
                     }
-                    self.call_value(program, argc as usize)?;
+                    self.call_value(program, argc as usize).map_err(trace)?;
                     update_ip = false;
                 }
                 Instruction::Return => {
@@ -284,6 +348,29 @@ impl VM {
         Ok(())
     }
 
+    fn with_trace(&self, mut err: RuntimeError, program: &Program, ip: usize) -> RuntimeError {
+        if err.frames.is_empty() {
+            err = err.with_frames(self.stack_trace(program, ip));
+        }
+        err
+    }
+
+    fn stack_trace(&self, program: &Program, ip: usize) -> Vec<RuntimeFrame> {
+        let mut frames = Vec::new();
+        let last_index = self.frames.len().saturating_sub(1);
+        for (idx, frame) in self.frames.iter().enumerate().rev() {
+            let func = &program.functions[frame.func_index as usize];
+            let current_ip = if idx == last_index { ip } else { frame.ip };
+            let line = func.chunk.lines.get(current_ip).copied();
+            frames.push(RuntimeFrame {
+                function: func.name.clone(),
+                source: func.source_name.clone(),
+                line,
+            });
+        }
+        frames
+    }
+
     fn constant_to_value(&self, c: &Constant, program: &Program) -> Result<Value, RuntimeError> {
         Ok(match c {
             Constant::Int(i) => Value::Int(*i),
@@ -340,6 +427,7 @@ fn display_value(v: &Value) -> String {
             Obj::String(s) => s.clone(),
             Obj::Function(f) => format!("<fn {}>", f.name.clone().unwrap_or_default()),
             Obj::NativeFunction(n) => format!("<native {}>", n.name),
+            Obj::Record(_) => "<record>".to_string(),
         },
     }
 }
