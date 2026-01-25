@@ -1,7 +1,10 @@
+pub mod checkpoint;
+pub mod dataset;
 pub mod error;
 pub mod ffi;
 pub mod object;
 pub mod runtime;
+pub mod tokenizer;
 pub mod value;
 pub mod vm;
 

@@ -4,6 +4,6 @@ members = [
     "morphrt",
     "morph",
     "morph_native"
-]
+, "morph_tensor"]
 
 resolver = "2"

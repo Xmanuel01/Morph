@@ -1,17 +1,24 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::path::Path;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use morphc::bytecode::{Constant, Instruction, Program};
 
+use crate::checkpoint::{
+    latest_checkpoint, load_checkpoint, rotate_checkpoints, save_checkpoint, CheckpointMeta,
+    CheckpointState,
+};
+use crate::dataset::{resolve_dataset_paths, Batch, DatasetConfig, DatasetStream};
 use crate::error::{RuntimeError, RuntimeFrame};
 use crate::ffi::FfiLoader;
 use crate::object::{
     channel_value, function_value, record_value, string_value, task_handle_value, NativeFunction,
     NativeImpl, Obj,
 };
+use crate::tokenizer::{bytes_to_ids, ids_to_bytes, Tokenizer, TrainConfig};
 use crate::value::{ObjRef, Value};
 
 #[derive(Debug)]
@@ -369,6 +376,96 @@ impl VM {
             self.globals_map
                 .insert("json".to_string(), self.globals.len() as u16);
             self.globals.push(json_value);
+        }
+        let mut tokenizer_record = std::collections::HashMap::new();
+        tokenizer_record.insert(
+            "train".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "tokenizer.train".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        tokenizer_record.insert(
+            "load".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "tokenizer.load".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        let tokenizer_value = record_value(tokenizer_record);
+        if let Some(idx) = self.globals_map.get("tokenizer").copied() {
+            self.globals[idx as usize] = tokenizer_value;
+        } else {
+            self.globals_map
+                .insert("tokenizer".to_string(), self.globals.len() as u16);
+            self.globals.push(tokenizer_value);
+        }
+        let mut dataset_record = std::collections::HashMap::new();
+        dataset_record.insert(
+            "open".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "dataset.open".to_string(),
+                arity: 3,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        let dataset_value = record_value(dataset_record);
+        if let Some(idx) = self.globals_map.get("dataset").copied() {
+            self.globals[idx as usize] = dataset_value;
+        } else {
+            self.globals_map
+                .insert("dataset".to_string(), self.globals.len() as u16);
+            self.globals.push(dataset_value);
+        }
+        let mut checkpoint_record = std::collections::HashMap::new();
+        checkpoint_record.insert(
+            "save".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "checkpoint.save".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        checkpoint_record.insert(
+            "load".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "checkpoint.load".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        checkpoint_record.insert(
+            "latest".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "checkpoint.latest".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        checkpoint_record.insert(
+            "rotate".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "checkpoint.rotate".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        let checkpoint_value = record_value(checkpoint_record);
+        if let Some(idx) = self.globals_map.get("checkpoint").copied() {
+            self.globals[idx as usize] = checkpoint_value;
+        } else {
+            self.globals_map
+                .insert("checkpoint".to_string(), self.globals.len() as u16);
+            self.globals.push(checkpoint_value);
         }
         Ok(())
     }
@@ -1011,6 +1108,24 @@ impl VM {
                                     )))
                                 }
                             },
+                            Obj::Tokenizer(_) => match name.as_str() {
+                                "encode" => self.bound_native("tokenizer.encode", 1, target),
+                                "decode" => self.bound_native("tokenizer.decode", 1, target),
+                                "save" => self.bound_native("tokenizer.save", 1, target),
+                                _ => {
+                                    return TaskRunOutcome::Errored(trace(RuntimeError::new(
+                                        "Unknown field",
+                                    )))
+                                }
+                            },
+                            Obj::DatasetStream(_) => match name.as_str() {
+                                "next_batch" => self.bound_native("dataset.next_batch", 0, target),
+                                _ => {
+                                    return TaskRunOutcome::Errored(trace(RuntimeError::new(
+                                        "Unknown field",
+                                    )))
+                                }
+                            },
                             _ => {
                                 return TaskRunOutcome::Errored(trace(RuntimeError::new(
                                     "Field access expects record",
@@ -1072,303 +1187,440 @@ impl VM {
             .cloned()
             .ok_or_else(|| RuntimeError::new("Missing callee"))?;
         match callee {
-            Value::Obj(obj) => match obj.as_obj() {
-                Obj::Function(f) => {
-                    if argc as u16 != f.arity {
-                        return Err(RuntimeError::new("Arity mismatch"));
+            Value::Obj(obj) => {
+                match obj.as_obj() {
+                    Obj::Function(f) => {
+                        if argc as u16 != f.arity {
+                            return Err(RuntimeError::new("Arity mismatch"));
+                        }
+                        self.frames.push(CallFrame {
+                            func_index: f.func_index,
+                            ip: 0,
+                            base: callee_index + 1, // locals start at first arg
+                            caller_sp: callee_index,
+                        });
                     }
-                    self.frames.push(CallFrame {
-                        func_index: f.func_index,
-                        ip: 0,
-                        base: callee_index + 1, // locals start at first arg
-                        caller_sp: callee_index,
-                    });
+                    Obj::NativeFunction(nf) => {
+                        if argc as u16 != nf.arity {
+                            return Err(RuntimeError::new("Arity mismatch"));
+                        }
+                        let args_start = self.stack.len() - argc;
+                        let mut args: Vec<Value> = self.stack[args_start..].to_vec();
+                        if let Some(bound) = nf.bound.clone() {
+                            args.insert(0, bound);
+                        }
+                        if nf.name == "task.join" {
+                            self.stack.truncate(callee_index);
+                            if let Some(value) =
+                                self.task_join(args.first().cloned().unwrap_or(Value::Null))?
+                            {
+                                self.stack.push(value);
+                            }
+                            return Ok(());
+                        }
+                        if nf.name == "task.sleep" {
+                            let ms = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sleep expects Int"))?;
+                            self.stack.truncate(callee_index);
+                            self.task_sleep(ms)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "task.spawn" {
+                            let func = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("spawn expects function"))?;
+                            let handle = self.task_spawn(program, func)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(handle);
+                            return Ok(());
+                        }
+                        if nf.name == "chan.make" {
+                            if !args.is_empty() {
+                                return Err(RuntimeError::new("chan.make expects no args"));
+                            }
+                            let channel = self.channel_make();
+                            self.stack.truncate(callee_index);
+                            self.stack.push(channel);
+                            return Ok(());
+                        }
+                        if nf.name == "chan.send" {
+                            let channel = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("chan.send expects channel"))?;
+                            let value = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("chan.send expects value"))?;
+                            self.stack.truncate(callee_index);
+                            self.channel_send(channel, value)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "chan.recv" {
+                            let channel = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("chan.recv expects channel"))?;
+                            self.stack.truncate(callee_index);
+                            if let Some(value) = self.channel_recv(channel)? {
+                                self.stack.push(value);
+                            }
+                            return Ok(());
+                        }
+                        if nf.name == "net.bind" {
+                            let host = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("net.bind expects host"))?;
+                            let port = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("net.bind expects port"))?;
+                            self.stack.truncate(callee_index);
+                            let listener = self.net_bind(host, port)?;
+                            self.stack.push(listener);
+                            return Ok(());
+                        }
+                        if nf.name == "net.accept" {
+                            let listener = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("accept expects listener"))?;
+                            self.stack.truncate(callee_index);
+                            if let Some(value) = self.net_accept(listener)? {
+                                self.stack.push(value);
+                            }
+                            return Ok(());
+                        }
+                        if nf.name == "net.read" {
+                            let conn = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("read expects connection"))?;
+                            let count = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("read expects count"))?;
+                            self.stack.truncate(callee_index);
+                            if let Some(value) = self.net_read(conn, count)? {
+                                self.stack.push(value);
+                            }
+                            return Ok(());
+                        }
+                        if nf.name == "net.read_all" {
+                            let conn = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("read_all expects connection"))?;
+                            self.stack.truncate(callee_index);
+                            if let Some(value) = self.net_read_all(conn)? {
+                                self.stack.push(value);
+                            }
+                            return Ok(());
+                        }
+                        if nf.name == "net.write" {
+                            let conn = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("write expects connection"))?;
+                            let buf = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("write expects buffer"))?;
+                            self.stack.truncate(callee_index);
+                            if let Some(value) = self.net_write(conn, buf)? {
+                                self.stack.push(value);
+                            }
+                            return Ok(());
+                        }
+                        if nf.name == "net.close" {
+                            let conn = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("close expects connection"))?;
+                            self.stack.truncate(callee_index);
+                            self.net_close(conn)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "net.listener.close" {
+                            let listener = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("close expects listener"))?;
+                            self.stack.truncate(callee_index);
+                            self.net_listener_close(listener)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "net.listener.port" {
+                            let listener = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("port expects listener"))?;
+                            self.stack.truncate(callee_index);
+                            let port = self.net_listener_port(listener)?;
+                            self.stack.push(Value::Int(port as i64));
+                            return Ok(());
+                        }
+                        if nf.name == "http.serve" {
+                            let host = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("serve expects host"))?;
+                            let port = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("serve expects port"))?;
+                            let handler = args
+                                .get(2)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("serve expects handler"))?;
+                            self.stack.truncate(callee_index);
+                            self.http_serve(host, port, handler)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "http.get" {
+                            let url = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("get expects url"))?;
+                            self.stack.truncate(callee_index);
+                            if let Some(value) = self.http_get(url)? {
+                                self.stack.push(value);
+                            }
+                            return Ok(());
+                        }
+                        if nf.name == "http.post" {
+                            let url = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("post expects url"))?;
+                            let body = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("post expects body"))?;
+                            self.stack.truncate(callee_index);
+                            if let Some(value) = self.http_post(url, body)? {
+                                self.stack.push(value);
+                            }
+                            return Ok(());
+                        }
+                        if nf.name == "http.response" {
+                            let status = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("response expects status"))?;
+                            let body = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("response expects body"))?;
+                            self.stack.truncate(callee_index);
+                            let resp = self.http_response(status, body)?;
+                            self.stack.push(resp);
+                            return Ok(());
+                        }
+                        if nf.name == "http.ok" {
+                            let body = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("ok expects body"))?;
+                            self.stack.truncate(callee_index);
+                            let resp = self.http_response(Value::Int(200), body)?;
+                            self.stack.push(resp);
+                            return Ok(());
+                        }
+                        if nf.name == "http.bad_request" {
+                            let body = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("bad_request expects body"))?;
+                            self.stack.truncate(callee_index);
+                            let resp = self.http_response(Value::Int(400), body)?;
+                            self.stack.push(resp);
+                            return Ok(());
+                        }
+                        if nf.name == "http.not_found" {
+                            let body = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("not_found expects body"))?;
+                            self.stack.truncate(callee_index);
+                            let resp = self.http_response(Value::Int(404), body)?;
+                            self.stack.push(resp);
+                            return Ok(());
+                        }
+                        if nf.name == "json.parse" {
+                            let text = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("parse expects string"))?;
+                            self.stack.truncate(callee_index);
+                            let value = self.json_parse(text)?;
+                            self.stack.push(value);
+                            return Ok(());
+                        }
+                        if nf.name == "json.stringify" {
+                            let value = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("stringify expects value"))?;
+                            self.stack.truncate(callee_index);
+                            let text = self.json_stringify(value)?;
+                            self.stack.push(text);
+                            return Ok(());
+                        }
+                        if nf.name == "tokenizer.train" {
+                            let config = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("tokenizer.train expects config")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let tokenizer = self.tokenizer_train(config)?;
+                            self.stack.push(tokenizer);
+                            return Ok(());
+                        }
+                        if nf.name == "tokenizer.load" {
+                            let path = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("tokenizer.load expects path"))?;
+                            self.stack.truncate(callee_index);
+                            let tokenizer = self.tokenizer_load(path)?;
+                            self.stack.push(tokenizer);
+                            return Ok(());
+                        }
+                        if nf.name == "tokenizer.encode" {
+                            let tokenizer = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("encode expects tokenizer"))?;
+                            let text = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("encode expects text"))?;
+                            self.stack.truncate(callee_index);
+                            let encoded = self.tokenizer_encode(tokenizer, text)?;
+                            self.stack.push(encoded);
+                            return Ok(());
+                        }
+                        if nf.name == "tokenizer.decode" {
+                            let tokenizer = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("decode expects tokenizer"))?;
+                            let tokens = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("decode expects tokens"))?;
+                            self.stack.truncate(callee_index);
+                            let decoded = self.tokenizer_decode(tokenizer, tokens)?;
+                            self.stack.push(decoded);
+                            return Ok(());
+                        }
+                        if nf.name == "tokenizer.save" {
+                            let tokenizer = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("save expects tokenizer"))?;
+                            let path = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("save expects path"))?;
+                            self.stack.truncate(callee_index);
+                            self.tokenizer_save(tokenizer, path)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "dataset.open" {
+                            let path = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("dataset.open expects path"))?;
+                            let tokenizer = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("dataset.open expects tokenizer")
+                            })?;
+                            let config = args
+                                .get(2)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("dataset.open expects config"))?;
+                            self.stack.truncate(callee_index);
+                            let stream = self.dataset_open(path, tokenizer, config)?;
+                            self.stack.push(stream);
+                            return Ok(());
+                        }
+                        if nf.name == "dataset.next_batch" {
+                            let stream = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("next_batch expects stream"))?;
+                            self.stack.truncate(callee_index);
+                            if let Some(batch) = self.dataset_next_batch(stream)? {
+                                self.stack.push(batch);
+                            } else {
+                                self.stack.push(Value::Null);
+                            }
+                            return Ok(());
+                        }
+                        if nf.name == "checkpoint.save" {
+                            let dir = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("checkpoint.save expects dir"))?;
+                            let state = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("checkpoint.save expects state")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            self.checkpoint_save(dir, state)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "checkpoint.load" {
+                            let path = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("checkpoint.load expects path"))?;
+                            self.stack.truncate(callee_index);
+                            let value = self.checkpoint_load(path)?;
+                            self.stack.push(value);
+                            return Ok(());
+                        }
+                        if nf.name == "checkpoint.latest" {
+                            let dir = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("checkpoint.latest expects dir")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let value = self.checkpoint_latest(dir)?;
+                            self.stack.push(value);
+                            return Ok(());
+                        }
+                        if nf.name == "checkpoint.rotate" {
+                            let dir = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("checkpoint.rotate expects dir")
+                            })?;
+                            let keep = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("checkpoint.rotate expects keep")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            self.checkpoint_rotate(dir, keep)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        let result = match &nf.kind {
+                            NativeImpl::Rust(func) => (func)(self, &args)?,
+                            NativeImpl::Ffi(func) => func.call(&args)?,
+                        };
+                        self.stack.truncate(callee_index);
+                        self.stack.push(result);
+                    }
+                    _ => return Err(RuntimeError::new("Callee is not callable")),
                 }
-                Obj::NativeFunction(nf) => {
-                    if argc as u16 != nf.arity {
-                        return Err(RuntimeError::new("Arity mismatch"));
-                    }
-                    let args_start = self.stack.len() - argc;
-                    let mut args: Vec<Value> = self.stack[args_start..].to_vec();
-                    if let Some(bound) = nf.bound.clone() {
-                        args.insert(0, bound);
-                    }
-                    if nf.name == "task.join" {
-                        self.stack.truncate(callee_index);
-                        if let Some(value) =
-                            self.task_join(args.first().cloned().unwrap_or(Value::Null))?
-                        {
-                            self.stack.push(value);
-                        }
-                        return Ok(());
-                    }
-                    if nf.name == "task.sleep" {
-                        let ms = args
-                            .first()
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("sleep expects Int"))?;
-                        self.stack.truncate(callee_index);
-                        self.task_sleep(ms)?;
-                        self.stack.push(Value::Null);
-                        return Ok(());
-                    }
-                    if nf.name == "task.spawn" {
-                        let func = args
-                            .first()
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("spawn expects function"))?;
-                        let handle = self.task_spawn(program, func)?;
-                        self.stack.truncate(callee_index);
-                        self.stack.push(handle);
-                        return Ok(());
-                    }
-                    if nf.name == "chan.make" {
-                        if !args.is_empty() {
-                            return Err(RuntimeError::new("chan.make expects no args"));
-                        }
-                        let channel = self.channel_make();
-                        self.stack.truncate(callee_index);
-                        self.stack.push(channel);
-                        return Ok(());
-                    }
-                    if nf.name == "chan.send" {
-                        let channel = args
-                            .first()
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("chan.send expects channel"))?;
-                        let value = args
-                            .get(1)
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("chan.send expects value"))?;
-                        self.stack.truncate(callee_index);
-                        self.channel_send(channel, value)?;
-                        self.stack.push(Value::Null);
-                        return Ok(());
-                    }
-                    if nf.name == "chan.recv" {
-                        let channel = args
-                            .first()
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("chan.recv expects channel"))?;
-                        self.stack.truncate(callee_index);
-                        if let Some(value) = self.channel_recv(channel)? {
-                            self.stack.push(value);
-                        }
-                        return Ok(());
-                    }
-                    if nf.name == "net.bind" {
-                        let host = args
-                            .first()
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("net.bind expects host"))?;
-                        let port = args
-                            .get(1)
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("net.bind expects port"))?;
-                        self.stack.truncate(callee_index);
-                        let listener = self.net_bind(host, port)?;
-                        self.stack.push(listener);
-                        return Ok(());
-                    }
-                    if nf.name == "net.accept" {
-                        let listener = args
-                            .first()
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("accept expects listener"))?;
-                        self.stack.truncate(callee_index);
-                        if let Some(value) = self.net_accept(listener)? {
-                            self.stack.push(value);
-                        }
-                        return Ok(());
-                    }
-                    if nf.name == "net.read" {
-                        let conn = args
-                            .first()
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("read expects connection"))?;
-                        let count = args
-                            .get(1)
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("read expects count"))?;
-                        self.stack.truncate(callee_index);
-                        if let Some(value) = self.net_read(conn, count)? {
-                            self.stack.push(value);
-                        }
-                        return Ok(());
-                    }
-                    if nf.name == "net.read_all" {
-                        let conn = args
-                            .first()
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("read_all expects connection"))?;
-                        self.stack.truncate(callee_index);
-                        if let Some(value) = self.net_read_all(conn)? {
-                            self.stack.push(value);
-                        }
-                        return Ok(());
-                    }
-                    if nf.name == "net.write" {
-                        let conn = args
-                            .first()
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("write expects connection"))?;
-                        let buf = args
-                            .get(1)
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("write expects buffer"))?;
-                        self.stack.truncate(callee_index);
-                        if let Some(value) = self.net_write(conn, buf)? {
-                            self.stack.push(value);
-                        }
-                        return Ok(());
-                    }
-                    if nf.name == "net.close" {
-                        let conn = args
-                            .first()
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("close expects connection"))?;
-                        self.stack.truncate(callee_index);
-                        self.net_close(conn)?;
-                        self.stack.push(Value::Null);
-                        return Ok(());
-                    }
-                    if nf.name == "net.listener.close" {
-                        let listener = args
-                            .first()
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("close expects listener"))?;
-                        self.stack.truncate(callee_index);
-                        self.net_listener_close(listener)?;
-                        self.stack.push(Value::Null);
-                        return Ok(());
-                    }
-                    if nf.name == "net.listener.port" {
-                        let listener = args
-                            .first()
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("port expects listener"))?;
-                        self.stack.truncate(callee_index);
-                        let port = self.net_listener_port(listener)?;
-                        self.stack.push(Value::Int(port as i64));
-                        return Ok(());
-                    }
-                    if nf.name == "http.serve" {
-                        let host = args
-                            .first()
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("serve expects host"))?;
-                        let port = args
-                            .get(1)
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("serve expects port"))?;
-                        let handler = args
-                            .get(2)
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("serve expects handler"))?;
-                        self.stack.truncate(callee_index);
-                        self.http_serve(host, port, handler)?;
-                        self.stack.push(Value::Null);
-                        return Ok(());
-                    }
-                    if nf.name == "http.get" {
-                        let url = args
-                            .first()
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("get expects url"))?;
-                        self.stack.truncate(callee_index);
-                        if let Some(value) = self.http_get(url)? {
-                            self.stack.push(value);
-                        }
-                        return Ok(());
-                    }
-                    if nf.name == "http.post" {
-                        let url = args
-                            .first()
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("post expects url"))?;
-                        let body = args
-                            .get(1)
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("post expects body"))?;
-                        self.stack.truncate(callee_index);
-                        if let Some(value) = self.http_post(url, body)? {
-                            self.stack.push(value);
-                        }
-                        return Ok(());
-                    }
-                    if nf.name == "http.response" {
-                        let status = args
-                            .first()
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("response expects status"))?;
-                        let body = args
-                            .get(1)
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("response expects body"))?;
-                        self.stack.truncate(callee_index);
-                        let resp = self.http_response(status, body)?;
-                        self.stack.push(resp);
-                        return Ok(());
-                    }
-                    if nf.name == "http.ok" {
-                        let body = args
-                            .first()
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("ok expects body"))?;
-                        self.stack.truncate(callee_index);
-                        let resp = self.http_response(Value::Int(200), body)?;
-                        self.stack.push(resp);
-                        return Ok(());
-                    }
-                    if nf.name == "http.bad_request" {
-                        let body = args
-                            .first()
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("bad_request expects body"))?;
-                        self.stack.truncate(callee_index);
-                        let resp = self.http_response(Value::Int(400), body)?;
-                        self.stack.push(resp);
-                        return Ok(());
-                    }
-                    if nf.name == "http.not_found" {
-                        let body = args
-                            .first()
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("not_found expects body"))?;
-                        self.stack.truncate(callee_index);
-                        let resp = self.http_response(Value::Int(404), body)?;
-                        self.stack.push(resp);
-                        return Ok(());
-                    }
-                    if nf.name == "json.parse" {
-                        let text = args
-                            .first()
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("parse expects string"))?;
-                        self.stack.truncate(callee_index);
-                        let value = self.json_parse(text)?;
-                        self.stack.push(value);
-                        return Ok(());
-                    }
-                    if nf.name == "json.stringify" {
-                        let value = args
-                            .first()
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::new("stringify expects value"))?;
-                        self.stack.truncate(callee_index);
-                        let text = self.json_stringify(value)?;
-                        self.stack.push(text);
-                        return Ok(());
-                    }
-                    let result = match &nf.kind {
-                        NativeImpl::Rust(func) => (func)(self, &args)?,
-                        NativeImpl::Ffi(func) => func.call(&args)?,
-                    };
-                    self.stack.truncate(callee_index);
-                    self.stack.push(result);
-                }
-                _ => return Err(RuntimeError::new("Callee is not callable")),
-            },
+            }
             _ => return Err(RuntimeError::new("Callee is not callable")),
         }
         Ok(())
@@ -2017,6 +2269,273 @@ impl VM {
         Ok(string_value(&text))
     }
 
+    fn tokenizer_train(&self, config: Value) -> Result<Value, RuntimeError> {
+        let mut train_cfg = TrainConfig::default();
+        let mut save_path: Option<String> = None;
+        let path = match config {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::String(s) => s.clone(),
+                Obj::Record(map) => {
+                    let path_value = map
+                        .get("path")
+                        .ok_or_else(|| RuntimeError::new("tokenizer.train config missing path"))?;
+                    let path = value_as_string(path_value)?;
+                    if let Some(value) = map.get("vocab_size") {
+                        let size = value_as_int(value)?;
+                        if size > 0 {
+                            train_cfg.vocab_size = size as usize;
+                        }
+                    }
+                    if let Some(value) = map.get("lowercase") {
+                        train_cfg.lowercase = value_as_bool(value)?;
+                    }
+                    if let Some(value) = map.get("min_freq") {
+                        let min = value_as_int(value)?;
+                        if min > 0 {
+                            train_cfg.min_freq = min as usize;
+                        }
+                    }
+                    if let Some(value) = map.get("save_path") {
+                        save_path = Some(value_as_string(value)?);
+                    }
+                    path
+                }
+                _ => return Err(RuntimeError::new("tokenizer.train expects config record")),
+            },
+            _ => return Err(RuntimeError::new("tokenizer.train expects config record")),
+        };
+        let tokenizer = Tokenizer::train_from_path(Path::new(&path), &train_cfg)
+            .map_err(|err| RuntimeError::new(&format!("tokenizer.train failed: {}", err)))?;
+        if let Some(save_path) = save_path {
+            tokenizer
+                .save(Path::new(&save_path))
+                .map_err(|err| RuntimeError::new(&err))?;
+        }
+        Ok(Value::Obj(ObjRef::new(Obj::Tokenizer(tokenizer))))
+    }
+
+    fn tokenizer_load(&self, path: Value) -> Result<Value, RuntimeError> {
+        let path = value_as_string(&path)?;
+        let tokenizer = Tokenizer::load(Path::new(&path)).map_err(|err| RuntimeError::new(&err))?;
+        Ok(Value::Obj(ObjRef::new(Obj::Tokenizer(tokenizer))))
+    }
+
+    fn tokenizer_save(&self, tokenizer: Value, path: Value) -> Result<(), RuntimeError> {
+        let obj = match tokenizer {
+            Value::Obj(obj) => obj,
+            _ => return Err(RuntimeError::new("tokenizer.save expects Tokenizer")),
+        };
+        let tokenizer = match obj.as_obj() {
+            Obj::Tokenizer(tok) => tok.clone(),
+            _ => return Err(RuntimeError::new("tokenizer.save expects Tokenizer")),
+        };
+        let path = value_as_string(&path)?;
+        tokenizer
+            .save(Path::new(&path))
+            .map_err(|err| RuntimeError::new(&err))?;
+        Ok(())
+    }
+
+    fn tokenizer_encode(&self, tokenizer: Value, text: Value) -> Result<Value, RuntimeError> {
+        let obj = match tokenizer {
+            Value::Obj(obj) => obj,
+            _ => return Err(RuntimeError::new("tokenizer.encode expects Tokenizer")),
+        };
+        let tokenizer = match obj.as_obj() {
+            Obj::Tokenizer(tok) => tok.clone(),
+            _ => return Err(RuntimeError::new("tokenizer.encode expects Tokenizer")),
+        };
+        let text = value_as_string(&text)?;
+        let ids = tokenizer.encode(&text, false);
+        let bytes = ids_to_bytes(&ids);
+        Ok(Value::Obj(ObjRef::new(Obj::Buffer(bytes))))
+    }
+
+    fn tokenizer_decode(&self, tokenizer: Value, tokens: Value) -> Result<Value, RuntimeError> {
+        let obj = match tokenizer {
+            Value::Obj(obj) => obj,
+            _ => return Err(RuntimeError::new("tokenizer.decode expects Tokenizer")),
+        };
+        let tokenizer = match obj.as_obj() {
+            Obj::Tokenizer(tok) => tok.clone(),
+            _ => return Err(RuntimeError::new("tokenizer.decode expects Tokenizer")),
+        };
+        let ids = value_to_token_ids(&tokens)?;
+        let text = tokenizer.decode(&ids);
+        Ok(string_value(&text))
+    }
+
+    fn dataset_open(
+        &self,
+        path: Value,
+        tokenizer: Value,
+        config: Value,
+    ) -> Result<Value, RuntimeError> {
+        let path = value_as_string(&path)?;
+        let tokenizer = match tokenizer {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::Tokenizer(tok) => tok.clone(),
+                _ => return Err(RuntimeError::new("dataset.open expects Tokenizer")),
+            },
+            _ => return Err(RuntimeError::new("dataset.open expects Tokenizer")),
+        };
+        let cfg = match config {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::Record(map) => {
+                    let seq_len = map
+                        .get("seq_len")
+                        .ok_or_else(|| RuntimeError::new("dataset config missing seq_len"))
+                        .and_then(value_as_int)?;
+                    let batch_size = map
+                        .get("batch_size")
+                        .ok_or_else(|| RuntimeError::new("dataset config missing batch_size"))
+                        .and_then(value_as_int)?;
+                    if seq_len <= 0 || batch_size <= 0 {
+                        return Err(RuntimeError::new("seq_len and batch_size must be > 0"));
+                    }
+                    let mut cfg = DatasetConfig::new(seq_len as usize, batch_size as usize);
+                    if let Some(value) = map.get("add_eos") {
+                        cfg.add_eos = value_as_bool(value)?;
+                    }
+                    if let Some(value) = map.get("drop_remainder") {
+                        cfg.drop_remainder = value_as_bool(value)?;
+                    }
+                    if let Some(value) = map.get("pad_id") {
+                        let id = value_as_int(value)?;
+                        if id >= 0 {
+                            cfg.pad_id = id as u32;
+                        }
+                    }
+                    cfg
+                }
+                _ => return Err(RuntimeError::new("dataset.open expects config record")),
+            },
+            _ => return Err(RuntimeError::new("dataset.open expects config record")),
+        };
+        let paths = resolve_dataset_paths(&path)
+            .map_err(|err| RuntimeError::new(&format!("dataset.open failed: {}", err)))?;
+        let stream = DatasetStream::new(paths, tokenizer, cfg)
+            .map_err(|err| RuntimeError::new(&format!("dataset.open failed: {}", err)))?;
+        Ok(Value::Obj(ObjRef::new(Obj::DatasetStream(
+            std::cell::RefCell::new(stream),
+        ))))
+    }
+
+    fn dataset_next_batch(&self, stream: Value) -> Result<Option<Value>, RuntimeError> {
+        let obj = match stream {
+            Value::Obj(obj) => obj,
+            _ => return Err(RuntimeError::new("next_batch expects DatasetStream")),
+        };
+        let stream = match obj.as_obj() {
+            Obj::DatasetStream(inner) => inner,
+            _ => return Err(RuntimeError::new("next_batch expects DatasetStream")),
+        };
+        let batch = stream
+            .borrow_mut()
+            .next_batch()
+            .map_err(|err| RuntimeError::new(&err))?;
+        Ok(batch.map(batch_to_value))
+    }
+
+    fn checkpoint_save(&self, dir: Value, state: Value) -> Result<(), RuntimeError> {
+        let dir = value_as_string(&dir)?;
+        let obj = match state {
+            Value::Obj(obj) => obj,
+            _ => return Err(RuntimeError::new("checkpoint.save expects record state")),
+        };
+        let state = match obj.as_obj() {
+            Obj::Record(map) => map.clone(),
+            _ => return Err(RuntimeError::new("checkpoint.save expects record state")),
+        };
+        let weights = match state.get("weights") {
+            Some(Value::Obj(obj)) => match obj.as_obj() {
+                Obj::Buffer(bytes) => buffer_to_f32(bytes)?,
+                _ => return Err(RuntimeError::new("checkpoint weights must be Buffer")),
+            },
+            _ => return Err(RuntimeError::new("checkpoint state missing weights")),
+        };
+        let optimizer = match state.get("optimizer") {
+            Some(Value::Obj(obj)) => match obj.as_obj() {
+                Obj::Buffer(bytes) => buffer_to_f32(bytes)?,
+                _ => return Err(RuntimeError::new("checkpoint optimizer must be Buffer")),
+            },
+            _ => Vec::new(),
+        };
+        let step = match state.get("step") {
+            Some(value) => value_as_int(value)? as u64,
+            None => return Err(RuntimeError::new("checkpoint state missing step")),
+        };
+        let tokens = match state.get("tokens") {
+            Some(value) => value_as_int(value)? as u64,
+            None => 0,
+        };
+        let loss = match state.get("loss") {
+            Some(Value::Float(f)) => *f,
+            Some(Value::Int(i)) => *i as f64,
+            Some(_) => return Err(RuntimeError::new("checkpoint loss must be Float")),
+            None => 0.0,
+        };
+        let config_hash = match state.get("config_hash") {
+            Some(value) => value_as_string(value)?,
+            None => "".to_string(),
+        };
+        let meta = CheckpointMeta {
+            step,
+            tokens,
+            loss,
+            config_hash,
+        };
+        let state = CheckpointState {
+            weights,
+            optimizer,
+            meta,
+        };
+        save_checkpoint(Path::new(&dir), &state).map_err(|err| RuntimeError::new(&err))?;
+        Ok(())
+    }
+
+    fn checkpoint_load(&self, path: Value) -> Result<Value, RuntimeError> {
+        let path = value_as_string(&path)?;
+        let state = load_checkpoint(Path::new(&path)).map_err(|err| RuntimeError::new(&err))?;
+        let mut map = HashMap::new();
+        map.insert(
+            "weights".to_string(),
+            Value::Obj(ObjRef::new(Obj::Buffer(f32_to_bytes(&state.weights)))),
+        );
+        map.insert(
+            "optimizer".to_string(),
+            Value::Obj(ObjRef::new(Obj::Buffer(f32_to_bytes(&state.optimizer)))),
+        );
+        map.insert("step".to_string(), Value::Int(state.meta.step as i64));
+        map.insert("tokens".to_string(), Value::Int(state.meta.tokens as i64));
+        map.insert("loss".to_string(), Value::Float(state.meta.loss));
+        map.insert(
+            "config_hash".to_string(),
+            string_value(&state.meta.config_hash),
+        );
+        Ok(record_value(map))
+    }
+
+    fn checkpoint_latest(&self, dir: Value) -> Result<Value, RuntimeError> {
+        let dir = value_as_string(&dir)?;
+        let latest = latest_checkpoint(Path::new(&dir)).map_err(|err| RuntimeError::new(&err))?;
+        Ok(match latest {
+            Some(path) => string_value(&path.to_string_lossy()),
+            None => Value::Null,
+        })
+    }
+
+    fn checkpoint_rotate(&self, dir: Value, keep: Value) -> Result<(), RuntimeError> {
+        let dir = value_as_string(&dir)?;
+        let keep = value_as_int(&keep)?;
+        if keep < 0 {
+            return Err(RuntimeError::new("checkpoint.rotate expects keep >= 0"));
+        }
+        rotate_checkpoints(Path::new(&dir), keep as usize)
+            .map_err(|err| RuntimeError::new(&err))?;
+        Ok(())
+    }
+
     fn value_to_json(&self, value: Value) -> Result<serde_json::Value, RuntimeError> {
         match value {
             Value::Null => Ok(serde_json::Value::Null),
@@ -2341,6 +2860,92 @@ fn json_to_value(value: serde_json::Value) -> Value {
     }
 }
 
+fn value_as_string(value: &Value) -> Result<String, RuntimeError> {
+    match value {
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::String(s) => Ok(s.clone()),
+            _ => Err(RuntimeError::new("Expected String value")),
+        },
+        _ => Err(RuntimeError::new("Expected String value")),
+    }
+}
+
+fn value_as_int(value: &Value) -> Result<i64, RuntimeError> {
+    match value {
+        Value::Int(i) => Ok(*i),
+        _ => Err(RuntimeError::new("Expected Int value")),
+    }
+}
+
+fn value_as_bool(value: &Value) -> Result<bool, RuntimeError> {
+    match value {
+        Value::Bool(b) => Ok(*b),
+        _ => Err(RuntimeError::new("Expected Bool value")),
+    }
+}
+
+fn value_to_token_ids(value: &Value) -> Result<Vec<u32>, RuntimeError> {
+    match value {
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::Buffer(bytes) => bytes_to_ids(bytes)
+                .map_err(|err| RuntimeError::new(&format!("Invalid token buffer: {}", err))),
+            Obj::List(items) => {
+                let mut out = Vec::with_capacity(items.len());
+                for item in items {
+                    match item {
+                        Value::Int(i) if *i >= 0 => out.push(*i as u32),
+                        _ => return Err(RuntimeError::new("Token list must contain Int values")),
+                    }
+                }
+                Ok(out)
+            }
+            _ => Err(RuntimeError::new("Tokens must be Buffer or List")),
+        },
+        _ => Err(RuntimeError::new("Tokens must be Buffer or List")),
+    }
+}
+
+fn batch_to_value(batch: Batch) -> Value {
+    let mut map = HashMap::new();
+    map.insert(
+        "input_ids".to_string(),
+        Value::Obj(ObjRef::new(Obj::Buffer(ids_to_bytes(&batch.input_ids)))),
+    );
+    map.insert(
+        "target_ids".to_string(),
+        Value::Obj(ObjRef::new(Obj::Buffer(ids_to_bytes(&batch.target_ids)))),
+    );
+    map.insert(
+        "attention_mask".to_string(),
+        Value::Obj(ObjRef::new(Obj::Buffer(batch.attention_mask))),
+    );
+    map.insert(
+        "batch_size".to_string(),
+        Value::Int(batch.batch_size as i64),
+    );
+    map.insert("seq_len".to_string(), Value::Int(batch.seq_len as i64));
+    record_value(map)
+}
+
+fn f32_to_bytes(values: &[f32]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(values.len() * 4);
+    for v in values {
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+    out
+}
+
+fn buffer_to_f32(bytes: &[u8]) -> Result<Vec<f32>, RuntimeError> {
+    if !bytes.len().is_multiple_of(4) {
+        return Err(RuntimeError::new("Invalid f32 buffer length"));
+    }
+    let mut out = Vec::with_capacity(bytes.len() / 4);
+    for chunk in bytes.chunks_exact(4) {
+        out.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
+    }
+    Ok(out)
+}
+
 fn numeric_op<F>(a: Value, b: Value, f: F) -> Result<Value, RuntimeError>
 where
     F: Fn(f64, f64) -> f64,
@@ -2392,6 +2997,8 @@ fn display_value(v: &Value) -> String {
             Obj::Channel(_) => "<channel>".to_string(),
             Obj::TcpListener(_) => "<tcp_listener>".to_string(),
             Obj::TcpConnection(_) => "<tcp_connection>".to_string(),
+            Obj::Tokenizer(tok) => format!("<tokenizer {}>", tok.vocab_size()),
+            Obj::DatasetStream(_) => "<dataset>".to_string(),
             Obj::Record(_) => "<record>".to_string(),
         },
     }

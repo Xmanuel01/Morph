@@ -9,6 +9,8 @@ use morphc::modules::load_package;
 use morphc::{TypeChecker, TypeError};
 use morphrt::{Value, VM};
 
+mod train;
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
@@ -21,6 +23,8 @@ fn main() {
         "check" => check_command(&args[2..]),
         "fmt" => fmt_command(&args[2..]),
         "test" => test_command(&args[2..]),
+        "train" => train_command(&args[2..]),
+        "eval" => eval_command(&args[2..]),
         _ => {
             print_usage();
             1
@@ -290,6 +294,36 @@ fn fmt_command(args: &[String]) -> i32 {
     }
 }
 
+fn train_command(args: &[String]) -> i32 {
+    if args.is_empty() {
+        eprintln!("morph train requires a config file");
+        return 1;
+    }
+    let path = PathBuf::from(&args[0]);
+    match train::train(&path) {
+        Ok(_) => 0,
+        Err(err) => {
+            eprintln!("Train error: {}", err);
+            1
+        }
+    }
+}
+
+fn eval_command(args: &[String]) -> i32 {
+    if args.is_empty() {
+        eprintln!("morph eval requires a config file");
+        return 1;
+    }
+    let path = PathBuf::from(&args[0]);
+    match train::eval(&path) {
+        Ok(_) => 0,
+        Err(err) => {
+            eprintln!("Eval error: {}", err);
+            1
+        }
+    }
+}
+
 fn resolve_entry(target: &Path) -> Result<(PathBuf, PathBuf), String> {
     let metadata = fs::metadata(target)
         .map_err(|err| format!("Failed to read {}: {}", target.display(), err))?;
@@ -379,6 +413,8 @@ fn print_usage() {
     eprintln!("  morph check <file|dir>");
     eprintln!("  morph fmt [--check] <file|dir>");
     eprintln!("  morph test [dir]");
+    eprintln!("  morph train <config.morph>");
+    eprintln!("  morph eval <config.morph>");
 }
 
 #[cfg(test)]

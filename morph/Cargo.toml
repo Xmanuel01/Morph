@@ -8,6 +8,9 @@ description = "Morph CLI (run, fmt, test)."
 [dependencies]
 morphc = { path = "../morphc" }
 morphrt = { path = "../morphrt" }
+rand = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 
 [dev-dependencies]
 tempfile = "3.10"

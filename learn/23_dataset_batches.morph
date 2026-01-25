@@ -1,0 +1,14 @@
+// Lesson 23: Dataset batches
+// Expected: prints "4"
+
+fn main() ::
+    let tok := tokenizer.load("tokenizer.json")
+    let cfg := json.parse("{\"seq_len\":4,\"batch_size\":2,\"add_eos\":true,\"drop_remainder\":false}")
+    let stream := dataset.open("data/*.txt", tok, cfg)
+    let batch := stream.next_batch()
+    print(batch.seq_len)
+::
+
+// Common error example:
+// let cfg := json.parse("{\"batch_size\":2}")
+// dataset.open("data/*.txt", tok, cfg) // error: missing seq_len

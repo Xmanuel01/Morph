@@ -33,6 +33,11 @@ jobs:
             asset_os: macos
             arch: aarch64
             ext: tar.gz
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            asset_os: macos
+            arch: x86_64
+            ext: tar.gz
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             asset_os: windows
@@ -46,6 +51,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build morph
         run: cargo build -p morph --release --target ${{ matrix.target }}
+      - name: Build morph_native
+        run: cargo build -p morph_native --release --target ${{ matrix.target }}
       - name: Sign binary (Windows)
         if: runner.os == 'Windows' && env.WINDOWS_PFX_BASE64 != ''
         shell: pwsh
@@ -93,10 +100,25 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           BIN="target/${{ matrix.target }}/release/morph"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            NATIVE="target/${{ matrix.target }}/release/libmorph_native.dylib"
+          else
+            NATIVE="target/${{ matrix.target }}/release/libmorph_native.so"
+          fi
           OUT="dist/morph-${VERSION}-${{ matrix.asset_os }}-${{ matrix.arch }}.tar.gz"
-          mkdir -p dist
+          STAGE="dist/stage"
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE/examples"
           chmod +x "$BIN"
-          tar -czf "$OUT" -C "$(dirname "$BIN")" morph
+          cp "$BIN" "$STAGE/morph"
+          cp -R std "$STAGE/std"
+          cp -R examples/hello "$STAGE/examples/hello"
+          cp install/README.txt "$STAGE/README.txt"
+          if [ -f "$NATIVE" ]; then
+            cp "$NATIVE" "$STAGE/"
+          fi
+          mkdir -p dist
+          tar -czf "$OUT" -C "$STAGE" .
           (cd dist && shasum -a 256 "$(basename "$OUT")" > "$(basename "$OUT").sha256")
       - name: Package (windows)
         if: runner.os == 'Windows'
@@ -104,9 +126,19 @@ jobs:
         run: |
           $version = $env:GITHUB_REF_NAME.TrimStart('v')
           $bin = "target\\${{ matrix.target }}\\release\\morph.exe"
+          $native = "target\\${{ matrix.target }}\\release\\morph_native.dll"
           $out = "dist\\morph-$version-${{ matrix.asset_os }}-${{ matrix.arch }}.zip"
+          $stage = "dist\\stage"
+          if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $stage "examples") | Out-Null
+          Copy-Item -Path $bin -Destination (Join-Path $stage "morph.exe") -Force
+          if (Test-Path $native) { Copy-Item -Path $native -Destination $stage -Force }
+          Copy-Item -Recurse -Path "std" -Destination (Join-Path $stage "std") -Force
+          Copy-Item -Recurse -Path "examples\\hello" -Destination (Join-Path $stage "examples\\hello") -Force
+          Copy-Item -Path "install\\README.txt" -Destination (Join-Path $stage "README.txt") -Force
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Compress-Archive -Path $bin -DestinationPath $out -Force
+          Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $out -Force
           $hash = (Get-FileHash -Algorithm SHA256 $out).Hash.ToLower()
           "$hash  $(Split-Path -Leaf $out)" | Out-File -Encoding ascii "$out.sha256"
       - name: Upload release assets

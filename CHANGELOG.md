@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.7.1
+
+### Fixes
+- Bumped workspace crate versions to 0.7.1 for release builds.
+
 ## v0.7.0
 
 ### Highlights

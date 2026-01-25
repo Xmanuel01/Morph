@@ -447,6 +447,14 @@ fn type_from_ref(r: TypeRef) -> Type {
                 Some("Bool") => Type::Bool,
                 Some("String") => Type::String,
                 Some("Buffer") => Type::Buffer,
+                Some("Tokenizer") => Type::Tokenizer,
+                Some("DataStream") => Type::DataStream,
+                Some("Batch") => Type::Batch,
+                Some("Tensor") => Type::Tensor,
+                Some("Device") => Type::Device,
+                Some("DType") => Type::DType,
+                Some("Shape") => Type::Shape,
+                Some("OptimizerState") => Type::OptimizerState,
                 Some("TcpListener") => Type::TcpListener,
                 Some("TcpConnection") => Type::TcpConnection,
                 Some("Request") => Type::HttpRequest,
@@ -474,6 +482,18 @@ fn compatible(expected: &Type, found: &Type) -> bool {
     match (expected, found) {
         (Type::Optional(inner), Type::Optional(f)) => compatible(inner, f),
         (Type::Optional(inner), f) => compatible(inner, f), // allow T to satisfy Optional<T>
+        (Type::Device, Type::String) => true,
+        (Type::DType, Type::String) => true,
+        (Type::Shape, Type::String) => true,
+        (Type::String, Type::Device) => true,
+        (Type::String, Type::DType) => true,
+        (Type::String, Type::Shape) => true,
+        (Type::Tensor, Type::Int) => true,
+        (Type::Device, Type::Int) => true,
+        (Type::OptimizerState, Type::Int) => true,
+        (Type::Int, Type::Tensor) => true,
+        (Type::Int, Type::Device) => true,
+        (Type::Int, Type::OptimizerState) => true,
         _ => false,
     }
 }
@@ -582,6 +602,58 @@ fn inject_builtins(
         Type::Function(vec![Type::Unknown], Box::new(Type::String)),
     );
     exports.entry(json_id).or_insert(json_exports);
+    let tokenizer_id = ModuleId(vec!["tokenizer".to_string()]);
+    imports
+        .entry("tokenizer".to_string())
+        .or_insert(tokenizer_id.clone());
+    let mut tokenizer_exports = std::collections::HashMap::new();
+    tokenizer_exports.insert(
+        "train".to_string(),
+        Type::Function(vec![Type::Unknown], Box::new(Type::Tokenizer)),
+    );
+    tokenizer_exports.insert(
+        "load".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::Tokenizer)),
+    );
+    exports.entry(tokenizer_id).or_insert(tokenizer_exports);
+    let dataset_id = ModuleId(vec!["dataset".to_string()]);
+    imports
+        .entry("dataset".to_string())
+        .or_insert(dataset_id.clone());
+    let mut dataset_exports = std::collections::HashMap::new();
+    dataset_exports.insert(
+        "open".to_string(),
+        Type::Function(
+            vec![Type::String, Type::Tokenizer, Type::Unknown],
+            Box::new(Type::DataStream),
+        ),
+    );
+    exports.entry(dataset_id).or_insert(dataset_exports);
+    let checkpoint_id = ModuleId(vec!["checkpoint".to_string()]);
+    imports
+        .entry("checkpoint".to_string())
+        .or_insert(checkpoint_id.clone());
+    let mut checkpoint_exports = std::collections::HashMap::new();
+    checkpoint_exports.insert(
+        "save".to_string(),
+        Type::Function(vec![Type::String, Type::Unknown], Box::new(Type::Void)),
+    );
+    checkpoint_exports.insert(
+        "load".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::Unknown)),
+    );
+    checkpoint_exports.insert(
+        "latest".to_string(),
+        Type::Function(
+            vec![Type::String],
+            Box::new(Type::Optional(Box::new(Type::String))),
+        ),
+    );
+    checkpoint_exports.insert(
+        "rotate".to_string(),
+        Type::Function(vec![Type::String, Type::Int], Box::new(Type::Void)),
+    );
+    exports.entry(checkpoint_id).or_insert(checkpoint_exports);
     (imports, exports)
 }
 

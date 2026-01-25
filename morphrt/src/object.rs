@@ -4,7 +4,9 @@ use std::rc::Rc;
 
 use morphc::bytecode::Program;
 
+use crate::dataset::DatasetStream;
 use crate::ffi::native_fn::FfiFunction;
+use crate::tokenizer::Tokenizer;
 use crate::value::{ObjRef, Value};
 
 pub type NativeFunc =
@@ -22,6 +24,8 @@ pub enum Obj {
     Channel(RefCell<ChannelState>),
     TcpListener(RefCell<std::net::TcpListener>),
     TcpConnection(RefCell<std::net::TcpStream>),
+    Tokenizer(Tokenizer),
+    DatasetStream(RefCell<DatasetStream>),
     Record(std::collections::HashMap<String, Value>),
 }
 
@@ -38,6 +42,8 @@ impl Obj {
             Obj::Channel(_) => "Channel",
             Obj::TcpListener(_) => "TcpListener",
             Obj::TcpConnection(_) => "TcpConnection",
+            Obj::Tokenizer(_) => "Tokenizer",
+            Obj::DatasetStream(_) => "DatasetStream",
             Obj::Record(_) => "Record",
         }
     }
