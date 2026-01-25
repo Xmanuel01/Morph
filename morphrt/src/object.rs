@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::rc::Rc;
 
 use morphc::bytecode::Program;
@@ -12,8 +14,14 @@ pub type NativeFunc =
 pub enum Obj {
     String(String),
     Buffer(Vec<u8>),
+    List(Vec<Value>),
+    Json(serde_json::Value),
     Function(FunctionObj),
     NativeFunction(NativeFunction),
+    TaskHandle(usize),
+    Channel(RefCell<ChannelState>),
+    TcpListener(RefCell<std::net::TcpListener>),
+    TcpConnection(RefCell<std::net::TcpStream>),
     Record(std::collections::HashMap<String, Value>),
 }
 
@@ -22,8 +30,14 @@ impl Obj {
         match self {
             Obj::String(_) => "String",
             Obj::Buffer(_) => "Buffer",
+            Obj::List(_) => "List",
+            Obj::Json(_) => "Json",
             Obj::Function(_) => "Function",
             Obj::NativeFunction(_) => "NativeFunction",
+            Obj::TaskHandle(_) => "TaskHandle",
+            Obj::Channel(_) => "Channel",
+            Obj::TcpListener(_) => "TcpListener",
+            Obj::TcpConnection(_) => "TcpConnection",
             Obj::Record(_) => "Record",
         }
     }
@@ -46,6 +60,7 @@ pub struct NativeFunction {
     pub name: String,
     pub arity: u16,
     pub kind: NativeImpl,
+    pub bound: Option<Value>,
 }
 
 impl std::fmt::Debug for NativeFunction {
@@ -76,4 +91,33 @@ pub fn buffer_value(bytes: Vec<u8>) -> Value {
 
 pub fn record_value(map: std::collections::HashMap<String, Value>) -> Value {
     Value::Obj(ObjRef::new(Obj::Record(map)))
+}
+
+pub fn task_handle_value(id: usize) -> Value {
+    Value::Obj(ObjRef::new(Obj::TaskHandle(id)))
+}
+
+#[derive(Debug)]
+pub struct ChannelState {
+    pub queue: VecDeque<Value>,
+    pub waiters: VecDeque<usize>,
+}
+
+impl ChannelState {
+    pub fn new() -> Self {
+        Self {
+            queue: VecDeque::new(),
+            waiters: VecDeque::new(),
+        }
+    }
+}
+
+impl Default for ChannelState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub fn channel_value() -> Value {
+    Value::Obj(ObjRef::new(Obj::Channel(RefCell::new(ChannelState::new()))))
 }

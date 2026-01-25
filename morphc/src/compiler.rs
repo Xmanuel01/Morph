@@ -150,6 +150,11 @@ impl<'a> ProgramBuilder<'a> {
 
     fn define_builtin_globals(&mut self) {
         let _ = self.ensure_global("print");
+        let _ = self.ensure_global("task");
+        let _ = self.ensure_global("chan");
+        let _ = self.ensure_global("net");
+        let _ = self.ensure_global("http");
+        let _ = self.ensure_global("json");
     }
 
     fn ensure_global(&mut self, name: &str) -> u16 {

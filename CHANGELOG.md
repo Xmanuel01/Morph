@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.7.0
+
+### Highlights
+- Added cooperative tasks, channels, and a TCP networking layer for concurrent workloads.
+- Shipped HTTP server/client helpers and JSON parse/stringify (record/list mappings).
+- Added install scripts plus automated release packaging (zip/tar.gz + checksums).
+- Added Windows installer builds (Inno Setup + WiX) with signing/notarization hooks.
+- Expanded docs and learn lessons for concurrency, networking, HTTP, and JSON.
+
+### Fixes
+- Stabilized scheduler + IO blocking behavior with VM tests for tasks, channels, net, HTTP, and JSON.
+
 ## v0.5.0
 
 ### Highlights

@@ -34,6 +34,18 @@ let msg := greet("Morph")
 print(msg)
 
 Running
+- Install (recommended):
+  - Windows (PowerShell):
+    - `iwr -useb https://.../install.ps1 | iex`
+  - Linux/macOS:
+    - `curl -fsSL https://.../install.sh | sh`
+  - Release assets are expected to follow:
+    - `morph-<version>-windows-x86_64.zip`
+    - `morph-<version>-linux-x86_64.tar.gz`
+    - `morph-<version>-linux-aarch64.tar.gz`
+    - `morph-<version>-macos-x86_64.tar.gz`
+    - `morph-<version>-macos-aarch64.tar.gz`
+    - `morph-setup-<version>.exe`
 - cargo run -p morph -- run path\\to\\file.morph
 - cargo run -p morph -- run examples\\project_v02
 - cargo run -p morph -- fmt --check examples\\project_v02\\src\\main.morph

@@ -36,11 +36,15 @@ fn run_command(args: &[String]) -> i32 {
     }
     let mut trace_vm = false;
     let mut disasm = false;
+    let mut trace_task = false;
+    let mut trace_net = false;
     let mut file_arg: Option<String> = None;
     for arg in args {
         match arg.as_str() {
             "--trace-vm" => trace_vm = true,
             "--disasm" => disasm = true,
+            "--trace-task" => trace_task = true,
+            "--trace-net" => trace_net = true,
             _ => file_arg = Some(arg.clone()),
         }
     }
@@ -76,7 +80,7 @@ fn run_command(args: &[String]) -> i32 {
             return 1;
         }
     };
-    let mut vm = VM::new(trace_vm, disasm);
+    let mut vm = VM::new(trace_vm, disasm, trace_task, trace_net);
     match vm.run(&program) {
         Ok(Value::Int(code)) => code as i32,
         Ok(_) => 0,
@@ -171,7 +175,7 @@ fn test_command(args: &[String]) -> i32 {
                 continue;
             }
         };
-        let mut vm = VM::new(false, false);
+        let mut vm = VM::new(false, false, false, false);
         match vm.run(&program) {
             Ok(_) => {
                 println!("[pass] {}", file.display());
@@ -371,7 +375,7 @@ fn normalize_line_endings(input: &str) -> String {
 fn print_usage() {
     eprintln!("Morph CLI");
     eprintln!("Usage:");
-    eprintln!("  morph run [--trace-vm] [--disasm] <file|dir>");
+    eprintln!("  morph run [--trace-vm] [--disasm] [--trace-task] [--trace-net] <file|dir>");
     eprintln!("  morph check <file|dir>");
     eprintln!("  morph fmt [--check] <file|dir>");
     eprintln!("  morph test [dir]");

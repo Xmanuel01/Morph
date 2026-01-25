@@ -5,7 +5,7 @@ use morphrt::{Value, VM};
 fn run_value(source: &str) -> Value {
     let module = parse_module(source).expect("parse");
     let program = compile_module(&module).expect("compile");
-    let mut vm = VM::new(false, false);
+    let mut vm = VM::new(false, false, false, false);
     vm.run(&program).expect("run")
 }
 

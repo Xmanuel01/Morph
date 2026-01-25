@@ -1,0 +1,6 @@
+// Expected: prints {"a":1,"b":[true,null]} (order may vary)
+let v := json.parse("{\"a\":1,\"b\":[true,null]}")
+print(json.stringify(v))
+
+// Error example: invalid JSON
+// json.parse("{bad}")

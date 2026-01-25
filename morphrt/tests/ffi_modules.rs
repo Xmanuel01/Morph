@@ -32,7 +32,7 @@ fn run_package(root: &Path, entry_name: &str, source: &str) -> Result<Value, Run
     fs::write(&entry, source).expect("write entry");
     let package = load_package(&entry).expect("load package");
     let program = compile_package(&package).expect("compile");
-    let mut vm = VM::new(false, false);
+    let mut vm = VM::new(false, false, false, false);
     vm.run(&program)
 }
 

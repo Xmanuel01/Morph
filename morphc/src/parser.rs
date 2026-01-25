@@ -1049,7 +1049,7 @@ impl Parser {
             } else if self.matches(TokenKind::Dot) {
                 let token = self.previous();
                 let span = Span::single(token.line, token.col);
-                let name = self.expect_ident()?;
+                let name = self.expect_field_name()?;
                 expr = Expr::Field {
                     target: Box::new(expr),
                     name,
@@ -1329,6 +1329,15 @@ impl Parser {
         }
         let token = self.current();
         Err(self.error("Expected identifier", token))
+    }
+
+    fn expect_field_name(&mut self) -> Result<String, ParseError> {
+        let token = self.advance();
+        match token.kind {
+            TokenKind::Ident(name) => Ok(name),
+            TokenKind::Spawn => Ok("spawn".to_string()),
+            _ => Err(self.error("Expected identifier", &token)),
+        }
     }
 
     fn consume_stmt_end(&mut self) -> Result<(), ParseError> {

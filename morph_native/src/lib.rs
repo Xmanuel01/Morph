@@ -8,13 +8,14 @@ pub struct FfiSlice {
 }
 
 #[no_mangle]
-pub extern "C" fn morph_free(ptr: *mut u8, len: usize) {
+/// # Safety
+/// The caller must pass a pointer and length originally allocated by `morph_native`
+/// and must ensure the buffer is not freed more than once.
+pub unsafe extern "C" fn morph_free(ptr: *mut u8, len: usize) {
     if ptr.is_null() {
         return;
     }
-    unsafe {
-        let _ = Vec::from_raw_parts(ptr, len, len);
-    }
+    let _ = Vec::from_raw_parts(ptr, len, len);
 }
 
 fn slice_from_raw<'a>(ptr: *const u8, len: usize) -> Option<&'a [u8]> {
@@ -81,12 +82,7 @@ pub extern "C" fn buffer_len(_ptr: *const u8, len: usize) -> i64 {
 }
 
 #[no_mangle]
-pub extern "C" fn buffer_eq(
-    a_ptr: *const u8,
-    a_len: usize,
-    b_ptr: *const u8,
-    b_len: usize,
-) -> u8 {
+pub extern "C" fn buffer_eq(a_ptr: *const u8, a_len: usize, b_ptr: *const u8, b_len: usize) -> u8 {
     let a = match slice_from_raw(a_ptr, a_len) {
         Some(bytes) => bytes,
         None => return 0,
@@ -95,7 +91,11 @@ pub extern "C" fn buffer_eq(
         Some(bytes) => bytes,
         None => return 0,
     };
-    if a == b { 1 } else { 0 }
+    if a == b {
+        1
+    } else {
+        0
+    }
 }
 
 #[no_mangle]

@@ -1,0 +1,194 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+env:
+  WINDOWS_PFX_BASE64: ${{ secrets.WINDOWS_PFX_BASE64 }}
+  WINDOWS_PFX_PASSWORD: ${{ secrets.WINDOWS_PFX_PASSWORD }}
+  MACOS_CERT_BASE64: ${{ secrets.MACOS_CERT_BASE64 }}
+  MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+  MACOS_CERT_IDENTITY: ${{ secrets.MACOS_CERT_IDENTITY }}
+  MACOS_NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+  MACOS_NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
+  MACOS_NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+
+jobs:
+  build-release:
+    name: Build ${{ matrix.asset_os }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset_os: linux
+            arch: x86_64
+            ext: tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            asset_os: macos
+            arch: aarch64
+            ext: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset_os: windows
+            arch: x86_64
+            ext: zip
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Build morph
+        run: cargo build -p morph --release --target ${{ matrix.target }}
+      - name: Sign binary (Windows)
+        if: runner.os == 'Windows' && env.WINDOWS_PFX_BASE64 != ''
+        shell: pwsh
+        env:
+          WINDOWS_PFX_BASE64: ${{ secrets.WINDOWS_PFX_BASE64 }}
+          WINDOWS_PFX_PASSWORD: ${{ secrets.WINDOWS_PFX_PASSWORD }}
+        run: |
+          $pfxPath = "$env:RUNNER_TEMP\\morph_sign.pfx"
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:WINDOWS_PFX_BASE64))
+          $bin = "target\\${{ matrix.target }}\\release\\morph.exe"
+          & "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64\\signtool.exe" sign /f $pfxPath /p $env:WINDOWS_PFX_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $bin
+      - name: Sign binary (macOS)
+        if: runner.os == 'macOS' && env.MACOS_CERT_BASE64 != ''
+        shell: bash
+        env:
+          MACOS_CERT_BASE64: ${{ secrets.MACOS_CERT_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          MACOS_CERT_IDENTITY: ${{ secrets.MACOS_CERT_IDENTITY }}
+        run: |
+          CERT_PATH="$RUNNER_TEMP/morph_sign.p12"
+          KEYCHAIN="$RUNNER_TEMP/morph.keychain"
+          echo "$MACOS_CERT_BASE64" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "" "$KEYCHAIN"
+          security import "$CERT_PATH" -k "$KEYCHAIN" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          security list-keychain -d user -s "$KEYCHAIN"
+          security unlock-keychain -p "" "$KEYCHAIN"
+          BIN="target/${{ matrix.target }}/release/morph"
+          codesign --force --options runtime --sign "$MACOS_CERT_IDENTITY" "$BIN"
+      - name: Notarize binary (macOS)
+        if: runner.os == 'macOS' && env.MACOS_NOTARY_APPLE_ID != ''
+        shell: bash
+        env:
+          MACOS_NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+          MACOS_NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
+          MACOS_NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+        run: |
+          BIN="target/${{ matrix.target }}/release/morph"
+          ZIP="$RUNNER_TEMP/morph-notary.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$BIN" "$ZIP"
+          xcrun notarytool submit "$ZIP" --apple-id "$MACOS_NOTARY_APPLE_ID" --password "$MACOS_NOTARY_PASSWORD" --team-id "$MACOS_NOTARY_TEAM_ID" --wait
+          xcrun stapler staple "$BIN"
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          BIN="target/${{ matrix.target }}/release/morph"
+          OUT="dist/morph-${VERSION}-${{ matrix.asset_os }}-${{ matrix.arch }}.tar.gz"
+          mkdir -p dist
+          chmod +x "$BIN"
+          tar -czf "$OUT" -C "$(dirname "$BIN")" morph
+          (cd dist && shasum -a 256 "$(basename "$OUT")" > "$(basename "$OUT").sha256")
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          $bin = "target\\${{ matrix.target }}\\release\\morph.exe"
+          $out = "dist\\morph-$version-${{ matrix.asset_os }}-${{ matrix.arch }}.zip"
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path $bin -DestinationPath $out -Force
+          $hash = (Get-FileHash -Algorithm SHA256 $out).Hash.ToLower()
+          "$hash  $(Split-Path -Leaf $out)" | Out-File -Encoding ascii "$out.sha256"
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+
+  windows-installer:
+    name: Windows installer (Inno Setup)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build morph
+        run: cargo build -p morph --release
+      - name: Build installer
+        uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
+        with:
+          path: installer/morph.iss
+          options: /DMyAppVersion=${{ github.ref_name }}
+      - name: Sign installer (Inno)
+        if: env.WINDOWS_PFX_BASE64 != ''
+        shell: pwsh
+        env:
+          WINDOWS_PFX_BASE64: ${{ secrets.WINDOWS_PFX_BASE64 }}
+          WINDOWS_PFX_PASSWORD: ${{ secrets.WINDOWS_PFX_PASSWORD }}
+        run: |
+          $pfxPath = "$env:RUNNER_TEMP\\morph_sign.pfx"
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:WINDOWS_PFX_BASE64))
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          $exe = "dist\\morph-setup-$version.exe"
+          & "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64\\signtool.exe" sign /f $pfxPath /p $env:WINDOWS_PFX_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $exe
+      - name: Checksum
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          $exe = "dist\\morph-setup-$version.exe"
+          $hash = (Get-FileHash -Algorithm SHA256 $exe).Hash.ToLower()
+          "$hash  $(Split-Path -Leaf $exe)" | Out-File -Encoding ascii "$exe.sha256"
+      - name: Upload installer
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+
+  windows-installer-wix:
+    name: Windows installer (WiX)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install WiX Toolset
+        run: choco install wixtoolset -y
+      - name: Build morph
+        run: cargo build -p morph --release
+      - name: Build MSI
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          candle.exe -dProductVersion=$version -out dist\\morph.wixobj installer\\morph.wxs
+          light.exe -out dist\\morph-setup-wix-$version.msi dist\\morph.wixobj -ext WixUIExtension
+      - name: Sign MSI
+        if: env.WINDOWS_PFX_BASE64 != ''
+        shell: pwsh
+        env:
+          WINDOWS_PFX_BASE64: ${{ secrets.WINDOWS_PFX_BASE64 }}
+          WINDOWS_PFX_PASSWORD: ${{ secrets.WINDOWS_PFX_PASSWORD }}
+        run: |
+          $pfxPath = "$env:RUNNER_TEMP\\morph_sign.pfx"
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:WINDOWS_PFX_BASE64))
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          $msi = "dist\\morph-setup-wix-$version.msi"
+          & "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64\\signtool.exe" sign /f $pfxPath /p $env:WINDOWS_PFX_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $msi
+      - name: Checksum
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          $hash = (Get-FileHash -Algorithm SHA256 "dist\\morph-setup-wix-$version.msi").Hash.ToLower()
+          "$hash  morph-setup-wix-$version.msi" | Out-File -Encoding ascii "dist\\morph-setup-wix-$version.msi.sha256"
+      - name: Upload MSI
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*

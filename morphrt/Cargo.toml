@@ -9,6 +9,7 @@ description = "Morph runtime/interpreter."
 morphc = { path = "../morphc" }
 libloading = "0.8"
 libffi = "3.2"
+serde_json = "1.0"
 
 [dev-dependencies]
 tempfile = "3.10"

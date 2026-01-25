@@ -43,13 +43,17 @@ impl Default for TypeChecker {
 
 impl TypeChecker {
     pub fn new() -> Self {
-        Self::default()
+        Self::new_with_imports(
+            std::collections::HashMap::new(),
+            std::collections::HashMap::new(),
+        )
     }
 
     pub fn new_with_imports(
         imports: std::collections::HashMap<String, ModuleId>,
         exports: std::collections::HashMap<ModuleId, std::collections::HashMap<String, Type>>,
     ) -> Self {
+        let (imports, exports) = inject_builtins(imports, exports);
         Self {
             scopes: vec![std::collections::HashMap::new()],
             imports,
@@ -443,6 +447,10 @@ fn type_from_ref(r: TypeRef) -> Type {
                 Some("Bool") => Type::Bool,
                 Some("String") => Type::String,
                 Some("Buffer") => Type::Buffer,
+                Some("TcpListener") => Type::TcpListener,
+                Some("TcpConnection") => Type::TcpConnection,
+                Some("Request") => Type::HttpRequest,
+                Some("Response") => Type::HttpResponse,
                 Some("Void") => Type::Void,
                 _ => Type::Unknown,
             };
@@ -468,6 +476,113 @@ fn compatible(expected: &Type, found: &Type) -> bool {
         (Type::Optional(inner), f) => compatible(inner, f), // allow T to satisfy Optional<T>
         _ => false,
     }
+}
+
+fn inject_builtins(
+    mut imports: std::collections::HashMap<String, ModuleId>,
+    mut exports: std::collections::HashMap<ModuleId, std::collections::HashMap<String, Type>>,
+) -> (
+    std::collections::HashMap<String, ModuleId>,
+    std::collections::HashMap<ModuleId, std::collections::HashMap<String, Type>>,
+) {
+    let task_id = ModuleId(vec!["task".to_string()]);
+    imports.entry("task".to_string()).or_insert(task_id.clone());
+    let mut task_exports = std::collections::HashMap::new();
+    task_exports.insert(
+        "spawn".to_string(),
+        Type::Function(
+            vec![Type::Function(Vec::new(), Box::new(Type::Unknown))],
+            Box::new(Type::Unknown),
+        ),
+    );
+    task_exports.insert(
+        "join".to_string(),
+        Type::Function(vec![Type::Unknown], Box::new(Type::Unknown)),
+    );
+    task_exports.insert(
+        "sleep".to_string(),
+        Type::Function(vec![Type::Int], Box::new(Type::Void)),
+    );
+    exports.entry(task_id).or_insert(task_exports);
+    let chan_id = ModuleId(vec!["chan".to_string()]);
+    imports.entry("chan".to_string()).or_insert(chan_id.clone());
+    let mut chan_exports = std::collections::HashMap::new();
+    chan_exports.insert(
+        "make".to_string(),
+        Type::Function(Vec::new(), Box::new(Type::Channel)),
+    );
+    chan_exports.insert(
+        "send".to_string(),
+        Type::Function(vec![Type::Channel, Type::Unknown], Box::new(Type::Void)),
+    );
+    chan_exports.insert(
+        "recv".to_string(),
+        Type::Function(vec![Type::Channel], Box::new(Type::Unknown)),
+    );
+    exports.entry(chan_id).or_insert(chan_exports);
+    let net_id = ModuleId(vec!["net".to_string()]);
+    imports.entry("net".to_string()).or_insert(net_id.clone());
+    let mut net_exports = std::collections::HashMap::new();
+    net_exports.insert(
+        "bind".to_string(),
+        Type::Function(vec![Type::String, Type::Int], Box::new(Type::TcpListener)),
+    );
+    exports.entry(net_id).or_insert(net_exports);
+    let http_id = ModuleId(vec!["http".to_string()]);
+    imports.entry("http".to_string()).or_insert(http_id.clone());
+    let mut http_exports = std::collections::HashMap::new();
+    http_exports.insert(
+        "serve".to_string(),
+        Type::Function(
+            vec![
+                Type::String,
+                Type::Int,
+                Type::Function(vec![Type::HttpRequest], Box::new(Type::HttpResponse)),
+            ],
+            Box::new(Type::Void),
+        ),
+    );
+    http_exports.insert(
+        "get".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::HttpResponse)),
+    );
+    http_exports.insert(
+        "post".to_string(),
+        Type::Function(
+            vec![Type::String, Type::Unknown],
+            Box::new(Type::HttpResponse),
+        ),
+    );
+    http_exports.insert(
+        "response".to_string(),
+        Type::Function(vec![Type::Int, Type::Unknown], Box::new(Type::HttpResponse)),
+    );
+    http_exports.insert(
+        "ok".to_string(),
+        Type::Function(vec![Type::Unknown], Box::new(Type::HttpResponse)),
+    );
+    http_exports.insert(
+        "bad_request".to_string(),
+        Type::Function(vec![Type::Unknown], Box::new(Type::HttpResponse)),
+    );
+    http_exports.insert(
+        "not_found".to_string(),
+        Type::Function(vec![Type::Unknown], Box::new(Type::HttpResponse)),
+    );
+    exports.entry(http_id).or_insert(http_exports);
+    let json_id = ModuleId(vec!["json".to_string()]);
+    imports.entry("json".to_string()).or_insert(json_id.clone());
+    let mut json_exports = std::collections::HashMap::new();
+    json_exports.insert(
+        "parse".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::Unknown)),
+    );
+    json_exports.insert(
+        "stringify".to_string(),
+        Type::Function(vec![Type::Unknown], Box::new(Type::String)),
+    );
+    exports.entry(json_id).or_insert(json_exports);
+    (imports, exports)
 }
 
 fn ffi_param_type_allowed(ty: &Type) -> bool {
