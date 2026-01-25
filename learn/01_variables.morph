@@ -1,0 +1,6 @@
+// Expected: prints 42
+let x := 40 + 2
+print(x)
+
+// Common error: uncomment to see type error
+// let y: Int := "oops" // Type mismatch: expected Int

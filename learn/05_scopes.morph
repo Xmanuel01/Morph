@@ -1,0 +1,11 @@
+// Expected: prints 1 then 2
+let x := 1
+print(x)
+fn bump() -> Int ::
+    let x := 2
+    return x
+::
+print(bump())
+
+// Error example: x inside bump does not affect outer x
+// print(x) // still 1

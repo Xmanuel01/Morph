@@ -1,0 +1,13 @@
+// Lesson 11: Formatting
+// Expected: prints 6
+
+fn add(a: Int, b: Int) -> Int ::
+    return a + b
+::
+
+print(add(1, 5))
+
+// Common mistake (formatter check will fail):
+// fn add(a: Int, b: Int) -> Int ::
+// return a + b
+// ::

@@ -41,6 +41,7 @@ pub enum TokenKind {
     Type,
     Enum,
     Impl,
+    Import,
     Use,
     As,
     Pub,
@@ -66,6 +67,8 @@ pub enum TokenKind {
     RParen,
     LBracket,
     RBracket,
+    LBrace,
+    RBrace,
     Comma,
     Colon,
     Semicolon,
@@ -222,40 +225,19 @@ impl Lexer {
             return Ok(());
         }
 
-        let mut colon_positions = Vec::new();
-        for (idx, token) in self.line_tokens.iter().enumerate() {
-            if token.kind == TokenKind::ColonColon {
-                colon_positions.push(idx);
-            }
-        }
-
-        if colon_positions.len() > 1 {
-            let token = &self.line_tokens[colon_positions[1]];
-            return Err(self.error("'::' can only appear once per line", token.line, token.col));
-        }
-
-        if let Some(pos) = colon_positions.first().copied() {
-            if self.line_tokens.len() == 1 {
-                self.line_tokens[pos].kind = TokenKind::BlockEnd;
+        let len = self.line_tokens.len();
+        if len > 0 && self.line_tokens[len - 1].kind == TokenKind::ColonColon {
+            if len == 1 {
+                let line = self.line_tokens[len - 1].line;
+                let col = self.line_tokens[len - 1].col;
+                self.line_tokens[len - 1].kind = TokenKind::BlockEnd;
                 if self.block_depth == 0 {
-                    let token = &self.line_tokens[pos];
-                    return Err(self.error(
-                        "Block end without matching start",
-                        token.line,
-                        token.col,
-                    ));
+                    return Err(self.error("Block end without matching start", line, col));
                 }
                 self.block_depth -= 1;
-            } else if pos == self.line_tokens.len() - 1 {
-                self.line_tokens[pos].kind = TokenKind::BlockStart;
-                self.block_depth += 1;
             } else {
-                let token = &self.line_tokens[pos];
-                return Err(self.error(
-                    "'::' must appear at end of line or alone",
-                    token.line,
-                    token.col,
-                ));
+                self.line_tokens[len - 1].kind = TokenKind::BlockStart;
+                self.block_depth += 1;
             }
         }
 
@@ -386,6 +368,7 @@ impl Lexer {
             "type" => TokenKind::Type,
             "enum" => TokenKind::Enum,
             "impl" => TokenKind::Impl,
+            "import" => TokenKind::Import,
             "use" => TokenKind::Use,
             "as" => TokenKind::As,
             "pub" => TokenKind::Pub,
@@ -457,6 +440,8 @@ impl Lexer {
                     ')' => TokenKind::RParen,
                     '[' => TokenKind::LBracket,
                     ']' => TokenKind::RBracket,
+                    '{' => TokenKind::LBrace,
+                    '}' => TokenKind::RBrace,
                     ',' => TokenKind::Comma,
                     ':' => TokenKind::Colon,
                     ';' => TokenKind::Semicolon,

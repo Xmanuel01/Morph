@@ -1,5 +1,47 @@
 # Changelog
 
+## v0.5.0
+
+### Highlights
+- Added multi-file module imports with caching and circular import detection.
+- Enforced public/private visibility across modules with compile + typecheck validation.
+- Introduced structured diagnostics (source snippets) and runtime stack traces.
+- Shipped deterministic `morph fmt` and a CLI `morph test` runner.
+- Added v0.5 docs and learn lessons for modules, visibility, formatting, and testing.
+
+### Fixes
+- Added regression coverage for formatter/test CLI paths and private access span tracking.
+
+## v0.4.0
+
+### Highlights
+- Introduced the bytecode + VM execution pipeline with chunk constants, stack safety, globals, and CLI flags (`--trace-vm`/`--disasm`).
+- Added deep scope-aware symbol allocation, short-circuit logic ops, and Optional[T] coverage in the new type checker.
+- Published learn/docs axes (learn lessons + docs/dev_debugging) and stabilized the CLI to always run `morph check` before execution.
+
+### Fixes
+- Stabilized parser/compiler/VM tests, cleaned warnings, and ensured `cargo fmt`, `cargo clippy -D warnings`, and `cargo test` pass in the v0.4 path.
+
+## v0.3.1
+
+### Fixes
+- Correct loader diagnostics for private symbol imports and reduce `use` resolution duplication.
+- Use-list edge case diagnostics and expanded parser coverage for visibility rules.
+- Policy filter matching now uses path components normalization and list-valued tests.
+- Added tests for string native error paths and dependency manifest variants.
+
+## v0.3.0
+
+### Features
+- Public exports + re-exports via `pub` and `pub use`.
+- Labeled-span diagnostics for parse/loader errors.
+- Local path dependencies in `morph.toml`.
+- Policy filters for `domain` and `path_prefix`.
+- `std.string` helpers and `std.fs` read/write (policy-gated).
+
+### Breaking changes
+- Importing private symbols now errors; only `pub` exports are importable.
+
 ## v0.2.0
 
 ### Features

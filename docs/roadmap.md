@@ -15,7 +15,7 @@ v0.2 (done)
 - Minimal formatter + validation
 - Policy enforcement MVP (default deny + allow rules)
 
-v0.3 (planned)
+v0.3 (done)
 - Module exports/import rules (pub/private, re-export)
 - Policy filters enforcement (domains, path_prefix)
 - Diagnostics with labeled spans

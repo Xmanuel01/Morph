@@ -1,14 +1,16 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::fs;
 use std::io::{self, Read};
+use std::path::{Component, Path};
 use std::rc::Rc;
 
 use morphc::ast::{
     AgentDecl, AgentItem, Arg, ArmBody, Block, Expr, Item, LValue, LValueAccess, Literal, MatchArm,
-    MemoryDecl, Module, Pattern, PolicyDecl, Stmt,
+    MemoryDecl, Module, Pattern, PolicyDecl, Stmt, UseDecl,
 };
-use morphc::loader::Package;
+use morphc::loader::{ModuleInfo, Package, ResolvedUse, UseTarget};
 
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -122,9 +124,11 @@ pub struct Function {
     policy: Option<String>,
 }
 
+type NativeFunc = dyn Fn(&mut Interpreter, Vec<Value>) -> Result<Value, RuntimeError>;
+
 pub struct NativeFunction {
     name: String,
-    func: Box<dyn Fn(Vec<Value>) -> Result<Value, RuntimeError>>,
+    func: Box<NativeFunc>,
     capability: Option<Vec<String>>,
 }
 
@@ -146,13 +150,16 @@ struct Policy {
 struct PolicyRuleRuntime {
     allow: bool,
     capability: Vec<String>,
+    filters: Vec<PolicyFilterRuntime>,
 }
 
 impl Policy {
-    fn is_allowed(&self, capability: &[String]) -> bool {
+    fn is_allowed(&self, capability: &[String], context: Option<&CapabilityContext>) -> bool {
         let mut allowed = false;
         for rule in &self.rules {
-            if capability_matches(&rule.capability, capability) {
+            if capability_matches(&rule.capability, capability)
+                && filters_match(&rule.filters, context)
+            {
                 if !rule.allow {
                     return false;
                 }
@@ -160,6 +167,28 @@ impl Policy {
             }
         }
         allowed
+    }
+}
+
+#[derive(Debug, Clone)]
+struct PolicyFilterRuntime {
+    name: String,
+    values: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+enum CapabilityContext {
+    Path(String),
+    Domain(String),
+}
+
+impl CapabilityContext {
+    fn for_path(path: &str) -> Self {
+        CapabilityContext::Path(path.to_string())
+    }
+
+    fn for_domain(domain: &str) -> Self {
+        CapabilityContext::Domain(domain.to_string())
     }
 }
 
@@ -251,18 +280,24 @@ impl Interpreter {
             .get(&package.entry)
             .ok_or_else(|| RuntimeError::new("Entry module not found"))?;
         let mut visiting = HashSet::new();
-        for dep in &entry.uses {
-            if is_std_path(dep) {
-                continue;
+        for group in &entry.resolved_uses {
+            for resolved in group {
+                let module_path = match &resolved.target {
+                    UseTarget::Module { path } => path,
+                    UseTarget::Symbol { module_path, .. } => module_path,
+                };
+                if is_std_path(module_path) {
+                    continue;
+                }
+                self.eval_module_record(package, module_path, &mut visiting)?;
             }
-            self.eval_module_record(package, dep, &mut visiting)?;
         }
-        self.eval_module_in_env(&entry.module, self.globals.clone(), false)?;
+        self.eval_module_in_env(&entry.module, Some(entry), self.globals.clone(), false)?;
         Ok(())
     }
 
     pub fn eval_module(&mut self, module: &Module) -> Result<Value, RuntimeError> {
-        self.eval_module_in_env(module, self.globals.clone(), false)?;
+        self.eval_module_in_env(module, None, self.globals.clone(), false)?;
         Ok(Value::None)
     }
 
@@ -286,14 +321,20 @@ impl Interpreter {
             .modules
             .get(path)
             .ok_or_else(|| RuntimeError::new(&format!("Module not found: {}", path.join("."))))?;
-        for dep in &info.uses {
-            if is_std_path(dep) {
-                continue;
+        for group in &info.resolved_uses {
+            for resolved in group {
+                let module_path = match &resolved.target {
+                    UseTarget::Module { path } => path,
+                    UseTarget::Symbol { module_path, .. } => module_path,
+                };
+                if is_std_path(module_path) {
+                    continue;
+                }
+                self.eval_module_record(package, module_path, visiting)?;
             }
-            self.eval_module_record(package, dep, visiting)?;
         }
         let module_env = Env::new(Some(self.globals.clone()));
-        let exports = self.eval_module_in_env(&info.module, module_env, true)?;
+        let exports = self.eval_module_in_env(&info.module, Some(info), module_env, true)?;
         let record = Value::Record(exports);
         define_path(&self.globals, path, record.clone())?;
         self.modules.insert(path.to_vec(), record);
@@ -304,6 +345,7 @@ impl Interpreter {
     fn eval_module_in_env(
         &mut self,
         module: &Module,
+        module_info: Option<&ModuleInfo>,
         env: EnvRef,
         export_public_only: bool,
     ) -> Result<HashMap<String, Value>, RuntimeError> {
@@ -313,11 +355,31 @@ impl Interpreter {
             in_loop: false,
         };
         let mut exports = HashMap::new();
+        let mut use_index = 0usize;
         self.with_policy_override(module_policy.clone(), |this| {
             for item in &module.items {
                 match item {
+                    Item::Import(_) => {
+                        // import is handled by the compiler in v0.5
+                    }
                     Item::Use(decl) => {
-                        this.eval_use_decl(&decl.path, decl.alias.as_deref(), &env)?;
+                        if let Some(info) = module_info {
+                            let group = info
+                                .resolved_uses
+                                .get(use_index)
+                                .ok_or_else(|| RuntimeError::new("Use resolution missing"))?;
+                            use_index += 1;
+                            for resolved in group {
+                                this.eval_resolved_use(
+                                    resolved,
+                                    &env,
+                                    export_public_only,
+                                    &mut exports,
+                                )?;
+                            }
+                        } else {
+                            this.eval_use_decl(decl, &env)?;
+                        }
                     }
                     Item::Fn(decl) => {
                         let func = Function {
@@ -333,8 +395,26 @@ impl Interpreter {
                             exports.insert(decl.name.clone(), value);
                         }
                     }
-                    Item::Type(_) | Item::Enum(_) | Item::Impl(_) | Item::Policy(_) => {
-                        // Declarations without runtime behavior in v0.2.
+                    Item::Type(decl) => {
+                        let value = Value::Stub(format!("type {}", decl.name));
+                        Env::define(&env, &decl.name, value.clone());
+                        if !export_public_only || decl.is_pub {
+                            exports.insert(decl.name.clone(), value);
+                        }
+                    }
+                    Item::Enum(decl) => {
+                        let value = Value::Stub(format!("enum {}", decl.name));
+                        Env::define(&env, &decl.name, value.clone());
+                        if !export_public_only || decl.is_pub {
+                            exports.insert(decl.name.clone(), value);
+                        }
+                    }
+                    Item::Impl(_) => {
+                        // Impl blocks attach to types; no runtime effect in v0.3.
+                    }
+                    Item::Policy(decl) => {
+                        let value = Value::Stub(format!("policy {}", decl.name));
+                        Env::define(&env, &decl.name, value.clone());
                     }
                     Item::Tool(decl) => {
                         this.define_tool_stub(&decl.path)?;
@@ -342,16 +422,13 @@ impl Interpreter {
                     Item::Prompt(decl) => {
                         let value = Value::Stub(format!("prompt {}", decl.name));
                         Env::define(&env, &decl.name, value.clone());
-                        exports.insert(decl.name.clone(), value);
                     }
                     Item::Model(decl) => {
                         let value = Value::Stub(format!("model {}", decl.name));
                         Env::define(&env, &decl.name, value.clone());
-                        exports.insert(decl.name.clone(), value);
                     }
                     Item::Agent(decl) => {
-                        let value = this.eval_agent_decl(decl, &env, module_policy.clone())?;
-                        exports.insert(decl.name.clone(), value);
+                        this.eval_agent_decl(decl, &env, module_policy.clone())?;
                     }
                     Item::Stmt(stmt) => {
                         let flow = this.eval_stmt(stmt, env.clone(), ctx)?;
@@ -437,13 +514,18 @@ impl Interpreter {
             .map(|rule| PolicyRuleRuntime {
                 allow: rule.allow,
                 capability: rule.capability.clone(),
+                filters: policy_filters_to_runtime(&rule.filters),
             })
             .collect();
         self.policies.insert(decl.name.clone(), Policy { rules });
         Ok(())
     }
 
-    fn check_capability(&self, capability: &[String]) -> Result<(), RuntimeError> {
+    fn check_capability(
+        &self,
+        capability: &[String],
+        context: Option<&CapabilityContext>,
+    ) -> Result<(), RuntimeError> {
         let policy_name = self.active_policy.clone().ok_or_else(|| {
             RuntimeError::new(&format!("Policy denied: {}", capability.join(".")))
         })?;
@@ -451,7 +533,7 @@ impl Interpreter {
             .policies
             .get(&policy_name)
             .ok_or_else(|| RuntimeError::new(&format!("Unknown policy: {}", policy_name)))?;
-        if policy.is_allowed(capability) {
+        if policy.is_allowed(capability, context) {
             Ok(())
         } else {
             Err(RuntimeError::new(&format!(
@@ -465,7 +547,7 @@ impl Interpreter {
         let print_fn = Value::NativeFunction(Rc::new(NativeFunction {
             name: "print".to_string(),
             capability: Some(vec!["io".to_string(), "print".to_string()]),
-            func: Box::new(|args| {
+            func: Box::new(|_, args| {
                 let output = args
                     .iter()
                     .map(|v| v.display())
@@ -479,7 +561,7 @@ impl Interpreter {
         let readline_fn = Value::NativeFunction(Rc::new(NativeFunction {
             name: "readline".to_string(),
             capability: Some(vec!["io".to_string(), "read".to_string()]),
-            func: Box::new(|_| {
+            func: Box::new(|_, _| {
                 let mut input = String::new();
                 io::stdin()
                     .read_to_string(&mut input)
@@ -502,7 +584,7 @@ impl Interpreter {
             Value::NativeFunction(Rc::new(NativeFunction {
                 name: "len".to_string(),
                 capability: None,
-                func: Box::new(|args| {
+                func: Box::new(|_, args| {
                     if args.len() != 1 {
                         return Err(RuntimeError::new("len expects one argument"));
                     }
@@ -514,22 +596,132 @@ impl Interpreter {
                 }),
             })),
         );
+        let mut std_string = HashMap::new();
+        std_string.insert(
+            "len".to_string(),
+            string_unary_native(
+                "string.len",
+                "string.len expects one argument",
+                "string.len expects a string",
+                |value| Ok(Value::Int(value.chars().count() as i64)),
+            ),
+        );
+        std_string.insert(
+            "contains".to_string(),
+            string_binary_native(
+                "string.contains",
+                "string.contains expects two arguments",
+                "string.contains expects strings",
+                |haystack, needle| Ok(Value::Bool(haystack.contains(needle))),
+            ),
+        );
+        std_string.insert(
+            "slice".to_string(),
+            Value::NativeFunction(Rc::new(NativeFunction {
+                name: "string.slice".to_string(),
+                capability: None,
+                func: Box::new(|_, args| {
+                    if args.len() != 3 {
+                        return Err(RuntimeError::new("string.slice expects three arguments"));
+                    }
+                    let text = match &args[0] {
+                        Value::String(value) => value.clone(),
+                        _ => return Err(RuntimeError::new("string.slice expects a string")),
+                    };
+                    let start = match &args[1] {
+                        Value::Int(value) => *value,
+                        _ => return Err(RuntimeError::new("string.slice expects integer indices")),
+                    };
+                    let end = match &args[2] {
+                        Value::Int(value) => *value,
+                        _ => return Err(RuntimeError::new("string.slice expects integer indices")),
+                    };
+                    if start < 0 || end < 0 {
+                        return Err(RuntimeError::new("string.slice indices must be >= 0"));
+                    }
+                    let start = start as usize;
+                    let end = end as usize;
+                    if start > end {
+                        return Err(RuntimeError::new("string.slice start > end"));
+                    }
+                    let chars: Vec<char> = text.chars().collect();
+                    if end > chars.len() {
+                        return Err(RuntimeError::new("string.slice index out of range"));
+                    }
+                    let slice: String = chars[start..end].iter().collect();
+                    Ok(Value::String(slice))
+                }),
+            })),
+        );
         let mut std_fs = HashMap::new();
+        let fs_read_capability = vec!["fs".to_string(), "read".to_string()];
         std_fs.insert(
             "read".to_string(),
-            stub_native("fs.read", vec!["fs".to_string(), "read".to_string()]),
+            Value::NativeFunction(Rc::new(NativeFunction {
+                name: "fs.read".to_string(),
+                capability: None,
+                func: Box::new(move |interpreter, args| {
+                    if args.len() != 1 {
+                        return Err(RuntimeError::new("fs.read expects one argument"));
+                    }
+                    let path = match &args[0] {
+                        Value::String(value) => value.clone(),
+                        _ => return Err(RuntimeError::new("fs.read expects a string path")),
+                    };
+                    let ctx = CapabilityContext::for_path(&path);
+                    interpreter.check_capability(&fs_read_capability, Some(&ctx))?;
+                    let contents = fs::read_to_string(&path)
+                        .map_err(|err| RuntimeError::new(&format!("fs.read failed: {}", err)))?;
+                    Ok(Value::String(contents))
+                }),
+            })),
         );
+        let fs_write_capability = vec!["fs".to_string(), "write".to_string()];
         std_fs.insert(
             "write".to_string(),
-            stub_native("fs.write", vec!["fs".to_string(), "write".to_string()]),
+            Value::NativeFunction(Rc::new(NativeFunction {
+                name: "fs.write".to_string(),
+                capability: None,
+                func: Box::new(move |interpreter, args| {
+                    if args.len() != 2 {
+                        return Err(RuntimeError::new("fs.write expects two arguments"));
+                    }
+                    let path = match &args[0] {
+                        Value::String(value) => value.clone(),
+                        _ => return Err(RuntimeError::new("fs.write expects a string path")),
+                    };
+                    let data = match &args[1] {
+                        Value::String(value) => value.clone(),
+                        _ => return Err(RuntimeError::new("fs.write expects string data")),
+                    };
+                    let ctx = CapabilityContext::for_path(&path);
+                    interpreter.check_capability(&fs_write_capability, Some(&ctx))?;
+                    fs::write(&path, data)
+                        .map_err(|err| RuntimeError::new(&format!("fs.write failed: {}", err)))?;
+                    Ok(Value::None)
+                }),
+            })),
         );
         let mut std_net = HashMap::new();
+        let net_connect_capability = vec!["net".to_string(), "connect".to_string()];
         std_net.insert(
             "connect".to_string(),
-            stub_native(
-                "net.connect",
-                vec!["net".to_string(), "connect".to_string()],
-            ),
+            Value::NativeFunction(Rc::new(NativeFunction {
+                name: "net.connect".to_string(),
+                capability: None,
+                func: Box::new(move |interpreter, args| {
+                    if args.len() != 1 {
+                        return Err(RuntimeError::new("net.connect expects one argument"));
+                    }
+                    let domain = match &args[0] {
+                        Value::String(value) => value.clone(),
+                        _ => return Err(RuntimeError::new("net.connect expects a string domain")),
+                    };
+                    let ctx = CapabilityContext::for_domain(&domain);
+                    interpreter.check_capability(&net_connect_capability, Some(&ctx))?;
+                    Err(RuntimeError::new("net.connect is not implemented"))
+                }),
+            })),
         );
         let mut std_process = HashMap::new();
         std_process.insert(
@@ -565,6 +757,7 @@ impl Interpreter {
         std.insert("core".to_string(), Value::Record(std_core));
         std.insert("io".to_string(), Value::Record(std_io));
         std.insert("collections".to_string(), Value::Record(std_collections));
+        std.insert("string".to_string(), Value::Record(std_string));
         std.insert("fs".to_string(), Value::Record(std_fs));
         std.insert("net".to_string(), Value::Record(std_net));
         std.insert("process".to_string(), Value::Record(std_process));
@@ -572,14 +765,67 @@ impl Interpreter {
         Env::define(&self.globals, "std", Value::Record(std));
     }
 
-    fn eval_use_decl(
-        &self,
-        path: &[String],
-        alias: Option<&str>,
-        env: &EnvRef,
-    ) -> Result<(), RuntimeError> {
-        if path.is_empty() {
+    fn eval_use_decl(&self, decl: &UseDecl, env: &EnvRef) -> Result<(), RuntimeError> {
+        if decl.path.is_empty() {
             return Err(RuntimeError::new("Empty module path"));
+        }
+        if !decl.symbols.is_empty() {
+            let module_value = self.lookup_module_value(&decl.path)?;
+            let map = match module_value {
+                Value::Record(map) => map,
+                _ => return Err(RuntimeError::new("Module not found")),
+            };
+            for symbol in &decl.symbols {
+                let value = map
+                    .get(&symbol.name)
+                    .cloned()
+                    .ok_or_else(|| RuntimeError::new("Symbol not found"))?;
+                Env::define(env, &symbol.name, value);
+            }
+            return Ok(());
+        }
+        let name = decl
+            .alias
+            .as_deref()
+            .unwrap_or_else(|| decl.path.last().unwrap().as_str());
+        let value = self.lookup_module_value(&decl.path)?;
+        Env::define(env, name, value);
+        Ok(())
+    }
+
+    fn eval_resolved_use(
+        &self,
+        resolved: &ResolvedUse,
+        env: &EnvRef,
+        export_public_only: bool,
+        exports: &mut HashMap<String, Value>,
+    ) -> Result<(), RuntimeError> {
+        let value = match &resolved.target {
+            UseTarget::Module { path } => self.lookup_module_value(path)?,
+            UseTarget::Symbol {
+                module_path,
+                symbol,
+            } => {
+                let module_value = self.lookup_module_value(module_path)?;
+                match module_value {
+                    Value::Record(map) => map
+                        .get(symbol)
+                        .cloned()
+                        .ok_or_else(|| RuntimeError::new("Symbol not found"))?,
+                    _ => return Err(RuntimeError::new("Module not found")),
+                }
+            }
+        };
+        Env::define(env, &resolved.alias, value.clone());
+        if export_public_only && resolved.is_pub {
+            exports.insert(resolved.alias.clone(), value);
+        }
+        Ok(())
+    }
+
+    fn lookup_module_value(&self, path: &[String]) -> Result<Value, RuntimeError> {
+        if path.is_empty() {
+            return Err(RuntimeError::new("Module not found"));
         }
         let mut current = Env::get(&self.globals, &path[0])
             .ok_or_else(|| RuntimeError::new("Module not found"))?;
@@ -592,9 +838,7 @@ impl Interpreter {
                 _ => return Err(RuntimeError::new("Module not found")),
             };
         }
-        let name = alias.unwrap_or_else(|| path.last().unwrap().as_str());
-        Env::define(env, name, current);
-        Ok(())
+        Ok(current)
     }
 
     fn define_tool_stub(&self, path: &[String]) -> Result<(), RuntimeError> {
@@ -605,7 +849,7 @@ impl Interpreter {
         let stub_value = Value::NativeFunction(Rc::new(NativeFunction {
             name: stub_name.clone(),
             capability: Some(tool_capability(path)),
-            func: Box::new(move |_| {
+            func: Box::new(move |_, _| {
                 Err(RuntimeError::new(&format!(
                     "Tool not implemented: {}",
                     stub_name
@@ -728,7 +972,9 @@ impl Interpreter {
                 }
                 Ok(Flow::Value(Value::None))
             }
-            Stmt::For { var, iter, body } => {
+            Stmt::For {
+                var, iter, body, ..
+            } => {
                 let values = self.eval_expr(iter, env.clone(), ctx)?;
                 let list = match values {
                     Value::List(items) => items,
@@ -831,10 +1077,12 @@ impl Interpreter {
         ctx: EvalContext,
     ) -> Result<Value, RuntimeError> {
         match expr {
-            Expr::Literal(lit) => Ok(eval_literal(lit)),
-            Expr::Ident(name) => Env::get(&env, name)
+            Expr::Literal { lit, .. } => Ok(eval_literal(lit)),
+            Expr::Ident { name, .. } => Env::get(&env, name)
                 .ok_or_else(|| RuntimeError::new(&format!("Undefined variable '{}'", name))),
-            Expr::Binary { left, op, right } => {
+            Expr::Binary {
+                left, op, right, ..
+            } => {
                 use morphc::ast::BinaryOp;
                 if matches!(op, BinaryOp::And) {
                     let left_val = self.eval_expr(left, env.clone(), ctx)?;
@@ -856,30 +1104,30 @@ impl Interpreter {
                 let right_val = self.eval_expr(right, env, ctx)?;
                 eval_binary(op, left_val, right_val)
             }
-            Expr::Unary { op, expr } => {
+            Expr::Unary { op, expr, .. } => {
                 let value = self.eval_expr(expr, env, ctx)?;
                 eval_unary(op, value)
             }
-            Expr::Call { callee, args } => {
+            Expr::Call { callee, args, .. } => {
                 let callee_value = self.eval_expr(callee, env.clone(), ctx)?;
                 let values = self.eval_args(args, env, ctx)?;
                 self.eval_call(callee_value, values)
             }
-            Expr::Index { target, index } => {
+            Expr::Index { target, index, .. } => {
                 let target_value = self.eval_expr(target, env.clone(), ctx)?;
                 let index_value = self.eval_expr(index, env, ctx)?;
                 eval_index(target_value, index_value)
             }
-            Expr::Field { target, name } => {
+            Expr::Field { target, name, .. } => {
                 let target_value = self.eval_expr(target, env, ctx)?;
                 eval_field(target_value, name)
             }
-            Expr::List(values) => {
-                let mut items = Vec::new();
-                for value in values {
-                    items.push(self.eval_expr(value, env.clone(), ctx)?);
+            Expr::List { items, .. } => {
+                let mut values = Vec::new();
+                for value in items {
+                    values.push(self.eval_expr(value, env.clone(), ctx)?);
                 }
-                Ok(Value::List(items))
+                Ok(Value::List(values))
             }
             Expr::Lambda { params, body, .. } => {
                 let function = Function {
@@ -893,8 +1141,8 @@ impl Interpreter {
                 };
                 Ok(Value::Function(Rc::new(function)))
             }
-            Expr::Match { expr, arms } => self.eval_match_expr(expr, arms, env, ctx),
-            Expr::Try(inner) => self.eval_expr(inner, env, ctx),
+            Expr::Match { expr, arms, .. } => self.eval_match_expr(expr, arms, env, ctx),
+            Expr::Try { expr, .. } => self.eval_expr(expr, env, ctx),
         }
     }
 
@@ -951,9 +1199,9 @@ impl Interpreter {
                     }
                 }
                 if let Some(capability) = &func.capability {
-                    self.check_capability(capability)?;
+                    self.check_capability(capability, None)?;
                 }
-                let result = (func.func)(values);
+                let result = (func.func)(self, values);
                 match result {
                     Ok(value) => Ok(value),
                     Err(mut err) => {
@@ -1343,8 +1591,186 @@ fn stub_native(name: &str, capability: Vec<String>) -> Value {
     Value::NativeFunction(Rc::new(NativeFunction {
         name: label.clone(),
         capability: Some(capability),
-        func: Box::new(move |_| Err(RuntimeError::new(&format!("{} is not implemented", label)))),
+        func: Box::new(move |_, _| {
+            Err(RuntimeError::new(&format!("{} is not implemented", label)))
+        }),
     }))
+}
+
+fn string_unary_native(
+    name: &str,
+    arg_error: &str,
+    type_error: &str,
+    f: impl Fn(&str) -> Result<Value, RuntimeError> + 'static,
+) -> Value {
+    let name = name.to_string();
+    let arg_error = arg_error.to_string();
+    let type_error = type_error.to_string();
+    Value::NativeFunction(Rc::new(NativeFunction {
+        name,
+        capability: None,
+        func: Box::new(move |_, args| {
+            if args.len() != 1 {
+                return Err(RuntimeError::new(&arg_error));
+            }
+            let value = match &args[0] {
+                Value::String(value) => value.as_str(),
+                _ => return Err(RuntimeError::new(&type_error)),
+            };
+            f(value)
+        }),
+    }))
+}
+
+fn string_binary_native(
+    name: &str,
+    arg_error: &str,
+    type_error: &str,
+    f: impl Fn(&str, &str) -> Result<Value, RuntimeError> + 'static,
+) -> Value {
+    let name = name.to_string();
+    let arg_error = arg_error.to_string();
+    let type_error = type_error.to_string();
+    Value::NativeFunction(Rc::new(NativeFunction {
+        name,
+        capability: None,
+        func: Box::new(move |_, args| {
+            if args.len() != 2 {
+                return Err(RuntimeError::new(&arg_error));
+            }
+            let left = match &args[0] {
+                Value::String(value) => value.as_str(),
+                _ => return Err(RuntimeError::new(&type_error)),
+            };
+            let right = match &args[1] {
+                Value::String(value) => value.as_str(),
+                _ => return Err(RuntimeError::new(&type_error)),
+            };
+            f(left, right)
+        }),
+    }))
+}
+
+fn policy_filters_to_runtime(filters: &[morphc::ast::PolicyFilter]) -> Vec<PolicyFilterRuntime> {
+    let mut out = Vec::new();
+    for filter in filters {
+        let mut values = Vec::new();
+        match &filter.value {
+            morphc::ast::LiteralOrList::Literal(lit) => {
+                if let Some(value) = literal_to_string(lit) {
+                    values.push(value);
+                }
+            }
+            morphc::ast::LiteralOrList::List(list) => {
+                for lit in list {
+                    if let Some(value) = literal_to_string(lit) {
+                        values.push(value);
+                    }
+                }
+            }
+        }
+        out.push(PolicyFilterRuntime {
+            name: filter.name.clone(),
+            values,
+        });
+    }
+    out
+}
+
+fn literal_to_string(lit: &Literal) -> Option<String> {
+    match lit {
+        Literal::String(value) => Some(value.clone()),
+        _ => None,
+    }
+}
+
+fn filters_match(filters: &[PolicyFilterRuntime], context: Option<&CapabilityContext>) -> bool {
+    if filters.is_empty() {
+        return true;
+    }
+    let ctx = match context {
+        Some(ctx) => ctx,
+        None => return false,
+    };
+    filters.iter().all(|filter| filter_matches(filter, ctx))
+}
+
+fn filter_matches(filter: &PolicyFilterRuntime, context: &CapabilityContext) -> bool {
+    match (filter.name.as_str(), context) {
+        ("path_prefix", CapabilityContext::Path(path)) => filter
+            .values
+            .iter()
+            .any(|value| path_prefix_matches(value, path)),
+        ("domain", CapabilityContext::Domain(domain)) => filter
+            .values
+            .iter()
+            .any(|value| domain_matches(value, domain)),
+        _ => false,
+    }
+}
+
+fn domain_matches(pattern: &str, domain: &str) -> bool {
+    let pattern = normalize_domain(pattern);
+    let domain = normalize_domain(domain);
+    domain.ends_with(&pattern)
+}
+
+fn normalize_domain(domain: &str) -> String {
+    domain.trim().to_ascii_lowercase()
+}
+
+fn path_prefix_matches(prefix: &str, path: &str) -> bool {
+    let prefix = normalize_path(prefix);
+    let path = normalize_path(path);
+    path.starts_with(&prefix)
+}
+
+fn normalize_path(path: &str) -> String {
+    let mut parts = Vec::new();
+    let mut prefix: Option<String> = None;
+    let mut has_root = false;
+    for component in Path::new(path).components() {
+        match component {
+            Component::Prefix(value) => {
+                prefix = Some(value.as_os_str().to_string_lossy().replace('\\', "/"));
+            }
+            Component::RootDir => {
+                has_root = true;
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if let Some(last) = parts.last() {
+                    if last != ".." {
+                        parts.pop();
+                        continue;
+                    }
+                }
+                if !has_root {
+                    parts.push("..".to_string());
+                }
+            }
+            Component::Normal(value) => {
+                parts.push(value.to_string_lossy().to_string());
+            }
+        }
+    }
+    let mut normalized = String::new();
+    if let Some(prefix) = prefix {
+        normalized.push_str(&prefix);
+        if has_root {
+            normalized.push('/');
+        }
+    } else if has_root {
+        normalized.push('/');
+    }
+    if !normalized.ends_with('/') && !normalized.is_empty() && !parts.is_empty() {
+        normalized.push('/');
+    }
+    normalized.push_str(&parts.join("/"));
+    if cfg!(windows) {
+        normalized = normalized.to_ascii_lowercase();
+    }
+    normalized
 }
 
 fn capability_matches(rule: &[String], requested: &[String]) -> bool {

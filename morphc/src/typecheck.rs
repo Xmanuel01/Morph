@@ -1,26 +1,453 @@
-use crate::ast::Module;
+use crate::ast::*;
+use crate::diagnostic::{Diagnostic, Span};
+use crate::modules::{ModuleId, Package};
+use crate::types::Type;
 
 #[derive(Debug, Clone)]
 pub struct TypeError {
     pub message: String,
+    pub span: Span,
+    pub source_name: Option<String>,
+    pub source: Option<String>,
 }
 
 impl TypeError {
-    pub fn new(message: &str) -> Self {
+    pub fn diagnostic(&self) -> Option<Diagnostic> {
+        let source = self.source.as_ref()?;
+        let diagnostic = Diagnostic::new(&self.message, self.source_name.as_deref())
+            .with_span("here", self.span.clone())
+            .with_source(source);
+        Some(diagnostic)
+    }
+}
+
+pub struct TypeChecker {
+    scopes: Vec<std::collections::HashMap<String, Type>>,
+    imports: std::collections::HashMap<String, ModuleId>,
+    exports: std::collections::HashMap<ModuleId, std::collections::HashMap<String, Type>>,
+    source_name: Option<String>,
+    source: Option<String>,
+}
+
+impl Default for TypeChecker {
+    fn default() -> Self {
         Self {
-            message: message.to_string(),
+            scopes: vec![std::collections::HashMap::new()],
+            imports: std::collections::HashMap::new(),
+            exports: std::collections::HashMap::new(),
+            source_name: None,
+            source: None,
         }
     }
 }
 
-impl std::fmt::Display for TypeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
+impl TypeChecker {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn new_with_imports(
+        imports: std::collections::HashMap<String, ModuleId>,
+        exports: std::collections::HashMap<ModuleId, std::collections::HashMap<String, Type>>,
+    ) -> Self {
+        Self {
+            scopes: vec![std::collections::HashMap::new()],
+            imports,
+            exports,
+            source_name: None,
+            source: None,
+        }
+    }
+
+    fn with_source(mut self, source_name: &str, source: &str) -> Self {
+        self.source_name = Some(source_name.to_string());
+        self.source = Some(source.to_string());
+        self
+    }
+
+    fn push(&mut self) {
+        self.scopes.push(std::collections::HashMap::new());
+    }
+    fn pop(&mut self) {
+        self.scopes.pop();
+    }
+
+    fn define(&mut self, name: &str, ty: Type) {
+        self.scopes.last_mut().unwrap().insert(name.to_string(), ty);
+    }
+
+    fn resolve(&self, name: &str) -> Option<Type> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(t) = scope.get(name) {
+                return Some(t.clone());
+            }
+        }
+        None
+    }
+
+    fn error(&self, message: impl Into<String>, span: Span) -> TypeError {
+        TypeError {
+            message: message.into(),
+            span,
+            source_name: self.source_name.clone(),
+            source: self.source.clone(),
+        }
+    }
+
+    pub fn check_module(&mut self, module: &Module) -> Result<(), TypeError> {
+        for alias in self.imports.keys().cloned().collect::<Vec<_>>() {
+            self.define(&alias, Type::Unknown);
+        }
+        for item in &module.items {
+            if let Item::Fn(decl) = item {
+                let fn_type = Type::Function(
+                    decl.params
+                        .iter()
+                        .map(|p| type_from_ref_opt(p.type_ann.clone()))
+                        .collect(),
+                    Box::new(type_from_ref_opt(decl.return_type.clone())),
+                );
+                self.define(&decl.name, fn_type);
+            }
+        }
+        for item in &module.items {
+            self.check_item(item)?;
+        }
+        Ok(())
+    }
+
+    pub fn check_package(package: &Package) -> Result<(), TypeError> {
+        let mut exports = std::collections::HashMap::new();
+        for (id, info) in &package.modules {
+            exports.insert(id.clone(), collect_export_types(&info.module));
+        }
+        for id in &package.order {
+            let info = package.modules.get(id).expect("module");
+            let mut checker =
+                TypeChecker::new_with_imports(info.import_aliases.clone(), exports.clone());
+            if !info.file.as_os_str().is_empty() {
+                checker = checker.with_source(&info.file.to_string_lossy(), &info.source);
+            }
+            checker.check_module(&info.module)?;
+        }
+        Ok(())
+    }
+
+    fn check_item(&mut self, item: &Item) -> Result<(), TypeError> {
+        match item {
+            Item::Fn(decl) => {
+                self.push();
+                for param in &decl.params {
+                    self.define(&param.name, type_from_ref_opt(param.type_ann.clone()));
+                }
+                for stmt in &decl.body.stmts {
+                    self.check_stmt(stmt, type_from_ref_opt(decl.return_type.clone()))?;
+                }
+                self.pop();
+            }
+            Item::Stmt(stmt) => {
+                self.check_stmt(stmt, Type::Void)?;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn check_stmt(&mut self, stmt: &Stmt, expected_return: Type) -> Result<(), TypeError> {
+        match stmt {
+            Stmt::Let {
+                name,
+                type_ann,
+                expr,
+                name_span,
+            } => {
+                let t = self.check_expr(expr)?;
+                if let Some(ann) = type_ann {
+                    let ann_t = type_from_ref(ann.clone());
+                    if !compatible(&ann_t, &t) {
+                        return Err(self.error(
+                            format!(
+                                "Type mismatch: expected {}, found {}",
+                                ann_t.display(),
+                                t.display()
+                            ),
+                            name_span.clone(),
+                        ));
+                    }
+                }
+                self.define(name, t);
+            }
+            Stmt::Assign { target, expr } => {
+                let t_expr = self.check_expr(expr)?;
+                let var_t = self
+                    .resolve(&target.base)
+                    .ok_or_else(|| self.error("Undefined variable", target.base_span.clone()))?;
+                if var_t != Type::Unknown && !compatible(&var_t, &t_expr) {
+                    return Err(self.error(
+                        format!(
+                            "Type mismatch: variable {} is {}, assigned {}",
+                            target.base,
+                            var_t.display(),
+                            t_expr.display()
+                        ),
+                        target.base_span.clone(),
+                    ));
+                }
+            }
+            Stmt::If {
+                cond,
+                then_block,
+                else_branch,
+            } => {
+                let t_cond = self.check_expr(cond)?;
+                if t_cond != Type::Bool && t_cond != Type::Unknown {
+                    return Err(self.error("Condition must be Bool", line_span(cond)));
+                }
+                self.push();
+                for s in &then_block.stmts {
+                    self.check_stmt(s, expected_return.clone())?;
+                }
+                self.pop();
+                if let Some(else_b) = else_branch {
+                    self.push();
+                    match else_b {
+                        ElseBranch::Block(b) => {
+                            for s in &b.stmts {
+                                self.check_stmt(s, expected_return.clone())?;
+                            }
+                        }
+                        ElseBranch::If(s) => self.check_stmt(s, expected_return.clone())?,
+                    }
+                    self.pop();
+                }
+            }
+            Stmt::While { cond, body } => {
+                let t_cond = self.check_expr(cond)?;
+                if t_cond != Type::Bool && t_cond != Type::Unknown {
+                    return Err(self.error("Condition must be Bool", line_span(cond)));
+                }
+                self.push();
+                for s in &body.stmts {
+                    self.check_stmt(s, expected_return.clone())?;
+                }
+                self.pop();
+            }
+            Stmt::Return { expr } => {
+                let t_val = if let Some(e) = expr {
+                    self.check_expr(e)?
+                } else {
+                    Type::Void
+                };
+                if expected_return != Type::Unknown && t_val != expected_return {
+                    return Err(self.error(
+                        format!(
+                            "Return type mismatch: expected {}, found {}",
+                            expected_return.display(),
+                            t_val.display()
+                        ),
+                        expr.as_ref()
+                            .map(line_span)
+                            .unwrap_or_else(|| Span::single(0, 0)),
+                    ));
+                }
+            }
+            Stmt::Expr(expr) => {
+                self.check_expr(expr)?;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn check_expr(&mut self, expr: &Expr) -> Result<Type, TypeError> {
+        match expr {
+            Expr::Literal { lit, .. } => Ok(match lit {
+                Literal::Int(_) => Type::Int,
+                Literal::Float(_) => Type::Float,
+                Literal::Bool(_) => Type::Bool,
+                Literal::String(_) => Type::String,
+                Literal::None => Type::Optional(Box::new(Type::Unknown)),
+            }),
+            Expr::Ident { name, span } => self
+                .resolve(name)
+                .ok_or_else(|| self.error(format!("Undefined variable {}", name), span.clone())),
+            Expr::Unary { op, expr, span } => {
+                let t = self.check_expr(expr)?;
+                match op {
+                    UnaryOp::Negate => match t {
+                        Type::Int | Type::Float | Type::Unknown => Ok(t),
+                        _ => Err(self.error("Unary '-' expects number", span.clone())),
+                    },
+                    UnaryOp::Not => match t {
+                        Type::Bool | Type::Unknown => Ok(Type::Bool),
+                        _ => Err(self.error("Unary 'not' expects Bool", span.clone())),
+                    },
+                    _ => Ok(Type::Unknown),
+                }
+            }
+            Expr::Binary {
+                left,
+                op,
+                right,
+                span,
+            } => {
+                let lt = self.check_expr(left)?;
+                let rt = self.check_expr(right)?;
+                use BinaryOp::*;
+                match op {
+                    Add | Subtract | Multiply | Divide | Modulo => {
+                        if lt == Type::Int && rt == Type::Int {
+                            Ok(Type::Int)
+                        } else if matches!(lt, Type::Float | Type::Int)
+                            && matches!(rt, Type::Float | Type::Int)
+                        {
+                            Ok(Type::Float)
+                        } else {
+                            Err(self.error("Arithmetic expects numbers", span.clone()))
+                        }
+                    }
+                    And | Or => {
+                        if lt == Type::Bool && rt == Type::Bool {
+                            Ok(Type::Bool)
+                        } else {
+                            Err(self.error("Logical ops expect Bool", span.clone()))
+                        }
+                    }
+                    Equal | NotEqual | Less | LessEqual | Greater | GreaterEqual => Ok(Type::Bool),
+                }
+            }
+            Expr::Call { callee, args, span } => {
+                let ct = self.check_expr(callee)?;
+                if let Type::Function(params, ret) = ct {
+                    if params.len() != args.len() {
+                        return Err(self.error(
+                            format!(
+                                "Arity mismatch: expected {}, got {}",
+                                params.len(),
+                                args.len()
+                            ),
+                            span.clone(),
+                        ));
+                    }
+                    for (arg, pt) in args.iter().zip(params.iter()) {
+                        let at = self.check_expr(match arg {
+                            Arg::Positional(e) => e,
+                            Arg::Named(_, e) => e,
+                        })?;
+                        if *pt != Type::Unknown && !compatible(pt, &at) {
+                            return Err(self.error(
+                                format!(
+                                    "Argument type mismatch: expected {}, found {}",
+                                    pt.display(),
+                                    at.display()
+                                ),
+                                line_span(match arg {
+                                    Arg::Positional(e) => e,
+                                    Arg::Named(_, e) => e,
+                                }),
+                            ));
+                        }
+                    }
+                    Ok(*ret)
+                } else {
+                    Err(self.error("Callee is not a function", span.clone()))
+                }
+            }
+            Expr::Field { target, name, span } => {
+                if let Expr::Ident { name: alias, .. } = &**target {
+                    if let Some(module_id) = self.imports.get(alias) {
+                        if let Some(map) = self.exports.get(module_id) {
+                            if let Some(t) = map.get(name) {
+                                return Ok(t.clone());
+                            }
+                        }
+                        return Err(self.error(
+                            format!(
+                                "Symbol '{}' is private to module {}",
+                                name,
+                                module_id.0.join("::")
+                            ),
+                            span.clone(),
+                        ));
+                    }
+                }
+                self.check_expr(target)?;
+                Ok(Type::Unknown)
+            }
+            _ => Ok(Type::Unknown),
+        }
     }
 }
 
-impl std::error::Error for TypeError {}
+fn line_span(expr: &Expr) -> Span {
+    match expr {
+        Expr::Literal { span, .. }
+        | Expr::Ident { span, .. }
+        | Expr::Unary { span, .. }
+        | Expr::Binary { span, .. }
+        | Expr::Call { span, .. }
+        | Expr::Index { span, .. }
+        | Expr::Field { span, .. }
+        | Expr::List { span, .. }
+        | Expr::Lambda { span, .. }
+        | Expr::Match { span, .. }
+        | Expr::Try { span, .. } => span.clone(),
+    }
+}
 
-pub fn type_check(_module: &Module) -> Result<(), TypeError> {
-    Err(TypeError::new("Type checker not implemented for v0.1"))
+fn type_from_ref_opt(r: Option<TypeRef>) -> Type {
+    r.map(type_from_ref).unwrap_or(Type::Unknown)
+}
+
+fn type_from_ref(r: TypeRef) -> Type {
+    match r {
+        TypeRef::Named { path, optional, .. } => {
+            let mut t = match path.first().map(|s| s.as_str()) {
+                Some("Int") => Type::Int,
+                Some("Float") => Type::Float,
+                Some("Bool") => Type::Bool,
+                Some("String") => Type::String,
+                Some("Void") => Type::Void,
+                _ => Type::Unknown,
+            };
+            if optional {
+                t = Type::Optional(Box::new(t));
+            }
+            t
+        }
+        TypeRef::Function { params, ret } => {
+            let p = params.into_iter().map(type_from_ref).collect();
+            let r = type_from_ref(*ret);
+            Type::Function(p, Box::new(r))
+        }
+    }
+}
+
+fn compatible(expected: &Type, found: &Type) -> bool {
+    if expected == found || *expected == Type::Unknown || *found == Type::Unknown {
+        return true;
+    }
+    match (expected, found) {
+        (Type::Optional(inner), Type::Optional(f)) => compatible(inner, f),
+        (Type::Optional(inner), f) => compatible(inner, f), // allow T to satisfy Optional<T>
+        _ => false,
+    }
+}
+
+fn collect_export_types(module: &Module) -> std::collections::HashMap<String, Type> {
+    let mut out = std::collections::HashMap::new();
+    for item in &module.items {
+        if let Item::Fn(decl) = item {
+            if decl.is_pub {
+                let params = decl
+                    .params
+                    .iter()
+                    .map(|p| type_from_ref_opt(p.type_ann.clone()))
+                    .collect();
+                let ret = type_from_ref_opt(decl.return_type.clone());
+                out.insert(decl.name.clone(), Type::Function(params, Box::new(ret)));
+            }
+        }
+    }
+    out
 }
