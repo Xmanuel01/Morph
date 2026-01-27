@@ -1,0 +1,9 @@
+// Expected: prints 200
+// Start learn/19_http_server.enk in another terminal first.
+let resp := http.get("http://127.0.0.1:8080/")
+print(resp.status)
+
+// Error example: https is not supported yet
+// http.get("https://example.com")
+
+

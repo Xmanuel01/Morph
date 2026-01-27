@@ -1,11 +1,11 @@
 # FFI (native::import)
 
-Morph can call native C ABI functions via `native::import` blocks.
+Enkai can call native C ABI functions via `native::import` blocks.
 
 ## Syntax
 
 ```
-native::import "morph_native" ::
+native::import "enkai_native" ::
     fn add_i64(a: Int, b: Int) -> Int
     fn echo_string(data: String) -> String
 ::
@@ -29,8 +29,9 @@ print(x)
 ## Ownership rules
 
 If a native function returns `String` or `Buffer`, it must return a `{ptr,len}`
-allocated with a compatible allocator and expose a `morph_free(ptr, len)`
-function in the same library. Morph will call `morph_free` to release it.
+allocated with a compatible allocator and expose a `enkai_free(ptr, len)`
+function in the same library. Enkai will call `enkai_free` to release it
+(and will fall back to `enkai_free` for legacy libraries).
 
 ## Common errors
 
@@ -39,3 +40,4 @@ function in the same library. Morph will call `morph_free` to release it.
 - Signature mismatch
 
 The VM returns a clean runtime error instead of panicking.
+

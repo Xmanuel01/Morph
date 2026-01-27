@@ -1,22 +1,22 @@
-# Testing (morph test)
+# Testing (Enkai test)
 
-Morph can run test programs in `/tests`.
+Enkai can run test programs in `/tests`.
 
 ## Usage
 
 ```
-morph test
+Enkai test
 ```
 
 Optionally pass a project root:
 
 ```
-morph test ./my_project
+Enkai test ./my_project
 ```
 
 ## Conventions
 
-- Tests are `.morph` files in `./tests/`.
+- Tests are `.enk` files in `./tests/`.
 - Each test runs: `check -> compile -> VM`.
 - A test passes if it exits without errors.
 - A test fails if type-checking or runtime fails.
@@ -24,8 +24,10 @@ morph test ./my_project
 ## Example
 
 ```
-// tests/smoke.morph
+// tests/smoke.enk
 fn main() -> Int ::
     return 0
 ::
 ```
+
+

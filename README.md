@@ -1,8 +1,8 @@
-MORPH PROGRAMMING LANGUAGE
-[![CI](https://github.com/Xmanuel01/Morph/actions/workflows/ci.yml/badge.svg)](https://github.com/Xmanuel01/Morph/actions/workflows/ci.yml)
+ENKAI PROGRAMMING LANGUAGE
+[![CI](https://github.com/Xmanuel01/Enkai/actions/workflows/ci.yml/badge.svg)](https://github.com/Xmanuel01/Enkai/actions/workflows/ci.yml)
 
 Overview
-Morph is a programming language with block structure defined by :: tokens, a clean
+Enkai is a programming language with block structure defined by :: tokens, a clean
 assignment operator (:=), and an AI-native roadmap (tools, agents, memory, policy).
 This repository contains the v0.8 implementation in Rust.
 
@@ -14,42 +14,42 @@ Status (v0.8)
 - Tokenizer + dataset streaming + checkpoints
 
 Workspace structure
-- morphc: compiler front-end (lexer/parser/AST/type-check stubs)
-- morphrt: runtime/interpreter
-- morph: CLI wrapper
+- enkaic: compiler front-end (lexer/parser/AST/type-check stubs)
+- enkairt: runtime/interpreter
+- enkai: CLI wrapper
 
 Spec
-See docs/Morph.spec for the grammar, keywords, and :: block rules.
+See docs/Enkai.spec for the grammar, keywords, and :: block rules.
 
 Quick example
 fn greet(name: String) -> String ::
     return "Hello " + name
 ::
 
-let msg := greet("Morph")
+let msg := greet("Enkai")
 print(msg)
 
 Install (users, no Rust required)
 - Option A: one-line installer (recommended)
   - Windows (PowerShell):
-    - `iwr -useb https://raw.githubusercontent.com/Xmanuel01/Morph/main/install/install.ps1 | iex`
+    - `iwr -useb https://raw.githubusercontent.com/Xmanuel01/Enkai/main/install/install.ps1 | iex`
   - Linux/macOS:
-    - `curl -fsSL https://raw.githubusercontent.com/Xmanuel01/Morph/main/install/install.sh | sh`
+    - `curl -fsSL https://raw.githubusercontent.com/Xmanuel01/Enkai/main/install/install.sh | sh`
 - Option B: manual download
   - Download the correct archive from GitHub Releases:
-    - `morph-<version>-windows-x86_64.zip`
-    - `morph-<version>-linux-x86_64.tar.gz`
-    - `morph-<version>-macos-x86_64.tar.gz`
-    - `morph-<version>-macos-aarch64.tar.gz`
+    - `enkai-<version>-windows-x86_64.zip`
+    - `enkai-<version>-linux-x86_64.tar.gz`
+    - `enkai-<version>-macos-x86_64.tar.gz`
+    - `enkai-<version>-macos-aarch64.tar.gz`
   - Unzip and run:
-    - `morph --version`
-    - `morph run examples/hello/main.morph`
+    - `enkai --version`
+    - `enkai run examples/hello/main.enk`
 
 Developer install (requires Rust)
-- `cargo build -p morph --release`
-- `cargo run -p morph -- run path\\to\\file.morph`
-- `cargo run -p morph -- run examples\\project_v02`
-- `cargo run -p morph -- fmt --check examples\\project_v02\\src\\main.morph`
+- `cargo build -p enkai --release`
+- `cargo run -p enkai -- run path\\to\\file.enk`
+- `cargo run -p enkai -- run examples\\project_v02`
+- `cargo run -p enkai -- fmt --check examples\\project_v02\\src\\main.enk`
 - `cargo test`
 
 License
@@ -57,3 +57,5 @@ Apache 2.0
 
 Created by
 Emmanuel Odhiambo Onyango
+
+

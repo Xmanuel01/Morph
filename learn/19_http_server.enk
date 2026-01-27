@@ -1,0 +1,14 @@
+// Expected: server starts on 127.0.0.1:8080
+fn handler(req: Request) -> Response ::
+    return http.ok("hello")
+::
+
+http.serve("127.0.0.1", 8080, handler)
+task.sleep(10000)
+
+// Error example: handler must be fn(Request) -> Response
+// fn bad(req: Int) -> Int ::
+//     return req
+// ::
+// http.serve("127.0.0.1", 8080, bad)
+

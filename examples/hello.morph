@@ -1,4 +1,0 @@
-fn main() -> Int ::
-    print("Hello Morph")
-    return 0
-::

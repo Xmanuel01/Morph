@@ -1,3 +1,0 @@
-pub fn message() -> String ::
-    return "Hello from v0.2"
-::

@@ -19,3 +19,4 @@ Short-circuit is compiled with `JumpIfFalse`/`Jump` sequences, not dedicated opc
 Debugging:
 - `--disasm` prints bytecode
 - `--trace-vm` prints each instruction + stack
+

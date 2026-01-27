@@ -1,0 +1,13 @@
+[package]
+name = "enkai_native"
+version = "0.7.1"
+edition = "2021"
+
+[lib]
+name = "enkai_native"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+memmap2 = "0.9"
+sha2 = "0.10"
+zstd = "0.13"

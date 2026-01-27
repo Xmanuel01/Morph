@@ -1,15 +1,15 @@
 # Train/Eval CLI
 
-Morph v0.8 adds:
+Enkai v0.8 adds:
 
 ```
-morph train config.morph
-morph eval config.morph
+Enkai train config.enk
+Enkai eval config.enk
 ```
 
 ## Config format
 
-`config.morph` must return a record. The simplest approach:
+`config.enk` must return a record. The simplest approach:
 
 ```
 fn main() ::
@@ -20,7 +20,7 @@ fn main() ::
 ## Evaluation
 
 ```
-morph eval config.morph
+Enkai eval config.enk
 ```
 
 Uses the latest checkpoint and computes average loss/perplexity.
@@ -29,3 +29,5 @@ Uses the latest checkpoint and computes average loss/perplexity.
 
 - `tokenizer_path` or `tokenizer_train` missing.
 - `checkpoint_dir` not writable.
+
+

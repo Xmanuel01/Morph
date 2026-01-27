@@ -1,0 +1,20 @@
+// Lesson 16: Fast file IO
+// Expected: prints 5
+
+import std::fsx
+
+native::import "enkai_native" ::
+    fn buffer_from_string(data: String) -> Buffer
+    fn buffer_len(data: Buffer) -> Int
+::
+
+let path := "tmp.bin"
+let buf := buffer_from_string("hello")
+fsx.write_bytes(path, buf)
+let out := fsx.read_bytes(path)
+print(buffer_len(out))
+
+// Common error: missing file
+// let missing := fsx.read_bytes("nope.bin")
+
+

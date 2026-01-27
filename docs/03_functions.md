@@ -9,3 +9,4 @@ fn add(a: Int, b: Int) -> Int ::
 - Parameters optional types; returns `Void` if omitted.
 - Calls: `add(1, 2)`
 - Arity enforced by type checker.
+

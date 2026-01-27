@@ -1,9 +1,0 @@
-// Expected: 5
-let g := 2
-fn addg(a: Int) -> Int ::
-    return a + g
-::
-print(addg(3))
-
-// Error example: reassign with wrong type
-// g := "hi" // type mismatch

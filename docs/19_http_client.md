@@ -1,6 +1,6 @@
 # HTTP Client
 
-Morph provides basic HTTP client helpers.
+Enkai provides basic HTTP client helpers.
 
 ## Usage
 
@@ -26,4 +26,5 @@ let resp := http.post("http://127.0.0.1:8080/echo", body)
 
 - Only `http://` URLs are supported (no TLS yet).
 - Invalid URLs or unreachable hosts return runtime errors.
+
 

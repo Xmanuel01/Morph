@@ -1,6 +1,6 @@
 # Native Modules
 
-Morph v0.6 ships native-backed modules that wrap FFI for common tasks.
+Enkai v0.6 ships native-backed modules that wrap FFI for common tasks.
 
 ## std::fsx
 
@@ -37,12 +37,14 @@ let digest := hash.sha256_from_string("hello")
 ## Common errors
 
 - `import std::...` fails if `std/` is missing from your project root
-  (or `MORPH_STD` is not set).
-- Native library `morph_native` not found.
+  (or `ENKAI_STD` is not set).
+- Native library `enkai_native` not found.
 
 ## CLI usage
 
 ```
-morph run main.morph
-morph check main.morph
+enkai run main.enk
+enkai check main.enk
 ```
+
+

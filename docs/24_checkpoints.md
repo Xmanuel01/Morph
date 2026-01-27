@@ -30,3 +30,4 @@ checkpoint.rotate("ckpt", 3)
 
 - Missing `weights` or `step`.
 - Invalid buffer sizes (must be multiple of 4 bytes for f32).
+

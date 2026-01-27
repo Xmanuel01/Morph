@@ -1,0 +1,127 @@
+{
+  "name": "Enkai",
+  "scopeName": "source.enkai",
+  "patterns": [
+    {"include": "#comments"},
+    {"include": "#strings"},
+    {"include": "#numbers"},
+    {"include": "#keywords"},
+    {"include": "#types"},
+    {"include": "#functions"},
+    {"include": "#typeDecls"},
+    {"include": "#importPaths"},
+    {"include": "#operators"}
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.enkai",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.enkai",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.enkai",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.enkai",
+              "match": "\\\\(\\\\|\"|n|t|r|0)"
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.enkai",
+          "match": "\\b\\d[\\d_]*(?:\\.\\d[\\d_]*)?(?:[eE][+-]?\\d+)?\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.enkai",
+          "match": "\\b(if|else|for|while|match|try|catch|return|break|continue|spawn|await|async)\\b"
+        },
+        {
+          "name": "keyword.declaration.enkai",
+          "match": "\\b(fn|let|type|enum|impl|import|use|pub|tool|agent|policy|memory|prompt|model|native)\\b"
+        },
+        {
+          "name": "keyword.other.enkai",
+          "match": "\\b(allow|deny|as|in)\\b"
+        },
+        {
+          "name": "keyword.operator.logical.enkai",
+          "match": "\\b(and|or|not)\\b"
+        },
+        {
+          "name": "constant.language.enkai",
+          "match": "\\b(true|false|none)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "support.type.enkai",
+          "match": "\\b(Int|Float|Bool|String|Void|Buffer|Tensor|Device|DType|Optional|Result|Channel|TaskHandle|Request|Response)\\b"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "meta.function.declaration.enkai",
+          "match": "\\bfn\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {"name": "entity.name.function.enkai"}
+          }
+        }
+      ]
+    },
+    "typeDecls": {
+      "patterns": [
+        {
+          "name": "meta.type.declaration.enkai",
+          "match": "\\b(type|enum)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "2": {"name": "entity.name.type.enkai"}
+          }
+        }
+      ]
+    },
+    "importPaths": {
+      "patterns": [
+        {
+          "name": "meta.import.enkai",
+          "match": "\\b(import|use)\\s+([A-Za-z_][A-Za-z0-9_]*)(::[A-Za-z_][A-Za-z0-9_]*)*",
+          "captures": {
+            "2": {"name": "entity.name.namespace.enkai"}
+          }
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.enkai",
+          "match": "(::|:=|->|=>|==|!=|<=|>=|\\+|\\-|\\*|/|%|\\?|=|\\.)"
+        }
+      ]
+    }
+  }
+}
+

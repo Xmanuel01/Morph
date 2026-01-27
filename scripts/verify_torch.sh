@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Verify morph_tensor against a real libtorch install via Python wheels.
+# Verify enkai_tensor against a real libtorch install via Python wheels.
 # CPU default: https://download.pytorch.org/whl/cpu
 # For CUDA, set TORCH_INDEX_URL (e.g. https://download.pytorch.org/whl/cu121)
 # Pin torch version to match tch crate expectations.
@@ -22,4 +22,5 @@ if [ ! -d "$TORCH_LIB_DIR" ]; then
 fi
 export LD_LIBRARY_PATH="$TORCH_LIB_DIR:${LD_LIBRARY_PATH:-}"
 
-cargo test -p morph_tensor --features torch
+cargo test -p enkai_tensor --features torch
+

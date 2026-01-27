@@ -23,7 +23,7 @@
 - Added multi-file module imports with caching and circular import detection.
 - Enforced public/private visibility across modules with compile + typecheck validation.
 - Introduced structured diagnostics (source snippets) and runtime stack traces.
-- Shipped deterministic `morph fmt` and a CLI `morph test` runner.
+- Shipped deterministic `enkai fmt` and a CLI `enkai test` runner.
 - Added v0.5 docs and learn lessons for modules, visibility, formatting, and testing.
 
 ### Fixes
@@ -34,7 +34,7 @@
 ### Highlights
 - Introduced the bytecode + VM execution pipeline with chunk constants, stack safety, globals, and CLI flags (`--trace-vm`/`--disasm`).
 - Added deep scope-aware symbol allocation, short-circuit logic ops, and Optional[T] coverage in the new type checker.
-- Published learn/docs axes (learn lessons + docs/dev_debugging) and stabilized the CLI to always run `morph check` before execution.
+- Published learn/docs axes (learn lessons + docs/dev_debugging) and stabilized the CLI to always run `enkai check` before execution.
 
 ### Fixes
 - Stabilized parser/compiler/VM tests, cleaned warnings, and ensured `cargo fmt`, `cargo clippy -D warnings`, and `cargo test` pass in the v0.4 path.
@@ -52,7 +52,7 @@
 ### Features
 - Public exports + re-exports via `pub` and `pub use`.
 - Labeled-span diagnostics for parse/loader errors.
-- Local path dependencies in `morph.toml`.
+- Local path dependencies in `enkai.toml`.
 - Policy filters for `domain` and `path_prefix`.
 - `std.string` helpers and `std.fs` read/write (policy-gated).
 
@@ -63,16 +63,19 @@
 
 ### Features
 - Module loader + use resolution with file-based modules.
-- `morph run .` for project roots using `morph.toml` and `src/main.morph`.
+- `enkai run .` for project roots using `enkai.toml` and `src/main.enk`.
 - Parser diagnostics include line/col + snippet.
 - Runtime stack traces for errors.
-- Minimal formatter with `morph fmt` and `morph fmt --check`.
+- Minimal formatter with `enkai fmt` and `enkai fmt --check`.
 - Policy enforcement MVP with default deny and allow/deny rules.
 
 ### Release Notes v0.2.0
 - Smoke test:
-  - `cargo run -p morph -- run examples/project_v02`
-  - `cargo run -p morph -- fmt --check examples/project_v02/src/main.morph`
+  - `cargo run -p enkai -- run examples/project_v02`
+  - `cargo run -p enkai -- fmt --check examples/project_v02/src/main.enk`
 
 ### Breaking changes
 - IO and tool calls are now policy-gated; code that called `print` or tools without a policy will fail until a policy allows those capabilities.
+
+
+

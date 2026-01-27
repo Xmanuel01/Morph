@@ -1,0 +1,10 @@
+// Lesson 10: Public vs private
+// Expected: prints 5
+
+import app::utils as utils
+
+print(utils.add(2, 3))
+
+// Common error: private symbol access
+// print(utils.secret(1))
+

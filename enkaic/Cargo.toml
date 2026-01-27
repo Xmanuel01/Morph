@@ -1,0 +1,13 @@
+[package]
+name = "enkaic"
+version = "0.7.1"
+edition = "2021"
+license = "Apache-2.0"
+description = "Enkai compiler front-end: lexer, parser, AST, type-check stubs."
+
+[dependencies]
+toml = "0.8"
+bumpalo = "3.14"
+
+[dev-dependencies]
+tempfile = "3.10"

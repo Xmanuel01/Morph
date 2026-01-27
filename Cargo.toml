@@ -1,9 +1,10 @@
 [workspace]
 members = [
-    "morphc",
-    "morphrt",
-    "morph",
-    "morph_native"
-, "morph_tensor"]
+    "enkaic",
+    "enkairt",
+    "enkai",
+    "enkai_native",
+    "enkai_tensor"
+]
 
 resolver = "2"

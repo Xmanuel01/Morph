@@ -1,6 +1,6 @@
 # JSON
 
-Morph includes JSON parsing and serialization via `json`.
+Enkai includes JSON parsing and serialization via `json`.
 
 ## Usage
 
@@ -19,3 +19,4 @@ print(out)
 
 - Invalid JSON strings return a runtime error.
 - `json.stringify` fails on unsupported values.
+

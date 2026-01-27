@@ -1,6 +1,6 @@
 # Tensor API (v0.9)
 
-The `std::tensor` module provides GPU tensor operations backed by `morph_tensor`.
+The `std::tensor` module provides GPU tensor operations backed by `enkai_tensor`.
 
 ## Quick start
 
@@ -64,5 +64,5 @@ Notes:
 
 ## Common errors
 
-- `0` handle means backend error; check `morph_tensor_last_error`.
+- `0` handle means backend error; check `enkai_tensor_last_error`.
 - CUDA not available on the host.

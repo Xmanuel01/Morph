@@ -5,7 +5,7 @@ Symbols are private by default. Use `pub` to export.
 ## Functions
 
 ```
-// app/utils.morph
+// app/utils.enk
 pub fn add(a: Int, b: Int) -> Int ::
     return a + b
 ::
@@ -16,7 +16,7 @@ fn secret(x: Int) -> Int ::
 ```
 
 ```
-// main.morph
+// main.enk
 import app::utils as utils
 
 fn main() -> Int ::
@@ -37,3 +37,5 @@ Produces:
 ```
 error: Symbol 'secret' is private to module app::utils
 ```
+
+

@@ -1,11 +1,12 @@
-# Hello Morph
+# Hello Enkai
 
-This is the smallest Morph project.
+This is the smallest Enkai project.
 
 Run:
 
-  morph run main.morph
+  enkai run main.enk
 
 Expected output:
 
-  2
+  Hello Enkai
+

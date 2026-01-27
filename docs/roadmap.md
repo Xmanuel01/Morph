@@ -1,4 +1,4 @@
-Morph Roadmap
+Enkai Roadmap
 
 v0.1 (done)
 - Lexer/parser/AST with :: blocks
@@ -9,7 +9,7 @@ v0.1 (done)
 
 v0.2 (done)
 - Modules + use resolution
-- morph run . with morph.toml + src/main.morph
+- Enkai run . with Enkai.toml + src/main.enk
 - Better diagnostics (line/col + snippet)
 - Runtime stack traces
 - Minimal formatter + validation
@@ -19,7 +19,7 @@ v0.3 (done)
 - Module exports/import rules (pub/private, re-export)
 - Policy filters enforcement (domains, path_prefix)
 - Diagnostics with labeled spans
-- Local path dependencies in morph.toml
+- Local path dependencies in Enkai.toml
 - Expand stdlib: strings + fs (policy-gated)
 - Keep AI primitives as stubs unless testable
 
@@ -34,3 +34,5 @@ v1.0 (planned)
 - Strong sandboxing + capability permissions
 - Stable stdlib
 - Polished docs + examples
+
+

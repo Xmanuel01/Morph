@@ -53,3 +53,4 @@ let bundle := tensor.load_sharded_multi(dir)
 
 - v0.9 uses `world_size=1`.
 - v0.10+ will add multi-GPU sharding and tensor parallel layouts.
+

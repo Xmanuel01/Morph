@@ -1,7 +1,7 @@
 Param(
     [string]$Version = "latest",
-    [string]$Repo = "Xmanuel01/Morph",
-    [string]$InstallDir = "$env:USERPROFILE\\.morph\\bin"
+    [string]$Repo = "Xmanuel01/Enkai",
+    [string]$InstallDir = "$env:USERPROFILE\\.enkai\\bin"
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,21 +16,21 @@ function Get-Arch {
 }
 
 $arch = Get-Arch
-$asset = "morph-$Version-windows-$arch.zip"
+$asset = "enkai-$Version-windows-$arch.zip"
 if ($Version -eq "latest") {
     $baseUrl = "https://github.com/$Repo/releases/latest/download"
 } else {
     $baseUrl = "https://github.com/$Repo/releases/download/$Version"
 }
 $url = "$baseUrl/$asset"
-$checksumUrl = if ($env:MORPH_CHECKSUM_URL) { $env:MORPH_CHECKSUM_URL } else { "$baseUrl/$asset.sha256" }
+$checksumUrl = if ($env:ENKAI_CHECKSUM_URL) { $env:ENKAI_CHECKSUM_URL } elseif ($env:enkai_CHECKSUM_URL) { $env:enkai_CHECKSUM_URL } else { "$baseUrl/$asset.sha256" }
 
 Write-Host "Downloading $asset..."
 $tmp = New-Item -ItemType Directory -Force -Path ([System.IO.Path]::GetTempPath() + [System.Guid]::NewGuid().ToString())
 $zipPath = Join-Path $tmp $asset
 Invoke-WebRequest -Uri $url -OutFile $zipPath
 
-if ($env:MORPH_SKIP_VERIFY -ne "1") {
+if ($env:ENKAI_SKIP_VERIFY -ne "1" -and $env:enkai_SKIP_VERIFY -ne "1") {
     $checksumPath = Join-Path $tmp "$asset.sha256"
     try {
         Invoke-WebRequest -Uri $checksumUrl -OutFile $checksumPath | Out-Null
@@ -47,12 +47,21 @@ if ($env:MORPH_SKIP_VERIFY -ne "1") {
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 Expand-Archive -Path $zipPath -DestinationPath $tmp -Force
 
-$exe = Join-Path $tmp "morph.exe"
+$exe = Join-Path $tmp "enkai.exe"
 if (!(Test-Path $exe)) {
-    throw "morph.exe not found in archive"
+    throw "enkai.exe not found in archive"
 }
 
-Copy-Item -Force $exe (Join-Path $InstallDir "morph.exe")
+Copy-Item -Force $exe (Join-Path $InstallDir "enkai.exe")
+if (Test-Path (Join-Path $tmp "enkai.exe")) {
+    Copy-Item -Force (Join-Path $tmp "enkai.exe") (Join-Path $InstallDir "enkai.exe")
+}
+if (Test-Path (Join-Path $tmp "enkai_native.dll")) {
+    Copy-Item -Force (Join-Path $tmp "enkai_native.dll") (Join-Path $InstallDir "enkai_native.dll")
+}
+if (Test-Path (Join-Path $tmp "enkai_native.dll")) {
+    Copy-Item -Force (Join-Path $tmp "enkai_native.dll") (Join-Path $InstallDir "enkai_native.dll")
+}
 
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if (-not $userPath.Split(';') -contains $InstallDir) {
@@ -61,5 +70,6 @@ if (-not $userPath.Split(';') -contains $InstallDir) {
     Write-Host "Added $InstallDir to PATH (User). Restart your terminal."
 }
 
-Write-Host "Morph installed to $InstallDir\\morph.exe"
-Write-Host "Verify: morph --version"
+Write-Host "Enkai installed to $InstallDir\\enkai.exe"
+Write-Host "Verify: enkai --version"
+

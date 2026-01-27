@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="${MORPH_REPO:-Xmanuel01/Morph}"
-VERSION="${MORPH_VERSION:-latest}"
-INSTALL_DIR="${MORPH_INSTALL_DIR:-$HOME/.local/bin}"
+REPO="${ENKAI_REPO:-${enkai_REPO:-Xmanuel01/Enkai}}"
+VERSION="${ENKAI_VERSION:-${enkai_VERSION:-latest}}"
+INSTALL_DIR="${ENKAI_INSTALL_DIR:-${enkai_INSTALL_DIR:-$HOME/.local/bin}}"
 
 if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
   echo "Error: curl or wget is required." >&2
@@ -31,7 +31,7 @@ case "$ARCH" in
     ;;
 esac
 
-ASSET="morph-${VERSION}-${OS}-${ARCH}.tar.gz"
+ASSET="enkai-${VERSION}-${OS}-${ARCH}.tar.gz"
 if [ "$VERSION" = "latest" ]; then
   BASE_URL="https://github.com/${REPO}/releases/latest/download"
 else
@@ -40,7 +40,7 @@ fi
 
 TMP_DIR="$(mktemp -d)"
 ARCHIVE="${TMP_DIR}/${ASSET}"
-CHECKSUM_URL="${MORPH_CHECKSUM_URL:-${BASE_URL}/${ASSET}.sha256}"
+CHECKSUM_URL="${ENKAI_CHECKSUM_URL:-${enkai_CHECKSUM_URL:-${BASE_URL}/${ASSET}.sha256}}"
 
 echo "Downloading ${ASSET}..."
 if command -v curl >/dev/null 2>&1; then
@@ -49,7 +49,7 @@ else
   wget -q "${BASE_URL}/${ASSET}" -O "${ARCHIVE}"
 fi
 
-if [ "${MORPH_SKIP_VERIFY:-0}" != "1" ]; then
+if [ "${ENKAI_SKIP_VERIFY:-${enkai_SKIP_VERIFY:-0}}" != "1" ]; then
   CHECKSUM_FILE="${TMP_DIR}/${ASSET}.sha256"
   if command -v curl >/dev/null 2>&1; then
     curl -fsSL "${CHECKSUM_URL}" -o "${CHECKSUM_FILE}" || true
@@ -75,13 +75,17 @@ fi
 mkdir -p "${INSTALL_DIR}"
 tar -xzf "${ARCHIVE}" -C "${TMP_DIR}"
 
-if [ ! -f "${TMP_DIR}/morph" ]; then
-  echo "Error: morph binary not found in archive." >&2
+if [ ! -f "${TMP_DIR}/enkai" ]; then
+  echo "Error: enkai binary not found in archive." >&2
   exit 1
 fi
 
-mv -f "${TMP_DIR}/morph" "${INSTALL_DIR}/morph"
-chmod +x "${INSTALL_DIR}/morph"
+mv -f "${TMP_DIR}/enkai" "${INSTALL_DIR}/enkai"
+chmod +x "${INSTALL_DIR}/enkai"
+if [ -f "${TMP_DIR}/enkai" ]; then
+  mv -f "${TMP_DIR}/enkai" "${INSTALL_DIR}/enkai"
+  chmod +x "${INSTALL_DIR}/enkai"
+fi
 
 if ! echo "$PATH" | tr ':' '\n' | grep -qx "${INSTALL_DIR}"; then
   PROFILE="${HOME}/.profile"
@@ -93,5 +97,5 @@ if ! echo "$PATH" | tr ':' '\n' | grep -qx "${INSTALL_DIR}"; then
   echo "Restart your shell or run: source ${PROFILE}"
 fi
 
-echo "Morph installed to ${INSTALL_DIR}/morph"
-echo "Verify: morph --version"
+echo "Enkai installed to ${INSTALL_DIR}/enkai"
+echo "Verify: enkai --version"

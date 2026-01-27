@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO=${MORPH_REPO:-Xmanuel01/Morph}
-VERSION=${MORPH_VERSION:-latest}
+REPO=${ENKAI_REPO:-${enkai_REPO:-Xmanuel01/Enkai}}
+VERSION=${ENKAI_VERSION:-${enkai_VERSION:-latest}}
 
 if ! command -v curl >/dev/null 2>&1; then
   echo "curl is required" >&2
@@ -37,7 +37,7 @@ if [ -z "$TAG" ]; then
   exit 1
 fi
 VER=${TAG#v}
-ASSET="morph-${VER}-${OS}-${ARCH}.tar.gz"
+ASSET="enkai-${VER}-${OS}-${ARCH}.tar.gz"
 URL=$(printf "%s" "$JSON" | grep -E '"browser_download_url"' | grep "$ASSET" | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')
 if [ -z "$URL" ]; then
   echo "Asset not found: $ASSET" >&2
@@ -52,16 +52,23 @@ mkdir -p "$EXTRACT"
 curl -fL "$URL" -o "$ARCHIVE"
 tar -xzf "$ARCHIVE" -C "$EXTRACT"
 
-INSTALL_DIR="$HOME/.local/bin"
+INSTALL_DIR="${ENKAI_INSTALL_DIR:-${enkai_INSTALL_DIR:-$HOME/.local/bin}}"
 mkdir -p "$INSTALL_DIR"
 
 rm -rf "$INSTALL_DIR/std" "$INSTALL_DIR/examples"
 
-cp "$EXTRACT/morph" "$INSTALL_DIR/morph"
-chmod +x "$INSTALL_DIR/morph"
+cp "$EXTRACT/enkai" "$INSTALL_DIR/enkai"
+chmod +x "$INSTALL_DIR/enkai"
+if [ -f "$EXTRACT/enkai" ]; then
+  cp "$EXTRACT/enkai" "$INSTALL_DIR/enkai"
+  chmod +x "$INSTALL_DIR/enkai"
+fi
 
-if compgen -G "$EXTRACT/libmorph_native.*" > /dev/null; then
-  cp "$EXTRACT"/libmorph_native.* "$INSTALL_DIR/"
+if compgen -G "$EXTRACT/libenkai_native.*" > /dev/null; then
+  cp "$EXTRACT"/libenkai_native.* "$INSTALL_DIR/"
+fi
+if compgen -G "$EXTRACT/libenkai_native.*" > /dev/null; then
+  cp "$EXTRACT"/libenkai_native.* "$INSTALL_DIR/"
 fi
 
 if [ -d "$EXTRACT/std" ]; then
@@ -87,6 +94,6 @@ if ! echo "$PATH" | grep -q "$INSTALL_DIR"; then
   echo "Added $INSTALL_DIR to PATH in $PROFILE. Restart your shell."
 fi
 
-"$INSTALL_DIR/morph" --version
+"$INSTALL_DIR/enkai" --version
 
-echo "Installed Morph to $INSTALL_DIR"
+echo "Installed Enkai to $INSTALL_DIR"

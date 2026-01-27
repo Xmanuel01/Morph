@@ -26,17 +26,18 @@ Use this checklist for production releases.
 
 - [ ] Verify CI release workflow ran for tag
 - [ ] Confirm assets:
-  - `morph-<version>-windows-x86_64.zip`
-  - `morph-<version>-linux-x86_64.tar.gz`
-  - `morph-<version>-linux-aarch64.tar.gz`
-  - `morph-<version>-macos-x86_64.tar.gz`
-  - `morph-<version>-macos-aarch64.tar.gz`
-  - `morph-setup-<version>.exe`
+  - `enkai-<version>-windows-x86_64.zip`
+  - `enkai-<version>-linux-x86_64.tar.gz`
+  - `enkai-<version>-linux-aarch64.tar.gz`
+  - `enkai-<version>-macos-x86_64.tar.gz`
+  - `enkai-<version>-macos-aarch64.tar.gz`
+  - `enkai-setup-<version>.exe`
   - `.sha256` for each asset
 
 ## 5) Post-release
 
 - [ ] Validate install scripts against the new release
 - [ ] Smoke test:
-  - `morph --version`
-  - `morph run examples/...`
+  - `enkai --version`
+  - `enkai run examples/...`
+

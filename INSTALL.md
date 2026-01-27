@@ -1,23 +1,23 @@
-# Morph Installation Guide
+# Enkai Installation Guide
 
 This document covers the full flow from download → install → first program.
 
-## 1) Download Morph
+## 1) Download Enkai
 
-Morph is distributed as prebuilt binaries via GitHub Releases.
+Enkai is distributed as prebuilt binaries via GitHub Releases.
 
 ### Release assets (expected names)
 
-- `morph-<version>-windows-x86_64.zip`
-- `morph-<version>-linux-x86_64.tar.gz`
-- `morph-<version>-linux-aarch64.tar.gz`
-- `morph-<version>-macos-x86_64.tar.gz`
-- `morph-<version>-macos-aarch64.tar.gz`
-- `morph-setup-<version>.exe` (Windows installer)
+- `enkai-<version>-windows-x86_64.zip`
+- `enkai-<version>-linux-x86_64.tar.gz`
+- `enkai-<version>-linux-aarch64.tar.gz`
+- `enkai-<version>-macos-x86_64.tar.gz`
+- `enkai-<version>-macos-aarch64.tar.gz`
+- `enkai-setup-<version>.exe` (Windows installer)
 
 Each asset also ships with a `.sha256` checksum.
 
-## 2) Install Morph
+## 2) Install Enkai
 
 ### Option A: Install script (recommended)
 
@@ -43,35 +43,35 @@ These scripts:
 ### Option B: Manual install
 
 1) Download the correct release asset
-2) Extract `morph` / `morph.exe`
+2) Extract `enkai` / `enkai.exe`
 3) Move it to a PATH folder:
-   - Linux/macOS: `~/.local/bin/morph`
-   - Windows: `C:\Users\Name\.morph\bin\morph.exe`
+   - Linux/macOS: `~/.local/bin/enkai`
+   - Windows: `C:\Users\Name\.enkai\bin\enkai.exe`
 4) Verify:
 
 ```
-morph --version
+enkai --version
 ```
 
 ## 3) Write your first program
 
-Create `hello.morph`:
+Create `hello.enk`:
 
 ```
 fn main() ::
-  print("Hello from Morph!")
+  print("Hello from Enkai!")
 ::
 ```
 
 Run it:
 
 ```
-morph run hello.morph
+enkai run hello.enk
 ```
 
 ## 4) What happens when you run
 
-`morph run` performs:
+`enkai run` performs:
 
 1) Parse → AST
 2) Type-check
@@ -81,21 +81,21 @@ morph run hello.morph
 ## 5) Building from source (developers)
 
 ```
-git clone https://github.com/Xmanuel01/Morph.git
-cd Morph
-cargo build -p morph --release
+git clone https://github.com/Xmanuel01/Enkai.git
+cd Enkai
+cargo build -p enkai --release
 ```
 
 Then run:
 
 ```
-target/release/morph --version
+target/release/enkai --version
 ```
 
 ## 6) Windows installer
 
-The installer (`morph-setup-<version>.exe`) installs Morph into
-`C:\Users\Name\Morph` and adds it to your user PATH.
+The installer (`enkai-setup-<version>.exe`) installs Enkai into
+`C:\Users\Name\Enkai` and adds it to your user PATH.
 
 ## 7) Windows EV code signing (guidance)
 
@@ -108,7 +108,7 @@ Recommended approach:
    - `WINDOWS_PFX_BASE64` (base64-encoded PFX)
    - `WINDOWS_PFX_PASSWORD`
 3) The release workflow uses `signtool.exe` to sign:
-   - `morph.exe`
+   - `enkai.exe`
    - Inno Setup EXE
    - WiX MSI
 
@@ -119,7 +119,9 @@ If the secrets are not set, signing is skipped.
 Native-backed modules require the native library:
 
 ```
-cargo build -p morph_native --release
+cargo build -p enkai_native --release
 ```
 
-Ensure `morph_native.dll` is in the current directory or on PATH when running.
+Ensure `enkai_native.dll` is in the current directory or on PATH when running.
+
+

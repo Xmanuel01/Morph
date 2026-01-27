@@ -1,6 +1,6 @@
 # Modules (v0.5)
 
-Morph supports multi-file modules via `import`.
+Enkai supports multi-file modules via `import`.
 
 ## Syntax
 
@@ -15,8 +15,8 @@ fn main() -> Int ::
 
 ## Resolution
 
-- `import app::utils` resolves to `./app/utils.morph`
-- The module root is the directory that contains the entry file passed to `morph run` or `morph check`.
+- `import app::utils` resolves to `./app/utils.enk`
+- The module root is the directory that contains the entry file passed to `Enkai run` or `Enkai check`.
 
 ## Accessing exports
 
@@ -32,5 +32,7 @@ fn main() -> Int ::
 
 ## Common errors
 
-- `Module not found: app::utils` — the file `app/utils.morph` is missing.
+- `Module not found: app::utils` — the file `app/utils.enk` is missing.
 - `Circular import detected: main -> app::utils -> main`
+
+

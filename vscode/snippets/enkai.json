@@ -1,0 +1,86 @@
+{
+  "Function main": {
+    "prefix": "fnmain",
+    "body": [
+      "fn main() ::",
+      "    ${0}",
+      "::"
+    ],
+    "description": "Main entry function"
+  },
+  "Function": {
+    "prefix": "fn",
+    "body": [
+      "fn ${1:name}(${2:params})${3: -> ${4:Type}} ::",
+      "    ${0}",
+      "::"
+    ],
+    "description": "Function declaration"
+  },
+  "Let binding": {
+    "prefix": "let",
+    "body": "let ${1:name}${2:: ${3:Type}} := ${0}",
+    "description": "Let binding"
+  },
+  "If": {
+    "prefix": "if",
+    "body": [
+      "if ${1:condition} ::",
+      "    ${0}",
+      "::"
+    ],
+    "description": "If block"
+  },
+  "If else": {
+    "prefix": "ifelse",
+    "body": [
+      "if ${1:condition} ::",
+      "    ${2}",
+      "::",
+      "else ::",
+      "    ${0}",
+      "::"
+    ],
+    "description": "If/else block"
+  },
+  "While": {
+    "prefix": "while",
+    "body": [
+      "while ${1:condition} ::",
+      "    ${0}",
+      "::"
+    ],
+    "description": "While loop"
+  },
+  "For": {
+    "prefix": "for",
+    "body": [
+      "for ${1:item} in ${2:iterable} ::",
+      "    ${0}",
+      "::"
+    ],
+    "description": "For loop"
+  },
+  "Match": {
+    "prefix": "match",
+    "body": [
+      "match ${1:value} ::",
+      "    ${2:_} => ${0}",
+      "::"
+    ],
+    "description": "Match expression"
+  },
+  "Import": {
+    "prefix": "import",
+    "body": "import ${1:module}"
+  },
+  "Native import block": {
+    "prefix": "nativeimport",
+    "body": [
+      "native::import \"${1:lib}\" ::",
+      "    fn ${2:name}(${3:args}) -> ${4:Type}",
+      "::"
+    ],
+    "description": "Native import block"
+  }
+}

@@ -1,0 +1,10 @@
+// Lesson 09: Imports
+// Expected: prints 3
+
+import app::utils as utils
+
+print(utils.add(1, 2))
+
+// Common error: missing module file
+// import app::missing
+

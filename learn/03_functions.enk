@@ -1,0 +1,9 @@
+// Expected: Hello Enkai
+fn greet(name: String) -> String ::
+    return "Hello " + name
+::
+print(greet("Enkai"))
+
+// Error example:
+// greet(123) // type error: expected String
+

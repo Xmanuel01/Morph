@@ -17,4 +17,5 @@ if (-not (Test-Path $torchLib)) {
 }
 $env:PATH = "$torchLib;$env:PATH"
 
-cargo test -p morph_tensor --features torch
+cargo test -p enkai_tensor --features torch
+

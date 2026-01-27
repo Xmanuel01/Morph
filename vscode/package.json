@@ -1,0 +1,51 @@
+{
+  "name": "enkai-language",
+  "displayName": "Enkai Language Support",
+  "description": "Syntax highlighting and snippets for the Enkai language.",
+  "version": "0.1.0",
+  "publisher": "xmanuel01",
+  "license": "Apache-2.0",
+  "engines": {
+    "vscode": "^1.82.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Xmanuel01/Enkai.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Xmanuel01/Enkai/issues"
+  },
+  "homepage": "https://github.com/Xmanuel01/Enkai",
+  "contributes": {
+    "languages": [
+      {
+        "id": "enkai",
+        "aliases": [
+          "Enkai",
+          "enkai"
+        ],
+        "extensions": [
+          ".enk",
+          ".en"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "enkai",
+        "scopeName": "source.enkai",
+        "path": "./syntaxes/enkai.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "enkai",
+        "path": "./snippets/enkai.json"
+      }
+    ]
+  }
+}

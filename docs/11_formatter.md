@@ -1,18 +1,18 @@
-# Formatter (morph fmt)
+# Formatter (Enkai fmt)
 
-Morph includes a deterministic formatter.
+Enkai includes a deterministic formatter.
 
 ## Usage
 
 ```
-morph fmt path/to/file.morph
-morph fmt ./project
+Enkai fmt path/to/file.enk
+Enkai fmt ./project
 ```
 
 Check-only mode:
 
 ```
-morph fmt --check path/to/file.morph
+Enkai fmt --check path/to/file.enk
 ```
 
 ## What it formats
@@ -24,7 +24,9 @@ morph fmt --check path/to/file.morph
 ## Common error
 
 ```
-morph fmt --check src/main.morph
+Enkai fmt --check src/main.enk
 ```
 
 If the file is unformatted, the command exits with a non-zero code.
+
+

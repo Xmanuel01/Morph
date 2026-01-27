@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product
+    Id="*"
+    Name="Enkai"
+    Language="1033"
+    Version="$(var.ProductVersion)"
+    Manufacturer="Emmanuel Odhiambo Onyango"
+    UpgradeCode="{2B7A5E1B-1C35-4E63-A74A-4E7B0A44B7F9}">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perUser" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Enkai is already installed." />
+    <MediaTemplate />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <UIRef Id="WixUI_InstallDir" />
+    <WixVariable Id="WixUILicenseRtf" Value="installer\License.rtf" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="LocalAppDataFolder">
+        <Directory Id="INSTALLFOLDER" Name="Enkai">
+          <Component Id="EnkaiExe" Guid="{F3A43B7C-CC66-4A46-9C53-6B9B9C1C6AAB}">
+            <File Id="EnkaiBinary" Source="..\target\release\enkai.exe" KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+
+    <Property Id="PATH" Secure="yes" />
+    <Environment
+      Id="AddToPath"
+      Name="PATH"
+      Value="[INSTALLFOLDER]"
+      Action="set"
+      Part="last"
+      System="no" />
+
+    <Feature Id="MainFeature" Title="Enkai" Level="1">
+      <ComponentRef Id="EnkaiExe" />
+    </Feature>
+  </Product>
+</Wix>
