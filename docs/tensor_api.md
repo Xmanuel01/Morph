@@ -1,9 +1,8 @@
 # Tensor API (v0.9)
 
-The `std::tensor` module provides GPU tensor operations backed by `enkai_tensor`.
+`std::tensor` is backed by the `enkai_tensor` native library. This doc reflects the current surface, safety improvements, and backend behavior.
 
 ## Quick start
-
 ```
 import std::tensor
 
@@ -16,53 +15,48 @@ fn main() ::
 ::
 ```
 
-## Supported ops
+## Supported ops (selected)
+- `tensor.device("cpu"|"cuda:N")`
+- `tensor.randn/zeros`
+- `tensor.add/mul/matmul/softmax/masked_softmax/relu/sigmoid/gelu/dropout`
+- `tensor.sum/mean/reshape/transpose/view/slice/concat`
+- `tensor.to_device/to_dtype/shape`
+- `tensor.layernorm/embedding/linear` plus `layernorm_backward`, `masked_softmax_backward`
+- Autograd: `tensor.cross_entropy`, `tensor.backward`
+- Optimizer helpers: `tensor.adamw_step`, `tensor.adamw_step_multi`, `tensor.param_group`, `tensor.param_group_step`
 
-- `tensor.device(spec)` -> Device handle (`"cpu"`, `"cuda:0"`)
-- `tensor.randn(shape, dtype, device)` -> Tensor
-- `tensor.zeros(shape, dtype, device)` -> Tensor
-- `tensor.matmul(a, b)` -> Tensor
-- `tensor.add(a, b)` -> Tensor
-- `tensor.mul(a, b)` -> Tensor
-- `tensor.reshape(x, shape)` -> Tensor
-- `tensor.transpose(x, dim0, dim1)` -> Tensor
-- `tensor.concat(handles, dim)` -> Tensor (handles is a JSON array or list of tensor handles)
-- `tensor.sum(x, dim, keepdim)` -> Tensor (`dim=-1` sums all dims)
-- `tensor.mean(x, dim, keepdim)` -> Tensor (`dim=-1` averages all dims)
-- `tensor.softmax(x, dim)` -> Tensor
-- `tensor.masked_softmax(x, mask, dim, mask_type)` -> Tensor
-- `tensor.relu(x)` -> Tensor
-- `tensor.sigmoid(x)` -> Tensor
-- `tensor.dropout(x, p, train)` -> Tensor
-- `tensor.slice(x, dim, start, end, step)` -> Tensor (use `-1` for start/end to mean "none")
-- `tensor.view(x, shape)` -> Tensor
-- `tensor.layernorm(x, w, b, eps)` -> Tensor
-- `tensor.embedding(w, ids)` -> Tensor
-- `tensor.linear(x, w, b)` -> Tensor
-- `tensor.gelu(x)` -> Tensor
-- `tensor.to_device(x, device)` -> Tensor
-- `tensor.to_dtype(x, dtype)` -> Tensor
-- `tensor.shape(x)` -> JSON array of ints
+## Backend selection (torch + CPU fallback)
+- `enkai_backend_list()` -> JSON array, currently `["torch","cpu"]`.
+- `enkai_backend_set("torch"|"cpu")` selects the active backend. **All extern ops are guarded**; a mismatched backend returns a sentinel and sets `enkai_tensor_last_error`.
+- `enkai_backend_current()` -> active backend name.
+- CPU backend currently routes through torch in CPU mode. It lets non-CUDA hosts run and provides graceful fallback, but it still depends on libtorch.
 
-## Autograd helpers
+## Handle safety, ref-counts, and leak counters
+- Tensors, devices, optimizers, and grad-scalers are ref-counted. `*_retain` increments; `*_free` decrements and detects double-free or stale handles.
+- Live counters: `enkai_tensor_live_tensors/devices/opts/scalers()` expose current counts for leak smoke tests.
+- Generation IDs prevent reuse of freed handles.
 
-- `tensor.cross_entropy(logits, target_ids)` -> loss tensor
-- `tensor.backward(loss)`
-- `tensor.adamw_step(param, grad, state, lr, beta1, beta2, eps, wd)` -> state handle
-- `tensor.adamw_step_multi(params, grads, state, lr, beta1, beta2, eps, wd)` -> state handle
-- `tensor.layernorm_backward(x, w, b, eps, grad_out)` -> record with `dx`, `dw`, `db`
-- `tensor.masked_softmax_backward(grad_output, output, mask, dim)` -> Tensor
+## Panic guard across FFI
+- Every `extern "C"` entry is wrapped in a panic guard that catches Rust unwinds, writes the message to thread-local `enkai_tensor_last_error`, and returns a safe sentinel (`0`, `1`, `null_slice`, or null pointer). No Rust panic will cross the C ABI.
+- Callers must still pass valid pointers/JSON; the guard does not make invalid inputs safe.
 
-## Parameter collections
+## Autocast and gradient scaling (AMP)
+- GradScaler handles: `enkai_amp_scaler_create`, `enkai_amp_scaler_retain`, `enkai_amp_scaler_free`.
+- Autocast scope: `enkai_autocast_enter(device)` / `enkai_autocast_exit()`.
+- Helpers: `enkai_amp_scale_loss`, `enkai_amp_unscale_grads`, `enkai_amp_scaler_update`.
+- Convenience: `enkai_amp_step(params, grads, scaler, loss, step_fn)` performs scale -> backward -> unscale -> update for torch backends.
 
-- `tensor.param_group(params, grads)` -> record with `params` and `grads`
-- `tensor.param_group_step(group, state, lr, beta1, beta2, eps, wd)` -> state handle
+## Distributed support (partial)
+- `enkai_dist_config(world_size, rank, device, seed)`: device = -1 auto-selects `cuda:<rank>` when CUDA is available, otherwise CPU.
+- `enkai_dist_allreduce_sum(handles)`: validates handles and succeeds only when `world_size == 1` (NCCL all-reduce is not implemented yet).
+- Device-per-rank selection is covered by a small CUDA-only test (`backend_rank_device.rs`).
 
-Notes:
-- Reuse the same `state` handle across multiple parameters to maintain optimizer state.
-- `mask_type` for masked softmax is passed through to the backend; use `0` for boolean masks.
+## Checkpointing
+- Single-rank saves parameters/optimizer state with SHA-256 integrity files; load verifies hashes before returning handles.
+- Ranked saves: `enkai_checkpoint_save_ranked(dir, rank, world_size, params, opt, meta)` writes `params_rank{n}.bin` and `meta_rank{n}.json` (and optimizer shard if provided) with per-file hashes. `enkai_checkpoint_load_ranked` loads the shard for the given rank. Manifest/barrier coordination remains manual (one call per rank).
 
-## Common errors
-
-- `0` handle means backend error; check `enkai_tensor_last_error`.
-- CUDA not available on the host.
+## Known gaps / roadmap
+- Real NCCL process-group init, multi-rank all-reduce, data/optimizer parallelism, and sharded checkpoint manifests are not implemented.
+- CPU backend still depends on libtorch; a pure CPU kernel set would remove that dependency.
+- Mixed-precision support exists only for torch backends.
+- Safety depends on callers honoring documented preconditions; invalid pointers or JSON can still cause undefined behavior.

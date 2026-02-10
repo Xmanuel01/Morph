@@ -88,4 +88,73 @@ jobs:
         run: |
           TORCH_LIB_DIR=$(python -c "import os, torch; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))")
           export LD_LIBRARY_PATH="$TORCH_LIB_DIR:${LD_LIBRARY_PATH:-}"
-          cargo test -p enkai_tensor --features torch
+          cargo test -p enkai_tensor --features torch --tests retain_counts --tests leak_check --tests backend_api --tests amp_handles --tests checkpoint_ranked
+
+  torch-gpu:
+    # Requires a self-hosted runner with CUDA + NCCL + GPU drivers installed.
+    runs-on: [self-hosted, linux, gpu]
+    env:
+      LIBTORCH_USE_PYTORCH: "1"
+      PYTHON_SYS_EXECUTABLE: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install PyTorch CUDA
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install torch==2.2.0+cu121 --index-url https://download.pytorch.org/whl/cu121
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run GPU/NCCL tests
+        run: |
+          TORCH_LIB_DIR=$(python -c "import os, torch; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))")
+          export LD_LIBRARY_PATH="$TORCH_LIB_DIR:${LD_LIBRARY_PATH:-}"
+          cargo test -p enkai_tensor --features "torch,dist" --tests backend_api --tests backend_cpu_ops --tests backend_rank_device --tests leak_check --tests retain_counts --tests amp_handles --tests checkpoint_ranked
+
+  tensor-no-torch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Check enkai_tensor without torch
+        run: cargo check -p enkai_tensor --no-default-features
+
+  docker:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Compute tags
+        id: vars
+        run: |
+          IMAGE=ghcr.io/${{ github.repository }}
+          TAGS="$IMAGE:sha-${{ github.sha }}"
+          if [ "${{ github.ref_type }}" = "branch" ] && [ "${{ github.ref_name }}" = "main" ]; then
+            TAGS="$TAGS,$IMAGE:latest"
+          fi
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAGS="$TAGS,$IMAGE:${{ github.ref_name }}"
+          fi
+          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.vars.outputs.tags }}

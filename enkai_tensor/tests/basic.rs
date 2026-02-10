@@ -124,7 +124,7 @@ fn relu_sigmoid_dropout_slice_view() {
 #[cfg(feature = "torch")]
 #[test]
 fn masked_softmax_and_layernorm_backward() {
-    use std::ffi::{CStr, CString};
+    use std::ffi::CString;
 
     let dev = enkai_tensor::enkai_tensor_device(CString::new("cpu").unwrap().as_ptr());
     assert!(dev > 0);

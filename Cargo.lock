@@ -206,6 +206,7 @@ dependencies = [
  "libc",
  "once_cell",
  "serde_json",
+ "sha2",
  "tch",
 ]
 
