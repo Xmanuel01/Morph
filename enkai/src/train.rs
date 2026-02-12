@@ -20,15 +20,26 @@ use enkai_runtime::checkpoint::{
 use enkai_runtime::dataset::{resolve_dataset_paths, Batch, DatasetConfig, DatasetStream};
 use enkai_runtime::object::Obj;
 use enkai_runtime::tokenizer::{Tokenizer, TrainConfig as TokenizerTrainConfig};
-use enkai_runtime::{Value, VM};
+use enkai_runtime::{
+    engine::{
+        checkpoint_load as rt_checkpoint_load, checkpoint_save as rt_checkpoint_save,
+        eval_step as rt_eval_step, init, train_step as rt_train_step,
+        CheckpointConfig as RtCkptConfig, DataConfig as RtDataConfig, LogConfig as RtLogConfig,
+        ModelConfig as RtModelConfig, OptimConfig as RtOptimConfig, TrainConfig as RtTrainConfig,
+    },
+    Value, VM,
+};
 
 #[derive(Debug, Clone)]
 struct TrainConfig {
+    backend: String,
     vocab_size: usize,
     hidden_size: usize,
     seq_len: usize,
     batch_size: usize,
     lr: f32,
+    model: ModelConfig,
+    optim: OptimConfig,
     dataset_path: String,
     eval_dataset_path: Option<String>,
     tokenizer: TokenizerConfig,
@@ -41,6 +52,24 @@ struct TrainConfig {
     add_eos: bool,
     pad_id: u32,
     keep_last: usize,
+}
+
+#[derive(Debug, Clone)]
+struct ModelConfig {
+    d_model: usize,
+    n_layers: usize,
+    n_heads: usize,
+    device: String,
+    dtype: String,
+}
+
+#[derive(Debug, Clone)]
+struct OptimConfig {
+    lr: f64,
+    beta1: f64,
+    beta2: f64,
+    eps: f64,
+    weight_decay: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -339,22 +368,8 @@ pub fn train(config_path: &Path) -> Result<(), String> {
     data_cfg.drop_remainder = config.drop_remainder;
     data_cfg.pad_id = config.pad_id;
     let mut stream = DatasetStream::new(dataset_paths, tokenizer.clone(), data_cfg)?;
-    let seed = hash_config(&config);
-    let mut model = TinyModel::new(config.vocab_size, config.hidden_size, seed);
-    let groups = model.param_groups();
-    let group_sizes: Vec<usize> = groups.iter().map(|group| group.len).collect();
-    let mut opt = AdamWMulti::new(&group_sizes, config.lr);
     let mut step = 0usize;
     let mut tokens = 0u64;
-    if let Some(latest) =
-        latest_checkpoint(Path::new(&config.checkpoint_dir)).map_err(|err| err.to_string())?
-    {
-        let state = load_checkpoint(&latest).map_err(|err| err.to_string())?;
-        model.set_params(&state.weights)?;
-        opt.load_state(&state.optimizer)?;
-        step = state.meta.step as usize;
-        tokens = state.meta.tokens;
-    }
     fs::create_dir_all(&config.checkpoint_dir)
         .map_err(|err| format!("Failed to create checkpoint dir: {}", err))?;
     let mut log_file = OpenOptions::new()
@@ -363,54 +378,144 @@ pub fn train(config_path: &Path) -> Result<(), String> {
         .open(Path::new(&config.checkpoint_dir).join("train_log.jsonl"))
         .map_err(|err| format!("Failed to open log file: {}", err))?;
     let start = Instant::now();
-    while step < config.max_steps {
-        let batch = match stream.next_batch()? {
-            Some(batch) => batch,
-            None => break,
-        };
-        let loss = model.train_step(&batch, &mut opt, &groups);
-        tokens += batch.input_ids.len() as u64;
-        step += 1;
-        if step == 1 || step.is_multiple_of(config.log_every) {
-            let event = LogEvent {
-                step,
-                loss,
-                tokens,
-                lr: config.lr,
-                elapsed_ms: start.elapsed().as_millis(),
-                event: "step".to_string(),
-            };
-            let line = serde_json::to_string(&event).map_err(|err| err.to_string())?;
-            writeln!(log_file, "{}", line).map_err(|err| err.to_string())?;
-            println!("step {} loss {:.4} tokens {}", step, loss, tokens);
+    if config.backend == "native" {
+        let mut engine = init(rt_config_from(&config)).map_err(|e| e.to_string())?;
+        if let Some(meta) =
+            try_load_native_checkpoint(&mut engine, &config, &config.checkpoint_dir)?
+        {
+            step = meta.step as usize;
+            tokens = meta.tokens;
         }
-        if step == config.max_steps || step.is_multiple_of(config.save_every) {
-            let meta = CheckpointMeta {
-                step: step as u64,
-                tokens,
-                loss: loss as f64,
-                config_hash: hash_config_hex(&config),
+        let mut last_saved_step = step;
+        while step < config.max_steps {
+            let batch = match stream.next_batch()? {
+                Some(batch) => batch,
+                None => break,
             };
-            let state = CheckpointState {
-                weights: model.params().to_vec(),
-                optimizer: opt.state_vec(),
-                meta,
+            let metrics = match rt_train_step(&mut engine, &batch) {
+                Ok(m) => m,
+                Err(err) => {
+                    let _ =
+                        write_error_checkpoint(&engine, &config, step, tokens, &err.to_string());
+                    return Err(format!("Train error: {}", err));
+                }
             };
-            let path = save_checkpoint(Path::new(&config.checkpoint_dir), &state)
-                .map_err(|err| err.to_string())?;
-            rotate_checkpoints(Path::new(&config.checkpoint_dir), config.keep_last)
-                .map_err(|err| err.to_string())?;
-            let event = LogEvent {
-                step,
-                loss,
-                tokens,
-                lr: config.lr,
-                elapsed_ms: start.elapsed().as_millis(),
-                event: "checkpoint".to_string(),
+            if !metrics.loss.is_finite() {
+                let _ = write_error_checkpoint(
+                    &engine,
+                    &config,
+                    step,
+                    tokens,
+                    &format!("non-finite loss at step {}", step),
+                );
+                return Err("non-finite loss detected".to_string());
+            }
+            tokens += batch.input_ids.len() as u64;
+            step += 1;
+            if step == 1 || step.is_multiple_of(config.log_every) {
+                let event = LogEvent {
+                    step,
+                    loss: metrics.loss,
+                    tokens,
+                    lr: config.optim.lr as f32,
+                    elapsed_ms: start.elapsed().as_millis(),
+                    event: "step".to_string(),
+                };
+                let line = serde_json::to_string(&event).map_err(|err| err.to_string())?;
+                writeln!(log_file, "{}", line).map_err(|err| err.to_string())?;
+                println!("step {} loss {:.4} tokens {}", step, metrics.loss, tokens);
+            }
+            if step == config.max_steps || step.is_multiple_of(config.save_every) {
+                let meta = native_checkpoint_meta(&config, step as u64, tokens, metrics.loss)?;
+                rt_checkpoint_save(&engine, &config.checkpoint_dir, &meta)
+                    .map_err(|err| err.to_string())?;
+                if step < last_saved_step {
+                    return Err("checkpoint step went backwards".to_string());
+                }
+                last_saved_step = step;
+                let event = LogEvent {
+                    step,
+                    loss: metrics.loss,
+                    tokens,
+                    lr: config.optim.lr as f32,
+                    elapsed_ms: start.elapsed().as_millis(),
+                    event: "checkpoint".to_string(),
+                };
+                let line = serde_json::to_string(&event).map_err(|err| err.to_string())?;
+                writeln!(log_file, "{}", line).map_err(|err| err.to_string())?;
+                println!("saved checkpoint latest");
+            }
+        }
+    } else {
+        let seed = hash_config(&config);
+        let mut model = TinyModel::new(config.vocab_size, config.hidden_size, seed);
+        let groups = model.param_groups();
+        let group_sizes: Vec<usize> = groups.iter().map(|group| group.len).collect();
+        let mut opt = AdamWMulti::new(&group_sizes, config.lr);
+        if let Some(latest) =
+            latest_checkpoint(Path::new(&config.checkpoint_dir)).map_err(|err| err.to_string())?
+        {
+            let state = load_checkpoint(&latest).map_err(|err| err.to_string())?;
+            if state.meta.config_hash != hash_config_hex(&config) {
+                return Err("checkpoint config hash mismatch".to_string());
+            }
+            model.set_params(&state.weights)?;
+            opt.load_state(&state.optimizer)?;
+            step = state.meta.step as usize;
+            tokens = state.meta.tokens;
+        }
+        while step < config.max_steps {
+            let batch = match stream.next_batch()? {
+                Some(batch) => batch,
+                None => break,
             };
-            let line = serde_json::to_string(&event).map_err(|err| err.to_string())?;
-            writeln!(log_file, "{}", line).map_err(|err| err.to_string())?;
-            println!("saved checkpoint {}", path.display());
+            let loss = model.train_step(&batch, &mut opt, &groups);
+            if !loss.is_finite() {
+                return Err("non-finite loss detected".to_string());
+            }
+            tokens += batch.input_ids.len() as u64;
+            step += 1;
+            if step == 1 || step.is_multiple_of(config.log_every) {
+                let event = LogEvent {
+                    step,
+                    loss,
+                    tokens,
+                    lr: config.lr,
+                    elapsed_ms: start.elapsed().as_millis(),
+                    event: "step".to_string(),
+                };
+                let line = serde_json::to_string(&event).map_err(|err| err.to_string())?;
+                writeln!(log_file, "{}", line).map_err(|err| err.to_string())?;
+                println!("step {} loss {:.4} tokens {}", step, loss, tokens);
+            }
+            if step == config.max_steps || step.is_multiple_of(config.save_every) {
+                let meta = CheckpointMeta {
+                    step: step as u64,
+                    tokens,
+                    loss: loss as f64,
+                    config_hash: hash_config_hex(&config),
+                };
+                let state = CheckpointState {
+                    weights: model.params().to_vec(),
+                    optimizer: opt.state_vec(),
+                    meta,
+                };
+                let path = save_checkpoint(Path::new(&config.checkpoint_dir), &state)
+                    .map_err(|err| err.to_string())?;
+                rotate_checkpoints(Path::new(&config.checkpoint_dir), config.keep_last)
+                    .map_err(|err| err.to_string())?;
+                let event = LogEvent {
+                    step,
+                    loss,
+                    tokens,
+                    lr: config.lr,
+                    elapsed_ms: start.elapsed().as_millis(),
+                    event: "checkpoint".to_string(),
+                };
+                let line = serde_json::to_string(&event).map_err(|err| err.to_string())?;
+                writeln!(log_file, "{}", line).map_err(|err| err.to_string())?;
+                println!("saved checkpoint {}", path.display());
+            }
         }
     }
     Ok(())
@@ -430,30 +535,57 @@ pub fn eval(config_path: &Path) -> Result<(), String> {
     data_cfg.drop_remainder = config.drop_remainder;
     data_cfg.pad_id = config.pad_id;
     let mut stream = DatasetStream::new(dataset_paths, tokenizer, data_cfg)?;
-    let seed = hash_config(&config);
-    let mut model = TinyModel::new(config.vocab_size, config.hidden_size, seed);
-    let latest = latest_checkpoint(Path::new(&config.checkpoint_dir))
-        .map_err(|err| err.to_string())?
-        .ok_or_else(|| "No checkpoint found".to_string())?;
-    let state = load_checkpoint(&latest).map_err(|err| err.to_string())?;
-    model.set_params(&state.weights)?;
-    let mut total_loss = 0.0f32;
-    let mut batches = 0usize;
-    while batches < config.eval_steps {
-        let batch = match stream.next_batch()? {
-            Some(batch) => batch,
-            None => break,
-        };
-        total_loss += model.eval_loss(&batch);
-        batches += 1;
+    if config.backend == "native" {
+        let mut engine = init(rt_config_from(&config)).map_err(|e| e.to_string())?;
+        let _meta = try_load_native_checkpoint(&mut engine, &config, &config.checkpoint_dir)?
+            .ok_or_else(|| "No checkpoint found".to_string())?;
+        let mut total_loss = 0.0f32;
+        let mut batches = 0usize;
+        while batches < config.eval_steps {
+            let batch = match stream.next_batch()? {
+                Some(batch) => batch,
+                None => break,
+            };
+            let metrics = rt_eval_step(&mut engine, &batch).map_err(|e| e.to_string())?;
+            if !metrics.loss.is_finite() {
+                return Err("non-finite loss detected".to_string());
+            }
+            total_loss += metrics.loss;
+            batches += 1;
+        }
+        if batches == 0 {
+            return Err("No eval batches produced".to_string());
+        }
+        let avg_loss = total_loss / batches as f32;
+        let ppl = avg_loss.exp();
+        println!("eval loss {:.4} ppl {:.4}", avg_loss, ppl);
+        Ok(())
+    } else {
+        let seed = hash_config(&config);
+        let mut model = TinyModel::new(config.vocab_size, config.hidden_size, seed);
+        let latest = latest_checkpoint(Path::new(&config.checkpoint_dir))
+            .map_err(|err| err.to_string())?
+            .ok_or_else(|| "No checkpoint found".to_string())?;
+        let state = load_checkpoint(&latest).map_err(|err| err.to_string())?;
+        model.set_params(&state.weights)?;
+        let mut total_loss = 0.0f32;
+        let mut batches = 0usize;
+        while batches < config.eval_steps {
+            let batch = match stream.next_batch()? {
+                Some(batch) => batch,
+                None => break,
+            };
+            total_loss += model.eval_loss(&batch);
+            batches += 1;
+        }
+        if batches == 0 {
+            return Err("No eval batches produced".to_string());
+        }
+        let avg_loss = total_loss / batches as f32;
+        let ppl = avg_loss.exp();
+        println!("eval loss {:.4} ppl {:.4}", avg_loss, ppl);
+        Ok(())
     }
-    if batches == 0 {
-        return Err("No eval batches produced".to_string());
-    }
-    let avg_loss = total_loss / batches as f32;
-    let ppl = avg_loss.exp();
-    println!("eval loss {:.4} ppl {:.4}", avg_loss, ppl);
-    Ok(())
 }
 
 fn build_tokenizer(config: &TrainConfig) -> Result<Tokenizer, String> {
@@ -497,11 +629,26 @@ fn load_config_value(path: &Path) -> Result<Value, String> {
 fn parse_train_config(value: &Value) -> Result<TrainConfig, String> {
     let map = value_as_record(value)?;
     let model = map.get("model").and_then(|v| as_record(v).ok());
+    let backend = map
+        .get("backend")
+        .and_then(|v| as_string(v).ok())
+        .unwrap_or_else(|| "cpu".to_string());
     let vocab_size = record_usize(model.unwrap_or(map), "vocab_size")?;
     let hidden_size = record_usize(model.unwrap_or(map), "hidden_size")?;
+    let d_model = record_usize_default(model.unwrap_or(map), "d_model", hidden_size);
+    let n_layers = record_usize_default(model.unwrap_or(map), "n_layers", 2);
+    let n_heads = record_usize_default(model.unwrap_or(map), "n_heads", 4);
+    let device = record_string_default(model.unwrap_or(map), "device", "cpu");
+    let dtype = record_string_default(model.unwrap_or(map), "dtype", "fp32");
     let seq_len = record_usize(map, "seq_len")?;
     let batch_size = record_usize(map, "batch_size")?;
     let lr = record_f32(map, "lr")?;
+    let optim = map.get("optim").and_then(|v| as_record(v).ok());
+    let opt_lr = record_f64_default(optim.unwrap_or(map), "lr", lr as f64);
+    let opt_beta1 = record_f64_default(optim.unwrap_or(map), "beta1", 0.9);
+    let opt_beta2 = record_f64_default(optim.unwrap_or(map), "beta2", 0.999);
+    let opt_eps = record_f64_default(optim.unwrap_or(map), "eps", 1e-8);
+    let opt_wd = record_f64_default(optim.unwrap_or(map), "weight_decay", 0.01);
     let dataset_path = record_string(map, "dataset_path")?;
     let eval_dataset_path = map.get("eval_dataset_path").and_then(|v| as_string(v).ok());
     let checkpoint_dir = record_string(map, "checkpoint_dir")?;
@@ -529,11 +676,26 @@ fn parse_train_config(value: &Value) -> Result<TrainConfig, String> {
         return Err("Config missing tokenizer_path or tokenizer_train".to_string());
     };
     Ok(TrainConfig {
+        backend,
         vocab_size,
         hidden_size,
         seq_len,
         batch_size,
         lr,
+        model: ModelConfig {
+            d_model,
+            n_layers,
+            n_heads,
+            device,
+            dtype,
+        },
+        optim: OptimConfig {
+            lr: opt_lr,
+            beta1: opt_beta1,
+            beta2: opt_beta2,
+            eps: opt_eps,
+            weight_decay: opt_wd,
+        },
         dataset_path,
         eval_dataset_path,
         tokenizer,
@@ -629,6 +791,20 @@ fn record_usize_default(
     }
 }
 
+fn record_string_default(
+    map: &std::collections::HashMap<String, Value>,
+    key: &str,
+    default: &str,
+) -> String {
+    match map.get(key) {
+        Some(Value::Obj(obj)) => match obj.as_obj() {
+            Obj::String(s) => s.clone(),
+            _ => default.to_string(),
+        },
+        _ => default.to_string(),
+    }
+}
+
 fn record_f32(map: &std::collections::HashMap<String, Value>, key: &str) -> Result<f32, String> {
     let value = map
         .get(key)
@@ -637,6 +813,18 @@ fn record_f32(map: &std::collections::HashMap<String, Value>, key: &str) -> Resu
         Value::Float(f) => Ok(*f as f32),
         Value::Int(i) => Ok(*i as f32),
         _ => Err(format!("Config {} must be Float", key)),
+    }
+}
+
+fn record_f64_default(
+    map: &std::collections::HashMap<String, Value>,
+    key: &str,
+    default: f64,
+) -> f64 {
+    match map.get(key) {
+        Some(Value::Float(f)) => *f,
+        Some(Value::Int(i)) => *i as f64,
+        _ => default,
     }
 }
 
@@ -653,19 +841,149 @@ fn record_bool_default(
 
 fn hash_config(config: &TrainConfig) -> u64 {
     let mut hasher = DefaultHasher::new();
+    config.backend.hash(&mut hasher);
     config.vocab_size.hash(&mut hasher);
     config.hidden_size.hash(&mut hasher);
+    config.model.d_model.hash(&mut hasher);
+    config.model.n_layers.hash(&mut hasher);
+    config.model.n_heads.hash(&mut hasher);
+    config.model.device.hash(&mut hasher);
+    config.model.dtype.hash(&mut hasher);
     config.seq_len.hash(&mut hasher);
     config.batch_size.hash(&mut hasher);
     config.dataset_path.hash(&mut hasher);
     config.checkpoint_dir.hash(&mut hasher);
-    config.max_steps.hash(&mut hasher);
     config.lr.to_bits().hash(&mut hasher);
+    config.optim.lr.to_bits().hash(&mut hasher);
+    config.optim.beta1.to_bits().hash(&mut hasher);
+    config.optim.beta2.to_bits().hash(&mut hasher);
+    config.optim.eps.to_bits().hash(&mut hasher);
+    config.optim.weight_decay.to_bits().hash(&mut hasher);
     hasher.finish()
 }
 
 fn hash_config_hex(config: &TrainConfig) -> String {
     format!("{:x}", hash_config(config))
+}
+
+#[derive(Serialize, serde::Deserialize)]
+struct NativeCheckpointMeta {
+    step: u64,
+    tokens: u64,
+    loss: f32,
+    config_hash: String,
+    model_sig: String,
+    dtype: String,
+    device: String,
+}
+
+fn model_signature(config: &TrainConfig) -> String {
+    format!(
+        "vocab={};seq={};d_model={};layers={};heads={}",
+        config.vocab_size,
+        config.seq_len,
+        config.model.d_model,
+        config.model.n_layers,
+        config.model.n_heads
+    )
+}
+
+fn native_checkpoint_meta(
+    config: &TrainConfig,
+    step: u64,
+    tokens: u64,
+    loss: f32,
+) -> Result<String, String> {
+    let meta = NativeCheckpointMeta {
+        step,
+        tokens,
+        loss,
+        config_hash: hash_config_hex(config),
+        model_sig: model_signature(config),
+        dtype: config.model.dtype.clone(),
+        device: config.model.device.clone(),
+    };
+    serde_json::to_string(&meta).map_err(|err| err.to_string())
+}
+
+fn rt_config_from(config: &TrainConfig) -> RtTrainConfig {
+    RtTrainConfig {
+        data: RtDataConfig {
+            train_path: Path::new(&config.dataset_path).to_path_buf(),
+            eval_path: config
+                .eval_dataset_path
+                .as_ref()
+                .map(|p| Path::new(p).to_path_buf()),
+            seq_len: config.seq_len,
+            batch_size: config.batch_size,
+        },
+        model: RtModelConfig {
+            vocab_size: config.vocab_size,
+            d_model: config.model.d_model,
+            n_layers: config.model.n_layers,
+            n_heads: config.model.n_heads,
+            seed: hash_config(config),
+            device: config.model.device.clone(),
+        },
+        optim: RtOptimConfig {
+            lr: config.optim.lr,
+            beta1: config.optim.beta1,
+            beta2: config.optim.beta2,
+            eps: config.optim.eps,
+            weight_decay: config.optim.weight_decay,
+        },
+        checkpoint: RtCkptConfig::new(Path::new(&config.checkpoint_dir).to_path_buf()),
+        log: RtLogConfig::new(Path::new(&config.checkpoint_dir).to_path_buf()),
+        world_size: 1,
+    }
+}
+
+fn try_load_native_checkpoint(
+    engine: &mut enkai_runtime::engine::Engine,
+    config: &TrainConfig,
+    dir: &str,
+) -> Result<Option<NativeCheckpointMeta>, String> {
+    let path = Path::new(dir).join("latest");
+    if !path.is_dir() {
+        return Ok(None);
+    }
+    let meta_json = rt_checkpoint_load(engine, dir).map_err(|err| err.to_string())?;
+    let meta: NativeCheckpointMeta =
+        serde_json::from_str(&meta_json).map_err(|err| err.to_string())?;
+    if meta.config_hash != hash_config_hex(config) {
+        return Err("checkpoint config hash mismatch".to_string());
+    }
+    if meta.model_sig != model_signature(config) {
+        return Err("checkpoint model signature mismatch".to_string());
+    }
+    if meta.dtype != config.model.dtype {
+        return Err("checkpoint dtype mismatch".to_string());
+    }
+    if meta.device != config.model.device {
+        return Err("checkpoint device mismatch".to_string());
+    }
+    Ok(Some(meta))
+}
+
+fn write_error_checkpoint(
+    engine: &enkai_runtime::engine::Engine,
+    config: &TrainConfig,
+    step: usize,
+    tokens: u64,
+    error: &str,
+) -> Result<(), String> {
+    let meta = serde_json::json!({
+        "step": step as u64,
+        "tokens": tokens,
+        "loss": "nan",
+        "config_hash": hash_config_hex(config),
+        "model_sig": model_signature(config),
+        "dtype": config.model.dtype,
+        "device": config.model.device,
+        "error": error
+    });
+    let text = serde_json::to_string(&meta).map_err(|err| err.to_string())?;
+    rt_checkpoint_save(engine, &config.checkpoint_dir, &text).map_err(|err| err.to_string())
 }
 
 fn wrap_program_with_main(program: &Program, main_global: u16) -> Program {
@@ -780,5 +1098,53 @@ mod tests {
         write_config(&config_path, &config).expect("config");
         train(&config_path).expect("train");
         eval(&config_path).expect("eval");
+    }
+
+    #[test]
+    fn train_runs_and_resumes_native_backend() {
+        if std::env::var("ENKAI_TORCH").ok().as_deref() != Some("1") {
+            return;
+        }
+        let dir = tempdir().expect("tempdir");
+        let data = dir.path().join("data.txt");
+        fs::write(&data, "alpha beta gamma\ndelta epsilon").unwrap();
+        let ckpt = dir.path().join("ckpt_native");
+        let config_path = dir.path().join("config_native.enk");
+        let config = serde_json::json!({
+            "backend": "native",
+            "vocab_size": 32,
+            "hidden_size": 32,
+            "seq_len": 4,
+            "batch_size": 2,
+            "lr": 0.001,
+            "dataset_path": data.to_string_lossy(),
+            "checkpoint_dir": ckpt.to_string_lossy(),
+            "max_steps": 2,
+            "save_every": 1,
+            "log_every": 1,
+            "drop_remainder": false,
+            "model": {
+                "d_model": 32,
+                "n_layers": 2,
+                "n_heads": 4,
+                "device": "cpu",
+                "dtype": "fp32",
+                "vocab_size": 32,
+                "hidden_size": 32
+            },
+            "optim": {
+                "lr": 0.001,
+                "beta1": 0.9,
+                "beta2": 0.999,
+                "eps": 1e-8,
+                "weight_decay": 0.0
+            },
+            "tokenizer_train": { "path": data.to_string_lossy(), "vocab_size": 32 }
+        });
+        write_config(&config_path, &config).expect("config");
+        train(&config_path).expect("train native");
+        let latest = Path::new(&ckpt).join("latest");
+        assert!(latest.is_dir());
+        train(&config_path).expect("train native resume");
     }
 }

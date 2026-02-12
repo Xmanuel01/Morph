@@ -1,5 +1,10 @@
 Enkai Roadmap
 
+Note:
+- Historical milestones below capture the path that led to current releases.
+- Current production release line is v0.9.2.
+- Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
 v0.1 (done)
 - Lexer/parser/AST with :: blocks
 - Tree-walk interpreter

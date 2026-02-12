@@ -14,6 +14,8 @@ use crate::error::RuntimeError;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrainConfig {
     pub data: DataConfig,
+    pub model: ModelConfig,
+    pub optim: OptimConfig,
     pub checkpoint: CheckpointConfig,
     pub log: LogConfig,
     pub world_size: usize,
@@ -23,9 +25,55 @@ impl TrainConfig {
     pub fn new(data: DataConfig, checkpoint: CheckpointConfig, log: LogConfig) -> Self {
         Self {
             data,
+            model: ModelConfig::default(),
+            optim: OptimConfig::default(),
             checkpoint,
             log,
             world_size: 1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OptimConfig {
+    pub lr: f64,
+    pub beta1: f64,
+    pub beta2: f64,
+    pub eps: f64,
+    pub weight_decay: f64,
+}
+
+impl Default for OptimConfig {
+    fn default() -> Self {
+        Self {
+            lr: 3e-4,
+            beta1: 0.9,
+            beta2: 0.999,
+            eps: 1e-8,
+            weight_decay: 0.01,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelConfig {
+    pub vocab_size: usize,
+    pub d_model: usize,
+    pub n_layers: usize,
+    pub n_heads: usize,
+    pub seed: u64,
+    pub device: String,
+}
+
+impl Default for ModelConfig {
+    fn default() -> Self {
+        Self {
+            vocab_size: 32000,
+            d_model: 512,
+            n_layers: 4,
+            n_heads: 8,
+            seed: 0,
+            device: "cpu".to_string(),
         }
     }
 }
@@ -125,16 +173,32 @@ pub fn init(cfg: TrainConfig) -> Result<Engine, RuntimeError> {
     if e.cfg.world_size > 1 {
         e.backend.configure_dist(e.cfg.world_size as i32, 0)?; // rank 0 for single-process launcher
     }
+    if e.params.is_empty() {
+        let params = e.backend.init_tinylm(
+            e.cfg.model.vocab_size as i64,
+            e.cfg.data.seq_len as i64,
+            e.cfg.model.d_model as i64,
+            e.cfg.model.n_layers as i64,
+            e.cfg.model.n_heads as i64,
+            e.cfg.model.seed as i64,
+            &e.cfg.model.device,
+        )?;
+        e.set_params(params)?;
+    }
     Ok(e)
 }
 
 /// Perform one training step. Currently returns placeholder metrics.
-pub fn train_step(engine: &mut Engine, _batch: &Batch) -> Result<Metrics, RuntimeError> {
+pub fn train_step(engine: &mut Engine, batch: &Batch) -> Result<Metrics, RuntimeError> {
     engine.ensure_logger()?;
-    // Lazy-create optimizer once params are known (placeholder until model wiring lands).
-    engine
-        .backend
-        .ensure_optimizer(0.0, 0.9, 0.999, 1e-8, 0.0)?;
+    // Lazy-create optimizer once params are known.
+    engine.backend.ensure_optimizer(
+        engine.cfg.optim.lr,
+        engine.cfg.optim.beta1,
+        engine.cfg.optim.beta2,
+        engine.cfg.optim.eps,
+        engine.cfg.optim.weight_decay,
+    )?;
     engine.backend.zero_all_grads()?;
     engine.step += 1;
     let elapsed = engine.last_step_started.elapsed();
@@ -143,7 +207,10 @@ pub fn train_step(engine: &mut Engine, _batch: &Batch) -> Result<Metrics, Runtim
     // Multi-device stub: run per device and average loss.
     let mut total_loss = 0.0;
     for device_idx in 0..engine.cfg.world_size {
-        total_loss += engine.backend.train_step_on_device(device_idx)?;
+        total_loss +=
+            engine
+                .backend
+                .train_step_on_device(device_idx, batch, engine.cfg.model.n_heads)?;
     }
     let loss = total_loss / engine.cfg.world_size as f32;
 
@@ -157,7 +224,7 @@ pub fn train_step(engine: &mut Engine, _batch: &Batch) -> Result<Metrics, Runtim
         loss,
         tokens_per_sec,
         step_time_ms: to_ms(elapsed),
-        lr: 0.0,
+        lr: engine.cfg.optim.lr as f32,
         gpu_mem_mb: None,
     };
     maybe_log(engine, &metrics)?;
@@ -165,7 +232,7 @@ pub fn train_step(engine: &mut Engine, _batch: &Batch) -> Result<Metrics, Runtim
 }
 
 /// Perform one evaluation step. Currently identical to `train_step`.
-pub fn eval_step(engine: &mut Engine, _batch: &Batch) -> Result<Metrics, RuntimeError> {
+pub fn eval_step(engine: &mut Engine, batch: &Batch) -> Result<Metrics, RuntimeError> {
     engine.ensure_logger()?;
     engine.step += 1;
     let elapsed = engine.last_step_started.elapsed();
@@ -173,7 +240,10 @@ pub fn eval_step(engine: &mut Engine, _batch: &Batch) -> Result<Metrics, Runtime
 
     let mut total_loss = 0.0;
     for device_idx in 0..engine.cfg.world_size {
-        total_loss += engine.backend.eval_step_on_device(device_idx)?;
+        total_loss +=
+            engine
+                .backend
+                .eval_step_on_device(device_idx, batch, engine.cfg.model.n_heads)?;
     }
     let loss = total_loss / engine.cfg.world_size as f32;
 
@@ -238,8 +308,9 @@ pub fn checkpoint_save(engine: &Engine, dir: &str, meta_json: &str) -> Result<()
 
 /// Load checkpoint, updating engine params/opt and returning meta JSON.
 pub fn checkpoint_load(engine: &mut Engine, dir: &str) -> Result<String, RuntimeError> {
-    let (params, _opt, meta) = engine.backend.checkpoint_load(dir)?;
+    let (params, opt, meta) = engine.backend.checkpoint_load(dir)?;
     engine.params = params;
+    engine.opt = opt;
     Ok(meta)
 }
 

@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+### Highlights
+- Synced release notes with the `docs/Enkai.spec` v0.1 -> v0.9.2 compatibility framing.
+- Clarified v0.9.2 runtime status for tensor training hooks:
+  - native loss path currently integrated as `forward_l2`,
+  - checkpoint C ABI hooks are present and backend-loadable,
+  - distributed hooks are present but environment-gated by CUDA/NCCL/runtime setup.
+
+### Fixes
+- Reduced spec/changelog drift by aligning guaranteed behavior vs known limits.
+
+### Breaking changes
+- None yet.
+
+## v0.9.2
+
+### Highlights
+- Aligned release/version references to the current production line (`v0.9.2`) in top-level docs.
+- Reframed `docs/Enkai.spec` as a compatibility baseline (`v0.1 -> v0.9.2`) to reduce spec/version drift.
+- Added `docs/README.md` as a docs index with versioning policy and recommended reading order.
+- Added roadmap guidance that historical milestones are context, while `docs/Enkai.spec` is the current language source of truth.
+
+### Fixes
+- Clarified legacy milestone labels in `docs/Enkai.spec` (features introduced in earlier versions) as baseline behavior in `v0.9.2`.
+
 ## v0.7.1
 
 ### Fixes

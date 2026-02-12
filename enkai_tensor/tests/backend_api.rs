@@ -6,7 +6,7 @@ use std::ffi::CString;
 fn backend_list_and_set() {
     let mut out: *mut i8 = std::ptr::null_mut();
     let mut len: usize = 0;
-    let rc = enkai_tensor::enkai_backend_list(&mut out, &mut len);
+    let rc = unsafe { enkai_tensor::enkai_backend_list(&mut out, &mut len) };
     assert_eq!(rc, 0);
     assert!(len > 0);
     let slice = unsafe { std::slice::from_raw_parts(out as *const u8, len) };
@@ -20,7 +20,7 @@ fn backend_list_and_set() {
 
     let mut cur_out: *mut i8 = std::ptr::null_mut();
     let mut cur_len: usize = 0;
-    let rc = enkai_tensor::enkai_backend_current(&mut cur_out, &mut cur_len);
+    let rc = unsafe { enkai_tensor::enkai_backend_current(&mut cur_out, &mut cur_len) };
     assert_eq!(rc, 0);
     let slice = unsafe { std::slice::from_raw_parts(cur_out as *const u8, cur_len) };
     let text = std::str::from_utf8(slice).unwrap();
