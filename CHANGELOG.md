@@ -3,10 +3,13 @@
 ## Unreleased
 
 ### Highlights
-- None yet.
+- Added train/eval config schema v1 with `config_version` and explicit validation.
+- Added checkpoint metadata v1 (`format_version`, model signature, dtype, device).
+- Updated spec change-control policy to implementation-first.
+- Added v1.0 validation checklist updates.
 
 ### Fixes
-- None yet.
+- Improved checkpoint compatibility checks for legacy metadata.
 
 ### Breaking changes
 - None yet.

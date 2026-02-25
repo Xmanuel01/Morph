@@ -2475,15 +2475,43 @@ impl VM {
             Some(_) => return Err(RuntimeError::new("checkpoint loss must be Float")),
             None => 0.0,
         };
+        let format_version = match state.get("format_version") {
+            Some(Value::Int(i)) if *i >= 0 => *i as u32,
+            Some(_) => {
+                return Err(RuntimeError::new(
+                    "checkpoint format_version must be Int >= 0",
+                ))
+            }
+            None => 1,
+        };
         let config_hash = match state.get("config_hash") {
             Some(value) => value_as_string(value)?,
             None => "".to_string(),
         };
+        let model_sig = match state.get("model_sig") {
+            Some(value) => value_as_string(value)?,
+            None => "".to_string(),
+        };
+        let dtype = match state.get("dtype") {
+            Some(value) => value_as_string(value)?,
+            None => "".to_string(),
+        };
+        let device = match state.get("device") {
+            Some(value) => value_as_string(value)?,
+            None => "".to_string(),
+        };
+        if format_version > 1 {
+            return Err(RuntimeError::new("unsupported checkpoint format version"));
+        }
         let meta = CheckpointMeta {
+            format_version,
             step,
             tokens,
             loss,
             config_hash,
+            model_sig,
+            dtype,
+            device,
         };
         let state = CheckpointState {
             weights,
@@ -2510,9 +2538,16 @@ impl VM {
         map.insert("tokens".to_string(), Value::Int(state.meta.tokens as i64));
         map.insert("loss".to_string(), Value::Float(state.meta.loss));
         map.insert(
+            "format_version".to_string(),
+            Value::Int(state.meta.format_version as i64),
+        );
+        map.insert(
             "config_hash".to_string(),
             string_value(&state.meta.config_hash),
         );
+        map.insert("model_sig".to_string(), string_value(&state.meta.model_sig));
+        map.insert("dtype".to_string(), string_value(&state.meta.dtype));
+        map.insert("device".to_string(), string_value(&state.meta.device));
         Ok(record_value(map))
     }
 

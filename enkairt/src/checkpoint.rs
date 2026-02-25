@@ -4,10 +4,21 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckpointMeta {
+    #[serde(default)]
+    pub format_version: u32,
     pub step: u64,
+    #[serde(default)]
     pub tokens: u64,
+    #[serde(default)]
     pub loss: f64,
+    #[serde(default)]
     pub config_hash: String,
+    #[serde(default)]
+    pub model_sig: String,
+    #[serde(default)]
+    pub dtype: String,
+    #[serde(default)]
+    pub device: String,
 }
 
 #[derive(Debug, Clone)]

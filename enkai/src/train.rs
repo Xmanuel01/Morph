@@ -32,6 +32,7 @@ use enkai_runtime::{
 
 #[derive(Debug, Clone)]
 struct TrainConfig {
+    config_version: u32,
     backend: String,
     vocab_size: usize,
     hidden_size: usize,
@@ -52,6 +53,8 @@ struct TrainConfig {
     add_eos: bool,
     pad_id: u32,
     keep_last: usize,
+    seed: Option<u64>,
+    legacy_config: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -447,7 +450,7 @@ pub fn train(config_path: &Path) -> Result<(), String> {
             }
         }
     } else {
-        let seed = hash_config(&config);
+        let seed = config_seed(&config);
         let mut model = TinyModel::new(config.vocab_size, config.hidden_size, seed);
         let groups = model.param_groups();
         let group_sizes: Vec<usize> = groups.iter().map(|group| group.len).collect();
@@ -456,8 +459,22 @@ pub fn train(config_path: &Path) -> Result<(), String> {
             latest_checkpoint(Path::new(&config.checkpoint_dir)).map_err(|err| err.to_string())?
         {
             let state = load_checkpoint(&latest).map_err(|err| err.to_string())?;
-            if state.meta.config_hash != hash_config_hex(&config) {
+            if state.meta.format_version > 1 {
+                return Err("unsupported checkpoint format version".to_string());
+            }
+            let expected_hash = hash_config_hex(&config);
+            if !state.meta.config_hash.is_empty() && state.meta.config_hash != expected_hash {
                 return Err("checkpoint config hash mismatch".to_string());
+            }
+            if !state.meta.model_sig.is_empty() && state.meta.model_sig != model_signature(&config)
+            {
+                return Err("checkpoint model signature mismatch".to_string());
+            }
+            if !state.meta.dtype.is_empty() && state.meta.dtype != config.model.dtype {
+                return Err("checkpoint dtype mismatch".to_string());
+            }
+            if !state.meta.device.is_empty() && state.meta.device != config.model.device {
+                return Err("checkpoint device mismatch".to_string());
             }
             model.set_params(&state.weights)?;
             opt.load_state(&state.optimizer)?;
@@ -490,10 +507,14 @@ pub fn train(config_path: &Path) -> Result<(), String> {
             }
             if step == config.max_steps || step.is_multiple_of(config.save_every) {
                 let meta = CheckpointMeta {
+                    format_version: 1,
                     step: step as u64,
                     tokens,
                     loss: loss as f64,
                     config_hash: hash_config_hex(&config),
+                    model_sig: model_signature(&config),
+                    dtype: config.model.dtype.clone(),
+                    device: config.model.device.clone(),
                 };
                 let state = CheckpointState {
                     weights: model.params().to_vec(),
@@ -561,12 +582,28 @@ pub fn eval(config_path: &Path) -> Result<(), String> {
         println!("eval loss {:.4} ppl {:.4}", avg_loss, ppl);
         Ok(())
     } else {
-        let seed = hash_config(&config);
+        let seed = config_seed(&config);
         let mut model = TinyModel::new(config.vocab_size, config.hidden_size, seed);
         let latest = latest_checkpoint(Path::new(&config.checkpoint_dir))
             .map_err(|err| err.to_string())?
             .ok_or_else(|| "No checkpoint found".to_string())?;
         let state = load_checkpoint(&latest).map_err(|err| err.to_string())?;
+        if state.meta.format_version > 1 {
+            return Err("unsupported checkpoint format version".to_string());
+        }
+        let expected_hash = hash_config_hex(&config);
+        if !state.meta.config_hash.is_empty() && state.meta.config_hash != expected_hash {
+            return Err("checkpoint config hash mismatch".to_string());
+        }
+        if !state.meta.model_sig.is_empty() && state.meta.model_sig != model_signature(&config) {
+            return Err("checkpoint model signature mismatch".to_string());
+        }
+        if !state.meta.dtype.is_empty() && state.meta.dtype != config.model.dtype {
+            return Err("checkpoint dtype mismatch".to_string());
+        }
+        if !state.meta.device.is_empty() && state.meta.device != config.model.device {
+            return Err("checkpoint device mismatch".to_string());
+        }
         model.set_params(&state.weights)?;
         let mut total_loss = 0.0f32;
         let mut batches = 0usize;
@@ -628,11 +665,26 @@ fn load_config_value(path: &Path) -> Result<Value, String> {
 
 fn parse_train_config(value: &Value) -> Result<TrainConfig, String> {
     let map = value_as_record(value)?;
+    let (config_version, legacy_config) = match map.get("config_version") {
+        Some(Value::Int(i)) if *i >= 1 => (*i as u32, false),
+        Some(_) => return Err("config_version must be Int >= 1".to_string()),
+        None => (1, true),
+    };
+    if !legacy_config && config_version != 1 {
+        return Err(format!(
+            "Unsupported config_version {} (expected 1)",
+            config_version
+        ));
+    }
     let model = map.get("model").and_then(|v| as_record(v).ok());
-    let backend = map
-        .get("backend")
-        .and_then(|v| as_string(v).ok())
-        .unwrap_or_else(|| "cpu".to_string());
+    let backend = if legacy_config {
+        map.get("backend")
+            .and_then(|v| as_string(v).ok())
+            .unwrap_or_else(|| "cpu".to_string())
+    } else {
+        record_string(map, "backend")?
+    };
+    validate_backend(&backend)?;
     let vocab_size = record_usize(model.unwrap_or(map), "vocab_size")?;
     let hidden_size = record_usize(model.unwrap_or(map), "hidden_size")?;
     let d_model = record_usize_default(model.unwrap_or(map), "d_model", hidden_size);
@@ -640,6 +692,8 @@ fn parse_train_config(value: &Value) -> Result<TrainConfig, String> {
     let n_heads = record_usize_default(model.unwrap_or(map), "n_heads", 4);
     let device = record_string_default(model.unwrap_or(map), "device", "cpu");
     let dtype = record_string_default(model.unwrap_or(map), "dtype", "fp32");
+    validate_dtype(&dtype)?;
+    validate_device(&device, &backend)?;
     let seq_len = record_usize(map, "seq_len")?;
     let batch_size = record_usize(map, "batch_size")?;
     let lr = record_f32(map, "lr")?;
@@ -660,6 +714,11 @@ fn parse_train_config(value: &Value) -> Result<TrainConfig, String> {
     let add_eos = record_bool_default(map, "add_eos", true);
     let pad_id = record_usize_default(map, "pad_id", 0) as u32;
     let keep_last = record_usize_default(map, "keep_last", 3);
+    let seed = match map.get("seed") {
+        Some(Value::Int(i)) if *i >= 0 => Some(*i as u64),
+        Some(_) => return Err("seed must be Int >= 0".to_string()),
+        None => None,
+    };
     let tokenizer = if let Some(value) = map.get("tokenizer_path") {
         TokenizerConfig::Load(as_string(value)?)
     } else if let Some(value) = map.get("tokenizer_train") {
@@ -676,6 +735,7 @@ fn parse_train_config(value: &Value) -> Result<TrainConfig, String> {
         return Err("Config missing tokenizer_path or tokenizer_train".to_string());
     };
     Ok(TrainConfig {
+        config_version,
         backend,
         vocab_size,
         hidden_size,
@@ -708,6 +768,8 @@ fn parse_train_config(value: &Value) -> Result<TrainConfig, String> {
         add_eos,
         pad_id,
         keep_last,
+        seed,
+        legacy_config,
     })
 }
 
@@ -839,7 +901,76 @@ fn record_bool_default(
     }
 }
 
+fn validate_backend(backend: &str) -> Result<(), String> {
+    match backend {
+        "cpu" | "native" => Ok(()),
+        _ => Err(format!(
+            "Unsupported backend {} (expected \"cpu\" or \"native\")",
+            backend
+        )),
+    }
+}
+
+fn validate_dtype(dtype: &str) -> Result<(), String> {
+    match dtype {
+        "fp16" | "f16" | "bf16" | "fp32" | "f32" | "int64" | "i64" => Ok(()),
+        _ => Err(format!(
+            "Unsupported dtype {} (expected fp16/f16, bf16, fp32/f32, or int64/i64)",
+            dtype
+        )),
+    }
+}
+
+fn validate_device(device: &str, backend: &str) -> Result<(), String> {
+    if backend == "cpu" {
+        if device != "cpu" {
+            return Err("device must be \"cpu\" when backend is \"cpu\"".to_string());
+        }
+        return Ok(());
+    }
+    if device == "cpu" || device == "cuda" {
+        return Ok(());
+    }
+    if let Some(rest) = device.strip_prefix("cuda:") {
+        if rest.parse::<usize>().is_ok() {
+            return Ok(());
+        }
+    }
+    Err("device must be \"cpu\", \"cuda\", or \"cuda:<index>\"".to_string())
+}
+
 fn hash_config(config: &TrainConfig) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    if config.legacy_config {
+        return hash_config_legacy(config);
+    }
+    config.config_version.hash(&mut hasher);
+    config.backend.hash(&mut hasher);
+    config.vocab_size.hash(&mut hasher);
+    config.hidden_size.hash(&mut hasher);
+    config.model.d_model.hash(&mut hasher);
+    config.model.n_layers.hash(&mut hasher);
+    config.model.n_heads.hash(&mut hasher);
+    config.model.device.hash(&mut hasher);
+    config.model.dtype.hash(&mut hasher);
+    config.seq_len.hash(&mut hasher);
+    config.batch_size.hash(&mut hasher);
+    config.dataset_path.hash(&mut hasher);
+    config.checkpoint_dir.hash(&mut hasher);
+    config.lr.to_bits().hash(&mut hasher);
+    config.optim.lr.to_bits().hash(&mut hasher);
+    config.optim.beta1.to_bits().hash(&mut hasher);
+    config.optim.beta2.to_bits().hash(&mut hasher);
+    config.optim.eps.to_bits().hash(&mut hasher);
+    config.optim.weight_decay.to_bits().hash(&mut hasher);
+    config.seed.is_some().hash(&mut hasher);
+    if let Some(seed) = config.seed {
+        seed.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+fn hash_config_legacy(config: &TrainConfig) -> u64 {
     let mut hasher = DefaultHasher::new();
     config.backend.hash(&mut hasher);
     config.vocab_size.hash(&mut hasher);
@@ -866,14 +997,24 @@ fn hash_config_hex(config: &TrainConfig) -> String {
     format!("{:x}", hash_config(config))
 }
 
+fn config_seed(config: &TrainConfig) -> u64 {
+    config.seed.unwrap_or_else(|| hash_config(config))
+}
+
 #[derive(Serialize, serde::Deserialize)]
 struct NativeCheckpointMeta {
+    #[serde(default)]
+    format_version: u32,
     step: u64,
     tokens: u64,
     loss: f32,
+    #[serde(default)]
     config_hash: String,
+    #[serde(default)]
     model_sig: String,
+    #[serde(default)]
     dtype: String,
+    #[serde(default)]
     device: String,
 }
 
@@ -895,6 +1036,7 @@ fn native_checkpoint_meta(
     loss: f32,
 ) -> Result<String, String> {
     let meta = NativeCheckpointMeta {
+        format_version: 1,
         step,
         tokens,
         loss,
@@ -922,7 +1064,7 @@ fn rt_config_from(config: &TrainConfig) -> RtTrainConfig {
             d_model: config.model.d_model,
             n_layers: config.model.n_layers,
             n_heads: config.model.n_heads,
-            seed: hash_config(config),
+            seed: config_seed(config),
             device: config.model.device.clone(),
         },
         optim: RtOptimConfig {
@@ -950,16 +1092,20 @@ fn try_load_native_checkpoint(
     let meta_json = rt_checkpoint_load(engine, dir).map_err(|err| err.to_string())?;
     let meta: NativeCheckpointMeta =
         serde_json::from_str(&meta_json).map_err(|err| err.to_string())?;
-    if meta.config_hash != hash_config_hex(config) {
+    if meta.format_version > 1 {
+        return Err("unsupported checkpoint format version".to_string());
+    }
+    let expected_hash = hash_config_hex(config);
+    if !meta.config_hash.is_empty() && meta.config_hash != expected_hash {
         return Err("checkpoint config hash mismatch".to_string());
     }
-    if meta.model_sig != model_signature(config) {
+    if !meta.model_sig.is_empty() && meta.model_sig != model_signature(config) {
         return Err("checkpoint model signature mismatch".to_string());
     }
-    if meta.dtype != config.model.dtype {
+    if !meta.dtype.is_empty() && meta.dtype != config.model.dtype {
         return Err("checkpoint dtype mismatch".to_string());
     }
-    if meta.device != config.model.device {
+    if !meta.device.is_empty() && meta.device != config.model.device {
         return Err("checkpoint device mismatch".to_string());
     }
     Ok(Some(meta))
@@ -973,6 +1119,7 @@ fn write_error_checkpoint(
     error: &str,
 ) -> Result<(), String> {
     let meta = serde_json::json!({
+        "format_version": 1,
         "step": step as u64,
         "tokens": tokens,
         "loss": "nan",
@@ -1031,6 +1178,8 @@ mod tests {
         let ckpt = dir.path().join("ckpt");
         let config_path = dir.path().join("config.enk");
         let config = serde_json::json!({
+            "config_version": 1,
+            "backend": "cpu",
             "vocab_size": 8,
             "hidden_size": 4,
             "seq_len": 4,
@@ -1052,6 +1201,8 @@ mod tests {
         assert!(latest.ends_with("step_00000001"));
 
         let config2 = serde_json::json!({
+            "config_version": 1,
+            "backend": "cpu",
             "vocab_size": 8,
             "hidden_size": 4,
             "seq_len": 4,
@@ -1081,6 +1232,8 @@ mod tests {
         let ckpt = dir.path().join("ckpt");
         let config_path = dir.path().join("config.enk");
         let config = serde_json::json!({
+            "config_version": 1,
+            "backend": "cpu",
             "vocab_size": 8,
             "hidden_size": 4,
             "seq_len": 4,
@@ -1111,6 +1264,7 @@ mod tests {
         let ckpt = dir.path().join("ckpt_native");
         let config_path = dir.path().join("config_native.enk");
         let config = serde_json::json!({
+            "config_version": 1,
             "backend": "native",
             "vocab_size": 32,
             "hidden_size": 32,

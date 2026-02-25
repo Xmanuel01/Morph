@@ -12,10 +12,14 @@ fn checkpoint_save_and_load_roundtrip() {
         weights: vec![1.0, 2.0, 3.5],
         optimizer: vec![0.1, 0.2],
         meta: CheckpointMeta {
+            format_version: 1,
             step: 1,
             tokens: 100,
             loss: 1.234,
             config_hash: "abc".to_string(),
+            model_sig: "sig".to_string(),
+            dtype: "fp32".to_string(),
+            device: "cpu".to_string(),
         },
     };
     let path = save_checkpoint(dir.path(), &state).expect("save");
@@ -26,6 +30,10 @@ fn checkpoint_save_and_load_roundtrip() {
     assert_eq!(loaded.meta.tokens, state.meta.tokens);
     assert_eq!(loaded.meta.loss, state.meta.loss);
     assert_eq!(loaded.meta.config_hash, state.meta.config_hash);
+    assert_eq!(loaded.meta.format_version, state.meta.format_version);
+    assert_eq!(loaded.meta.model_sig, state.meta.model_sig);
+    assert_eq!(loaded.meta.dtype, state.meta.dtype);
+    assert_eq!(loaded.meta.device, state.meta.device);
 }
 
 #[test]
@@ -36,10 +44,14 @@ fn checkpoint_latest_and_rotate() {
             weights: vec![step as f32],
             optimizer: vec![],
             meta: CheckpointMeta {
+                format_version: 1,
                 step,
                 tokens: 0,
                 loss: 0.0,
                 config_hash: "".to_string(),
+                model_sig: "".to_string(),
+                dtype: "".to_string(),
+                device: "".to_string(),
             },
         };
         save_checkpoint(dir.path(), &state).expect("save");

@@ -1,6 +1,6 @@
-# v0.9.3 Validation Checklist
+# v1.0 Validation Checklist
 
-This file is the strict verification checklist for v0.9.3 completion.
+This file is the strict verification checklist for v1.0 completion.
 
 ## Current Gate State
 
@@ -8,6 +8,17 @@ This file is the strict verification checklist for v0.9.3 completion.
 - CUDA single-GPU long soak: pending operator run.
 - 2-GPU correctness gate: pending operator run.
 - 4-GPU soak gate: pending operator run.
+
+## 0) v1.0 format contracts (config + checkpoints + CLI)
+
+- [x] Train/Eval config schema v1 enforced:
+  - `config_version: 1` required for v1 configs, legacy configs still load.
+  - `backend`, `dtype`, and `device` validation errors are explicit.
+- [x] Checkpoint format v1 enforced:
+  - `format_version: 1` included in metadata.
+  - `model_sig`, `dtype`, `device`, `config_hash` in metadata.
+  - legacy checkpoints (missing format_version) are accepted.
+- [x] `enkai --version` reports CLI + language version.
 
 ## 1) Real Transformer forward + cross-entropy replaces `forward_l2`
 

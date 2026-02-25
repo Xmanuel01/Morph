@@ -1,6 +1,7 @@
 # Enkai Language Specification (v0.1 -> v0.9.3)
 
 Status: stable.
+Grammar and CLI contracts are frozen at the v0.9.3 baseline for the v1.0 line.
 This document is the normative language and runtime surface for Enkai v0.9.3,
 including compatibility constraints carried from v0.1 onward.
 
@@ -320,6 +321,13 @@ Commands:
 Project entry resolution:
 - Running with a directory resolves project root and `src/main.enk`.
 
+Train/Eval config schema:
+- v1 config requires `config_version: 1` and the mandatory fields listed in
+  `docs/25_train_eval_cli.md`.
+
+Checkpoint format:
+- v1 checkpoints include `format_version: 1` in `meta.json`.
+
 -------------------------------------------------------------------------------
 12. Known Limits in v0.9.3
 -------------------------------------------------------------------------------
@@ -346,6 +354,6 @@ These limits are part of the current stable contract and should be treated as pr
 -------------------------------------------------------------------------------
 
 For any language/runtime surface change after v0.9.3:
-1) Update this specification first.
-2) Add/adjust compiler/runtime tests.
+1) Implement the change and add/adjust compiler/runtime tests.
+2) Update this specification to match the shipped behavior.
 3) Update changelog and targeted docs (`docs/xx_*.md`, `docs/tensor_api.md`, etc.).

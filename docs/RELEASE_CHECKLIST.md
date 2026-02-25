@@ -14,6 +14,7 @@ Use this checklist for production releases.
 - [ ] `cargo fmt`
 - [ ] `cargo clippy -- -D warnings`
 - [ ] `cargo test`
+- [ ] Complete `VALIDATION.md` gates for the target release
 
 ## 3) Tag
 
