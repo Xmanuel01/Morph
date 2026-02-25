@@ -12,7 +12,7 @@ This specification covers:
 - Core syntax and block rules.
 - Module/import semantics.
 - Type and expression forms supported by parser, checker, compiler, and VM.
-- Built-in runtime modules shipped in v0.9.2.
+- Built-in runtime modules shipped in v0.9.3.
 - CLI entrypoints used in production.
 
 This specification does not claim features that are still stubbed or not yet implemented.
@@ -213,7 +213,7 @@ Assignment form:
 8. Types
 -------------------------------------------------------------------------------
 
-Core types used in v0.9.2:
+Core types used in v0.9.3:
 - `Int`, `Float`, `Bool`, `String`, `Void`
 - Optional: `T?`
 - Function: `fn(T1, T2) -> R`
@@ -290,7 +290,7 @@ Native-backed std modules:
 - `std::zstd`
 - `std::hash`
 
-Tensor backend (`std::tensor`, v0.9.2 surface):
+Tensor backend (`std::tensor`, v0.9.3 surface):
 - device/tensor creation, math ops, shape/dtype/device transforms
 - autograd and optimizer helper APIs
 - AMP scaler/autocast APIs
@@ -345,7 +345,7 @@ These limits are part of the current stable contract and should be treated as pr
 13. Change Control
 -------------------------------------------------------------------------------
 
-For any language/runtime surface change after v0.9.2:
+For any language/runtime surface change after v0.9.3:
 1) Update this specification first.
 2) Add/adjust compiler/runtime tests.
 3) Update changelog and targeted docs (`docs/xx_*.md`, `docs/tensor_api.md`, etc.).

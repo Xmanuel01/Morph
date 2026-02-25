@@ -756,19 +756,21 @@ fn line_for_item(item: &Item) -> usize {
 fn ffi_type_from_ref(ty: &TypeRef) -> Option<FfiType> {
     match ty {
         TypeRef::Named { path, optional, .. } => {
-            let base = match path.last().map(|s| s.as_str()) {
-                Some("Int") => FfiType::Int,
-                Some("Float") => FfiType::Float,
-                Some("Bool") => FfiType::Bool,
-                Some("String") => FfiType::String,
-                Some("Buffer") => FfiType::Buffer,
-                Some("Void") => FfiType::Void,
-                _ => return None,
-            };
             if *optional {
-                Some(FfiType::Optional(Box::new(base)))
-            } else {
-                Some(base)
+                return match path.last().map(|s| s.as_str()) {
+                    Some("String") => Some(FfiType::Optional(Box::new(FfiType::String))),
+                    Some("Buffer") => Some(FfiType::Optional(Box::new(FfiType::Buffer))),
+                    _ => None,
+                };
+            }
+            match path.last().map(|s| s.as_str()) {
+                Some("Int") => Some(FfiType::Int),
+                Some("Float") => Some(FfiType::Float),
+                Some("Bool") => Some(FfiType::Bool),
+                Some("String") => Some(FfiType::String),
+                Some("Buffer") => Some(FfiType::Buffer),
+                Some("Void") => Some(FfiType::Void),
+                _ => None,
             }
         }
         TypeRef::Function { .. } => None,

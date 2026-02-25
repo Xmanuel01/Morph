@@ -2,9 +2,9 @@
 
 ## Versioning policy
 
-- Current production release line: `v0.9.2`.
-- `docs/Enkai.spec` is the normative language reference for `v0.9.2`.
-- Known limits and partial features are tracked inside `docs/Enkai.spec` under `Known Limits in v0.9.2`.
+- Current production release line: `v0.9.3`.
+- `docs/Enkai.spec` is the normative language reference for `v0.9.3`.
+- Known limits and partial features are tracked inside `docs/Enkai.spec` under `Known Limits in v0.9.3`.
 - Historical implementation snapshots remain in `docs/v0.1-status.md`, `docs/v0.2-status.md`, and `docs/v0.3-plan.md`.
 
 ## Reading order

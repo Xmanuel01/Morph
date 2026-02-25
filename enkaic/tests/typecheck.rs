@@ -45,3 +45,15 @@ fn native_import_rejects_invalid_type() {
     let msg = type_err("native::import \"libdemo\" ::\n    fn bad(a: List) -> Int\n::\n");
     assert!(msg.contains("Invalid FFI parameter type"));
 }
+
+#[test]
+fn native_import_rejects_optional_scalar_param() {
+    let msg = type_err("native::import \"libdemo\" ::\n    fn bad(a: Int?) -> Int\n::\n");
+    assert!(msg.contains("Invalid FFI parameter type"));
+}
+
+#[test]
+fn native_import_rejects_optional_scalar_return() {
+    let msg = type_err("native::import \"libdemo\" ::\n    fn bad() -> Bool?\n::\n");
+    assert!(msg.contains("Invalid FFI return type"));
+}

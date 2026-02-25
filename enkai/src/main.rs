@@ -11,8 +11,14 @@ use enkai_runtime::{Value, VM};
 
 mod train;
 
+const LANG_VERSION: &str = "0.9.3";
+
 fn main() {
     let args: Vec<String> = env::args().collect();
+    if args.len() == 2 && (args[1] == "--version" || args[1] == "-V") {
+        print_version();
+        process::exit(0);
+    }
     if args.len() < 2 {
         print_usage();
         process::exit(1);
@@ -408,12 +414,21 @@ fn normalize_line_endings(input: &str) -> String {
 fn print_usage() {
     eprintln!("Enkai CLI");
     eprintln!("Usage:");
+    eprintln!("  enkai --version");
     eprintln!("  enkai run [--trace-vm] [--disasm] [--trace-task] [--trace-net] <file|dir>");
     eprintln!("  enkai check <file|dir>");
     eprintln!("  enkai fmt [--check] <file|dir>");
     eprintln!("  enkai test [dir]");
     eprintln!("  enkai train <config.enk>");
     eprintln!("  enkai eval <config.enk>");
+}
+
+fn print_version() {
+    println!(
+        "Enkai v{} (cli {})",
+        LANG_VERSION,
+        env!("CARGO_PKG_VERSION")
+    );
 }
 
 fn is_source_extension(path: &Path) -> bool {

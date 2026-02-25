@@ -46,6 +46,7 @@ impl FfiFunction {
         symbol: *const c_void,
         free_symbol: Option<*const c_void>,
     ) -> Result<Self, RuntimeError> {
+        validate_signature(&signature)?;
         let arg_types = expand_param_types(&signature.params);
         let ret_type = ffi_return_type(&signature.ret);
         let cif = Cif::new(arg_types, ret_type);
@@ -243,11 +244,11 @@ impl FfiFunction {
     fn free_buffer(&self, ptr: *mut u8, len: usize) -> Result<(), RuntimeError> {
         let free_ptr = self
             .free_ptr
-            .ok_or_else(|| RuntimeError::new("enkai_free/enkai_free symbol missing"))?;
+            .ok_or_else(|| RuntimeError::new("enkai_free symbol missing"))?;
         let free_cif = self
             .free_cif
             .as_ref()
-            .ok_or_else(|| RuntimeError::new("enkai_free/enkai_free symbol missing"))?;
+            .ok_or_else(|| RuntimeError::new("enkai_free symbol missing"))?;
         let ptr_args: Vec<*const c_void> = vec![ptr as *const c_void];
         let len_args: Vec<usize> = vec![len];
         let args = vec![
@@ -257,6 +258,26 @@ impl FfiFunction {
         let _: () = unsafe { free_cif.call(free_ptr, &args) };
         Ok(())
     }
+}
+
+fn validate_signature(signature: &FfiSignature) -> Result<(), RuntimeError> {
+    for param in &signature.params {
+        if let FfiType::Optional(inner) = param {
+            if !matches!(inner.as_ref(), FfiType::String | FfiType::Buffer) {
+                return Err(RuntimeError::new(
+                    "Unsupported optional FFI parameter type; only String?/Buffer? are allowed",
+                ));
+            }
+        }
+    }
+    if let FfiType::Optional(inner) = &signature.ret {
+        if !matches!(inner.as_ref(), FfiType::String | FfiType::Buffer) {
+            return Err(RuntimeError::new(
+                "Unsupported optional FFI return type; only String?/Buffer? are allowed",
+            ));
+        }
+    }
+    Ok(())
 }
 
 pub fn requires_free(signature: &FfiSignature) -> bool {

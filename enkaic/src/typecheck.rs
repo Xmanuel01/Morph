@@ -660,7 +660,7 @@ fn inject_builtins(
 fn ffi_param_type_allowed(ty: &Type) -> bool {
     match ty {
         Type::Int | Type::Float | Type::Bool | Type::String | Type::Buffer => true,
-        Type::Optional(inner) => ffi_param_type_allowed(inner),
+        Type::Optional(inner) => matches!(inner.as_ref(), Type::String | Type::Buffer),
         _ => false,
     }
 }

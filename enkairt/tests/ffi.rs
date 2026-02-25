@@ -74,3 +74,12 @@ fn ffi_missing_library_error() {
     .expect_err("expected error");
     assert!(err.message.contains("Failed to load library"));
 }
+
+#[test]
+fn ffi_optional_scalar_signature_rejected_at_compile() {
+    let module =
+        parse_module("native::import \"enkai_native\" ::\n    fn bad(a: Int?) -> Int\n::\n0\n")
+            .expect("parse");
+    let err = compile_module(&module).expect_err("expected compile failure");
+    assert!(err.message.contains("Unsupported FFI parameter type"));
+}

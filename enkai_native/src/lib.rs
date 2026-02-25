@@ -15,7 +15,8 @@ pub unsafe extern "C" fn enkai_free(ptr: *mut u8, len: usize) {
     if ptr.is_null() {
         return;
     }
-    let _ = Vec::from_raw_parts(ptr, len, len);
+    let raw = std::ptr::slice_from_raw_parts_mut(ptr, len);
+    let _ = unsafe { Box::<[u8]>::from_raw(raw) };
 }
 
 fn slice_from_raw<'a>(ptr: *const u8, len: usize) -> Option<&'a [u8]> {
@@ -30,10 +31,10 @@ fn string_from_raw(ptr: *const u8, len: usize) -> Option<String> {
     std::str::from_utf8(bytes).ok().map(|s| s.to_string())
 }
 
-fn make_slice(mut bytes: Vec<u8>) -> FfiSlice {
-    let len = bytes.len();
-    let ptr = bytes.as_mut_ptr();
-    std::mem::forget(bytes);
+fn make_slice(bytes: Vec<u8>) -> FfiSlice {
+    let boxed = bytes.into_boxed_slice();
+    let len = boxed.len();
+    let ptr = Box::into_raw(boxed) as *mut u8;
     FfiSlice { ptr, len }
 }
 
@@ -46,7 +47,7 @@ fn null_slice() -> FfiSlice {
 
 #[no_mangle]
 pub extern "C" fn add_i64(a: i64, b: i64) -> i64 {
-    a + b
+    a.wrapping_add(b)
 }
 
 #[no_mangle]
@@ -183,4 +184,30 @@ pub extern "C" fn hash_sha256(ptr: *const u8, len: usize) -> FfiSlice {
     hasher.update(bytes);
     let result = hasher.finalize();
     make_slice(result.to_vec())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn add_i64_overflow_wraps() {
+        assert_eq!(add_i64(i64::MAX, 1), i64::MIN);
+    }
+
+    #[test]
+    fn ffi_buffer_roundtrip_free() {
+        let input = b"abc";
+        let out = buffer_from_string(input.as_ptr(), input.len());
+        assert_eq!(out.len, 3);
+        unsafe { enkai_free(out.ptr, out.len) };
+    }
+
+    #[test]
+    fn ffi_buffer_roundtrip_free_empty() {
+        let input: [u8; 0] = [];
+        let out = buffer_from_string(input.as_ptr(), input.len());
+        assert_eq!(out.len, 0);
+        unsafe { enkai_free(out.ptr, out.len) };
+    }
 }

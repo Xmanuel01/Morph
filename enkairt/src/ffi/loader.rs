@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -12,7 +12,7 @@ use crate::ffi::native_fn::{requires_free, FfiFunction};
 
 pub struct FfiLoader {
     libraries: HashMap<String, Arc<Library>>,
-    free_symbols: HashMap<String, Option<*const c_void>>,
+    free_symbols: HashMap<String, *const c_void>,
 }
 
 impl FfiLoader {
@@ -69,22 +69,23 @@ impl FfiLoader {
 
     fn load_free_symbol(&mut self, lib_name: &str) -> Result<*const c_void, RuntimeError> {
         if let Some(cached) = self.free_symbols.get(lib_name) {
-            return cached.ok_or_else(|| {
-                RuntimeError::new(
-                    "enkai_free/enkai_free symbol not found for buffer/string return type",
-                )
-            });
+            return Ok(*cached);
         }
-        let symbol = self
-            .load_symbol(lib_name, "enkai_free")
-            .or_else(|_| self.load_symbol(lib_name, "enkai_free"))
-            .map_err(|_| {
-                RuntimeError::new(
-                    "enkai_free/enkai_free symbol not found for buffer/string return type",
-                )
-            })?;
-        self.free_symbols.insert(lib_name.to_string(), Some(symbol));
-        Ok(symbol)
+        let mut last_err: Option<String> = None;
+        for symbol_name in ["enkai_free"] {
+            match self.load_symbol(lib_name, symbol_name) {
+                Ok(symbol) => {
+                    self.free_symbols.insert(lib_name.to_string(), symbol);
+                    return Ok(symbol);
+                }
+                Err(err) => last_err = Some(err.message),
+            }
+        }
+        let reason = last_err.unwrap_or_else(|| "symbol not found".to_string());
+        Err(RuntimeError::new(&format!(
+            "enkai_free symbol not found for buffer/string return type: {}",
+            reason
+        )))
     }
 }
 
@@ -101,18 +102,6 @@ fn library_candidates(name: &str) -> Vec<PathBuf> {
     }
     let mut names = Vec::new();
     names.push(name.to_string());
-    if name == "enkai_native" {
-        names.push("enkai_native".to_string());
-    }
-    if name == "enkai_native" {
-        names.push("enkai_native".to_string());
-    }
-    if name == "enkai_tensor" {
-        names.push("enkai_tensor".to_string());
-    }
-    if name == "enkai_tensor" {
-        names.push("enkai_tensor".to_string());
-    }
     let ext = if cfg!(target_os = "windows") {
         "dll"
     } else if cfg!(target_os = "macos") {
@@ -126,23 +115,40 @@ fn library_candidates(name: &str) -> Vec<PathBuf> {
             names.push(format!("lib{}.{}", name, ext));
         }
     }
+    let mut unique_names = HashSet::new();
+    names.retain(|entry| unique_names.insert(entry.clone()));
     let mut dirs = Vec::new();
+    let mut dir_set = HashSet::new();
     if let Ok(cwd) = std::env::current_dir() {
-        dirs.push(cwd);
+        if dir_set.insert(cwd.clone()) {
+            dirs.push(cwd);
+        }
     }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            dirs.push(dir.to_path_buf());
+            let dir_path = dir.to_path_buf();
+            if dir_set.insert(dir_path.clone()) {
+                dirs.push(dir_path);
+            }
             if let Some(parent) = dir.parent() {
-                dirs.push(parent.to_path_buf());
+                let parent_path = parent.to_path_buf();
+                if dir_set.insert(parent_path.clone()) {
+                    dirs.push(parent_path);
+                }
             }
         }
     }
     let mut out = Vec::new();
-    out.push(PathBuf::from(name));
+    let mut out_set = HashSet::new();
+    let root = PathBuf::from(name);
+    out_set.insert(root.clone());
+    out.push(root);
     for dir in dirs {
         for name in &names {
-            out.push(dir.join(name));
+            let candidate = dir.join(name);
+            if out_set.insert(candidate.clone()) {
+                out.push(candidate);
+            }
         }
     }
     out

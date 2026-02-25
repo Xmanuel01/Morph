@@ -4,9 +4,9 @@ ENKAI PROGRAMMING LANGUAGE
 Overview
 Enkai is a programming language with block structure defined by :: tokens, a clean
 assignment operator (:=), and an AI-native roadmap (tools, agents, memory, policy).
-This repository contains the v0.9.2 implementation in Rust.
+This repository contains the v0.9.3 implementation in Rust.
 
-Status (v0.9.2)
+Status (v0.9.3)
 - Bytecode VM + globals + type-checking
 - Module system with public/private exports
 - CLI: run/check/fmt/test/train/eval

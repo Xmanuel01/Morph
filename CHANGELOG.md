@@ -3,17 +3,30 @@
 ## Unreleased
 
 ### Highlights
-- Synced release notes with the `docs/Enkai.spec` v0.1 -> v0.9.2 compatibility framing.
-- Clarified v0.9.2 runtime status for tensor training hooks:
-  - native loss path currently integrated as `forward_l2`,
+- None yet.
+
+### Fixes
+- None yet.
+
+### Breaking changes
+- None yet.
+
+## v0.9.3
+
+### Highlights
+- Synced release notes with the `docs/Enkai.spec` v0.1 -> v0.9.3 compatibility framing.
+- Clarified v0.9.3 runtime status for tensor training hooks:
+  - native loss path currently integrated as `forward_tinylm`,
   - checkpoint C ABI hooks are present and backend-loadable,
   - distributed hooks are present but environment-gated by CUDA/NCCL/runtime setup.
+- Aligned release/version references to the current production line (`v0.9.3`) in top-level docs.
+- Added `enkai --version` output with language version.
 
 ### Fixes
 - Reduced spec/changelog drift by aligning guaranteed behavior vs known limits.
 
 ### Breaking changes
-- None yet.
+- None.
 
 ## v0.9.2
 
