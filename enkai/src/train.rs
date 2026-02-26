@@ -2,20 +2,20 @@ use std::collections::hash_map::DefaultHasher;
 use std::fs::{self, OpenOptions};
 use std::hash::{Hash, Hasher};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use enkai_compiler::bytecode::{ByteFunction, Chunk, Constant, Instruction, Program};
 use enkai_compiler::compiler::{compile_package, CompileError};
 use enkai_compiler::modules::load_package;
 use enkai_compiler::{TypeChecker, TypeError};
 use enkai_runtime::checkpoint::{
-    latest_checkpoint, load_checkpoint, rotate_checkpoints, save_checkpoint, CheckpointMeta,
-    CheckpointState,
+    latest_checkpoint, load_checkpoint, rotate_checkpoints, save_checkpoint, CheckpointAmp,
+    CheckpointMeta, CheckpointState,
 };
 use enkai_runtime::dataset::{resolve_dataset_paths, Batch, DatasetConfig, DatasetStream};
 use enkai_runtime::object::Obj;
@@ -23,7 +23,7 @@ use enkai_runtime::tokenizer::{Tokenizer, TrainConfig as TokenizerTrainConfig};
 use enkai_runtime::{
     engine::{
         checkpoint_load as rt_checkpoint_load, checkpoint_save as rt_checkpoint_save,
-        eval_step as rt_eval_step, init, train_step as rt_train_step,
+        eval_step as rt_eval_step, init, train_step as rt_train_step, AmpConfig as RtAmpConfig,
         CheckpointConfig as RtCkptConfig, DataConfig as RtDataConfig, LogConfig as RtLogConfig,
         ModelConfig as RtModelConfig, OptimConfig as RtOptimConfig, TrainConfig as RtTrainConfig,
     },
@@ -41,6 +41,7 @@ struct TrainConfig {
     lr: f32,
     model: ModelConfig,
     optim: OptimConfig,
+    amp: AmpConfig,
     dataset_path: String,
     eval_dataset_path: Option<String>,
     tokenizer: TokenizerConfig,
@@ -54,6 +55,12 @@ struct TrainConfig {
     pad_id: u32,
     keep_last: usize,
     seed: Option<u64>,
+    shuffle: bool,
+    prefetch_batches: usize,
+    world_size: usize,
+    rank: usize,
+    grad_accum_steps: usize,
+    grad_clip_norm: Option<f32>,
     legacy_config: bool,
 }
 
@@ -73,6 +80,29 @@ struct OptimConfig {
     beta2: f64,
     eps: f64,
     weight_decay: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+struct AmpConfig {
+    enabled: bool,
+    dtype: String,
+    init_scale: f64,
+    growth_factor: f64,
+    backoff_factor: f64,
+    growth_interval: i64,
+}
+
+impl Default for AmpConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            dtype: "fp16".to_string(),
+            init_scale: 65536.0,
+            growth_factor: 2.0,
+            backoff_factor: 0.5,
+            growth_interval: 2000,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -255,10 +285,10 @@ impl TinyModel {
         Ok(())
     }
 
-    fn train_step(&mut self, batch: &Batch, opt: &mut AdamWMulti, groups: &[ParamGroup]) -> f32 {
+    fn compute_grads(&self, batch: &Batch) -> (f32, Vec<f32>) {
         let total = batch.input_ids.len();
         if total == 0 {
-            return 0.0;
+            return (0.0, vec![0.0f32; self.params.len()]);
         }
         let mut grads = vec![0.0f32; self.params.len()];
         let mut loss = 0.0f32;
@@ -308,8 +338,11 @@ impl TinyModel {
         for g in grads.iter_mut() {
             *g /= denom;
         }
-        opt.step(&mut self.params, &grads, groups);
-        loss
+        (loss, grads)
+    }
+
+    fn apply_grads(&mut self, grads: &[f32], opt: &mut AdamWMulti, groups: &[ParamGroup]) {
+        opt.step(&mut self.params, grads, groups);
     }
 
     fn eval_loss(&self, batch: &Batch) -> f32 {
@@ -359,19 +392,30 @@ struct LogEvent {
     lr: f32,
     elapsed_ms: u128,
     event: String,
+    tokens_per_sec: Option<f32>,
+    step_time_ms: Option<f32>,
+    packing_efficiency: Option<f32>,
+    gpu_util: Option<f32>,
+    grad_norm: Option<f32>,
+    forward_time_ms: Option<f32>,
+    backward_time_ms: Option<f32>,
+    optim_time_ms: Option<f32>,
+    found_inf: Option<bool>,
 }
 
 pub fn train(config_path: &Path) -> Result<(), String> {
     let config_value = load_config_value(config_path)?;
     let config = parse_train_config(&config_value)?;
     let tokenizer = build_tokenizer(&config)?;
-    let dataset_paths = resolve_dataset_paths(&config.dataset_path)?;
-        let mut data_cfg = DatasetConfig::new(config.seq_len, config.batch_size);
-        data_cfg.add_eos = config.add_eos;
-        data_cfg.drop_remainder = config.drop_remainder;
-        data_cfg.pad_id = config.pad_id;
-        data_cfg.seed = config.seed;
-        data_cfg.shuffle = config.seed.is_some();
+    let mut dataset_paths = resolve_dataset_paths(&config.dataset_path)?;
+    dataset_paths = shard_paths(dataset_paths, config.world_size, config.rank);
+    let mut data_cfg = DatasetConfig::new(config.seq_len, config.batch_size);
+    data_cfg.add_eos = config.add_eos;
+    data_cfg.drop_remainder = config.drop_remainder;
+    data_cfg.pad_id = config.pad_id;
+    data_cfg.seed = data_seed(&config);
+    data_cfg.shuffle = config.shuffle;
+    data_cfg.prefetch_batches = config.prefetch_batches;
     let mut stream = DatasetStream::new(dataset_paths, tokenizer.clone(), data_cfg)?;
     let mut step = 0usize;
     let mut tokens = 0u64;
@@ -392,11 +436,15 @@ pub fn train(config_path: &Path) -> Result<(), String> {
             tokens = meta.tokens;
         }
         let mut last_saved_step = step;
+        let mut packing_sum = 0.0f32;
+        let mut packing_count = 0usize;
         while step < config.max_steps {
             let batch = match stream.next_batch()? {
                 Some(batch) => batch,
                 None => break,
             };
+            packing_sum += batch.packing_efficiency;
+            packing_count += 1;
             let metrics = match rt_train_step(&mut engine, &batch) {
                 Ok(m) => m,
                 Err(err) => {
@@ -405,6 +453,11 @@ pub fn train(config_path: &Path) -> Result<(), String> {
                     return Err(format!("Train error: {}", err));
                 }
             };
+            if metrics.found_inf {
+                packing_sum = 0.0;
+                packing_count = 0;
+                continue;
+            }
             if !metrics.loss.is_finite() {
                 let _ = write_error_checkpoint(
                     &engine,
@@ -415,8 +468,16 @@ pub fn train(config_path: &Path) -> Result<(), String> {
                 );
                 return Err("non-finite loss detected".to_string());
             }
-            tokens += batch.input_ids.len() as u64;
-            step += 1;
+            tokens += batch.token_count as u64;
+            if !metrics.did_update {
+                continue;
+            }
+            step = metrics.step as usize;
+            let avg_packing = if packing_count == 0 {
+                0.0
+            } else {
+                packing_sum / packing_count as f32
+            };
             if step == 1 || step.is_multiple_of(config.log_every) {
                 let event = LogEvent {
                     step,
@@ -425,6 +486,15 @@ pub fn train(config_path: &Path) -> Result<(), String> {
                     lr: config.optim.lr as f32,
                     elapsed_ms: start.elapsed().as_millis(),
                     event: "step".to_string(),
+                    tokens_per_sec: Some(metrics.tokens_per_sec),
+                    step_time_ms: Some(metrics.step_time_ms),
+                    packing_efficiency: Some(avg_packing),
+                    gpu_util: metrics.gpu_util,
+                    grad_norm: metrics.grad_norm,
+                    forward_time_ms: Some(metrics.forward_time_ms),
+                    backward_time_ms: Some(metrics.backward_time_ms),
+                    optim_time_ms: Some(metrics.optim_time_ms),
+                    found_inf: Some(false),
                 };
                 let line = serde_json::to_string(&event).map_err(|err| err.to_string())?;
                 writeln!(log_file, "{}", line).map_err(|err| err.to_string())?;
@@ -445,11 +515,22 @@ pub fn train(config_path: &Path) -> Result<(), String> {
                     lr: config.optim.lr as f32,
                     elapsed_ms: start.elapsed().as_millis(),
                     event: "checkpoint".to_string(),
+                    tokens_per_sec: None,
+                    step_time_ms: None,
+                    packing_efficiency: Some(avg_packing),
+                    gpu_util: metrics.gpu_util,
+                    grad_norm: metrics.grad_norm,
+                    forward_time_ms: None,
+                    backward_time_ms: None,
+                    optim_time_ms: None,
+                    found_inf: Some(false),
                 };
                 let line = serde_json::to_string(&event).map_err(|err| err.to_string())?;
                 writeln!(log_file, "{}", line).map_err(|err| err.to_string())?;
                 println!("saved checkpoint latest");
             }
+            packing_sum = 0.0;
+            packing_count = 0;
         }
     } else {
         let seed = config_seed(&config);
@@ -478,45 +559,119 @@ pub fn train(config_path: &Path) -> Result<(), String> {
             if !state.meta.device.is_empty() && state.meta.device != config.model.device {
                 return Err("checkpoint device mismatch".to_string());
             }
+            if state.meta.world_size != 0 && state.meta.world_size != config.world_size {
+                return Err("checkpoint world_size mismatch".to_string());
+            }
+            if state.meta.rank != 0 && state.meta.rank != config.rank {
+                return Err("checkpoint rank mismatch".to_string());
+            }
+            if state.meta.grad_accum_steps != 0
+                && state.meta.grad_accum_steps != config.grad_accum_steps
+            {
+                return Err("checkpoint grad_accum_steps mismatch".to_string());
+            }
+            if let Some(norm) = state.meta.grad_clip_norm {
+                if config.grad_clip_norm.map(|v| v as f64) != Some(norm) {
+                    return Err("checkpoint grad_clip_norm mismatch".to_string());
+                }
+            }
+            if let Some(amp) = state.meta.amp.as_ref() {
+                if *amp != checkpoint_amp_from(&config.amp) {
+                    return Err("checkpoint amp config mismatch".to_string());
+                }
+            }
             model.set_params(&state.weights)?;
             opt.load_state(&state.optimizer)?;
             step = state.meta.step as usize;
             tokens = state.meta.tokens;
         }
+        let accum_steps = config.grad_accum_steps.max(1);
+        let mut packing_sum = 0.0f32;
+        let mut packing_count = 0usize;
+        let mut grad_accum = vec![0.0f32; model.params().len()];
         while step < config.max_steps {
-            let batch = match stream.next_batch()? {
-                Some(batch) => batch,
-                None => break,
-            };
-            let loss = model.train_step(&batch, &mut opt, &groups);
-            if !loss.is_finite() {
-                return Err("non-finite loss detected".to_string());
+            let step_start = Instant::now();
+            let mut step_loss_sum = 0.0f32;
+            let mut step_tokens = 0u64;
+            let mut micro_batches = 0usize;
+            while micro_batches < accum_steps {
+                let batch = match stream.next_batch()? {
+                    Some(batch) => batch,
+                    None => break,
+                };
+                packing_sum += batch.packing_efficiency;
+                packing_count += 1;
+                let (loss, grads) = model.compute_grads(&batch);
+                if !loss.is_finite() {
+                    return Err("non-finite loss detected".to_string());
+                }
+                for (acc, g) in grad_accum.iter_mut().zip(grads.iter()) {
+                    *acc += *g;
+                }
+                step_loss_sum += loss;
+                step_tokens += batch.token_count as u64;
+                tokens += batch.token_count as u64;
+                micro_batches += 1;
             }
-            tokens += batch.input_ids.len() as u64;
+            if micro_batches == 0 {
+                break;
+            }
+            let scale = 1.0 / micro_batches as f32;
+            for g in grad_accum.iter_mut() {
+                *g *= scale;
+            }
+            let grad_norm = config
+                .grad_clip_norm
+                .and_then(|max_norm| clip_grad_norm(&mut grad_accum, max_norm));
+            model.apply_grads(&grad_accum, &mut opt, &groups);
+            grad_accum.fill(0.0);
             step += 1;
+            let avg_loss = step_loss_sum / micro_batches as f32;
+            let avg_packing = if packing_count == 0 {
+                0.0
+            } else {
+                packing_sum / packing_count as f32
+            };
+            let elapsed_s = step_start.elapsed().as_secs_f32().max(1e-6);
+            let tokens_per_sec = (step_tokens as f32) / elapsed_s;
+            let step_time_ms = (step_start.elapsed().as_secs_f64() * 1_000.0) as f32;
             if step == 1 || step.is_multiple_of(config.log_every) {
                 let event = LogEvent {
                     step,
-                    loss,
+                    loss: avg_loss,
                     tokens,
                     lr: config.lr,
                     elapsed_ms: start.elapsed().as_millis(),
                     event: "step".to_string(),
+                    tokens_per_sec: Some(tokens_per_sec),
+                    step_time_ms: Some(step_time_ms),
+                    packing_efficiency: Some(avg_packing),
+                    gpu_util: None,
+                    grad_norm,
+                    forward_time_ms: None,
+                    backward_time_ms: None,
+                    optim_time_ms: None,
+                    found_inf: Some(false),
                 };
                 let line = serde_json::to_string(&event).map_err(|err| err.to_string())?;
                 writeln!(log_file, "{}", line).map_err(|err| err.to_string())?;
-                println!("step {} loss {:.4} tokens {}", step, loss, tokens);
+                println!("step {} loss {:.4} tokens {}", step, avg_loss, tokens);
             }
             if step == config.max_steps || step.is_multiple_of(config.save_every) {
                 let meta = CheckpointMeta {
                     format_version: 1,
                     step: step as u64,
                     tokens,
-                    loss: loss as f64,
+                    loss: avg_loss as f64,
                     config_hash: hash_config_hex(&config),
                     model_sig: model_signature(&config),
                     dtype: config.model.dtype.clone(),
                     device: config.model.device.clone(),
+                    world_size: config.world_size,
+                    rank: config.rank,
+                    grad_accum_steps: config.grad_accum_steps,
+                    grad_clip_norm: config.grad_clip_norm.map(|v| v as f64),
+                    amp: Some(checkpoint_amp_from(&config.amp)),
                 };
                 let state = CheckpointState {
                     weights: model.params().to_vec(),
@@ -529,16 +684,27 @@ pub fn train(config_path: &Path) -> Result<(), String> {
                     .map_err(|err| err.to_string())?;
                 let event = LogEvent {
                     step,
-                    loss,
+                    loss: avg_loss,
                     tokens,
                     lr: config.lr,
                     elapsed_ms: start.elapsed().as_millis(),
                     event: "checkpoint".to_string(),
+                    tokens_per_sec: None,
+                    step_time_ms: None,
+                    packing_efficiency: Some(avg_packing),
+                    gpu_util: None,
+                    grad_norm,
+                    forward_time_ms: None,
+                    backward_time_ms: None,
+                    optim_time_ms: None,
+                    found_inf: Some(false),
                 };
                 let line = serde_json::to_string(&event).map_err(|err| err.to_string())?;
                 writeln!(log_file, "{}", line).map_err(|err| err.to_string())?;
                 println!("saved checkpoint {}", path.display());
             }
+            packing_sum = 0.0;
+            packing_count = 0;
         }
     }
     Ok(())
@@ -553,11 +719,12 @@ pub fn eval(config_path: &Path) -> Result<(), String> {
         .as_ref()
         .unwrap_or(&config.dataset_path);
     let dataset_paths = resolve_dataset_paths(dataset_path)?;
-        let mut data_cfg = DatasetConfig::new(config.seq_len, config.batch_size);
-        data_cfg.add_eos = config.add_eos;
-        data_cfg.drop_remainder = config.drop_remainder;
-        data_cfg.pad_id = config.pad_id;
-        data_cfg.seed = config.seed;
+    let mut data_cfg = DatasetConfig::new(config.seq_len, config.batch_size);
+    data_cfg.add_eos = config.add_eos;
+    data_cfg.drop_remainder = config.drop_remainder;
+    data_cfg.pad_id = config.pad_id;
+    data_cfg.seed = data_seed(&config);
+    data_cfg.prefetch_batches = config.prefetch_batches;
     let mut stream = DatasetStream::new(dataset_paths, tokenizer, data_cfg)?;
     if config.backend == "native" {
         let mut engine = init(rt_config_from(&config)).map_err(|e| e.to_string())?;
@@ -606,6 +773,27 @@ pub fn eval(config_path: &Path) -> Result<(), String> {
         }
         if !state.meta.device.is_empty() && state.meta.device != config.model.device {
             return Err("checkpoint device mismatch".to_string());
+        }
+        if state.meta.world_size != 0 && state.meta.world_size != config.world_size {
+            return Err("checkpoint world_size mismatch".to_string());
+        }
+        if state.meta.rank != 0 && state.meta.rank != config.rank {
+            return Err("checkpoint rank mismatch".to_string());
+        }
+        if state.meta.grad_accum_steps != 0
+            && state.meta.grad_accum_steps != config.grad_accum_steps
+        {
+            return Err("checkpoint grad_accum_steps mismatch".to_string());
+        }
+        if let Some(norm) = state.meta.grad_clip_norm {
+            if config.grad_clip_norm.map(|v| v as f64) != Some(norm) {
+                return Err("checkpoint grad_clip_norm mismatch".to_string());
+            }
+        }
+        if let Some(amp) = state.meta.amp.as_ref() {
+            if *amp != checkpoint_amp_from(&config.amp) {
+                return Err("checkpoint amp config mismatch".to_string());
+            }
         }
         model.set_params(&state.weights)?;
         let mut total_loss = 0.0f32;
@@ -694,10 +882,9 @@ fn parse_train_config(value: &Value) -> Result<TrainConfig, String> {
     let d_model = record_usize_default(model_ref, "d_model", hidden_size);
     let n_layers = record_usize_default(model_ref, "n_layers", 2);
     let n_heads = record_usize_default(model_ref, "n_heads", 4);
-    let device = record_string_default(model_ref, "device", "cpu");
+    let mut device = record_string_default(model_ref, "device", "cpu");
     let dtype = record_string_default(model_ref, "dtype", "fp32");
     validate_dtype(&dtype)?;
-    validate_device(&device, &backend)?;
     let seq_len = record_usize(map, "seq_len")?;
     let batch_size = record_usize(map, "batch_size")?;
     let lr = record_f32(map, "lr")?;
@@ -724,6 +911,38 @@ fn parse_train_config(value: &Value) -> Result<TrainConfig, String> {
         Some(_) => return Err("seed must be Int >= 0".to_string()),
         None => None,
     };
+    let shuffle = record_bool_default(map, "shuffle", seed.is_some());
+    if shuffle && seed.is_none() {
+        return Err("shuffle requires seed".to_string());
+    }
+    let prefetch_batches = record_usize_default(map, "prefetch_batches", 0);
+    let world_size = record_usize_default(map, "world_size", 1);
+    let rank = record_usize_default(map, "rank", 0);
+    if world_size == 0 {
+        return Err("world_size must be >= 1".to_string());
+    }
+    if rank >= world_size {
+        return Err("rank must be < world_size".to_string());
+    }
+    if backend == "cpu" && world_size > 1 {
+        return Err("world_size > 1 requires backend = \"native\"".to_string());
+    }
+    if backend == "native" && world_size > 1 && device == "cuda" {
+        device = format!("cuda:{}", rank);
+    }
+    validate_device(&device, &backend)?;
+    let grad_accum_steps = record_usize_default(map, "grad_accum_steps", 1);
+    if grad_accum_steps == 0 {
+        return Err("grad_accum_steps must be >= 1".to_string());
+    }
+    let grad_clip_norm = match map.get("grad_clip_norm") {
+        Some(Value::Float(f)) if *f > 0.0 => Some(*f as f32),
+        Some(Value::Int(i)) if *i > 0 => Some(*i as f32),
+        Some(Value::Float(_)) | Some(Value::Int(_)) => None,
+        Some(_) => return Err("grad_clip_norm must be Float".to_string()),
+        None => None,
+    };
+    let amp = parse_amp_config(map, &backend, &device)?;
     let tokenizer = if let Some(value) = map.get("tokenizer_path") {
         TokenizerConfig::Load(as_string(value)?)
     } else if let Some(value) = map.get("tokenizer_train") {
@@ -762,6 +981,7 @@ fn parse_train_config(value: &Value) -> Result<TrainConfig, String> {
             eps: opt_eps,
             weight_decay: opt_wd,
         },
+        amp,
         dataset_path,
         eval_dataset_path,
         tokenizer,
@@ -775,6 +995,12 @@ fn parse_train_config(value: &Value) -> Result<TrainConfig, String> {
         pad_id,
         keep_last,
         seed,
+        shuffle,
+        prefetch_batches,
+        world_size,
+        rank,
+        grad_accum_steps,
+        grad_clip_norm,
         legacy_config,
     })
 }
@@ -911,6 +1137,62 @@ fn record_bool_default(
     }
 }
 
+fn parse_amp_config(
+    map: &std::collections::HashMap<String, Value>,
+    backend: &str,
+    device: &str,
+) -> Result<AmpConfig, String> {
+    let mut amp = AmpConfig::default();
+    let Some(value) = map.get("amp") else {
+        return Ok(amp);
+    };
+    let amap_ref = value_as_record(value)?;
+    let amap = &*amap_ref;
+    amp.enabled = record_bool_default(amap, "enabled", amp.enabled);
+    let dtype = record_string_default(amap, "dtype", &amp.dtype);
+    let dtype_norm = match dtype.as_str() {
+        "fp16" | "f16" => "fp16",
+        "bf16" => "bf16",
+        other => {
+            return Err(format!(
+                "Unsupported amp dtype {} (expected fp16/f16 or bf16)",
+                other
+            ))
+        }
+    };
+    amp.dtype = dtype_norm.to_string();
+    amp.init_scale = record_f64_default(amap, "init_scale", amp.init_scale);
+    amp.growth_factor = record_f64_default(amap, "growth_factor", amp.growth_factor);
+    amp.backoff_factor = record_f64_default(amap, "backoff_factor", amp.backoff_factor);
+    amp.growth_interval =
+        record_f64_default(amap, "growth_interval", amp.growth_interval as f64) as i64;
+    if amp.enabled {
+        if backend != "native" {
+            return Err("amp is only supported with backend = \"native\"".to_string());
+        }
+        if device == "cpu" {
+            return Err(
+                "amp requires a CUDA device (device must be \"cuda\" or \"cuda:<idx>\")"
+                    .to_string(),
+            );
+        }
+        if amp.init_scale <= 0.0 || !amp.init_scale.is_finite() {
+            return Err("amp.init_scale must be finite and > 0".to_string());
+        }
+        if amp.growth_factor <= 1.0 || !amp.growth_factor.is_finite() {
+            return Err("amp.growth_factor must be > 1.0".to_string());
+        }
+        if amp.backoff_factor <= 0.0 || amp.backoff_factor >= 1.0 || !amp.backoff_factor.is_finite()
+        {
+            return Err("amp.backoff_factor must be finite and in (0, 1)".to_string());
+        }
+        if amp.growth_interval <= 0 {
+            return Err("amp.growth_interval must be > 0".to_string());
+        }
+    }
+    Ok(amp)
+}
+
 fn validate_backend(backend: &str) -> Result<(), String> {
     match backend {
         "cpu" | "native" => Ok(()),
@@ -1011,7 +1293,73 @@ fn config_seed(config: &TrainConfig) -> u64 {
     config.seed.unwrap_or_else(|| hash_config(config))
 }
 
-#[derive(Serialize, serde::Deserialize)]
+fn data_seed(config: &TrainConfig) -> Option<u64> {
+    config.seed.map(|seed| {
+        if config.world_size > 1 {
+            seed.wrapping_add(config.rank as u64)
+        } else {
+            seed
+        }
+    })
+}
+
+fn checkpoint_amp_from(config: &AmpConfig) -> CheckpointAmp {
+    CheckpointAmp {
+        enabled: config.enabled,
+        dtype: config.dtype.clone(),
+        init_scale: config.init_scale,
+        growth_factor: config.growth_factor,
+        backoff_factor: config.backoff_factor,
+        growth_interval: config.growth_interval,
+    }
+}
+
+fn clip_grad_norm(grads: &mut [f32], max_norm: f32) -> Option<f32> {
+    if max_norm <= 0.0 || !max_norm.is_finite() {
+        return None;
+    }
+    let mut total_sq = 0.0f64;
+    for g in grads.iter() {
+        if !g.is_finite() {
+            return None;
+        }
+        let g64 = *g as f64;
+        total_sq += g64 * g64;
+    }
+    let norm = total_sq.sqrt() as f32;
+    if norm > max_norm {
+        let scale = max_norm / (norm + 1e-6);
+        for g in grads.iter_mut() {
+            *g *= scale;
+        }
+    }
+    Some(norm)
+}
+
+fn shard_paths(paths: Vec<PathBuf>, world_size: usize, rank: usize) -> Vec<PathBuf> {
+    if world_size <= 1 || paths.is_empty() {
+        return paths;
+    }
+    let original = paths.clone();
+    let out: Vec<PathBuf> = paths
+        .into_iter()
+        .enumerate()
+        .filter_map(|(idx, path)| {
+            if idx % world_size == rank {
+                Some(path)
+            } else {
+                None
+            }
+        })
+        .collect();
+    if out.is_empty() {
+        // Fall back to full list if sharding produced no files.
+        return original;
+    }
+    out
+}
+
+#[derive(Serialize, Deserialize)]
 struct NativeCheckpointMeta {
     #[serde(default)]
     format_version: u32,
@@ -1026,6 +1374,16 @@ struct NativeCheckpointMeta {
     dtype: String,
     #[serde(default)]
     device: String,
+    #[serde(default)]
+    world_size: usize,
+    #[serde(default)]
+    rank: usize,
+    #[serde(default)]
+    grad_accum_steps: usize,
+    #[serde(default)]
+    grad_clip_norm: Option<f32>,
+    #[serde(default)]
+    amp: Option<AmpConfig>,
 }
 
 fn model_signature(config: &TrainConfig) -> String {
@@ -1054,6 +1412,11 @@ fn native_checkpoint_meta(
         model_sig: model_signature(config),
         dtype: config.model.dtype.clone(),
         device: config.model.device.clone(),
+        world_size: config.world_size,
+        rank: config.rank,
+        grad_accum_steps: config.grad_accum_steps,
+        grad_clip_norm: config.grad_clip_norm,
+        amp: Some(config.amp.clone()),
     };
     serde_json::to_string(&meta).map_err(|err| err.to_string())
 }
@@ -1086,7 +1449,18 @@ fn rt_config_from(config: &TrainConfig) -> RtTrainConfig {
         },
         checkpoint: RtCkptConfig::new(Path::new(&config.checkpoint_dir).to_path_buf()),
         log: RtLogConfig::new(Path::new(&config.checkpoint_dir).to_path_buf()),
-        world_size: 1,
+        world_size: config.world_size,
+        rank: config.rank,
+        grad_accum_steps: config.grad_accum_steps,
+        grad_clip_norm: config.grad_clip_norm.map(|v| v as f64),
+        amp: RtAmpConfig {
+            enabled: config.amp.enabled,
+            dtype: config.amp.dtype.clone(),
+            init_scale: config.amp.init_scale,
+            growth_factor: config.amp.growth_factor,
+            backoff_factor: config.amp.backoff_factor,
+            growth_interval: config.amp.growth_interval,
+        },
     }
 }
 
@@ -1118,6 +1492,27 @@ fn try_load_native_checkpoint(
     if !meta.device.is_empty() && meta.device != config.model.device {
         return Err("checkpoint device mismatch".to_string());
     }
+    if meta.world_size != 0 {
+        if meta.world_size != config.world_size {
+            return Err("checkpoint world_size mismatch".to_string());
+        }
+        if meta.rank != config.rank {
+            return Err("checkpoint rank mismatch".to_string());
+        }
+    }
+    if meta.grad_accum_steps != 0 && meta.grad_accum_steps != config.grad_accum_steps {
+        return Err("checkpoint grad_accum_steps mismatch".to_string());
+    }
+    if let Some(norm) = meta.grad_clip_norm {
+        if config.grad_clip_norm != Some(norm) {
+            return Err("checkpoint grad_clip_norm mismatch".to_string());
+        }
+    }
+    if let Some(amp) = meta.amp.as_ref() {
+        if *amp != config.amp {
+            return Err("checkpoint amp config mismatch".to_string());
+        }
+    }
     Ok(Some(meta))
 }
 
@@ -1137,6 +1532,11 @@ fn write_error_checkpoint(
         "model_sig": model_signature(config),
         "dtype": config.model.dtype,
         "device": config.model.device,
+        "world_size": config.world_size,
+        "rank": config.rank,
+        "grad_accum_steps": config.grad_accum_steps,
+        "grad_clip_norm": config.grad_clip_norm,
+        "amp": config.amp.clone(),
         "error": error
     });
     let text = serde_json::to_string(&meta).map_err(|err| err.to_string())?;

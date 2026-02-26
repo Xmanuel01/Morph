@@ -1,0 +1,51 @@
+// std::io (v1.2 systems)
+
+native::import "enkai_native" ::
+    fn fsx_read_bytes(path: String) -> Buffer
+    fn fsx_write_bytes(path: String, data: Buffer) -> Bool
+    fn io_read_stdin() -> Buffer
+    fn io_write_stdout(data: Buffer) -> Bool
+    fn io_write_stderr(data: Buffer) -> Bool
+    fn buffer_from_string(data: String) -> Buffer
+    fn buffer_to_string(data: Buffer) -> String?
+::
+
+pub fn read_bytes(path: String) -> Buffer ::
+    return fsx_read_bytes(path)
+::
+
+pub fn write_bytes(path: String, data: Buffer) -> Bool ::
+    return fsx_write_bytes(path, data)
+::
+
+pub fn read_text(path: String) -> String? ::
+    let data := fsx_read_bytes(path)
+    return buffer_to_string(data)
+::
+
+pub fn write_text(path: String, text: String) -> Bool ::
+    let buf := buffer_from_string(text)
+    return fsx_write_bytes(path, buf)
+::
+
+pub fn stdin_read() -> Buffer ::
+    return io_read_stdin()
+::
+
+pub fn stdout_write(data: Buffer) -> Bool ::
+    return io_write_stdout(data)
+::
+
+pub fn stderr_write(data: Buffer) -> Bool ::
+    return io_write_stderr(data)
+::
+
+pub fn stdout_write_text(text: String) -> Bool ::
+    let buf := buffer_from_string(text)
+    return io_write_stdout(buf)
+::
+
+pub fn stderr_write_text(text: String) -> Bool ::
+    let buf := buffer_from_string(text)
+    return io_write_stderr(buf)
+::

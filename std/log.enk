@@ -1,0 +1,17 @@
+// std::log (v1.2 systems)
+
+native::import "enkai_native" ::
+    fn log_emit(level: String, msg: String) -> Bool
+::
+
+pub fn info(msg: String) ::
+    return log_emit("info", msg)
+::
+
+pub fn warn(msg: String) ::
+    return log_emit("warn", msg)
+::
+
+pub fn error(msg: String) ::
+    return log_emit("error", msg)
+::

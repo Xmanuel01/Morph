@@ -2,6 +2,22 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CheckpointAmp {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub dtype: String,
+    #[serde(default)]
+    pub init_scale: f64,
+    #[serde(default)]
+    pub growth_factor: f64,
+    #[serde(default)]
+    pub backoff_factor: f64,
+    #[serde(default)]
+    pub growth_interval: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckpointMeta {
     #[serde(default)]
@@ -19,6 +35,16 @@ pub struct CheckpointMeta {
     pub dtype: String,
     #[serde(default)]
     pub device: String,
+    #[serde(default)]
+    pub world_size: usize,
+    #[serde(default)]
+    pub rank: usize,
+    #[serde(default)]
+    pub grad_accum_steps: usize,
+    #[serde(default)]
+    pub grad_clip_norm: Option<f64>,
+    #[serde(default)]
+    pub amp: Option<CheckpointAmp>,
 }
 
 #[derive(Debug, Clone)]

@@ -2,7 +2,7 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v0.9.3.
+- Current production release line is v1.2.0.
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
 
 v0.1 (done)

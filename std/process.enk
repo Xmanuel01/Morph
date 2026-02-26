@@ -1,0 +1,30 @@
+// std::process (v1.2 systems)
+
+native::import "enkai_native" ::
+    fn process_spawn(cmd: String, args_json: String, cwd: String?) -> Int
+    fn process_wait(handle: Int) -> Int
+    fn process_kill(handle: Int) -> Bool
+    fn process_run(cmd: String, args_json: String, cwd: String?) -> String
+    fn process_exit(code: Int) -> Void
+::
+
+pub fn start(cmd: String, args: List, cwd: String?) -> Int ::
+    return process_spawn(cmd, json.stringify(args), cwd)
+::
+
+pub fn wait(handle: Int) -> Int ::
+    return process_wait(handle)
+::
+
+pub fn kill(handle: Int) -> Bool ::
+    return process_kill(handle)
+::
+
+pub fn run(cmd: String, args: List, cwd: String?) ::
+    let raw := process_run(cmd, json.stringify(args), cwd)
+    return json.parse(raw)
+::
+
+pub fn exit(code: Int) ::
+    return process_exit(code)
+::

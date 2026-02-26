@@ -1,0 +1,29 @@
+// std::path (v1.2 systems)
+
+native::import "enkai_native" ::
+    fn path_join(a: String, b: String) -> String
+    fn path_dirname(path: String) -> String?
+    fn path_basename(path: String) -> String?
+    fn path_extname(path: String) -> String?
+    fn path_normalize(path: String) -> String
+::
+
+pub fn join(a: String, b: String) -> String ::
+    return path_join(a, b)
+::
+
+pub fn dirname(path: String) -> String? ::
+    return path_dirname(path)
+::
+
+pub fn basename(path: String) -> String? ::
+    return path_basename(path)
+::
+
+pub fn extname(path: String) -> String? ::
+    return path_extname(path)
+::
+
+pub fn normalize(path: String) -> String ::
+    return path_normalize(path)
+::

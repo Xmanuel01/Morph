@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::Path;
+use std::path::{Component, Path};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -28,6 +28,7 @@ struct CallFrame {
     ip: usize,
     base: usize,      // start of locals/args
     caller_sp: usize, // stack height where callee was placed
+    prev_policy: Option<String>,
 }
 
 #[derive(Clone)]
@@ -49,6 +50,7 @@ struct Task {
     join_waiters: Vec<usize>,
     pending_error: Option<RuntimeError>,
     http_conn: Option<TcpStream>,
+    policy: Option<String>,
 }
 
 enum TaskRunOutcome {
@@ -97,6 +99,57 @@ struct HttpResponseData {
     body: Vec<u8>,
 }
 
+#[derive(Debug, Clone)]
+struct Policy {
+    rules: Vec<PolicyRuleRuntime>,
+}
+
+#[derive(Debug, Clone)]
+struct PolicyRuleRuntime {
+    allow: bool,
+    capability: Vec<String>,
+    filters: Vec<PolicyFilterRuntime>,
+}
+
+#[derive(Debug, Clone)]
+struct PolicyFilterRuntime {
+    name: String,
+    values: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+enum CapabilityContext {
+    Path(String),
+    Domain(String),
+}
+
+impl CapabilityContext {
+    fn for_path(path: &str) -> Self {
+        CapabilityContext::Path(path.to_string())
+    }
+
+    fn for_domain(domain: &str) -> Self {
+        CapabilityContext::Domain(domain.to_string())
+    }
+}
+
+impl Policy {
+    fn is_allowed(&self, capability: &[String], context: Option<&CapabilityContext>) -> bool {
+        let mut allowed = false;
+        for rule in &self.rules {
+            if capability_matches(&rule.capability, capability)
+                && filters_match(&rule.filters, context)
+            {
+                if !rule.allow {
+                    return false;
+                }
+                allowed = true;
+            }
+        }
+        allowed
+    }
+}
+
 pub struct VM {
     stack: Vec<Value>,
     frames: Vec<CallFrame>,
@@ -118,6 +171,8 @@ pub struct VM {
     servers: Vec<HttpServer>,
     server_sender: mpsc::Sender<ServerEvent>,
     server_receiver: mpsc::Receiver<ServerEvent>,
+    policies: HashMap<String, Policy>,
+    active_policy: Option<String>,
 }
 
 impl VM {
@@ -145,6 +200,8 @@ impl VM {
             servers: Vec::new(),
             server_sender,
             server_receiver,
+            policies: HashMap::new(),
+            active_policy: None,
         }
     }
 
@@ -351,6 +408,24 @@ impl VM {
                 .insert("http".to_string(), self.globals.len() as u16);
             self.globals.push(http_value);
         }
+        let mut policy_record = std::collections::HashMap::new();
+        policy_record.insert(
+            "register".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "policy.register".to_string(),
+                arity: 3,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        let policy_value = record_value(policy_record);
+        if let Some(idx) = self.globals_map.get("policy").copied() {
+            self.globals[idx as usize] = policy_value;
+        } else {
+            self.globals_map
+                .insert("policy".to_string(), self.globals.len() as u16);
+            self.globals.push(policy_value);
+        }
         let mut json_record = std::collections::HashMap::new();
         json_record.insert(
             "parse".to_string(),
@@ -537,11 +612,13 @@ impl VM {
             return TaskRunOutcome::Errored(err);
         }
         self.pending_state = None;
+        std::mem::swap(&mut self.active_policy, &mut task.policy);
         std::mem::swap(&mut self.stack, &mut task.stack);
         std::mem::swap(&mut self.frames, &mut task.frames);
         let outcome = self.execute(program, budget);
         std::mem::swap(&mut self.stack, &mut task.stack);
         std::mem::swap(&mut self.frames, &mut task.frames);
+        std::mem::swap(&mut self.active_policy, &mut task.policy);
         if let Some(state) = self.pending_state.take() {
             task.state = state;
         }
@@ -568,6 +645,7 @@ impl VM {
             join_waiters: Vec::new(),
             pending_error: None,
             http_conn: None,
+            policy: self.active_policy.clone(),
         };
         task.stack.push(func);
         std::mem::swap(&mut self.stack, &mut task.stack);
@@ -613,6 +691,7 @@ impl VM {
             join_waiters: Vec::new(),
             pending_error: None,
             http_conn,
+            policy: self.active_policy.clone(),
         };
         task.stack.push(func);
         task.stack.extend(args);
@@ -1360,7 +1439,8 @@ impl VM {
                 }
                 Instruction::Return => {
                     let ret = self.stack.pop().unwrap_or(Value::Null);
-                    self.frames.pop().unwrap();
+                    let frame = self.frames.pop().unwrap();
+                    self.active_policy = frame.prev_policy;
                     self.stack.truncate(caller_sp);
                     self.stack.push(ret);
                     continue;
@@ -1421,6 +1501,7 @@ impl VM {
                             ip: 0,
                             base: callee_index + 1, // locals start at first arg
                             caller_sp: callee_index,
+                            prev_policy: self.active_policy.clone(),
                         });
                     }
                     Obj::BoundFunction(bf) => {
@@ -1435,11 +1516,16 @@ impl VM {
                             return Err(RuntimeError::new("Bound function arity mismatch"));
                         }
                         self.stack.insert(callee_index + 1, bf.bound.clone());
+                        let prev_policy = self.active_policy.clone();
+                        if let Some(policy_name) = bound_policy(&bf.bound) {
+                            self.active_policy = Some(policy_name);
+                        }
                         self.frames.push(CallFrame {
                             func_index: bf.func_index,
                             ip: 0,
                             base: callee_index + 1,
                             caller_sp: callee_index,
+                            prev_policy,
                         });
                     }
                     Obj::NativeFunction(nf) => {
@@ -1450,6 +1536,17 @@ impl VM {
                         let mut args: Vec<Value> = self.stack[args_start..].to_vec();
                         if let Some(bound) = nf.bound.clone() {
                             args.insert(0, bound);
+                        }
+                        if nf.name == "policy.register" {
+                            self.stack.truncate(callee_index);
+                            self.policy_register(args)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if let Some((capability, context)) =
+                            self.native_capability_context(&nf.name, &args)?
+                        {
+                            self.check_capability(&capability, context.as_ref())?;
                         }
                         if nf.name == "task.join" {
                             self.stack.truncate(callee_index);
@@ -1868,6 +1965,226 @@ impl VM {
         Ok(())
     }
 
+    fn policy_register(&mut self, args: Vec<Value>) -> Result<(), RuntimeError> {
+        if args.len() != 3 {
+            return Err(RuntimeError::new("policy.register expects 3 arguments"));
+        }
+        let name = value_as_string(&args[0])?;
+        let rules = value_as_list(&args[1])?;
+        let is_default = value_as_bool(&args[2])?;
+        if self.policies.contains_key(&name) {
+            return Err(RuntimeError::new(&format!("Duplicate policy: {}", name)));
+        }
+        let mut parsed_rules = Vec::with_capacity(rules.len());
+        for rule_val in rules {
+            let rule_map = value_as_record(&rule_val)?;
+            let allow = rule_map
+                .get("allow")
+                .ok_or_else(|| RuntimeError::new("policy rule missing allow"))?;
+            let allow = value_as_bool(allow)?;
+            let capability_val = rule_map
+                .get("capability")
+                .ok_or_else(|| RuntimeError::new("policy rule missing capability"))?;
+            let capability_list = value_as_list(capability_val)?;
+            let mut capability = Vec::with_capacity(capability_list.len());
+            for seg in capability_list {
+                capability.push(value_as_string(&seg)?);
+            }
+            let filters_val = rule_map
+                .get("filters")
+                .ok_or_else(|| RuntimeError::new("policy rule missing filters"))?;
+            let filter_list = value_as_list(filters_val)?;
+            let mut filters = Vec::with_capacity(filter_list.len());
+            for filter_val in filter_list {
+                let filter_map = value_as_record(&filter_val)?;
+                let name_val = filter_map
+                    .get("name")
+                    .ok_or_else(|| RuntimeError::new("policy filter missing name"))?;
+                let name = value_as_string(name_val)?;
+                let values_val = filter_map
+                    .get("values")
+                    .ok_or_else(|| RuntimeError::new("policy filter missing values"))?;
+                let values_list = value_as_list(values_val)?;
+                let mut values = Vec::with_capacity(values_list.len());
+                for value in values_list {
+                    values.push(value_as_string(&value)?);
+                }
+                filters.push(PolicyFilterRuntime { name, values });
+            }
+            parsed_rules.push(PolicyRuleRuntime {
+                allow,
+                capability,
+                filters,
+            });
+        }
+        self.policies.insert(
+            name.clone(),
+            Policy {
+                rules: parsed_rules,
+            },
+        );
+        if is_default {
+            if let Some(existing) = self.active_policy.clone() {
+                if existing != name {
+                    return Err(RuntimeError::new("Multiple default policies defined"));
+                }
+            } else {
+                self.active_policy = Some(name);
+            }
+        }
+        Ok(())
+    }
+
+    fn native_capability_context(
+        &self,
+        name: &str,
+        args: &[Value],
+    ) -> Result<Option<(Vec<String>, Option<CapabilityContext>)>, RuntimeError> {
+        let mut capability: Option<Vec<String>> = None;
+        let mut context: Option<CapabilityContext> = None;
+        match name {
+            "print" => {
+                capability = Some(vec!["io".to_string(), "print".to_string()]);
+            }
+            "io_read_stdin" => {
+                capability = Some(vec!["io".to_string(), "read".to_string()]);
+            }
+            "io_write_stdout" | "io_write_stderr" => {
+                capability = Some(vec!["io".to_string(), "write".to_string()]);
+            }
+            "log_emit" => {
+                capability = Some(vec!["io".to_string(), "log".to_string()]);
+            }
+            "fsx_read_bytes" => {
+                capability = Some(vec!["fs".to_string(), "read".to_string()]);
+                if let Some(path) = args.get(0) {
+                    context = Some(CapabilityContext::for_path(&value_as_string(path)?));
+                }
+            }
+            "fsx_write_bytes" => {
+                capability = Some(vec!["fs".to_string(), "write".to_string()]);
+                if let Some(path) = args.get(0) {
+                    context = Some(CapabilityContext::for_path(&value_as_string(path)?));
+                }
+            }
+            "env_get" | "env_cwd" => {
+                capability = Some(vec!["env".to_string(), "read".to_string()]);
+            }
+            "env_set" | "env_remove" | "env_set_cwd" => {
+                capability = Some(vec!["env".to_string(), "write".to_string()]);
+                if name == "env_set_cwd" {
+                    if let Some(path) = args.get(0) {
+                        context = Some(CapabilityContext::for_path(&value_as_string(path)?));
+                    }
+                }
+            }
+            "process_spawn" | "process_run" => {
+                capability = Some(vec!["process".to_string(), "spawn".to_string()]);
+                if let Some(cmd) = args.get(0) {
+                    context = Some(CapabilityContext::for_path(&value_as_string(cmd)?));
+                }
+            }
+            "process_wait" | "process_kill" => {
+                capability = Some(vec!["process".to_string(), "control".to_string()]);
+            }
+            "process_exit" => {
+                capability = Some(vec!["process".to_string(), "exit".to_string()]);
+            }
+            "net.bind" => {
+                capability = Some(vec!["net".to_string(), "listen".to_string()]);
+                if let Some(host) = args.get(0) {
+                    context = Some(CapabilityContext::for_domain(&value_as_string(host)?));
+                }
+            }
+            "net.accept" => {
+                capability = Some(vec!["net".to_string(), "accept".to_string()]);
+            }
+            "net.read" | "net.read_all" => {
+                capability = Some(vec!["net".to_string(), "read".to_string()]);
+            }
+            "net.write" => {
+                capability = Some(vec!["net".to_string(), "write".to_string()]);
+            }
+            "net.close" => {
+                capability = Some(vec!["net".to_string(), "close".to_string()]);
+            }
+            "http.get" | "http.post" => {
+                capability = Some(vec!["net".to_string(), "http".to_string()]);
+                if let Some(url) = args.get(0) {
+                    if let Some(domain) = domain_from_url(&value_as_string(url)?) {
+                        context = Some(CapabilityContext::for_domain(&domain));
+                    }
+                }
+            }
+            "http.serve" => {
+                capability = Some(vec!["net".to_string(), "serve".to_string()]);
+                if let Some(host) = args.get(0) {
+                    context = Some(CapabilityContext::for_domain(&value_as_string(host)?));
+                }
+            }
+            "tokenizer.train" | "tokenizer.load" => {
+                capability = Some(vec!["fs".to_string(), "read".to_string()]);
+                if let Some(path) = args.get(0) {
+                    context = Some(CapabilityContext::for_path(&value_as_string(path)?));
+                }
+            }
+            "tokenizer.save" => {
+                capability = Some(vec!["fs".to_string(), "write".to_string()]);
+                if let Some(path) = args.get(0) {
+                    context = Some(CapabilityContext::for_path(&value_as_string(path)?));
+                }
+            }
+            "dataset.open" => {
+                capability = Some(vec!["fs".to_string(), "read".to_string()]);
+                if let Some(path) = args.get(0) {
+                    context = Some(CapabilityContext::for_path(&value_as_string(path)?));
+                }
+            }
+            "checkpoint.save" => {
+                capability = Some(vec!["fs".to_string(), "write".to_string()]);
+                if let Some(dir) = args.get(0) {
+                    context = Some(CapabilityContext::for_path(&value_as_string(dir)?));
+                }
+            }
+            "checkpoint.load" | "checkpoint.latest" => {
+                capability = Some(vec!["fs".to_string(), "read".to_string()]);
+                if let Some(dir) = args.get(0) {
+                    context = Some(CapabilityContext::for_path(&value_as_string(dir)?));
+                }
+            }
+            "checkpoint.rotate" => {
+                capability = Some(vec!["fs".to_string(), "write".to_string()]);
+                if let Some(dir) = args.get(0) {
+                    context = Some(CapabilityContext::for_path(&value_as_string(dir)?));
+                }
+            }
+            _ => {}
+        }
+        Ok(capability.map(|cap| (cap, context)))
+    }
+
+    fn check_capability(
+        &self,
+        capability: &[String],
+        context: Option<&CapabilityContext>,
+    ) -> Result<(), RuntimeError> {
+        let policy_name = self.active_policy.clone().ok_or_else(|| {
+            RuntimeError::new(&format!("Policy denied: {}", capability.join(".")))
+        })?;
+        let policy = self
+            .policies
+            .get(&policy_name)
+            .ok_or_else(|| RuntimeError::new(&format!("Unknown policy: {}", policy_name)))?;
+        if policy.is_allowed(capability, context) {
+            Ok(())
+        } else {
+            Err(RuntimeError::new(&format!(
+                "Policy denied: {}",
+                capability.join(".")
+            )))
+        }
+    }
+
     fn task_spawn(&mut self, program: &Program, func: Value) -> Result<Value, RuntimeError> {
         let (func_index, arity) = match func {
             Value::Obj(obj) => match obj.as_obj() {
@@ -2016,14 +2333,14 @@ impl VM {
                     })))
                 }
                 Obj::BoundFunction(_) => Value::Obj(obj),
-                Obj::NativeFunction(nf) => Value::Obj(ObjRef::new(Obj::NativeFunction(
-                    NativeFunction {
+                Obj::NativeFunction(nf) => {
+                    Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
                         name: nf.name.clone(),
                         arity: nf.arity.saturating_sub(1),
                         kind: nf.kind.clone(),
                         bound: Some(receiver),
-                    },
-                ))),
+                    })))
+                }
                 _ => Value::Obj(obj),
             },
             _ => value,
@@ -2719,6 +3036,13 @@ impl VM {
                     if let Some(value) = map.get("shuffle") {
                         cfg.shuffle = value_as_bool(value)?;
                     }
+                    if let Some(value) = map.get("prefetch_batches") {
+                        let count = value_as_int(value)?;
+                        if count < 0 {
+                            return Err(RuntimeError::new("dataset prefetch_batches must be >= 0"));
+                        }
+                        cfg.prefetch_batches = count as usize;
+                    }
                     cfg
                 }
                 _ => return Err(RuntimeError::new("dataset.open expects config record")),
@@ -2813,6 +3137,25 @@ impl VM {
             Some(value) => value_as_string(value)?,
             None => "".to_string(),
         };
+        let world_size = match state.get("world_size") {
+            Some(value) => value_as_int(value)? as usize,
+            None => 1,
+        };
+        let rank = match state.get("rank") {
+            Some(value) => value_as_int(value)? as usize,
+            None => 0,
+        };
+        let grad_accum_steps = match state.get("grad_accum_steps") {
+            Some(value) => value_as_int(value)? as usize,
+            None => 1,
+        };
+        let grad_clip_norm = match state.get("grad_clip_norm") {
+            Some(Value::Float(f)) if *f > 0.0 => Some(*f),
+            Some(Value::Int(i)) if *i > 0 => Some(*i as f64),
+            Some(Value::Float(_)) | Some(Value::Int(_)) => None,
+            Some(_) => return Err(RuntimeError::new("checkpoint grad_clip_norm must be Float")),
+            None => None,
+        };
         if format_version > 1 {
             return Err(RuntimeError::new("unsupported checkpoint format version"));
         }
@@ -2825,6 +3168,11 @@ impl VM {
             model_sig,
             dtype,
             device,
+            world_size,
+            rank,
+            grad_accum_steps,
+            grad_clip_norm,
+            amp: None,
         };
         let state = CheckpointState {
             weights,
@@ -2861,6 +3209,20 @@ impl VM {
         map.insert("model_sig".to_string(), string_value(&state.meta.model_sig));
         map.insert("dtype".to_string(), string_value(&state.meta.dtype));
         map.insert("device".to_string(), string_value(&state.meta.device));
+        map.insert(
+            "world_size".to_string(),
+            Value::Int(state.meta.world_size as i64),
+        );
+        map.insert("rank".to_string(), Value::Int(state.meta.rank as i64));
+        map.insert(
+            "grad_accum_steps".to_string(),
+            Value::Int(state.meta.grad_accum_steps as i64),
+        );
+        if let Some(norm) = state.meta.grad_clip_norm {
+            map.insert("grad_clip_norm".to_string(), Value::Float(norm));
+        } else {
+            map.insert("grad_clip_norm".to_string(), Value::Null);
+        }
         Ok(record_value(map))
     }
 
@@ -3235,6 +3597,28 @@ fn value_as_bool(value: &Value) -> Result<bool, RuntimeError> {
     }
 }
 
+fn value_as_list(value: &Value) -> Result<Vec<Value>, RuntimeError> {
+    match value {
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::List(values) => Ok(values.borrow().clone()),
+            _ => Err(RuntimeError::new("Expected List value")),
+        },
+        _ => Err(RuntimeError::new("Expected List value")),
+    }
+}
+
+fn value_as_record(
+    value: &Value,
+) -> Result<std::collections::HashMap<String, Value>, RuntimeError> {
+    match value {
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::Record(map) => Ok(map.borrow().clone()),
+            _ => Err(RuntimeError::new("Expected Record value")),
+        },
+        _ => Err(RuntimeError::new("Expected Record value")),
+    }
+}
+
 fn value_to_token_ids(value: &Value) -> Result<Vec<u32>, RuntimeError> {
     match value {
         Value::Obj(obj) => match obj.as_obj() {
@@ -3276,6 +3660,14 @@ fn batch_to_value(batch: Batch) -> Value {
         Value::Int(batch.batch_size as i64),
     );
     map.insert("seq_len".to_string(), Value::Int(batch.seq_len as i64));
+    map.insert(
+        "token_count".to_string(),
+        Value::Int(batch.token_count as i64),
+    );
+    map.insert(
+        "packing_efficiency".to_string(),
+        Value::Float(batch.packing_efficiency as f64),
+    );
     record_value(map)
 }
 
@@ -3296,6 +3688,146 @@ fn buffer_to_f32(bytes: &[u8]) -> Result<Vec<f32>, RuntimeError> {
         out.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
     }
     Ok(out)
+}
+
+fn bound_policy(bound: &Value) -> Option<String> {
+    let obj = match bound {
+        Value::Obj(obj) => obj,
+        _ => return None,
+    };
+    let record = match obj.as_obj() {
+        Obj::Record(map) => map.borrow(),
+        _ => return None,
+    };
+    let kind = match record.get("__kind") {
+        Some(Value::Obj(obj)) => match obj.as_obj() {
+            Obj::String(s) => s,
+            _ => return None,
+        },
+        _ => return None,
+    };
+    if kind != "agent" {
+        return None;
+    }
+    match record.get("policy_name") {
+        Some(Value::Obj(obj)) => match obj.as_obj() {
+            Obj::String(s) => Some(s.clone()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn filters_match(filters: &[PolicyFilterRuntime], context: Option<&CapabilityContext>) -> bool {
+    if filters.is_empty() {
+        return true;
+    }
+    let ctx = match context {
+        Some(ctx) => ctx,
+        None => return false,
+    };
+    filters.iter().all(|filter| filter_matches(filter, ctx))
+}
+
+fn filter_matches(filter: &PolicyFilterRuntime, context: &CapabilityContext) -> bool {
+    match (filter.name.as_str(), context) {
+        ("path_prefix", CapabilityContext::Path(path)) => filter
+            .values
+            .iter()
+            .any(|value| path_prefix_matches(value, path)),
+        ("domain", CapabilityContext::Domain(domain)) => filter
+            .values
+            .iter()
+            .any(|value| domain_matches(value, domain)),
+        _ => false,
+    }
+}
+
+fn capability_matches(rule: &[String], requested: &[String]) -> bool {
+    if rule.len() > requested.len() {
+        return false;
+    }
+    rule.iter().zip(requested.iter()).all(|(a, b)| a == b)
+}
+
+fn domain_matches(pattern: &str, domain: &str) -> bool {
+    let pattern = normalize_domain(pattern);
+    let domain = normalize_domain(domain);
+    domain.ends_with(&pattern)
+}
+
+fn normalize_domain(domain: &str) -> String {
+    domain.trim().to_ascii_lowercase()
+}
+
+fn path_prefix_matches(prefix: &str, path: &str) -> bool {
+    let prefix = normalize_path(prefix);
+    let path = normalize_path(path);
+    path.starts_with(&prefix)
+}
+
+fn normalize_path(path: &str) -> String {
+    let mut parts = Vec::new();
+    let mut prefix: Option<String> = None;
+    let mut has_root = false;
+    for component in Path::new(path).components() {
+        match component {
+            Component::Prefix(value) => {
+                prefix = Some(value.as_os_str().to_string_lossy().replace('\\', "/"));
+            }
+            Component::RootDir => {
+                has_root = true;
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if let Some(last) = parts.last() {
+                    if last != ".." {
+                        parts.pop();
+                        continue;
+                    }
+                }
+                if !has_root {
+                    parts.push("..".to_string());
+                }
+            }
+            Component::Normal(value) => {
+                parts.push(value.to_string_lossy().to_string());
+            }
+        }
+    }
+    let mut normalized = String::new();
+    if let Some(prefix) = prefix {
+        normalized.push_str(&prefix);
+        if has_root {
+            normalized.push('/');
+        }
+    } else if has_root {
+        normalized.push('/');
+    }
+    if !normalized.ends_with('/') && !normalized.is_empty() && !parts.is_empty() {
+        normalized.push('/');
+    }
+    normalized.push_str(&parts.join("/"));
+    if cfg!(windows) {
+        normalized = normalized.to_ascii_lowercase();
+    }
+    normalized
+}
+
+fn domain_from_url(url: &str) -> Option<String> {
+    let url = url.trim();
+    let without_scheme = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .unwrap_or(url);
+    let host_port = without_scheme.split('/').next().unwrap_or(without_scheme);
+    let host = host_port.split('@').last().unwrap_or(host_port);
+    let host = host.split(':').next().unwrap_or(host);
+    if host.is_empty() {
+        None
+    } else {
+        Some(host.to_string())
+    }
 }
 
 fn numeric_op<F>(a: Value, b: Value, f: F) -> Result<Value, RuntimeError>

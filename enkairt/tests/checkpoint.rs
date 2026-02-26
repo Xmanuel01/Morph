@@ -20,6 +20,11 @@ fn checkpoint_save_and_load_roundtrip() {
             model_sig: "sig".to_string(),
             dtype: "fp32".to_string(),
             device: "cpu".to_string(),
+            world_size: 1,
+            rank: 0,
+            grad_accum_steps: 1,
+            grad_clip_norm: None,
+            amp: None,
         },
     };
     let path = save_checkpoint(dir.path(), &state).expect("save");
@@ -52,6 +57,11 @@ fn checkpoint_latest_and_rotate() {
                 model_sig: "".to_string(),
                 dtype: "".to_string(),
                 device: "".to_string(),
+                world_size: 1,
+                rank: 0,
+                grad_accum_steps: 1,
+                grad_clip_norm: None,
+                amp: None,
             },
         };
         save_checkpoint(dir.path(), &state).expect("save");

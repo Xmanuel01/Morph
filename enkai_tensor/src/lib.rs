@@ -305,6 +305,20 @@ pub extern "C" fn enkai_dist_config(world_size: i64, rank: i64, device: i64, see
             };
             DIST_DEVICE.store(dev_to_use, Ordering::SeqCst);
             DIST_SEED.store(seed, Ordering::SeqCst);
+            if world_size > 1 {
+                #[cfg(feature = "dist")]
+                {
+                    let rc = crate::dist::enkai_dist_init(world_size as i32, rank as i32);
+                    if rc != 0 {
+                        return 1;
+                    }
+                }
+                #[cfg(not(feature = "dist"))]
+                {
+                    set_error("distributed backend not enabled (dist feature missing)");
+                    return 1;
+                }
+            }
             0
         }
         #[cfg(not(feature = "torch"))]
@@ -326,6 +340,18 @@ pub extern "C" fn enkai_dist_allreduce_sum(_params_json: *const c_char) -> c_int
         clear_error();
         #[cfg(feature = "torch")]
         {
+            let world = DIST_WORLD.load(Ordering::SeqCst);
+            if world > 1 {
+                #[cfg(feature = "dist")]
+                {
+                    return crate::dist::enkai_dist_allreduce_sum_multi(_params_json);
+                }
+                #[cfg(not(feature = "dist"))]
+                {
+                    set_error("multi-rank allreduce requires NCCL; dist feature missing");
+                    return 1;
+                }
+            }
             let params_json = match cstr_to_string(_params_json) {
                 Ok(v) => v,
                 Err(err) => {
@@ -340,11 +366,6 @@ pub extern "C" fn enkai_dist_allreduce_sum(_params_json: *const c_char) -> c_int
                     return 1;
                 }
             };
-            let world = DIST_WORLD.load(Ordering::SeqCst);
-            if world > 1 {
-                set_error("multi-rank allreduce requires NCCL; not implemented");
-                return 1;
-            }
             for h in handles {
                 if h == 0 {
                     continue;
@@ -1267,6 +1288,139 @@ pub extern "C" fn enkai_tensor_grad_multi(
             let _ = handles_json;
             let _ = out_json;
             let _ = out_len;
+            set_error("torch backend not enabled");
+            1
+        }
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn enkai_tensor_scale_grads_multi(handles_json: *const c_char, scale: f64) -> c_int {
+    ffi_guard(1, || {
+        clear_error();
+        #[cfg(feature = "torch")]
+        {
+            let handles_json = match cstr_to_string(handles_json) {
+                Ok(v) => v,
+                Err(err) => {
+                    set_error(err);
+                    return 1;
+                }
+            };
+            let handles = match parse_handle_list(&handles_json) {
+                Ok(list) => list,
+                Err(err) => {
+                    set_error(err);
+                    return 1;
+                }
+            };
+            if !scale.is_finite() {
+                set_error("scale must be finite");
+                return 1;
+            }
+            for h in handles {
+                if h == 0 {
+                    continue;
+                }
+                let grad = match get_tensor(h) {
+                    Ok(t) => t,
+                    Err(err) => {
+                        set_error(err);
+                        return 1;
+                    }
+                };
+                let scaled = &grad * scale;
+                update_tensor(h, scaled);
+            }
+            return 0;
+        }
+        #[cfg(not(feature = "torch"))]
+        {
+            let _ = handles_json;
+            let _ = scale;
+            set_error("torch backend not enabled");
+            1
+        }
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn enkai_tensor_clip_grad_norm_multi(
+    handles_json: *const c_char,
+    max_norm: f64,
+    norm_type: f64,
+    out_norm: *mut f64,
+) -> c_int {
+    ffi_guard(1, || {
+        clear_error();
+        #[cfg(feature = "torch")]
+        {
+            let handles_json = match cstr_to_string(handles_json) {
+                Ok(v) => v,
+                Err(err) => {
+                    set_error(err);
+                    return 1;
+                }
+            };
+            let handles = match parse_handle_list(&handles_json) {
+                Ok(list) => list,
+                Err(err) => {
+                    set_error(err);
+                    return 1;
+                }
+            };
+            if norm_type != 2.0 {
+                set_error("Only L2 norm clipping is supported");
+                return 1;
+            }
+            let mut total_sq = 0.0f64;
+            for h in &handles {
+                if *h == 0 {
+                    continue;
+                }
+                let grad = match get_tensor(*h) {
+                    Ok(t) => t,
+                    Err(err) => {
+                        set_error(err);
+                        return 1;
+                    }
+                };
+                let norm = grad.norm().double_value(&[]);
+                total_sq += norm * norm;
+            }
+            let total_norm = total_sq.sqrt();
+            if let Some(out) = unsafe { out_norm.as_mut() } {
+                *out = total_norm;
+            }
+            if !total_norm.is_finite() {
+                set_error("grad norm is non-finite");
+                return 1;
+            }
+            if max_norm > 0.0 && total_norm > max_norm {
+                let clip_coef = max_norm / (total_norm + 1e-6);
+                for h in handles {
+                    if h == 0 {
+                        continue;
+                    }
+                    let grad = match get_tensor(h) {
+                        Ok(t) => t,
+                        Err(err) => {
+                            set_error(err);
+                            return 1;
+                        }
+                    };
+                    let scaled = &grad * clip_coef;
+                    update_tensor(h, scaled);
+                }
+            }
+            return 0;
+        }
+        #[cfg(not(feature = "torch"))]
+        {
+            let _ = handles_json;
+            let _ = max_norm;
+            let _ = norm_type;
+            let _ = out_norm;
             set_error("torch backend not enabled");
             1
         }
@@ -3494,6 +3648,9 @@ pub extern "C" fn enkai_amp_step(
             // Update scaler
             if enkai_amp_scaler_update(scaler, found_inf) != 0 {
                 return 1;
+            }
+            if found_inf != 0 {
+                return 2;
             }
             0
         }

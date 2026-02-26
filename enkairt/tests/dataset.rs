@@ -45,8 +45,8 @@ fn dataset_shuffle_is_deterministic() {
     let mut data_cfg = DatasetConfig::new(1, 1);
     data_cfg.shuffle = true;
     data_cfg.seed = Some(7);
-    let mut stream1 = DatasetStream::new(files.clone(), tokenizer.clone(), data_cfg.clone())
-        .expect("stream1");
+    let mut stream1 =
+        DatasetStream::new(files.clone(), tokenizer.clone(), data_cfg.clone()).expect("stream1");
     let mut stream2 = DatasetStream::new(files, tokenizer, data_cfg).expect("stream2");
     let batch1 = stream1.next_batch().expect("batch1").expect("some batch1");
     let batch2 = stream2.next_batch().expect("batch2").expect("some batch2");

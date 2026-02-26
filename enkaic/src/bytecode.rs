@@ -1,4 +1,6 @@
-#[derive(Debug, Clone)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Constant {
     Int(i64),
     Float(f64),
@@ -9,20 +11,20 @@ pub enum Constant {
     NativeFunction(NativeFunctionDecl),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NativeFunctionDecl {
     pub library: String,
     pub name: String,
     pub signature: FfiSignature,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FfiSignature {
     pub params: Vec<FfiType>,
     pub ret: FfiType,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum FfiType {
     Int,
     Float,
@@ -33,7 +35,7 @@ pub enum FfiType {
     Optional(Box<FfiType>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Instruction {
     Const(u16),
     Pop,
@@ -68,7 +70,7 @@ pub enum Instruction {
     TryUnwrap,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Chunk {
     pub code: Vec<Instruction>,
     pub constants: Vec<Constant>,
@@ -101,7 +103,7 @@ impl Default for Chunk {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ByteFunction {
     pub name: Option<String>,
     pub arity: u16,
@@ -109,7 +111,7 @@ pub struct ByteFunction {
     pub source_name: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Program {
     pub functions: Vec<ByteFunction>,
     pub main: u16,

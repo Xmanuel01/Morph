@@ -33,8 +33,17 @@ impl Logger {
 
 /// Convenience helper for console summaries.
 pub fn print_summary(prefix: &str, metrics: &Metrics) {
+    if metrics.found_inf {
+        println!("{prefix} step={} found_inf", metrics.step);
+        return;
+    }
     println!(
-        "{prefix} step={} loss={:.4} tok/s={:.1} time_ms={:.1} lr={:.6}",
-        metrics.step, metrics.loss, metrics.tokens_per_sec, metrics.step_time_ms, metrics.lr
+        "{prefix} step={} loss={:.4} tok/s={:.1} time_ms={:.1} lr={:.6} accum={}",
+        metrics.step,
+        metrics.loss,
+        metrics.tokens_per_sec,
+        metrics.step_time_ms,
+        metrics.lr,
+        metrics.accum_steps
     );
 }

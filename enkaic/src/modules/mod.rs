@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::ast::{ImportDecl, Item, Module};
 use crate::parser::{parse_module_named, ParseError};
+use toml::Value;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ModuleId(pub Vec<String>);
@@ -27,6 +28,16 @@ pub struct Package {
     pub order: Vec<ModuleId>,
 }
 
+#[derive(Debug, Default)]
+struct Manifest {
+    dependencies: HashMap<String, Dependency>,
+}
+
+#[derive(Debug, Clone)]
+struct Dependency {
+    src_dir: PathBuf,
+}
+
 #[derive(Debug)]
 pub enum ModuleError {
     Io {
@@ -42,6 +53,10 @@ pub enum ModuleError {
     },
     Cycle {
         chain: Vec<ModuleId>,
+    },
+    Manifest {
+        path: PathBuf,
+        message: String,
     },
 }
 
@@ -65,6 +80,9 @@ impl std::fmt::Display for ModuleError {
                     .join(" -> ");
                 write!(f, "Circular import detected: {}", names)
             }
+            ModuleError::Manifest { path, message } => {
+                write!(f, "Failed to read {}: {}", path.display(), message)
+            }
         }
     }
 }
@@ -72,15 +90,15 @@ impl std::fmt::Display for ModuleError {
 impl std::error::Error for ModuleError {}
 
 pub fn load_package(entry: &Path) -> Result<Package, ModuleError> {
-    let root = entry
-        .parent()
-        .ok_or_else(|| ModuleError::Io {
-            path: entry.to_path_buf(),
-            message: "Invalid entry path".to_string(),
-        })?
-        .to_path_buf();
-    let entry_id = module_id_from_file(&root, entry);
-    let mut loader = ModuleLoader::new(root.clone());
+    let entry_parent = entry.parent().ok_or_else(|| ModuleError::Io {
+        path: entry.to_path_buf(),
+        message: "Invalid entry path".to_string(),
+    })?;
+    let root = find_project_root(entry_parent).unwrap_or_else(|| entry_parent.to_path_buf());
+    let src_dir = pick_source_dir(&root);
+    let entry_id = module_id_from_file(&src_dir, entry);
+    let manifest = load_manifest(&root)?;
+    let mut loader = ModuleLoader::new(root.clone(), src_dir, manifest.dependencies);
     loader.load_module(&entry_id)?;
     Ok(Package {
         root,
@@ -92,15 +110,19 @@ pub fn load_package(entry: &Path) -> Result<Package, ModuleError> {
 
 struct ModuleLoader {
     root: PathBuf,
+    src_dir: PathBuf,
+    dependencies: HashMap<String, Dependency>,
     modules: HashMap<ModuleId, ModuleInfo>,
     visiting: Vec<ModuleId>,
     order: Vec<ModuleId>,
 }
 
 impl ModuleLoader {
-    fn new(root: PathBuf) -> Self {
+    fn new(root: PathBuf, src_dir: PathBuf, dependencies: HashMap<String, Dependency>) -> Self {
         Self {
             root,
+            src_dir,
+            dependencies,
             modules: HashMap::new(),
             visiting: Vec::new(),
             order: Vec::new(),
@@ -117,7 +139,7 @@ impl ModuleLoader {
             return Ok(());
         }
         self.visiting.push(id.clone());
-        let file = resolve_module_file(&self.root, id)?;
+        let file = resolve_module_file(&self.root, &self.src_dir, &self.dependencies, id)?;
         let source = fs::read_to_string(&file).map_err(|err| ModuleError::Io {
             path: file.clone(),
             message: err.to_string(),
@@ -150,7 +172,12 @@ impl ModuleLoader {
     }
 }
 
-fn resolve_module_file(root: &Path, id: &ModuleId) -> Result<PathBuf, ModuleError> {
+fn resolve_module_file(
+    root: &Path,
+    src_dir: &Path,
+    dependencies: &HashMap<String, Dependency>,
+    id: &ModuleId,
+) -> Result<PathBuf, ModuleError> {
     if id.0.is_empty() {
         return Err(ModuleError::MissingModule { path: id.0.clone() });
     }
@@ -160,11 +187,13 @@ fn resolve_module_file(root: &Path, id: &ModuleId) -> Result<PathBuf, ModuleErro
         }
         return Err(ModuleError::MissingModule { path: id.0.clone() });
     }
-    let mut path = root.to_path_buf();
-    for segment in &id.0 {
-        path.push(segment);
+    if let Some(dep) = dependencies.get(&id.0[0]) {
+        if let Some(found) = resolve_in_src(&dep.src_dir, &id.0[1..]) {
+            return Ok(found);
+        }
+        return Err(ModuleError::MissingModule { path: id.0.clone() });
     }
-    if let Some(found) = with_source_extension(&path) {
+    if let Some(found) = resolve_in_src(src_dir, &id.0) {
         return Ok(found);
     }
     Err(ModuleError::MissingModule { path: id.0.clone() })
@@ -199,6 +228,53 @@ fn resolve_std_module(root: &Path, segments: &[String]) -> Option<PathBuf> {
     None
 }
 
+fn find_project_root(start: &Path) -> Option<PathBuf> {
+    let mut current = Some(start);
+    while let Some(dir) = current {
+        if dir.join("enkai.toml").is_file() || dir.join("enkai.lock").is_file() {
+            return Some(dir.to_path_buf());
+        }
+        current = dir.parent();
+    }
+    None
+}
+
+fn pick_source_dir(root: &Path) -> PathBuf {
+    let src = root.join("src");
+    if src.is_dir() {
+        src
+    } else {
+        root.to_path_buf()
+    }
+}
+
+fn resolve_in_src(src_dir: &Path, path: &[String]) -> Option<PathBuf> {
+    if path.is_empty() {
+        if let Some(found) = find_entry_candidate(src_dir, "lib") {
+            return Some(found);
+        }
+        if let Some(found) = find_entry_candidate(src_dir, "index") {
+            return Some(found);
+        }
+        if let Some(found) = find_entry_candidate(src_dir, "main") {
+            return Some(found);
+        }
+        return None;
+    }
+    let mut base = src_dir.to_path_buf();
+    for segment in path {
+        base.push(segment);
+    }
+    if let Some(found) = with_source_extension(&base) {
+        return Some(found);
+    }
+    let index = base.join("index");
+    if let Some(found) = with_source_extension(&index) {
+        return Some(found);
+    }
+    None
+}
+
 fn with_source_extension(base: &Path) -> Option<PathBuf> {
     let extensions = ["enk", "en", "enkai"];
     for ext in &extensions {
@@ -210,8 +286,12 @@ fn with_source_extension(base: &Path) -> Option<PathBuf> {
     None
 }
 
-fn module_id_from_file(root: &Path, file: &Path) -> ModuleId {
-    if let Ok(rel) = file.strip_prefix(root) {
+fn find_entry_candidate(root: &Path, stem: &str) -> Option<PathBuf> {
+    with_source_extension(&root.join(stem))
+}
+
+fn module_id_from_file(src_dir: &Path, file: &Path) -> ModuleId {
+    if let Ok(rel) = file.strip_prefix(src_dir) {
         let parts: Vec<String> = rel
             .with_extension("")
             .components()
@@ -262,4 +342,109 @@ fn collect_exports(module: &Module) -> HashSet<String> {
         }
     }
     exports
+}
+
+fn load_manifest(root: &Path) -> Result<Manifest, ModuleError> {
+    let lock_path = root.join("enkai.lock");
+    if lock_path.is_file() {
+        return load_lockfile(&lock_path, root);
+    }
+    let manifest_path = root.join("enkai.toml");
+    if !manifest_path.is_file() {
+        return Ok(Manifest::default());
+    }
+    let source = fs::read_to_string(&manifest_path).map_err(|err| ModuleError::Manifest {
+        path: manifest_path.clone(),
+        message: err.to_string(),
+    })?;
+    let value = source
+        .parse::<Value>()
+        .map_err(|err| ModuleError::Manifest {
+            path: manifest_path.clone(),
+            message: err.to_string(),
+        })?;
+    let mut dependencies = HashMap::new();
+    if let Some(table) = value.get("dependencies").and_then(|val| val.as_table()) {
+        for (name, entry) in table {
+            let path = dependency_path(entry).ok_or_else(|| ModuleError::Manifest {
+                path: manifest_path.clone(),
+                message: format!("Dependency {} missing path", name),
+            })?;
+            let dep_root = root.join(path);
+            if !dep_root.is_dir() {
+                return Err(ModuleError::Manifest {
+                    path: dep_root,
+                    message: format!("Dependency {} path not found", name),
+                });
+            }
+            let src_dir = pick_source_dir(&dep_root);
+            dependencies.insert(name.to_string(), Dependency { src_dir });
+        }
+    }
+    Ok(Manifest { dependencies })
+}
+
+fn load_lockfile(path: &Path, root: &Path) -> Result<Manifest, ModuleError> {
+    let source = fs::read_to_string(path).map_err(|err| ModuleError::Manifest {
+        path: path.to_path_buf(),
+        message: err.to_string(),
+    })?;
+    let value = source
+        .parse::<Value>()
+        .map_err(|err| ModuleError::Manifest {
+            path: path.to_path_buf(),
+            message: err.to_string(),
+        })?;
+    if let Some(lock_version) = value.get("lock_version").and_then(|v| v.as_integer()) {
+        if lock_version != 1 {
+            return Err(ModuleError::Manifest {
+                path: path.to_path_buf(),
+                message: format!("Unsupported lock_version {}", lock_version),
+            });
+        }
+    }
+    let mut dependencies = HashMap::new();
+    if let Some(entries) = value.get("dependency").and_then(|v| v.as_array()) {
+        for entry in entries {
+            let name = entry.get("name").and_then(|v| v.as_str()).ok_or_else(|| {
+                ModuleError::Manifest {
+                    path: path.to_path_buf(),
+                    message: "Dependency entry missing name".to_string(),
+                }
+            })?;
+            let path_value = entry.get("path").and_then(|v| v.as_str()).ok_or_else(|| {
+                ModuleError::Manifest {
+                    path: path.to_path_buf(),
+                    message: format!("Dependency {} missing path", name),
+                }
+            })?;
+            let dep_root = {
+                let p = PathBuf::from(path_value);
+                if p.is_absolute() {
+                    p
+                } else {
+                    root.join(p)
+                }
+            };
+            if !dep_root.is_dir() {
+                return Err(ModuleError::Manifest {
+                    path: dep_root,
+                    message: format!("Dependency {} path not found", name),
+                });
+            }
+            let src_dir = pick_source_dir(&dep_root);
+            dependencies.insert(name.to_string(), Dependency { src_dir });
+        }
+    }
+    Ok(Manifest { dependencies })
+}
+
+fn dependency_path(value: &Value) -> Option<PathBuf> {
+    if let Some(path_value) = value.get("path").and_then(|val| val.as_str()) {
+        return Some(PathBuf::from(path_value));
+    }
+    if let Some(path_value) = value.as_str() {
+        return Some(PathBuf::from(path_value));
+    }
+    None
 }

@@ -158,6 +158,7 @@ impl<'a> ProgramBuilder<'a> {
         let _ = self.ensure_global("chan");
         let _ = self.ensure_global("net");
         let _ = self.ensure_global("http");
+        let _ = self.ensure_global("policy");
         let _ = self.ensure_global("json");
         let _ = self.ensure_global("tokenizer");
         let _ = self.ensure_global("dataset");
@@ -193,7 +194,10 @@ impl<'a> ProgramBuilder<'a> {
             chunk.write(Instruction::Const(key_idx), line);
             chunk.write(Instruction::LoadLocal(idx as u16), line);
         }
-        chunk.write(Instruction::MakeRecord((decl.fields.len() + 1) as u16), line);
+        chunk.write(
+            Instruction::MakeRecord((decl.fields.len() + 1) as u16),
+            line,
+        );
         chunk.write(Instruction::Return, line);
         let func = ByteFunction {
             name: Some(decl.name.clone()),
@@ -206,12 +210,7 @@ impl<'a> ProgramBuilder<'a> {
         idx
     }
 
-    fn compile_tool_stub(
-        &mut self,
-        module: &ModuleContext,
-        name: &str,
-        params: &[Param],
-    ) -> u16 {
+    fn compile_tool_stub(&mut self, module: &ModuleContext, name: &str, params: &[Param]) -> u16 {
         let mut chunk = Chunk::new();
         let line = 0;
         let null_idx = chunk.add_constant(Constant::Null);
@@ -438,16 +437,13 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                         let type_key = self
                             .chunk
                             .add_constant(Constant::String("__type".to_string()));
-                        let type_val = self
-                            .chunk
-                            .add_constant(Constant::String(full_name.clone()));
+                        let type_val = self.chunk.add_constant(Constant::String(full_name.clone()));
                         self.chunk.write(Instruction::Const(type_key), 0);
                         self.chunk.write(Instruction::Const(type_val), 0);
                         let var_key = self
                             .chunk
                             .add_constant(Constant::String("__variant".to_string()));
-                        let var_val =
-                            self.chunk.add_constant(Constant::String(variant.clone()));
+                        let var_val = self.chunk.add_constant(Constant::String(variant.clone()));
                         self.chunk.write(Instruction::Const(var_key), 0);
                         self.chunk.write(Instruction::Const(var_val), 0);
                         self.chunk.write(Instruction::MakeRecord(2), 0);
@@ -483,8 +479,9 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                         self.chunk.write(Instruction::LoadGlobal(table_idx), 0);
                         let const_idx = self.chunk.add_constant(Constant::Function(func_idx));
                         self.chunk.write(Instruction::Const(const_idx), 0);
-                        let key_idx =
-                            self.chunk.add_constant(Constant::String(method.name.clone()));
+                        let key_idx = self
+                            .chunk
+                            .add_constant(Constant::String(method.name.clone()));
                         self.chunk.write(Instruction::SetField(key_idx), 0);
                     }
                 }
@@ -497,9 +494,9 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                         self.enclosing
                             .compile_tool_stub(&self.module, &stub_name, &decl.params);
                     if decl.path.len() == 1 {
-                        let global =
-                            self.enclosing
-                                .ensure_global(&mangle_symbol(&self.module.prefix, &decl.path[0]));
+                        let global = self
+                            .enclosing
+                            .ensure_global(&mangle_symbol(&self.module.prefix, &decl.path[0]));
                         let const_idx = self.chunk.add_constant(Constant::Function(func_idx));
                         self.chunk.write(Instruction::Const(const_idx), 0);
                         self.chunk.write(Instruction::StoreGlobal(global), 0);
@@ -516,9 +513,9 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                     }
                 }
                 Item::Prompt(decl) => {
-                    let global =
-                        self.enclosing
-                            .ensure_global(&mangle_symbol(&self.module.prefix, &decl.name));
+                    let global = self
+                        .enclosing
+                        .ensure_global(&mangle_symbol(&self.module.prefix, &decl.name));
                     let key_kind = self
                         .chunk
                         .add_constant(Constant::String("__kind".to_string()));
@@ -530,8 +527,7 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                     let key_name = self
                         .chunk
                         .add_constant(Constant::String("name".to_string()));
-                    let val_name =
-                        self.chunk.add_constant(Constant::String(decl.name.clone()));
+                    let val_name = self.chunk.add_constant(Constant::String(decl.name.clone()));
                     self.chunk.write(Instruction::Const(key_name), 0);
                     self.chunk.write(Instruction::Const(val_name), 0);
                     let key_template = self
@@ -550,8 +546,9 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                         .add_constant(Constant::String("inputs".to_string()));
                     self.chunk.write(Instruction::Const(key_inputs), 0);
                     for field in &decl.input_fields {
-                        let name_idx =
-                            self.chunk.add_constant(Constant::String(field.name.clone()));
+                        let name_idx = self
+                            .chunk
+                            .add_constant(Constant::String(field.name.clone()));
                         self.chunk.write(Instruction::Const(name_idx), 0);
                     }
                     self.chunk
@@ -560,9 +557,9 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                     self.chunk.write(Instruction::StoreGlobal(global), 0);
                 }
                 Item::Model(decl) => {
-                    let global =
-                        self.enclosing
-                            .ensure_global(&mangle_symbol(&self.module.prefix, &decl.name));
+                    let global = self
+                        .enclosing
+                        .ensure_global(&mangle_symbol(&self.module.prefix, &decl.name));
                     let key_kind = self
                         .chunk
                         .add_constant(Constant::String("__kind".to_string()));
@@ -580,9 +577,9 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                     self.chunk.write(Instruction::StoreGlobal(global), 0);
                 }
                 Item::Agent(decl) => {
-                    let global =
-                        self.enclosing
-                            .ensure_global(&mangle_symbol(&self.module.prefix, &decl.name));
+                    let global = self
+                        .enclosing
+                        .ensure_global(&mangle_symbol(&self.module.prefix, &decl.name));
                     let key_kind = self
                         .chunk
                         .add_constant(Constant::String("__kind".to_string()));
@@ -606,12 +603,10 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                             }
                             AgentItem::Memory(mem) => {
                                 self.chunk.write(Instruction::LoadGlobal(global), 0);
-                                let key = self.chunk.add_constant(Constant::String(
-                                    match mem {
-                                        MemoryDecl::Path { name, .. }
-                                        | MemoryDecl::Expr { name, .. } => name.clone(),
-                                    },
-                                ));
+                                let key = self.chunk.add_constant(Constant::String(match mem {
+                                    MemoryDecl::Path { name, .. }
+                                    | MemoryDecl::Expr { name, .. } => name.clone(),
+                                }));
                                 let mk_key = self
                                     .chunk
                                     .add_constant(Constant::String("__kind".to_string()));
@@ -622,9 +617,9 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                                 self.chunk.write(Instruction::Const(mk_val), 0);
                                 match mem {
                                     MemoryDecl::Path { path, .. } => {
-                                        let pkey = self.chunk.add_constant(Constant::String(
-                                            "path".to_string(),
-                                        ));
+                                        let pkey = self
+                                            .chunk
+                                            .add_constant(Constant::String("path".to_string()));
                                         let pval =
                                             self.chunk.add_constant(Constant::String(path.clone()));
                                         self.chunk.write(Instruction::Const(pkey), 0);
@@ -632,9 +627,9 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                                         self.chunk.write(Instruction::MakeRecord(2), 0);
                                     }
                                     MemoryDecl::Expr { expr, .. } => {
-                                        let ekey = self.chunk.add_constant(Constant::String(
-                                            "expr".to_string(),
-                                        ));
+                                        let ekey = self
+                                            .chunk
+                                            .add_constant(Constant::String("expr".to_string()));
                                         self.chunk.write(Instruction::Const(ekey), 0);
                                         self.compile_expr(expr)?;
                                         self.chunk.write(Instruction::MakeRecord(2), 0);
@@ -655,9 +650,8 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                                 let const_idx =
                                     self.chunk.add_constant(Constant::Function(func_idx));
                                 self.chunk.write(Instruction::Const(const_idx), 0);
-                                let key_idx = self
-                                    .chunk
-                                    .add_constant(Constant::String(func.name.clone()));
+                                let key_idx =
+                                    self.chunk.add_constant(Constant::String(func.name.clone()));
                                 self.chunk.write(Instruction::SetField(key_idx), 0);
                             }
                             AgentItem::Stmt(_) => {
@@ -666,8 +660,8 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                         }
                     }
                 }
-                Item::Policy(_) => {
-                    // policy is parsed but not enforced in VM runtime
+                Item::Policy(decl) => {
+                    self.compile_policy_decl(decl);
                 }
             }
         }
@@ -687,6 +681,73 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
         );
         self.chunk.write(Instruction::Return, 0);
         Ok(())
+    }
+
+    fn compile_policy_decl(&mut self, decl: &PolicyDecl) {
+        let line = 0;
+        let policy_global = self.enclosing.ensure_global("policy");
+        self.chunk
+            .write(Instruction::LoadGlobal(policy_global), line);
+        let key_idx = self
+            .chunk
+            .add_constant(Constant::String("register".to_string()));
+        self.chunk.write(Instruction::GetField(key_idx), line);
+        let name_idx = self.chunk.add_constant(Constant::String(decl.name.clone()));
+        self.chunk.write(Instruction::Const(name_idx), line);
+        for rule in &decl.rules {
+            let key_allow = self
+                .chunk
+                .add_constant(Constant::String("allow".to_string()));
+            self.chunk.write(Instruction::Const(key_allow), line);
+            let allow_idx = self.chunk.add_constant(Constant::Bool(rule.allow));
+            self.chunk.write(Instruction::Const(allow_idx), line);
+            let key_cap = self
+                .chunk
+                .add_constant(Constant::String("capability".to_string()));
+            self.chunk.write(Instruction::Const(key_cap), line);
+            for seg in &rule.capability {
+                let seg_idx = self.chunk.add_constant(Constant::String(seg.clone()));
+                self.chunk.write(Instruction::Const(seg_idx), line);
+            }
+            self.chunk
+                .write(Instruction::MakeList(rule.capability.len() as u16), line);
+            let key_filters = self
+                .chunk
+                .add_constant(Constant::String("filters".to_string()));
+            self.chunk.write(Instruction::Const(key_filters), line);
+            for filter in &rule.filters {
+                let key_name = self
+                    .chunk
+                    .add_constant(Constant::String("name".to_string()));
+                self.chunk.write(Instruction::Const(key_name), line);
+                let name_idx = self
+                    .chunk
+                    .add_constant(Constant::String(filter.name.clone()));
+                self.chunk.write(Instruction::Const(name_idx), line);
+                let key_values = self
+                    .chunk
+                    .add_constant(Constant::String("values".to_string()));
+                self.chunk.write(Instruction::Const(key_values), line);
+                let values = policy_filter_values(filter);
+                for value in &values {
+                    let v_idx = self.chunk.add_constant(Constant::String(value.clone()));
+                    self.chunk.write(Instruction::Const(v_idx), line);
+                }
+                self.chunk
+                    .write(Instruction::MakeList(values.len() as u16), line);
+                self.chunk.write(Instruction::MakeRecord(2), line);
+            }
+            self.chunk
+                .write(Instruction::MakeList(rule.filters.len() as u16), line);
+            self.chunk.write(Instruction::MakeRecord(3), line);
+        }
+        self.chunk
+            .write(Instruction::MakeList(decl.rules.len() as u16), line);
+        let is_default = decl.name == "default";
+        let default_idx = self.chunk.add_constant(Constant::Bool(is_default));
+        self.chunk.write(Instruction::Const(default_idx), line);
+        self.chunk.write(Instruction::Call(3), line);
+        self.chunk.write(Instruction::Pop, line);
     }
 
     fn compile_stmt(&mut self, stmt: &Stmt) -> Result<(), CompileError> {
@@ -739,8 +800,7 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                             }
                             LValueAccess::Index(index) => {
                                 self.compile_expr(index)?;
-                                self.chunk
-                                    .write(Instruction::GetIndex, line_of_expr(index));
+                                self.chunk.write(Instruction::GetIndex, line_of_expr(index));
                             }
                         }
                     }
@@ -754,8 +814,7 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                         LValueAccess::Index(index) => {
                             self.compile_expr(index)?;
                             self.compile_expr(expr)?;
-                            self.chunk
-                                .write(Instruction::SetIndex, line_of_expr(index));
+                            self.chunk.write(Instruction::SetIndex, line_of_expr(index));
                         }
                     }
                 }
@@ -851,31 +910,30 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                 ResolvedVar::Local(i) => self.chunk.write(Instruction::LoadLocal(i), span.line),
                 ResolvedVar::Global(i) => self.chunk.write(Instruction::LoadGlobal(i), span.line),
             },
-            Expr::Unary { op, expr, span } => {
-                match op {
-                    UnaryOp::Negate => {
-                        self.compile_expr(expr)?;
-                        self.chunk.write(Instruction::Neg, span.line);
-                    }
-                    UnaryOp::Not => {
-                        self.compile_expr(expr)?;
-                        self.chunk.write(Instruction::Not, span.line);
-                    }
-                    UnaryOp::Await | UnaryOp::Spawn => {
-                        let task_idx = self.enclosing.ensure_global("task");
-                        self.chunk.write(Instruction::LoadGlobal(task_idx), span.line);
-                        let name = match op {
-                            UnaryOp::Await => "join",
-                            UnaryOp::Spawn => "spawn",
-                            _ => unreachable!(),
-                        };
-                        let key_idx = self.chunk.add_constant(Constant::String(name.to_string()));
-                        self.chunk.write(Instruction::GetField(key_idx), span.line);
-                        self.compile_expr(expr)?;
-                        self.chunk.write(Instruction::Call(1), span.line);
-                    }
+            Expr::Unary { op, expr, span } => match op {
+                UnaryOp::Negate => {
+                    self.compile_expr(expr)?;
+                    self.chunk.write(Instruction::Neg, span.line);
                 }
-            }
+                UnaryOp::Not => {
+                    self.compile_expr(expr)?;
+                    self.chunk.write(Instruction::Not, span.line);
+                }
+                UnaryOp::Await | UnaryOp::Spawn => {
+                    let task_idx = self.enclosing.ensure_global("task");
+                    self.chunk
+                        .write(Instruction::LoadGlobal(task_idx), span.line);
+                    let name = match op {
+                        UnaryOp::Await => "join",
+                        UnaryOp::Spawn => "spawn",
+                        _ => unreachable!(),
+                    };
+                    let key_idx = self.chunk.add_constant(Constant::String(name.to_string()));
+                    self.chunk.write(Instruction::GetField(key_idx), span.line);
+                    self.compile_expr(expr)?;
+                    self.chunk.write(Instruction::Call(1), span.line);
+                }
+            },
             Expr::Binary {
                 left,
                 op,
@@ -939,7 +997,11 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                 self.chunk
                     .write(Instruction::Call(args.len() as u16), span.line);
             }
-            Expr::Index { target, index, span } => {
+            Expr::Index {
+                target,
+                index,
+                span,
+            } => {
                 self.compile_expr(target)?;
                 self.compile_expr(index)?;
                 self.chunk.write(Instruction::GetIndex, span.line);
@@ -1008,16 +1070,17 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                 continue;
             }
             if i == 0 {
-                let global =
-                    self.enclosing
-                        .ensure_global(&mangle_symbol(&self.module.prefix, &segments[0]));
+                let global = self
+                    .enclosing
+                    .ensure_global(&mangle_symbol(&self.module.prefix, &segments[0]));
                 self.chunk.write(Instruction::MakeRecord(0), line);
                 self.chunk.write(Instruction::StoreGlobal(global), line);
             } else {
                 self.emit_load_path_record(&segments[..i], line)?;
                 self.chunk.write(Instruction::MakeRecord(0), line);
-                let key_idx =
-                    self.chunk.add_constant(Constant::String(segments[i].clone()));
+                let key_idx = self
+                    .chunk
+                    .add_constant(Constant::String(segments[i].clone()));
                 self.chunk.write(Instruction::SetField(key_idx), line);
             }
         }
@@ -1032,9 +1095,9 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
         if segments.is_empty() {
             return Err(CompileError::new("Empty path"));
         }
-        let root =
-            self.enclosing
-                .ensure_global(&mangle_symbol(&self.module.prefix, &segments[0]));
+        let root = self
+            .enclosing
+            .ensure_global(&mangle_symbol(&self.module.prefix, &segments[0]));
         self.chunk.write(Instruction::LoadGlobal(root), line);
         for segment in &segments[1..] {
             let key_idx = self.chunk.add_constant(Constant::String(segment.clone()));
@@ -1215,6 +1278,25 @@ fn ffi_type_from_ref(ty: &TypeRef) -> Option<FfiType> {
         }
         TypeRef::Function { .. } => None,
     }
+}
+
+fn policy_filter_values(filter: &PolicyFilter) -> Vec<String> {
+    let mut out = Vec::new();
+    match &filter.value {
+        LiteralOrList::Literal(lit) => {
+            if let Literal::String(value) = lit {
+                out.push(value.clone());
+            }
+        }
+        LiteralOrList::List(list) => {
+            for lit in list {
+                if let Literal::String(value) = lit {
+                    out.push(value.clone());
+                }
+            }
+        }
+    }
+    out
 }
 
 fn module_prefix(id: &ModuleId) -> String {

@@ -3,16 +3,30 @@
 ## Unreleased
 
 ### Highlights
-- Added train/eval config schema v1 with `config_version` and explicit validation.
-- Added checkpoint metadata v1 (`format_version`, model signature, dtype, device).
-- Updated spec change-control policy to implementation-first.
-- Added v1.0 validation checklist updates.
+- None yet.
 
 ### Fixes
-- Improved checkpoint compatibility checks for legacy metadata.
+- None yet.
 
 ### Breaking changes
 - None yet.
+
+## v1.2.0
+
+### Highlights
+- Added multi-GPU runtime wiring (world size/rank config), grad accumulation, grad clipping, and AMP config support.
+- Implemented ranked checkpoints with manifest metadata for distributed runs.
+- Added dataset prefetch and packing efficiency metrics.
+- Added build cache + deterministic `enkai.lock` resolver via `enkai build`.
+- Expanded stdlib with `std::env`, `std::path`, `std::time`, `std::log`, `std::io`, `std::process`.
+- Hardened policy/capability checks for new IO and networking surfaces.
+
+### Fixes
+- Improved checkpoint metadata compatibility in ranked loads.
+- Deterministic dataset sharding across ranks.
+
+### Breaking changes
+- None.
 
 ## v0.9.3
 

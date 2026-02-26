@@ -5,8 +5,56 @@ use enkaic::compiler::compile_module;
 use enkaic::parser::parse_module;
 use enkairt::{Value, VM};
 
+const POLICY_ALLOW_NET: &str = "policy default ::\n    allow net\n::\n\n";
+
+fn inject_policy(source: &str) -> String {
+    if source.contains("policy ") {
+        return source.to_string();
+    }
+    let mut insert_at = 0usize;
+    let mut in_native = false;
+    for (idx, line) in source.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with("//") {
+            continue;
+        }
+        if in_native {
+            if trimmed == "::" {
+                in_native = false;
+                insert_at = idx + 1;
+            }
+            continue;
+        }
+        if trimmed.starts_with("import ") {
+            insert_at = idx + 1;
+            continue;
+        }
+        if trimmed.starts_with("native::import ") {
+            in_native = true;
+            insert_at = idx + 1;
+            continue;
+        }
+        break;
+    }
+    let mut out = String::new();
+    let mut inserted = false;
+    for (idx, line) in source.lines().enumerate() {
+        if !inserted && idx == insert_at {
+            out.push_str(POLICY_ALLOW_NET);
+            inserted = true;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    if !inserted {
+        out.push_str(POLICY_ALLOW_NET);
+    }
+    out
+}
+
 fn run_value(source: &str) -> Value {
-    let module = parse_module(source).expect("parse");
+    let source = inject_policy(source);
+    let module = parse_module(&source).expect("parse");
     let program = compile_module(&module).expect("compile");
     let mut vm = VM::new(false, false, false, false);
     vm.run(&program).expect("run")

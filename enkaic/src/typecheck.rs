@@ -787,6 +787,169 @@ fn inject_builtins(
         Type::Function(vec![Type::OptimizerState], Box::new(Type::Int)),
     );
     exports.entry(std_optim_id).or_insert(optim_exports);
+    let std_env_id = ModuleId(vec!["std".to_string(), "env".to_string()]);
+    let mut env_exports = std::collections::HashMap::new();
+    env_exports.insert(
+        "get".to_string(),
+        Type::Function(
+            vec![Type::String],
+            Box::new(Type::Optional(Box::new(Type::String))),
+        ),
+    );
+    env_exports.insert(
+        "set".to_string(),
+        Type::Function(vec![Type::String, Type::String], Box::new(Type::Bool)),
+    );
+    env_exports.insert(
+        "remove".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::Bool)),
+    );
+    env_exports.insert(
+        "cwd".to_string(),
+        Type::Function(Vec::new(), Box::new(Type::Optional(Box::new(Type::String)))),
+    );
+    env_exports.insert(
+        "set_cwd".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::Bool)),
+    );
+    exports.entry(std_env_id).or_insert(env_exports);
+    let std_path_id = ModuleId(vec!["std".to_string(), "path".to_string()]);
+    let mut path_exports = std::collections::HashMap::new();
+    path_exports.insert(
+        "join".to_string(),
+        Type::Function(vec![Type::String, Type::String], Box::new(Type::String)),
+    );
+    path_exports.insert(
+        "dirname".to_string(),
+        Type::Function(
+            vec![Type::String],
+            Box::new(Type::Optional(Box::new(Type::String))),
+        ),
+    );
+    path_exports.insert(
+        "basename".to_string(),
+        Type::Function(
+            vec![Type::String],
+            Box::new(Type::Optional(Box::new(Type::String))),
+        ),
+    );
+    path_exports.insert(
+        "extname".to_string(),
+        Type::Function(
+            vec![Type::String],
+            Box::new(Type::Optional(Box::new(Type::String))),
+        ),
+    );
+    path_exports.insert(
+        "normalize".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::String)),
+    );
+    exports.entry(std_path_id).or_insert(path_exports);
+    let std_time_id = ModuleId(vec!["std".to_string(), "time".to_string()]);
+    let mut time_exports = std::collections::HashMap::new();
+    time_exports.insert(
+        "now_ms".to_string(),
+        Type::Function(Vec::new(), Box::new(Type::Int)),
+    );
+    time_exports.insert(
+        "sleep_ms".to_string(),
+        Type::Function(vec![Type::Int], Box::new(Type::Void)),
+    );
+    exports.entry(std_time_id).or_insert(time_exports);
+    let std_log_id = ModuleId(vec!["std".to_string(), "log".to_string()]);
+    let mut log_exports = std::collections::HashMap::new();
+    log_exports.insert(
+        "info".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::Void)),
+    );
+    log_exports.insert(
+        "warn".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::Void)),
+    );
+    log_exports.insert(
+        "error".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::Void)),
+    );
+    exports.entry(std_log_id).or_insert(log_exports);
+    let std_io_id = ModuleId(vec!["std".to_string(), "io".to_string()]);
+    let mut io_exports = std::collections::HashMap::new();
+    io_exports.insert(
+        "read_bytes".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::Buffer)),
+    );
+    io_exports.insert(
+        "write_bytes".to_string(),
+        Type::Function(vec![Type::String, Type::Buffer], Box::new(Type::Bool)),
+    );
+    io_exports.insert(
+        "read_text".to_string(),
+        Type::Function(
+            vec![Type::String],
+            Box::new(Type::Optional(Box::new(Type::String))),
+        ),
+    );
+    io_exports.insert(
+        "write_text".to_string(),
+        Type::Function(vec![Type::String, Type::String], Box::new(Type::Bool)),
+    );
+    io_exports.insert(
+        "stdin_read".to_string(),
+        Type::Function(Vec::new(), Box::new(Type::Buffer)),
+    );
+    io_exports.insert(
+        "stdout_write".to_string(),
+        Type::Function(vec![Type::Buffer], Box::new(Type::Bool)),
+    );
+    io_exports.insert(
+        "stderr_write".to_string(),
+        Type::Function(vec![Type::Buffer], Box::new(Type::Bool)),
+    );
+    io_exports.insert(
+        "stdout_write_text".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::Bool)),
+    );
+    io_exports.insert(
+        "stderr_write_text".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::Bool)),
+    );
+    exports.entry(std_io_id).or_insert(io_exports);
+    let std_process_id = ModuleId(vec!["std".to_string(), "process".to_string()]);
+    let mut process_exports = std::collections::HashMap::new();
+    process_exports.insert(
+        "spawn".to_string(),
+        Type::Function(
+            vec![
+                Type::String,
+                Type::Unknown,
+                Type::Optional(Box::new(Type::String)),
+            ],
+            Box::new(Type::Int),
+        ),
+    );
+    process_exports.insert(
+        "wait".to_string(),
+        Type::Function(vec![Type::Int], Box::new(Type::Int)),
+    );
+    process_exports.insert(
+        "kill".to_string(),
+        Type::Function(vec![Type::Int], Box::new(Type::Bool)),
+    );
+    process_exports.insert(
+        "run".to_string(),
+        Type::Function(
+            vec![
+                Type::String,
+                Type::Unknown,
+                Type::Optional(Box::new(Type::String)),
+            ],
+            Box::new(Type::Unknown),
+        ),
+    );
+    process_exports.insert(
+        "exit".to_string(),
+        Type::Function(vec![Type::Int], Box::new(Type::Void)),
+    );
+    exports.entry(std_process_id).or_insert(process_exports);
     (imports, exports)
 }
 

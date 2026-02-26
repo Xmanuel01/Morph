@@ -1,0 +1,14 @@
+// std::time (v1.2 systems)
+
+native::import "enkai_native" ::
+    fn time_now_ms() -> Int
+    fn time_sleep_ms(ms: Int) -> Void
+::
+
+pub fn now_ms() -> Int ::
+    return time_now_ms()
+::
+
+pub fn sleep_ms(ms: Int) ::
+    return time_sleep_ms(ms)
+::

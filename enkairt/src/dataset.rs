@@ -1,6 +1,8 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
+use std::thread;
 
 use crate::tokenizer::Tokenizer;
 
@@ -13,6 +15,7 @@ pub struct DatasetConfig {
     pub pad_id: u32,
     pub seed: Option<u64>,
     pub shuffle: bool,
+    pub prefetch_batches: usize,
 }
 
 impl DatasetConfig {
@@ -25,6 +28,7 @@ impl DatasetConfig {
             pad_id: 0,
             seed: None,
             shuffle: false,
+            prefetch_batches: 0,
         }
     }
 }
@@ -36,10 +40,18 @@ pub struct Batch {
     pub attention_mask: Vec<u8>,
     pub batch_size: usize,
     pub seq_len: usize,
+    pub token_count: usize,
+    pub packing_efficiency: f32,
 }
 
 #[derive(Debug)]
 pub struct DatasetStream {
+    inner: Option<DatasetStreamInner>,
+    prefetch: Option<PrefetchState>,
+}
+
+#[derive(Debug)]
+struct DatasetStreamInner {
     files: Vec<PathBuf>,
     current: usize,
     reader: Option<BufReader<File>>,
@@ -49,8 +61,76 @@ pub struct DatasetStream {
     exhausted: bool,
 }
 
+struct PrefetchState {
+    rx: mpsc::Receiver<Result<Option<Batch>, String>>,
+    handle: thread::JoinHandle<()>,
+}
+
+impl std::fmt::Debug for PrefetchState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PrefetchState").finish()
+    }
+}
+
 impl DatasetStream {
     pub fn new(
+        files: Vec<PathBuf>,
+        tokenizer: Tokenizer,
+        config: DatasetConfig,
+    ) -> Result<Self, String> {
+        let inner = DatasetStreamInner::new(files, tokenizer, config.clone())?;
+        if config.prefetch_batches > 0 {
+            let (tx, rx) = mpsc::sync_channel(config.prefetch_batches);
+            let handle = thread::spawn(move || {
+                let mut inner = inner;
+                loop {
+                    let batch = inner.next_batch();
+                    let done = matches!(batch, Ok(None));
+                    if tx.send(batch).is_err() {
+                        break;
+                    }
+                    if done {
+                        break;
+                    }
+                }
+            });
+            Ok(Self {
+                inner: None,
+                prefetch: Some(PrefetchState { rx, handle }),
+            })
+        } else {
+            Ok(Self {
+                inner: Some(inner),
+                prefetch: None,
+            })
+        }
+    }
+
+    pub fn next_batch(&mut self) -> Result<Option<Batch>, String> {
+        if let Some(prefetch) = &self.prefetch {
+            match prefetch.rx.recv() {
+                Ok(batch) => batch,
+                Err(_) => Ok(None),
+            }
+        } else if let Some(inner) = &mut self.inner {
+            inner.next_batch()
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+impl Drop for DatasetStream {
+    fn drop(&mut self) {
+        if let Some(prefetch) = self.prefetch.take() {
+            drop(prefetch.rx);
+            let _ = prefetch.handle.join();
+        }
+    }
+}
+
+impl DatasetStreamInner {
+    fn new(
         files: Vec<PathBuf>,
         tokenizer: Tokenizer,
         config: DatasetConfig,
@@ -76,7 +156,7 @@ impl DatasetStream {
         })
     }
 
-    pub fn next_batch(&mut self) -> Result<Option<Batch>, String> {
+    fn next_batch(&mut self) -> Result<Option<Batch>, String> {
         if self.exhausted && self.token_buffer.is_empty() {
             return Ok(None);
         }
@@ -123,6 +203,7 @@ impl DatasetStream {
         let mut input_ids = Vec::with_capacity(total);
         let mut target_ids = Vec::with_capacity(total);
         let mut attention_mask = Vec::with_capacity(total);
+        let mut token_count = 0usize;
         for (seq, mask) in sequences {
             for idx in 0..self.config.seq_len {
                 let token = seq[idx];
@@ -134,14 +215,24 @@ impl DatasetStream {
                 };
                 target_ids.push(target);
                 attention_mask.push(mask[idx]);
+                if mask[idx] == 1 {
+                    token_count += 1;
+                }
             }
         }
+        let packing_efficiency = if total == 0 {
+            0.0
+        } else {
+            token_count as f32 / total as f32
+        };
         Ok(Some(Batch {
             input_ids,
             target_ids,
             attention_mask,
             batch_size: self.config.batch_size,
             seq_len: self.config.seq_len,
+            token_count,
+            packing_efficiency,
         }))
     }
 
@@ -253,9 +344,7 @@ fn shuffle_paths(paths: &mut [PathBuf], seed: u64) {
     }
     let mut state = seed ^ 0x9e3779b97f4a7c15;
     for i in (1..paths.len()).rev() {
-        state = state
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1);
+        state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
         let j = (state % ((i + 1) as u64)) as usize;
         paths.swap(i, j);
     }

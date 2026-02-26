@@ -1,8 +1,8 @@
-# Enkai Language Specification (v0.1 -> v0.9.3)
+# Enkai Language Specification (v0.1 -> v1.2.0)
 
 Status: stable.
-Grammar and CLI contracts are frozen at the v0.9.3 baseline for the v1.0 line.
-This document is the normative language and runtime surface for Enkai v0.9.3,
+Grammar and CLI contracts are frozen at the v0.9.3 baseline for the v1.x line.
+This document is the normative language and runtime surface for Enkai v1.2.0,
 including compatibility constraints carried from v0.1 onward.
 
 -------------------------------------------------------------------------------
@@ -13,7 +13,7 @@ This specification covers:
 - Core syntax and block rules.
 - Module/import semantics.
 - Type and expression forms supported by parser, checker, compiler, and VM.
-- Built-in runtime modules shipped in v0.9.3.
+- Built-in runtime modules shipped in v1.2.0.
 - CLI entrypoints used in production.
 
 This specification does not claim features that are still stubbed or not yet implemented.
@@ -34,6 +34,10 @@ Compatibility baseline:
   checkpoint C ABI hooks, and distributed hooks with known limits.
 - v0.9.3: TinyLM transformer forward + cross-entropy training path, single-device
   soak/integrity harnesses, and gated multi-GPU harness scripts.
+- v1.0: train/eval config schema v1 and checkpoint format v1.
+- v1.1: runtime semantics for type/enum/impl and AI declarations; std::nn/loss/optim.
+- v1.2: multi-GPU runtime wiring, AMP, grad accumulation/clipping, ranked checkpoints,
+  dataset prefetch/metrics, build cache + lockfile, and expanded stdlib.
 
 Compatibility policy:
 - `.enk` and `.en` are primary source extensions.
@@ -41,12 +45,13 @@ Compatibility policy:
   primary contract unless listed explicitly.
 
 -------------------------------------------------------------------------------
-1.2 Validation Gate Status (v0.9.3)
+1.2 Validation Gate Status (v1.2.0)
 -------------------------------------------------------------------------------
 
 Current verification status:
 - Training path: TinyLM forward + cross-entropy is active in runtime.
-- Single-device soak gate: CPU-only validation pass is verified.
+- Non-GPU CI/test suite: passing in repository state.
+- Single-device soak gate: pending operator run on production hardware.
 - Single-GPU CUDA soak gate: pending operator run on CUDA-capable host.
 - 2-GPU and 4-GPU distributed gates: harnesses are implemented and gated, pending
   operator validation on CUDA/NCCL-capable host.
@@ -152,6 +157,7 @@ Visibility:
 Project/module layout:
 - Entry supports file or project root (`enkai.toml` + `src/main.enk`).
 - Module resolution supports file-based modules and local path dependencies.
+- Dependency resolution prefers `enkai.lock` when present for deterministic builds.
 
 -------------------------------------------------------------------------------
 6. Declarations
@@ -166,7 +172,7 @@ Types:
 - `enum Name :: VariantA VariantB ::`
 - `impl Name :: fn method(...) :: ... :: ::`
 
-Runtime semantics (v1.1):
+Runtime semantics (v1.2):
 - `type` emits a constructor function that returns a record with `__type = "Name"` and
   the declared fields.
 - `enum` emits a record of variant records. Each variant record includes
@@ -201,7 +207,10 @@ Runtime semantics (v1.1):
   by the VM runtime.
 - `memory` entries inside agents compile to records:
   `{ __kind: "memory", path | expr }`.
-- `policy` declarations are parsed but not enforced by the VM runtime.
+- `policy` declarations compile into `policy.register(name, rules, is_default)` calls and
+  are enforced by the VM runtime for native capability checks. Calls to native IO/FS/env/
+  process/network/HTTP/checkpoint/dataset/tokenizer APIs require an active policy; otherwise
+  they raise a runtime error. `agent` method calls apply the agent's `policy_name` when bound.
 
 -------------------------------------------------------------------------------
 7. Statements and Expressions
@@ -241,7 +250,7 @@ Assignment form:
 8. Types
 -------------------------------------------------------------------------------
 
-Core types used in v0.9.3:
+Core types used in v1.2.0:
 - `Int`, `Float`, `Bool`, `String`, `Void`
 - Optional: `T?`
 - Function: `fn(T1, T2) -> R`
@@ -270,7 +279,7 @@ Formatting and tests:
 - Project test runner (`enkai test`) compiles and executes test files.
 
 -------------------------------------------------------------------------------
-10. Built-in Runtime Modules (v0.9.3)
+10. Built-in Runtime Modules (v1.2.0)
 -------------------------------------------------------------------------------
 
 Concurrency:
@@ -307,7 +316,9 @@ Tokenizer:
 Dataset streaming:
 - `dataset.open(path, tokenizer, config)`
 - stream method: `next_batch()`
-  - dataset config supports optional `seed` and `shuffle` for deterministic file order.
+  - dataset config supports optional `seed`, `shuffle`, and `prefetch_batches` for deterministic
+    file order and background prefetch.
+  - batch records include `token_count` and `packing_efficiency` for throughput metrics.
 
 Checkpointing:
 - `checkpoint.save(dir, state)`
@@ -322,8 +333,14 @@ Native-backed std modules:
 - `std::nn` (core ML layers)
 - `std::loss` (loss functions)
 - `std::optim` (optimizer helpers)
+- `std::env`
+- `std::path`
+- `std::time`
+- `std::log`
+- `std::io`
+- `std::process`
 
-Tensor backend (`std::tensor`, v0.9.3 surface):
+Tensor backend (`std::tensor`, v1.2.0 surface):
 - device/tensor creation, math ops, shape/dtype/device transforms
 - autograd and optimizer helper APIs
 - AMP scaler/autocast APIs
@@ -333,19 +350,20 @@ Tensor backend (`std::tensor`, v0.9.3 surface):
 
 Tensor C ABI checkpoint/distributed hooks:
 - checkpoint hooks are present (`enkai_checkpoint_save`, `enkai_checkpoint_load`, ranked variants)
-- distributed hooks are present (`enkai_dist_*`) and backend-loadable
-- actual behavior remains environment-gated by CUDA/NCCL/runtime support
+- distributed hooks (`enkai_dist_init`, `enkai_dist_allreduce_sum_multi`) are wired and invoked
+  when `world_size > 1`; behavior remains environment-gated by CUDA/NCCL/runtime support
 
 For full tensor C ABI contracts and safety preconditions, see `docs/tensor_api.md` and `docs/gpu_backend.md`.
 
 -------------------------------------------------------------------------------
-11. CLI Contract (v0.9.3)
+11. CLI Contract (v1.2.0)
 -------------------------------------------------------------------------------
 
 Commands:
 - `enkai run <file|dir> [--trace-vm] [--disasm] [--trace-task] [--trace-net]`
 - `enkai check <file|dir>`
 - `enkai fmt [--check] <file|dir>`
+- `enkai build [dir]`
 - `enkai test [project_root]`
 - `enkai train <config.enk>`
 - `enkai eval <config.enk>`
@@ -353,29 +371,38 @@ Commands:
 Project entry resolution:
 - Running with a directory resolves project root and `src/main.enk`.
 
+Build caching and lockfile:
+- `enkai build` resolves dependencies and writes `enkai.lock`.
+- Build cache lives under `target/enkai/` and is reused by `enkai run` when valid.
+
 Train/Eval config schema:
 - v1 config requires `config_version: 1` and the mandatory fields listed in
   `docs/25_train_eval_cli.md`.
+- Optional v1.2 fields include `world_size`, `rank`, `grad_accum_steps`, `grad_clip_norm`,
+  `amp { enabled, dtype, init_scale, growth_factor, backoff_factor, growth_interval }`,
+  `shuffle`, and `prefetch_batches`.
 
 Checkpoint format:
 - v1 checkpoints include `format_version: 1` in `meta.json`.
+- Ranked checkpoints write `rank{n}/` subdirectories and a `manifest.json` with `world_size`.
 
 -------------------------------------------------------------------------------
-12. Known Limits in v0.9.3
+12. Known Limits in v1.2.0
 -------------------------------------------------------------------------------
 
 The following are intentionally not fully implemented yet:
 - `async fn` declarations are rejected by parser.
 - `await`/`spawn` compile to task operations but do not provide a structured async runtime beyond the existing task model.
-- AI-native declarations are metadata/stub-only in the VM runtime (no external tool invocation or policy enforcement).
+- AI-native tool invocations remain stub-only; policy enforcement is active for native
+  capabilities, but external tool execution is not implemented.
 - Distributed tensor operations are partial:
   - hook symbols exist and are backend-loadable,
   - single-process/single-rank path is the fully supported baseline,
   - CUDA/NCCL multi-rank behavior is environment-gated and not guaranteed on all targets.
 - Current training-forward integration in runtime uses a TinyLM transformer forward/loss path and is not yet a full-scale Transformer stack.
 - Engine-level checkpoint helpers exist, but full train-loop orchestration and multi-rank resume policy are constrained to currently integrated paths.
-- v0.9.3 validation note:
-  - CPU-mode single-device soak has passing evidence.
+- v1.2.0 validation note:
+  - CPU-mode single-device soak requires operator-run evidence on production hardware.
   - CUDA single-GPU long-soak and distributed (2-GPU/4-GPU) reliability remain
     operator-run requirements and are not auto-proven by repository state alone.
 
@@ -385,7 +412,7 @@ These limits are part of the current stable contract and should be treated as pr
 13. Change Control
 -------------------------------------------------------------------------------
 
-For any language/runtime surface change after v0.9.3:
+For any language/runtime surface change after v1.2.0:
 1) Implement the change and add/adjust compiler/runtime tests.
 2) Update this specification to match the shipped behavior.
 3) Update changelog and targeted docs (`docs/xx_*.md`, `docs/tensor_api.md`, etc.).

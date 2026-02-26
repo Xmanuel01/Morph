@@ -4,9 +4,18 @@ use libloading::Library;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int};
 use std::sync::Arc;
+use std::time::Instant;
 
 use crate::dataset::Batch;
+use crate::engine::AmpConfig;
 use crate::error::RuntimeError;
+
+#[derive(Debug, Clone, Copy)]
+pub struct StepResult {
+    pub loss: f32,
+    pub forward_time_ms: f32,
+    pub backward_time_ms: f32,
+}
 
 /// Minimal native backend wrapper (FFI). Uses enkai_tensor (libtorch) under the hood.
 #[derive(Debug, Clone)]
@@ -18,6 +27,7 @@ pub struct Backend {
     world_size: i32,
     rank: i32,
     device: Option<i64>,
+    amp_scaler: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -54,6 +64,19 @@ struct Symbols {
     device: unsafe extern "C" fn(*const c_char) -> i64,
     device_free: unsafe extern "C" fn(i64) -> c_int,
     check_finite_multi: unsafe extern "C" fn(*const c_char) -> c_int,
+    tensor_free: Option<unsafe extern "C" fn(i64) -> c_int>,
+    grad_scale_multi: Option<unsafe extern "C" fn(*const c_char, f64) -> c_int>,
+    grad_clip_norm_multi: Option<unsafe extern "C" fn(*const c_char, f64, f64, *mut f64) -> c_int>,
+    adamw_step_multi: Option<
+        unsafe extern "C" fn(*const c_char, *const c_char, i64, f64, f64, f64, f64, f64) -> i64,
+    >,
+    amp_scaler_create: Option<unsafe extern "C" fn(f64, f64, f64, i64) -> i64>,
+    amp_scaler_free: Option<unsafe extern "C" fn(i64) -> c_int>,
+    amp_scale_loss: Option<unsafe extern "C" fn(i64, i64) -> i64>,
+    amp_unscale_grads: Option<unsafe extern "C" fn(*const c_char, i64, *mut c_int) -> c_int>,
+    amp_scaler_update: Option<unsafe extern "C" fn(i64, c_int) -> c_int>,
+    autocast_enter: Option<unsafe extern "C" fn() -> c_int>,
+    autocast_exit: Option<unsafe extern "C" fn() -> c_int>,
     dist_init: Option<unsafe extern "C" fn(i32, i32) -> c_int>,
     dist_allreduce: Option<unsafe extern "C" fn(*const c_char) -> c_int>,
     dist_shutdown: Option<unsafe extern "C" fn() -> c_int>,
@@ -66,6 +89,20 @@ struct Symbols {
         *mut *mut c_char,
         *mut usize,
     ) -> c_int,
+    ckpt_save_ranked: Option<
+        unsafe extern "C" fn(*const c_char, i64, i64, *const c_char, i64, *const c_char) -> c_int,
+    >,
+    ckpt_load_ranked: Option<
+        unsafe extern "C" fn(
+            *const c_char,
+            i64,
+            *mut *mut c_char,
+            *mut usize,
+            *mut i64,
+            *mut *mut c_char,
+            *mut usize,
+        ) -> c_int,
+    >,
     last_error: unsafe extern "C" fn() -> *const c_char,
 }
 
@@ -81,6 +118,7 @@ impl Backend {
             world_size: 1,
             rank: 0,
             device: None,
+            amp_scaler: None,
         })
     }
 
@@ -157,7 +195,8 @@ impl Backend {
         _device_idx: usize,
         batch: &Batch,
         n_heads: usize,
-    ) -> Result<f32, RuntimeError> {
+        amp: &AmpConfig,
+    ) -> Result<StepResult, RuntimeError> {
         if self.params.is_empty() {
             return Err(RuntimeError::new("No parameters registered for training"));
         }
@@ -165,6 +204,10 @@ impl Backend {
         let params_json =
             serde_json::to_string(&self.params).map_err(|e| RuntimeError::new(&e.to_string()))?;
         let c = CString::new(params_json).unwrap();
+        let forward_start = Instant::now();
+        if amp.enabled {
+            self.autocast_enter()?;
+        }
         let loss_handle = unsafe {
             (self.symbols.forward_tinylm)(
                 c.as_ptr(),
@@ -177,6 +220,10 @@ impl Backend {
                 n_heads as i64,
             )
         };
+        if amp.enabled {
+            self.autocast_exit()?;
+        }
+        let forward_time_ms = to_ms(forward_start.elapsed());
         if loss_handle == 0 {
             return Err(self.last_error());
         }
@@ -185,30 +232,66 @@ impl Backend {
             return Err(RuntimeError::new("non-finite loss detected"));
         }
         // Backward
-        let rc = unsafe { (self.symbols.backward)(loss_handle) };
+        let backward_start = Instant::now();
+        let rc = if amp.enabled {
+            let scaled = self.amp_scale_loss(loss_handle, amp)?;
+            unsafe { (self.symbols.backward)(scaled) }
+        } else {
+            unsafe { (self.symbols.backward)(loss_handle) }
+        };
+        let backward_time_ms = to_ms(backward_start.elapsed());
         if rc != 0 {
             return Err(self.last_error());
         }
-        // Allreduce grads if distributed.
-        if self.world_size > 1 {
-            let grads = self.grad_multi(&self.params)?;
-            self.dist_allreduce_grads(&grads)?;
-        }
-        // Validate grads
-        let grads = self.grad_multi(&self.params)?;
-        if !grads.is_empty() {
-            self.check_finite_multi(&grads, "grads")?;
-        }
-        Ok(loss_val)
+        Ok(StepResult {
+            loss: loss_val,
+            forward_time_ms,
+            backward_time_ms,
+        })
     }
 
     pub fn eval_step_on_device(
         &mut self,
-        device_idx: usize,
+        _device_idx: usize,
         batch: &Batch,
         n_heads: usize,
-    ) -> Result<f32, RuntimeError> {
-        self.train_step_on_device(device_idx, batch, n_heads)
+        amp: &AmpConfig,
+    ) -> Result<StepResult, RuntimeError> {
+        let params_json =
+            serde_json::to_string(&self.params).map_err(|e| RuntimeError::new(&e.to_string()))?;
+        let c = CString::new(params_json).unwrap();
+        let forward_start = Instant::now();
+        if amp.enabled {
+            self.autocast_enter()?;
+        }
+        let loss_handle = unsafe {
+            (self.symbols.forward_tinylm)(
+                c.as_ptr(),
+                batch.input_ids.as_ptr(),
+                batch.input_ids.len(),
+                batch.target_ids.as_ptr(),
+                batch.target_ids.len(),
+                batch.batch_size as i64,
+                batch.seq_len as i64,
+                n_heads as i64,
+            )
+        };
+        if amp.enabled {
+            self.autocast_exit()?;
+        }
+        let forward_time_ms = to_ms(forward_start.elapsed());
+        if loss_handle == 0 {
+            return Err(self.last_error());
+        }
+        let loss_val = unsafe { (self.symbols.item)(loss_handle) } as f32;
+        if !loss_val.is_finite() {
+            return Err(RuntimeError::new("non-finite loss detected"));
+        }
+        Ok(StepResult {
+            loss: loss_val,
+            forward_time_ms,
+            backward_time_ms: 0.0,
+        })
     }
 
     pub fn set_params(&mut self, params: Vec<i64>) -> Result<(), RuntimeError> {
@@ -298,6 +381,211 @@ impl Backend {
         }
     }
 
+    pub fn free_tensors(&self, handles: &[i64]) {
+        let Some(free) = self.symbols.tensor_free else {
+            return;
+        };
+        for handle in handles {
+            if *handle != 0 {
+                unsafe {
+                    let _ = free(*handle);
+                }
+            }
+        }
+    }
+
+    pub fn scale_grads(&self, grads: &[i64], scale: f64) -> Result<(), RuntimeError> {
+        if grads.is_empty() {
+            return Ok(());
+        }
+        if (scale - 1.0).abs() < f64::EPSILON {
+            return Ok(());
+        }
+        let Some(scale_fn) = self.symbols.grad_scale_multi else {
+            return Err(RuntimeError::new(
+                "grad scaling unavailable: enkai_tensor_scale_grads_multi missing",
+            ));
+        };
+        let json = serde_json::to_string(grads).map_err(|e| RuntimeError::new(&e.to_string()))?;
+        let c = CString::new(json).unwrap();
+        let rc = unsafe { scale_fn(c.as_ptr(), scale) };
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(self.last_error())
+        }
+    }
+
+    pub fn clip_grad_norm(&self, grads: &[i64], max_norm: f64) -> Result<f64, RuntimeError> {
+        if grads.is_empty() {
+            return Ok(0.0);
+        }
+        let Some(clip_fn) = self.symbols.grad_clip_norm_multi else {
+            return Err(RuntimeError::new(
+                "grad clipping unavailable: enkai_tensor_clip_grad_norm_multi missing",
+            ));
+        };
+        let json = serde_json::to_string(grads).map_err(|e| RuntimeError::new(&e.to_string()))?;
+        let c = CString::new(json).unwrap();
+        let mut out_norm: f64 = 0.0;
+        let rc = unsafe { clip_fn(c.as_ptr(), max_norm, 2.0, &mut out_norm as *mut f64) };
+        if rc == 0 {
+            Ok(out_norm)
+        } else {
+            Err(self.last_error())
+        }
+    }
+
+    pub fn optimizer_step_with_grads(
+        &mut self,
+        grads: &[i64],
+        hyper: &crate::engine::OptimConfig,
+    ) -> Result<(), RuntimeError> {
+        if self.params.is_empty() {
+            return Ok(());
+        }
+        let Some(step_fn) = self.symbols.adamw_step_multi else {
+            return Err(RuntimeError::new(
+                "optimizer step unavailable: enkai_tensor_adamw_step_multi missing",
+            ));
+        };
+        let params_json =
+            serde_json::to_string(&self.params).map_err(|e| RuntimeError::new(&e.to_string()))?;
+        let grads_json =
+            serde_json::to_string(grads).map_err(|e| RuntimeError::new(&e.to_string()))?;
+        let params_c = CString::new(params_json).unwrap();
+        let grads_c = CString::new(grads_json).unwrap();
+        let state = self.opt.unwrap_or(0);
+        let handle = unsafe {
+            step_fn(
+                params_c.as_ptr(),
+                grads_c.as_ptr(),
+                state,
+                hyper.lr,
+                hyper.beta1,
+                hyper.beta2,
+                hyper.eps,
+                hyper.weight_decay,
+            )
+        };
+        if handle == 0 {
+            return Err(self.last_error());
+        }
+        self.opt = Some(handle);
+        Ok(())
+    }
+
+    fn ensure_amp_scaler(&mut self, amp: &AmpConfig) -> Result<i64, RuntimeError> {
+        if let Some(handle) = self.amp_scaler {
+            return Ok(handle);
+        }
+        let Some(create) = self.symbols.amp_scaler_create else {
+            return Err(RuntimeError::new(
+                "AMP unavailable: enkai_amp_scaler_create missing",
+            ));
+        };
+        let handle = unsafe {
+            create(
+                amp.init_scale,
+                amp.growth_factor,
+                amp.backoff_factor,
+                amp.growth_interval,
+            )
+        };
+        if handle == 0 {
+            return Err(self.last_error());
+        }
+        self.amp_scaler = Some(handle);
+        Ok(handle)
+    }
+
+    fn amp_scale_loss(&mut self, loss: i64, amp: &AmpConfig) -> Result<i64, RuntimeError> {
+        let scaler = self.ensure_amp_scaler(amp)?;
+        let Some(scale_fn) = self.symbols.amp_scale_loss else {
+            return Err(RuntimeError::new(
+                "AMP unavailable: enkai_amp_scale_loss missing",
+            ));
+        };
+        let handle = unsafe { scale_fn(loss, scaler) };
+        if handle == 0 {
+            Err(self.last_error())
+        } else {
+            Ok(handle)
+        }
+    }
+
+    pub fn amp_unscale_grads(
+        &mut self,
+        grads: &[i64],
+        amp: &AmpConfig,
+    ) -> Result<bool, RuntimeError> {
+        if grads.is_empty() {
+            return Ok(false);
+        }
+        let scaler = self.ensure_amp_scaler(amp)?;
+        let Some(unscale_fn) = self.symbols.amp_unscale_grads else {
+            return Err(RuntimeError::new(
+                "AMP unavailable: enkai_amp_unscale_grads missing",
+            ));
+        };
+        let json = serde_json::to_string(grads).map_err(|e| RuntimeError::new(&e.to_string()))?;
+        let c = CString::new(json).unwrap();
+        let mut found_inf: c_int = 0;
+        let rc = unsafe { unscale_fn(c.as_ptr(), scaler, &mut found_inf as *mut c_int) };
+        if rc == 0 {
+            Ok(found_inf != 0)
+        } else {
+            Err(self.last_error())
+        }
+    }
+
+    pub fn amp_scaler_update(
+        &mut self,
+        amp: &AmpConfig,
+        found_inf: bool,
+    ) -> Result<(), RuntimeError> {
+        let scaler = self.ensure_amp_scaler(amp)?;
+        let Some(update_fn) = self.symbols.amp_scaler_update else {
+            return Err(RuntimeError::new(
+                "AMP unavailable: enkai_amp_scaler_update missing",
+            ));
+        };
+        let rc = unsafe { update_fn(scaler, if found_inf { 1 } else { 0 }) };
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(self.last_error())
+        }
+    }
+
+    fn autocast_enter(&self) -> Result<(), RuntimeError> {
+        let Some(enter) = self.symbols.autocast_enter else {
+            return Err(RuntimeError::new(
+                "AMP unavailable: enkai_autocast_enter missing",
+            ));
+        };
+        let rc = unsafe { enter() };
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(self.last_error())
+        }
+    }
+
+    fn autocast_exit(&self) -> Result<(), RuntimeError> {
+        let Some(exit) = self.symbols.autocast_exit else {
+            return Err(RuntimeError::new(
+                "AMP unavailable: enkai_autocast_exit missing",
+            ));
+        };
+        let rc = unsafe { exit() };
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(self.last_error())
+        }
+    }
+
     pub fn ensure_optimizer(
         &mut self,
         lr: f64,
@@ -341,8 +629,26 @@ impl Backend {
         let params_c = CString::new(params_json).unwrap();
         let meta_c = CString::new(meta_json).unwrap();
         let opt = self.opt.unwrap_or(0);
-        let rc = unsafe {
-            (self.symbols.ckpt_save)(dir_c.as_ptr(), params_c.as_ptr(), opt, meta_c.as_ptr())
+        let rc = if self.world_size > 1 {
+            let Some(save_ranked) = self.symbols.ckpt_save_ranked else {
+                return Err(RuntimeError::new(
+                    "ranked checkpoint save unavailable: enkai_checkpoint_save_ranked missing",
+                ));
+            };
+            unsafe {
+                save_ranked(
+                    dir_c.as_ptr(),
+                    self.rank as i64,
+                    self.world_size as i64,
+                    params_c.as_ptr(),
+                    opt,
+                    meta_c.as_ptr(),
+                )
+            }
+        } else {
+            unsafe {
+                (self.symbols.ckpt_save)(dir_c.as_ptr(), params_c.as_ptr(), opt, meta_c.as_ptr())
+            }
         };
         if rc == 0 {
             Ok(())
@@ -361,15 +667,34 @@ impl Backend {
         let mut out_params_ptr: *mut c_char = std::ptr::null_mut();
         let mut out_meta_ptr: *mut c_char = std::ptr::null_mut();
         let mut out_opt: i64 = 0;
-        let rc = unsafe {
-            (self.symbols.ckpt_load)(
-                dir_c.as_ptr(),
-                &mut out_params_ptr,
-                &mut out_params_len,
-                &mut out_opt,
-                &mut out_meta_ptr,
-                &mut out_meta_len,
-            )
+        let rc = if self.world_size > 1 {
+            let Some(load_ranked) = self.symbols.ckpt_load_ranked else {
+                return Err(RuntimeError::new(
+                    "ranked checkpoint load unavailable: enkai_checkpoint_load_ranked missing",
+                ));
+            };
+            unsafe {
+                load_ranked(
+                    dir_c.as_ptr(),
+                    self.rank as i64,
+                    &mut out_params_ptr,
+                    &mut out_params_len,
+                    &mut out_opt,
+                    &mut out_meta_ptr,
+                    &mut out_meta_len,
+                )
+            }
+        } else {
+            unsafe {
+                (self.symbols.ckpt_load)(
+                    dir_c.as_ptr(),
+                    &mut out_params_ptr,
+                    &mut out_params_len,
+                    &mut out_opt,
+                    &mut out_meta_ptr,
+                    &mut out_meta_len,
+                )
+            }
         };
         if rc != 0 {
             return Err(self.last_error());
@@ -459,6 +784,33 @@ impl Backend {
     }
 }
 
+impl Drop for Backend {
+    fn drop(&mut self) {
+        if let Some(handle) = self.amp_scaler.take() {
+            if let Some(free) = self.symbols.amp_scaler_free {
+                unsafe {
+                    let _ = free(handle);
+                }
+            }
+        }
+        if let Some(opt) = self.opt.take() {
+            unsafe {
+                let _ = (self.symbols.opt_free)(opt);
+            }
+        }
+        if !self.params.is_empty() {
+            self.free_tensors(&self.params);
+            self.params.clear();
+        }
+        if let Some(device) = self.device.take() {
+            self.device_free(device);
+        }
+        if self.world_size > 1 {
+            self.dist_shutdown();
+        }
+    }
+}
+
 fn load_library() -> Result<Library, RuntimeError> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Ok(path) = std::env::var("ENKAI_TENSOR_PATH") {
@@ -484,6 +836,10 @@ fn lib_name(base: &str) -> String {
         format!("lib{base}.so")
     }
 }
+
+fn to_ms(duration: std::time::Duration) -> f32 {
+    (duration.as_secs_f64() * 1_000.0) as f32
+}
 unsafe fn load_symbols(lib: &Library) -> Result<Symbols, RuntimeError> {
     macro_rules! sym {
         ($name:literal, $ty:ty) => {{
@@ -491,6 +847,11 @@ unsafe fn load_symbols(lib: &Library) -> Result<Symbols, RuntimeError> {
                 .get($name)
                 .map_err(|e| RuntimeError::new(&format!("load symbol {:?}: {}", $name, e)))?;
             *s
+        }};
+    }
+    macro_rules! sym_opt {
+        ($name:literal, $ty:ty) => {{
+            lib.get::<$ty>($name).ok().map(|s| *s)
         }};
     }
     Ok(Symbols {
@@ -558,6 +919,41 @@ unsafe fn load_symbols(lib: &Library) -> Result<Symbols, RuntimeError> {
             b"enkai_tensor_check_finite_multi\0",
             unsafe extern "C" fn(*const c_char) -> c_int
         ),
+        tensor_free: sym_opt!(b"enkai_tensor_free\0", unsafe extern "C" fn(i64) -> c_int),
+        grad_scale_multi: sym_opt!(
+            b"enkai_tensor_scale_grads_multi\0",
+            unsafe extern "C" fn(*const c_char, f64) -> c_int
+        ),
+        grad_clip_norm_multi: sym_opt!(
+            b"enkai_tensor_clip_grad_norm_multi\0",
+            unsafe extern "C" fn(*const c_char, f64, f64, *mut f64) -> c_int
+        ),
+        adamw_step_multi: sym_opt!(
+            b"enkai_tensor_adamw_step_multi\0",
+            unsafe extern "C" fn(*const c_char, *const c_char, i64, f64, f64, f64, f64, f64) -> i64
+        ),
+        amp_scaler_create: sym_opt!(
+            b"enkai_amp_scaler_create\0",
+            unsafe extern "C" fn(f64, f64, f64, i64) -> i64
+        ),
+        amp_scaler_free: sym_opt!(
+            b"enkai_amp_scaler_free\0",
+            unsafe extern "C" fn(i64) -> c_int
+        ),
+        amp_scale_loss: sym_opt!(
+            b"enkai_amp_scale_loss\0",
+            unsafe extern "C" fn(i64, i64) -> i64
+        ),
+        amp_unscale_grads: sym_opt!(
+            b"enkai_amp_unscale_grads\0",
+            unsafe extern "C" fn(*const c_char, i64, *mut c_int) -> c_int
+        ),
+        amp_scaler_update: sym_opt!(
+            b"enkai_amp_scaler_update\0",
+            unsafe extern "C" fn(i64, c_int) -> c_int
+        ),
+        autocast_enter: sym_opt!(b"enkai_autocast_enter\0", unsafe extern "C" fn() -> c_int),
+        autocast_exit: sym_opt!(b"enkai_autocast_exit\0", unsafe extern "C" fn() -> c_int),
         dist_init: lib
             .get::<unsafe extern "C" fn(i32, i32) -> c_int>(b"enkai_dist_init\0")
             .ok()
@@ -580,6 +976,29 @@ unsafe fn load_symbols(lib: &Library) -> Result<Symbols, RuntimeError> {
             b"enkai_checkpoint_load\0",
             unsafe extern "C" fn(
                 *const c_char,
+                *mut *mut c_char,
+                *mut usize,
+                *mut i64,
+                *mut *mut c_char,
+                *mut usize,
+            ) -> c_int
+        ),
+        ckpt_save_ranked: sym_opt!(
+            b"enkai_checkpoint_save_ranked\0",
+            unsafe extern "C" fn(
+                *const c_char,
+                i64,
+                i64,
+                *const c_char,
+                i64,
+                *const c_char,
+            ) -> c_int
+        ),
+        ckpt_load_ranked: sym_opt!(
+            b"enkai_checkpoint_load_ranked\0",
+            unsafe extern "C" fn(
+                *const c_char,
+                i64,
                 *mut *mut c_char,
                 *mut usize,
                 *mut i64,
