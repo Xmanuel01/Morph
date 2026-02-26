@@ -251,6 +251,14 @@ fn collect_exports(module: &Module) -> HashSet<String> {
             if decl.is_pub {
                 exports.insert(decl.name.clone());
             }
+        } else if let Item::Type(decl) = item {
+            if decl.is_pub {
+                exports.insert(decl.name.clone());
+            }
+        } else if let Item::Enum(decl) = item {
+            if decl.is_pub {
+                exports.insert(decl.name.clone());
+            }
         }
     }
     exports

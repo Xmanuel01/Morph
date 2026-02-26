@@ -121,6 +121,17 @@ impl TypeChecker {
     }
 
     pub fn check_module(&mut self, module: &Module) -> Result<(), TypeError> {
+        for item in &module.items {
+            if let Item::Import(decl) = item {
+                let alias = decl
+                    .alias
+                    .clone()
+                    .unwrap_or_else(|| decl.path.last().cloned().unwrap_or_default());
+                self.imports
+                    .entry(alias)
+                    .or_insert(ModuleId(decl.path.clone()));
+            }
+        }
         for alias in self.imports.keys().cloned().collect::<Vec<_>>() {
             self.define(&alias, Type::Unknown);
         }
@@ -143,6 +154,20 @@ impl TypeChecker {
                         .collect();
                     let ret = type_from_ref(func.return_type.clone());
                     self.define(&func.name, Type::Function(params, Box::new(ret)));
+                }
+            } else if let Item::Type(decl) = item {
+                self.define(&decl.name, Type::Unknown);
+            } else if let Item::Enum(decl) = item {
+                self.define(&decl.name, Type::Unknown);
+            } else if let Item::Model(decl) = item {
+                self.define(&decl.name, Type::Unknown);
+            } else if let Item::Prompt(decl) = item {
+                self.define(&decl.name, Type::Unknown);
+            } else if let Item::Agent(decl) = item {
+                self.define(&decl.name, Type::Unknown);
+            } else if let Item::Tool(decl) = item {
+                if let Some(root) = decl.path.first() {
+                    self.define(root, Type::Unknown);
                 }
             }
         }
@@ -413,6 +438,21 @@ impl TypeChecker {
                 self.check_expr(target)?;
                 Ok(Type::Unknown)
             }
+            Expr::Index { target, index, .. } => {
+                self.check_expr(target)?;
+                self.check_expr(index)?;
+                Ok(Type::Unknown)
+            }
+            Expr::List { items, .. } => {
+                for item in items {
+                    self.check_expr(item)?;
+                }
+                Ok(Type::Unknown)
+            }
+            Expr::Try { expr, .. } => match self.check_expr(expr)? {
+                Type::Optional(inner) => Ok(*inner),
+                _ => Ok(Type::Unknown),
+            },
             _ => Ok(Type::Unknown),
         }
     }
@@ -654,6 +694,99 @@ fn inject_builtins(
         Type::Function(vec![Type::String, Type::Int], Box::new(Type::Void)),
     );
     exports.entry(checkpoint_id).or_insert(checkpoint_exports);
+    let std_nn_id = ModuleId(vec!["std".to_string(), "nn".to_string()]);
+    let mut nn_exports = std::collections::HashMap::new();
+    nn_exports.insert(
+        "embedding".to_string(),
+        Type::Function(vec![Type::Tensor, Type::Tensor], Box::new(Type::Tensor)),
+    );
+    nn_exports.insert(
+        "linear".to_string(),
+        Type::Function(
+            vec![Type::Tensor, Type::Tensor, Type::Tensor],
+            Box::new(Type::Tensor),
+        ),
+    );
+    nn_exports.insert(
+        "layernorm".to_string(),
+        Type::Function(
+            vec![Type::Tensor, Type::Tensor, Type::Tensor, Type::Float],
+            Box::new(Type::Tensor),
+        ),
+    );
+    nn_exports.insert(
+        "gelu".to_string(),
+        Type::Function(vec![Type::Tensor], Box::new(Type::Tensor)),
+    );
+    nn_exports.insert(
+        "relu".to_string(),
+        Type::Function(vec![Type::Tensor], Box::new(Type::Tensor)),
+    );
+    nn_exports.insert(
+        "dropout".to_string(),
+        Type::Function(
+            vec![Type::Tensor, Type::Float, Type::Bool],
+            Box::new(Type::Tensor),
+        ),
+    );
+    nn_exports.insert(
+        "embedding_params".to_string(),
+        Type::Function(
+            vec![Type::Int, Type::Int, Type::DType, Type::Device],
+            Box::new(Type::Unknown),
+        ),
+    );
+    nn_exports.insert(
+        "linear_params".to_string(),
+        Type::Function(
+            vec![Type::Int, Type::Int, Type::DType, Type::Device],
+            Box::new(Type::Unknown),
+        ),
+    );
+    nn_exports.insert(
+        "layernorm_params".to_string(),
+        Type::Function(
+            vec![Type::Int, Type::DType, Type::Device],
+            Box::new(Type::Unknown),
+        ),
+    );
+    exports.entry(std_nn_id).or_insert(nn_exports);
+    let std_loss_id = ModuleId(vec!["std".to_string(), "loss".to_string()]);
+    let mut loss_exports = std::collections::HashMap::new();
+    loss_exports.insert(
+        "cross_entropy".to_string(),
+        Type::Function(vec![Type::Tensor, Type::Tensor], Box::new(Type::Tensor)),
+    );
+    exports.entry(std_loss_id).or_insert(loss_exports);
+    let std_optim_id = ModuleId(vec!["std".to_string(), "optim".to_string()]);
+    let mut optim_exports = std::collections::HashMap::new();
+    optim_exports.insert(
+        "adamw_create".to_string(),
+        Type::Function(
+            vec![
+                Type::Unknown,
+                Type::Float,
+                Type::Float,
+                Type::Float,
+                Type::Float,
+                Type::Float,
+            ],
+            Box::new(Type::OptimizerState),
+        ),
+    );
+    optim_exports.insert(
+        "adamw_step".to_string(),
+        Type::Function(vec![Type::OptimizerState], Box::new(Type::Int)),
+    );
+    optim_exports.insert(
+        "retain".to_string(),
+        Type::Function(vec![Type::OptimizerState], Box::new(Type::Int)),
+    );
+    optim_exports.insert(
+        "free".to_string(),
+        Type::Function(vec![Type::OptimizerState], Box::new(Type::Int)),
+    );
+    exports.entry(std_optim_id).or_insert(optim_exports);
     (imports, exports)
 }
 
@@ -684,6 +817,14 @@ fn collect_export_types(module: &Module) -> std::collections::HashMap<String, Ty
                     .collect();
                 let ret = type_from_ref_opt(decl.return_type.clone());
                 out.insert(decl.name.clone(), Type::Function(params, Box::new(ret)));
+            }
+        } else if let Item::Type(decl) = item {
+            if decl.is_pub {
+                out.insert(decl.name.clone(), Type::Unknown);
+            }
+        } else if let Item::Enum(decl) = item {
+            if decl.is_pub {
+                out.insert(decl.name.clone(), Type::Unknown);
             }
         }
     }

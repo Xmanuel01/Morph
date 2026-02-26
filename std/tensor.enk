@@ -32,6 +32,9 @@ native::import "enkai_tensor" ::
     fn enkai_tensor_shape(x: Int) -> String
     fn enkai_tensor_cross_entropy(logits: Int, targets: Int) -> Int
     fn enkai_tensor_backward(loss: Int) -> Int
+    fn enkai_tensor_require_grad(handle: Int) -> Int
+    fn enkai_tensor_zero_grad(handle: Int) -> Int
+    fn enkai_tensor_zero_grad_multi(handles_json: String) -> Int
     fn enkai_tensor_adamw_step(param: Int, grad: Int, state: Int, lr: Float, beta1: Float, beta2: Float, eps: Float, wd: Float) -> Int
     fn enkai_tensor_adamw_step_multi(params_json: String, grads_json: String, state: Int, lr: Float, beta1: Float, beta2: Float, eps: Float, wd: Float) -> Int
     fn enkai_tensor_save_sharded(dir: String, param: Int, opt_state: Int, meta_json: String) -> Int
@@ -176,6 +179,18 @@ pub fn cross_entropy(logits: Tensor, targets: Tensor) -> Tensor ::
 
 pub fn backward(loss: Tensor) ::
     return enkai_tensor_backward(loss)
+::
+
+pub fn require_grad(x: Tensor) -> Tensor ::
+    return enkai_tensor_require_grad(x)
+::
+
+pub fn zero_grad(x: Tensor) -> Int ::
+    return enkai_tensor_zero_grad(x)
+::
+
+pub fn zero_grad_multi(handles) -> Int ::
+    return enkai_tensor_zero_grad_multi(json.stringify(handles))
 ::
 
 pub fn adamw_step(param: Tensor, grad: Tensor, state: OptimizerState, lr: Float, beta1: Float, beta2: Float, eps: Float, wd: Float) -> OptimizerState ::

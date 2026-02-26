@@ -15,14 +15,17 @@ fn run_value(source: &str) -> Value {
 fn response_body(value: &Value) -> Option<Vec<u8>> {
     match value {
         Value::Obj(obj) => match obj.as_obj() {
-            enkairt::object::Obj::Record(map) => match map.get("body") {
-                Some(Value::Obj(obj)) => match obj.as_obj() {
-                    enkairt::object::Obj::Buffer(bytes) => Some(bytes.clone()),
-                    enkairt::object::Obj::String(s) => Some(s.as_bytes().to_vec()),
+            enkairt::object::Obj::Record(map) => {
+                let map = map.borrow();
+                match map.get("body") {
+                    Some(Value::Obj(obj)) => match obj.as_obj() {
+                        enkairt::object::Obj::Buffer(bytes) => Some(bytes.clone()),
+                        enkairt::object::Obj::String(s) => Some(s.as_bytes().to_vec()),
+                        _ => None,
+                    },
                     _ => None,
-                },
-                _ => None,
-            },
+                }
+            }
             _ => None,
         },
         _ => None,

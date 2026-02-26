@@ -1,0 +1,7 @@
+// std::loss (v1.1 core)
+
+import std::tensor
+
+pub fn cross_entropy(logits: Tensor, targets: Tensor) -> Tensor ::
+    return tensor.cross_entropy(logits, targets)
+::

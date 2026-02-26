@@ -166,6 +166,15 @@ Types:
 - `enum Name :: VariantA VariantB ::`
 - `impl Name :: fn method(...) :: ... :: ::`
 
+Runtime semantics (v1.1):
+- `type` emits a constructor function that returns a record with `__type = "Name"` and
+  the declared fields.
+- `enum` emits a record of variant records. Each variant record includes
+  `__type = "Name"` and `__variant = "Variant"`.
+- `impl` registers methods on a per-type method table. `obj.method` on a record with
+  a matching `__type` returns a bound function with `self` inserted as the first
+  argument.
+
 Native FFI import:
 - Top-level only.
 - Form:
@@ -178,6 +187,21 @@ Policy/tool/AI declarations:
 - `tool path.name(params) -> Type`
 - `policy Name :: allow cap.rule ... ::`
 - `prompt`, `model`, `agent`, `memory` parse and are part of the language surface.
+
+Runtime semantics (v1.1):
+- `tool` declarations compile to stub functions. Calling them raises a runtime error
+  unless replaced by host integration.
+- `prompt` compiles to a record:
+  `{ __kind: "prompt", name, template, inputs }`.
+- `model` compiles to a record:
+  `{ __kind: "model", value }`.
+- `agent` compiles to a record:
+  `{ __kind: "agent", ... }` plus optional `policy_name`, memory entries, and
+  any `agent`-scoped functions as fields. Agent body statements are not executed
+  by the VM runtime.
+- `memory` entries inside agents compile to records:
+  `{ __kind: "memory", path | expr }`.
+- `policy` declarations are parsed but not enforced by the VM runtime.
 
 -------------------------------------------------------------------------------
 7. Statements and Expressions
@@ -205,6 +229,9 @@ Expressions:
 - Lambda: `(a: Int, b: Int) -> Int => a + b`
 - Match expression
 - Try postfix: `expr?`
+
+`await expr` is lowered to `task.join(expr)`. `spawn expr` is lowered to
+`task.spawn(expr)`.
 
 Assignment form:
 - `:=` is statement-level assignment/binding.
@@ -275,10 +302,12 @@ Tokenizer:
 - `tokenizer.train(config)`
 - `tokenizer.load(path)`
 - tokenizer methods: `encode(text)`, `decode(tokens)`, `save(path)`
+  - `tokenizer.train` config supports optional `seed` for deterministic tie-breaks.
 
 Dataset streaming:
 - `dataset.open(path, tokenizer, config)`
 - stream method: `next_batch()`
+  - dataset config supports optional `seed` and `shuffle` for deterministic file order.
 
 Checkpointing:
 - `checkpoint.save(dir, state)`
@@ -290,6 +319,9 @@ Native-backed std modules:
 - `std::fsx`
 - `std::zstd`
 - `std::hash`
+- `std::nn` (core ML layers)
+- `std::loss` (loss functions)
+- `std::optim` (optimizer helpers)
 
 Tensor backend (`std::tensor`, v0.9.3 surface):
 - device/tensor creation, math ops, shape/dtype/device transforms
@@ -334,8 +366,8 @@ Checkpoint format:
 
 The following are intentionally not fully implemented yet:
 - `async fn` declarations are rejected by parser.
-- `await`/`spawn` unary operators parse, but language-level async/await semantics are not fully implemented.
-- AI-native declarations (`tool`/`agent`/`prompt`/`model`/`memory`) exist in syntax, but selected runtime behavior remains stubbed depending on feature path.
+- `await`/`spawn` compile to task operations but do not provide a structured async runtime beyond the existing task model.
+- AI-native declarations are metadata/stub-only in the VM runtime (no external tool invocation or policy enforcement).
 - Distributed tensor operations are partial:
   - hook symbols exist and are backend-loadable,
   - single-process/single-rank path is the fully supported baseline,

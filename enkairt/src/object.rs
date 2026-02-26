@@ -16,9 +16,10 @@ pub type NativeFunc =
 pub enum Obj {
     String(String),
     Buffer(Vec<u8>),
-    List(Vec<Value>),
+    List(RefCell<Vec<Value>>),
     Json(serde_json::Value),
     Function(FunctionObj),
+    BoundFunction(BoundFunctionObj),
     NativeFunction(NativeFunction),
     TaskHandle(usize),
     Channel(RefCell<ChannelState>),
@@ -26,7 +27,7 @@ pub enum Obj {
     TcpConnection(RefCell<std::net::TcpStream>),
     Tokenizer(Tokenizer),
     DatasetStream(RefCell<DatasetStream>),
-    Record(std::collections::HashMap<String, Value>),
+    Record(RefCell<std::collections::HashMap<String, Value>>),
 }
 
 impl Obj {
@@ -37,6 +38,7 @@ impl Obj {
             Obj::List(_) => "List",
             Obj::Json(_) => "Json",
             Obj::Function(_) => "Function",
+            Obj::BoundFunction(_) => "BoundFunction",
             Obj::NativeFunction(_) => "NativeFunction",
             Obj::TaskHandle(_) => "TaskHandle",
             Obj::Channel(_) => "Channel",
@@ -54,6 +56,13 @@ pub struct FunctionObj {
     pub name: Option<String>,
     pub arity: u16,
     pub func_index: u16,
+}
+
+#[derive(Debug)]
+pub struct BoundFunctionObj {
+    pub func_index: u16,
+    pub arity: u16,
+    pub bound: Value,
 }
 
 #[derive(Clone)]
@@ -96,7 +105,7 @@ pub fn buffer_value(bytes: Vec<u8>) -> Value {
 }
 
 pub fn record_value(map: std::collections::HashMap<String, Value>) -> Value {
-    Value::Obj(ObjRef::new(Obj::Record(map)))
+    Value::Obj(ObjRef::new(Obj::Record(RefCell::new(map))))
 }
 
 pub fn task_handle_value(id: usize) -> Value {

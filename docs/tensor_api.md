@@ -22,7 +22,7 @@ fn main() ::
 - `tensor.sum/mean/reshape/transpose/view/slice/concat`
 - `tensor.to_device/to_dtype/shape`
 - `tensor.layernorm/embedding/linear` plus `layernorm_backward`, `masked_softmax_backward`
-- Autograd: `tensor.cross_entropy`, `tensor.backward`
+- Autograd: `tensor.cross_entropy`, `tensor.backward`, `tensor.require_grad`, `tensor.zero_grad`, `tensor.zero_grad_multi`
 - Optimizer helpers: `tensor.adamw_step`, `tensor.adamw_step_multi`, `tensor.param_group`, `tensor.param_group_step`
 
 ## Backend selection (torch + CPU fallback)

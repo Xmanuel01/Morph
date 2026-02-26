@@ -11,6 +11,8 @@ pub struct DatasetConfig {
     pub add_eos: bool,
     pub drop_remainder: bool,
     pub pad_id: u32,
+    pub seed: Option<u64>,
+    pub shuffle: bool,
 }
 
 impl DatasetConfig {
@@ -21,6 +23,8 @@ impl DatasetConfig {
             add_eos: true,
             drop_remainder: true,
             pad_id: 0,
+            seed: None,
+            shuffle: false,
         }
     }
 }
@@ -53,6 +57,13 @@ impl DatasetStream {
     ) -> Result<Self, String> {
         if config.seq_len == 0 || config.batch_size == 0 {
             return Err("Dataset config requires seq_len and batch_size > 0".to_string());
+        }
+        let mut files = files;
+        if config.shuffle {
+            let seed = config
+                .seed
+                .ok_or_else(|| "Dataset shuffle requires seed".to_string())?;
+            shuffle_paths(&mut files, seed);
         }
         Ok(Self {
             files,
@@ -234,4 +245,18 @@ fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn shuffle_paths(paths: &mut [PathBuf], seed: u64) {
+    if paths.len() <= 1 {
+        return;
+    }
+    let mut state = seed ^ 0x9e3779b97f4a7c15;
+    for i in (1..paths.len()).rev() {
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1);
+        let j = (state % ((i + 1) as u64)) as usize;
+        paths.swap(i, j);
+    }
 }

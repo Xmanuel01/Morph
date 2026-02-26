@@ -31,3 +31,25 @@ fn dataset_produces_batches() {
     assert_eq!(batch.target_ids.len(), 8);
     assert_eq!(batch.attention_mask.len(), 8);
 }
+
+#[test]
+fn dataset_shuffle_is_deterministic() {
+    let dir = tempdir().expect("tempdir");
+    fs::write(dir.path().join("a.txt"), "alpha").unwrap();
+    fs::write(dir.path().join("b.txt"), "beta").unwrap();
+    fs::write(dir.path().join("c.txt"), "gamma").unwrap();
+    let mut cfg = TrainConfig::default();
+    cfg.vocab_size = 16;
+    let tokenizer = Tokenizer::train_from_path(dir.path(), &cfg).expect("tokenizer");
+    let files = resolve_dataset_paths(dir.path().to_string_lossy().as_ref()).expect("paths");
+    let mut data_cfg = DatasetConfig::new(1, 1);
+    data_cfg.shuffle = true;
+    data_cfg.seed = Some(7);
+    let mut stream1 = DatasetStream::new(files.clone(), tokenizer.clone(), data_cfg.clone())
+        .expect("stream1");
+    let mut stream2 = DatasetStream::new(files, tokenizer, data_cfg).expect("stream2");
+    let batch1 = stream1.next_batch().expect("batch1").expect("some batch1");
+    let batch2 = stream2.next_batch().expect("batch2").expect("some batch2");
+    assert_eq!(batch1.input_ids, batch2.input_ids);
+    assert_eq!(batch1.target_ids, batch2.target_ids);
+}

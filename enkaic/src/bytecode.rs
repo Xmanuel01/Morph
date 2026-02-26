@@ -58,9 +58,14 @@ pub enum Instruction {
     Jump(usize),
     JumpIfFalse(usize),
     MakeRecord(u16),
+    MakeList(u16),
     GetField(u16),
+    GetIndex,
+    SetField(u16),
+    SetIndex,
     Call(u16),
     Return,
+    TryUnwrap,
 }
 
 #[derive(Debug, Clone)]

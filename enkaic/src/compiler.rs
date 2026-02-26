@@ -123,6 +123,8 @@ struct ProgramBuilder<'a> {
     global_names: Vec<String>,
     global_inits: Vec<Option<Constant>>,
     functions: Vec<ByteFunction>,
+    method_tables: HashSet<String>,
+    tool_namespaces: HashSet<String>,
     _symbols: SymbolTable,
 }
 
@@ -144,6 +146,8 @@ impl<'a> ProgramBuilder<'a> {
             global_names: Vec::new(),
             global_inits: Vec::new(),
             functions: Vec::new(),
+            method_tables: HashSet::new(),
+            tool_namespaces: HashSet::new(),
             _symbols: SymbolTable::new(),
         }
     }
@@ -170,6 +174,59 @@ impl<'a> ProgramBuilder<'a> {
             self.globals.insert(name.to_string(), idx);
             idx
         }
+    }
+
+    fn compile_type_constructor(
+        &mut self,
+        module: &ModuleContext,
+        decl: &TypeDecl,
+        full_name: &str,
+    ) -> u16 {
+        let mut chunk = Chunk::new();
+        let line = 0;
+        let key_idx = chunk.add_constant(Constant::String("__type".to_string()));
+        let val_idx = chunk.add_constant(Constant::String(full_name.to_string()));
+        chunk.write(Instruction::Const(key_idx), line);
+        chunk.write(Instruction::Const(val_idx), line);
+        for (idx, field) in decl.fields.iter().enumerate() {
+            let key_idx = chunk.add_constant(Constant::String(field.name.clone()));
+            chunk.write(Instruction::Const(key_idx), line);
+            chunk.write(Instruction::LoadLocal(idx as u16), line);
+        }
+        chunk.write(Instruction::MakeRecord((decl.fields.len() + 1) as u16), line);
+        chunk.write(Instruction::Return, line);
+        let func = ByteFunction {
+            name: Some(decl.name.clone()),
+            arity: decl.fields.len() as u16,
+            chunk,
+            source_name: module.source_name.clone(),
+        };
+        let idx = self.functions.len() as u16;
+        self.functions.push(func);
+        idx
+    }
+
+    fn compile_tool_stub(
+        &mut self,
+        module: &ModuleContext,
+        name: &str,
+        params: &[Param],
+    ) -> u16 {
+        let mut chunk = Chunk::new();
+        let line = 0;
+        let null_idx = chunk.add_constant(Constant::Null);
+        chunk.write(Instruction::Const(null_idx), line);
+        chunk.write(Instruction::TryUnwrap, line);
+        chunk.write(Instruction::Return, line);
+        let func = ByteFunction {
+            name: Some(name.to_string()),
+            arity: params.len() as u16,
+            chunk,
+            source_name: module.source_name.clone(),
+        };
+        let idx = self.functions.len() as u16;
+        self.functions.push(func);
+        idx
     }
 
     fn compile_module_items(
@@ -335,6 +392,9 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                             .write(Instruction::StoreGlobal(global), func.name_span.line);
                     }
                 }
+                Item::Use(_) => {
+                    // handled by loader; no runtime effect
+                }
                 Item::Fn(decl) => {
                     let global_name = mangle_symbol(&self.module.prefix, &decl.name);
                     let global = self.enclosing.ensure_global(&global_name);
@@ -356,10 +416,258 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                     self.chunk
                         .write(Instruction::StoreGlobal(global), decl.name_span.line);
                 }
-                _ => {
-                    return Err(CompileError::new(
-                        "Only functions and statements are supported in this compiler pass",
-                    ))
+                Item::Type(decl) => {
+                    let full_name = mangle_symbol(&self.module.prefix, &decl.name);
+                    let global = self.enclosing.ensure_global(&full_name);
+                    let func_idx =
+                        self.enclosing
+                            .compile_type_constructor(&self.module, decl, &full_name);
+                    if let Some(slot) = self.enclosing.global_inits.get_mut(global as usize) {
+                        *slot = Some(Constant::Function(func_idx));
+                    }
+                    let const_idx = self.chunk.add_constant(Constant::Function(func_idx));
+                    self.chunk.write(Instruction::Const(const_idx), 0);
+                    self.chunk.write(Instruction::StoreGlobal(global), 0);
+                }
+                Item::Enum(decl) => {
+                    let full_name = mangle_symbol(&self.module.prefix, &decl.name);
+                    let global = self.enclosing.ensure_global(&full_name);
+                    for variant in &decl.variants {
+                        let key_idx = self.chunk.add_constant(Constant::String(variant.clone()));
+                        self.chunk.write(Instruction::Const(key_idx), 0);
+                        let type_key = self
+                            .chunk
+                            .add_constant(Constant::String("__type".to_string()));
+                        let type_val = self
+                            .chunk
+                            .add_constant(Constant::String(full_name.clone()));
+                        self.chunk.write(Instruction::Const(type_key), 0);
+                        self.chunk.write(Instruction::Const(type_val), 0);
+                        let var_key = self
+                            .chunk
+                            .add_constant(Constant::String("__variant".to_string()));
+                        let var_val =
+                            self.chunk.add_constant(Constant::String(variant.clone()));
+                        self.chunk.write(Instruction::Const(var_key), 0);
+                        self.chunk.write(Instruction::Const(var_val), 0);
+                        self.chunk.write(Instruction::MakeRecord(2), 0);
+                    }
+                    self.chunk
+                        .write(Instruction::MakeRecord(decl.variants.len() as u16), 0);
+                    self.chunk.write(Instruction::StoreGlobal(global), 0);
+                }
+                Item::Impl(decl) => {
+                    let full_name = mangle_symbol(&self.module.prefix, &decl.name);
+                    let table_idx = self.ensure_method_table(&full_name, 0);
+                    for method in &decl.methods {
+                        let mut params = Vec::with_capacity(method.params.len() + 1);
+                        params.push(Param {
+                            name: "self".to_string(),
+                            type_ann: Some(TypeRef::Named {
+                                path: vec![decl.name.clone()],
+                                args: Vec::new(),
+                                optional: false,
+                            }),
+                            default: None,
+                        });
+                        params.extend(method.params.clone());
+                        let body_items: Vec<Item> =
+                            method.body.stmts.iter().cloned().map(Item::Stmt).collect();
+                        let method_name = format!("{}::{}", decl.name, method.name);
+                        let func_idx = self.enclosing.compile_function(
+                            &self.module,
+                            &method_name,
+                            &params,
+                            &body_items,
+                        )?;
+                        self.chunk.write(Instruction::LoadGlobal(table_idx), 0);
+                        let const_idx = self.chunk.add_constant(Constant::Function(func_idx));
+                        self.chunk.write(Instruction::Const(const_idx), 0);
+                        let key_idx =
+                            self.chunk.add_constant(Constant::String(method.name.clone()));
+                        self.chunk.write(Instruction::SetField(key_idx), 0);
+                    }
+                }
+                Item::Tool(decl) => {
+                    if decl.path.is_empty() {
+                        return Err(CompileError::new("Tool path cannot be empty"));
+                    }
+                    let stub_name = format!("tool.{}", decl.path.join("."));
+                    let func_idx =
+                        self.enclosing
+                            .compile_tool_stub(&self.module, &stub_name, &decl.params);
+                    if decl.path.len() == 1 {
+                        let global =
+                            self.enclosing
+                                .ensure_global(&mangle_symbol(&self.module.prefix, &decl.path[0]));
+                        let const_idx = self.chunk.add_constant(Constant::Function(func_idx));
+                        self.chunk.write(Instruction::Const(const_idx), 0);
+                        self.chunk.write(Instruction::StoreGlobal(global), 0);
+                    } else {
+                        let parent = &decl.path[..decl.path.len() - 1];
+                        self.ensure_tool_namespace(parent, 0)?;
+                        self.emit_load_path_record(parent, 0)?;
+                        let const_idx = self.chunk.add_constant(Constant::Function(func_idx));
+                        self.chunk.write(Instruction::Const(const_idx), 0);
+                        let key_idx = self
+                            .chunk
+                            .add_constant(Constant::String(decl.path.last().unwrap().clone()));
+                        self.chunk.write(Instruction::SetField(key_idx), 0);
+                    }
+                }
+                Item::Prompt(decl) => {
+                    let global =
+                        self.enclosing
+                            .ensure_global(&mangle_symbol(&self.module.prefix, &decl.name));
+                    let key_kind = self
+                        .chunk
+                        .add_constant(Constant::String("__kind".to_string()));
+                    let val_kind = self
+                        .chunk
+                        .add_constant(Constant::String("prompt".to_string()));
+                    self.chunk.write(Instruction::Const(key_kind), 0);
+                    self.chunk.write(Instruction::Const(val_kind), 0);
+                    let key_name = self
+                        .chunk
+                        .add_constant(Constant::String("name".to_string()));
+                    let val_name =
+                        self.chunk.add_constant(Constant::String(decl.name.clone()));
+                    self.chunk.write(Instruction::Const(key_name), 0);
+                    self.chunk.write(Instruction::Const(val_name), 0);
+                    let key_template = self
+                        .chunk
+                        .add_constant(Constant::String("template".to_string()));
+                    self.chunk.write(Instruction::Const(key_template), 0);
+                    if let Some(text) = &decl.template {
+                        let val_template = self.chunk.add_constant(Constant::String(text.clone()));
+                        self.chunk.write(Instruction::Const(val_template), 0);
+                    } else {
+                        let null_idx = self.chunk.add_constant(Constant::Null);
+                        self.chunk.write(Instruction::Const(null_idx), 0);
+                    }
+                    let key_inputs = self
+                        .chunk
+                        .add_constant(Constant::String("inputs".to_string()));
+                    self.chunk.write(Instruction::Const(key_inputs), 0);
+                    for field in &decl.input_fields {
+                        let name_idx =
+                            self.chunk.add_constant(Constant::String(field.name.clone()));
+                        self.chunk.write(Instruction::Const(name_idx), 0);
+                    }
+                    self.chunk
+                        .write(Instruction::MakeList(decl.input_fields.len() as u16), 0);
+                    self.chunk.write(Instruction::MakeRecord(4), 0);
+                    self.chunk.write(Instruction::StoreGlobal(global), 0);
+                }
+                Item::Model(decl) => {
+                    let global =
+                        self.enclosing
+                            .ensure_global(&mangle_symbol(&self.module.prefix, &decl.name));
+                    let key_kind = self
+                        .chunk
+                        .add_constant(Constant::String("__kind".to_string()));
+                    let val_kind = self
+                        .chunk
+                        .add_constant(Constant::String("model".to_string()));
+                    self.chunk.write(Instruction::Const(key_kind), 0);
+                    self.chunk.write(Instruction::Const(val_kind), 0);
+                    let key_value = self
+                        .chunk
+                        .add_constant(Constant::String("value".to_string()));
+                    self.chunk.write(Instruction::Const(key_value), 0);
+                    self.compile_expr(&decl.expr)?;
+                    self.chunk.write(Instruction::MakeRecord(2), 0);
+                    self.chunk.write(Instruction::StoreGlobal(global), 0);
+                }
+                Item::Agent(decl) => {
+                    let global =
+                        self.enclosing
+                            .ensure_global(&mangle_symbol(&self.module.prefix, &decl.name));
+                    let key_kind = self
+                        .chunk
+                        .add_constant(Constant::String("__kind".to_string()));
+                    let val_kind = self
+                        .chunk
+                        .add_constant(Constant::String("agent".to_string()));
+                    self.chunk.write(Instruction::Const(key_kind), 0);
+                    self.chunk.write(Instruction::Const(val_kind), 0);
+                    self.chunk.write(Instruction::MakeRecord(1), 0);
+                    self.chunk.write(Instruction::StoreGlobal(global), 0);
+                    for item in &decl.items {
+                        match item {
+                            AgentItem::PolicyUse(name) => {
+                                self.chunk.write(Instruction::LoadGlobal(global), 0);
+                                let val = self.chunk.add_constant(Constant::String(name.clone()));
+                                self.chunk.write(Instruction::Const(val), 0);
+                                let key = self
+                                    .chunk
+                                    .add_constant(Constant::String("policy_name".to_string()));
+                                self.chunk.write(Instruction::SetField(key), 0);
+                            }
+                            AgentItem::Memory(mem) => {
+                                self.chunk.write(Instruction::LoadGlobal(global), 0);
+                                let key = self.chunk.add_constant(Constant::String(
+                                    match mem {
+                                        MemoryDecl::Path { name, .. }
+                                        | MemoryDecl::Expr { name, .. } => name.clone(),
+                                    },
+                                ));
+                                let mk_key = self
+                                    .chunk
+                                    .add_constant(Constant::String("__kind".to_string()));
+                                let mk_val = self
+                                    .chunk
+                                    .add_constant(Constant::String("memory".to_string()));
+                                self.chunk.write(Instruction::Const(mk_key), 0);
+                                self.chunk.write(Instruction::Const(mk_val), 0);
+                                match mem {
+                                    MemoryDecl::Path { path, .. } => {
+                                        let pkey = self.chunk.add_constant(Constant::String(
+                                            "path".to_string(),
+                                        ));
+                                        let pval =
+                                            self.chunk.add_constant(Constant::String(path.clone()));
+                                        self.chunk.write(Instruction::Const(pkey), 0);
+                                        self.chunk.write(Instruction::Const(pval), 0);
+                                        self.chunk.write(Instruction::MakeRecord(2), 0);
+                                    }
+                                    MemoryDecl::Expr { expr, .. } => {
+                                        let ekey = self.chunk.add_constant(Constant::String(
+                                            "expr".to_string(),
+                                        ));
+                                        self.chunk.write(Instruction::Const(ekey), 0);
+                                        self.compile_expr(expr)?;
+                                        self.chunk.write(Instruction::MakeRecord(2), 0);
+                                    }
+                                }
+                                self.chunk.write(Instruction::SetField(key), 0);
+                            }
+                            AgentItem::Fn(func) => {
+                                let body_items: Vec<Item> =
+                                    func.body.stmts.iter().cloned().map(Item::Stmt).collect();
+                                let func_idx = self.enclosing.compile_function(
+                                    &self.module,
+                                    &func.name,
+                                    &func.params,
+                                    &body_items,
+                                )?;
+                                self.chunk.write(Instruction::LoadGlobal(global), 0);
+                                let const_idx =
+                                    self.chunk.add_constant(Constant::Function(func_idx));
+                                self.chunk.write(Instruction::Const(const_idx), 0);
+                                let key_idx = self
+                                    .chunk
+                                    .add_constant(Constant::String(func.name.clone()));
+                                self.chunk.write(Instruction::SetField(key_idx), 0);
+                            }
+                            AgentItem::Stmt(_) => {
+                                // Agent bodies are not executed in v1.1 runtime.
+                            }
+                        }
+                    }
+                }
+                Item::Policy(_) => {
+                    // policy is parsed but not enforced in VM runtime
                 }
             }
         }
@@ -399,15 +707,57 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                 }
             }
             Stmt::Assign { target, expr } => {
-                self.compile_expr(expr)?;
-                let resolved = self.resolve_var(&target.base)?;
-                match resolved {
-                    ResolvedVar::Local(i) => self
-                        .chunk
-                        .write(Instruction::StoreLocal(i), target.base_span.line),
-                    ResolvedVar::Global(i) => self
-                        .chunk
-                        .write(Instruction::StoreGlobal(i), target.base_span.line),
+                if target.accesses.is_empty() {
+                    self.compile_expr(expr)?;
+                    let resolved = self.resolve_var(&target.base)?;
+                    match resolved {
+                        ResolvedVar::Local(i) => self
+                            .chunk
+                            .write(Instruction::StoreLocal(i), target.base_span.line),
+                        ResolvedVar::Global(i) => self
+                            .chunk
+                            .write(Instruction::StoreGlobal(i), target.base_span.line),
+                    }
+                } else {
+                    let resolved = self.resolve_var(&target.base)?;
+                    match resolved {
+                        ResolvedVar::Local(i) => self
+                            .chunk
+                            .write(Instruction::LoadLocal(i), target.base_span.line),
+                        ResolvedVar::Global(i) => self
+                            .chunk
+                            .write(Instruction::LoadGlobal(i), target.base_span.line),
+                    }
+                    let last = target.accesses.len() - 1;
+                    for access in &target.accesses[..last] {
+                        match access {
+                            LValueAccess::Field(name) => {
+                                let key_idx =
+                                    self.chunk.add_constant(Constant::String(name.clone()));
+                                self.chunk
+                                    .write(Instruction::GetField(key_idx), target.base_span.line);
+                            }
+                            LValueAccess::Index(index) => {
+                                self.compile_expr(index)?;
+                                self.chunk
+                                    .write(Instruction::GetIndex, line_of_expr(index));
+                            }
+                        }
+                    }
+                    match &target.accesses[last] {
+                        LValueAccess::Field(name) => {
+                            self.compile_expr(expr)?;
+                            let key_idx = self.chunk.add_constant(Constant::String(name.clone()));
+                            self.chunk
+                                .write(Instruction::SetField(key_idx), target.base_span.line);
+                        }
+                        LValueAccess::Index(index) => {
+                            self.compile_expr(index)?;
+                            self.compile_expr(expr)?;
+                            self.chunk
+                                .write(Instruction::SetIndex, line_of_expr(index));
+                        }
+                    }
                 }
             }
             Stmt::Expr(expr) => {
@@ -502,13 +852,28 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                 ResolvedVar::Global(i) => self.chunk.write(Instruction::LoadGlobal(i), span.line),
             },
             Expr::Unary { op, expr, span } => {
-                self.compile_expr(expr)?;
                 match op {
-                    UnaryOp::Negate => self.chunk.write(Instruction::Neg, span.line),
+                    UnaryOp::Negate => {
+                        self.compile_expr(expr)?;
+                        self.chunk.write(Instruction::Neg, span.line);
+                    }
                     UnaryOp::Not => {
+                        self.compile_expr(expr)?;
                         self.chunk.write(Instruction::Not, span.line);
                     }
-                    _ => return Err(CompileError::new("Unsupported unary op")),
+                    UnaryOp::Await | UnaryOp::Spawn => {
+                        let task_idx = self.enclosing.ensure_global("task");
+                        self.chunk.write(Instruction::LoadGlobal(task_idx), span.line);
+                        let name = match op {
+                            UnaryOp::Await => "join",
+                            UnaryOp::Spawn => "spawn",
+                            _ => unreachable!(),
+                        };
+                        let key_idx = self.chunk.add_constant(Constant::String(name.to_string()));
+                        self.chunk.write(Instruction::GetField(key_idx), span.line);
+                        self.compile_expr(expr)?;
+                        self.chunk.write(Instruction::Call(1), span.line);
+                    }
                 }
             }
             Expr::Binary {
@@ -574,6 +939,11 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                 self.chunk
                     .write(Instruction::Call(args.len() as u16), span.line);
             }
+            Expr::Index { target, index, span } => {
+                self.compile_expr(target)?;
+                self.compile_expr(index)?;
+                self.chunk.write(Instruction::GetIndex, span.line);
+            }
             Expr::Field { target, name, span } => {
                 if let Expr::Ident { name: alias, .. } = &**target {
                     if !self.is_local_name(alias) {
@@ -598,7 +968,77 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                 let key_idx = self.chunk.add_constant(Constant::String(name.clone()));
                 self.chunk.write(Instruction::GetField(key_idx), span.line);
             }
+            Expr::List { items, span } => {
+                for item in items {
+                    self.compile_expr(item)?;
+                }
+                self.chunk
+                    .write(Instruction::MakeList(items.len() as u16), span.line);
+            }
+            Expr::Try { expr, span } => {
+                self.compile_expr(expr)?;
+                self.chunk.write(Instruction::TryUnwrap, span.line);
+            }
             _ => return Err(CompileError::new("Unsupported expression")),
+        }
+        Ok(())
+    }
+
+    fn ensure_method_table(&mut self, type_name: &str, line: usize) -> u16 {
+        let table_name = type_method_table_name(type_name);
+        let idx = self.enclosing.ensure_global(&table_name);
+        if self.enclosing.method_tables.insert(table_name) {
+            self.chunk.write(Instruction::MakeRecord(0), line);
+            self.chunk.write(Instruction::StoreGlobal(idx), line);
+        }
+        idx
+    }
+
+    fn ensure_tool_namespace(
+        &mut self,
+        segments: &[String],
+        line: usize,
+    ) -> Result<(), CompileError> {
+        if segments.is_empty() {
+            return Ok(());
+        }
+        for i in 0..segments.len() {
+            let key = format!("{}::{}", self.module.prefix, segments[..=i].join("."));
+            if !self.enclosing.tool_namespaces.insert(key) {
+                continue;
+            }
+            if i == 0 {
+                let global =
+                    self.enclosing
+                        .ensure_global(&mangle_symbol(&self.module.prefix, &segments[0]));
+                self.chunk.write(Instruction::MakeRecord(0), line);
+                self.chunk.write(Instruction::StoreGlobal(global), line);
+            } else {
+                self.emit_load_path_record(&segments[..i], line)?;
+                self.chunk.write(Instruction::MakeRecord(0), line);
+                let key_idx =
+                    self.chunk.add_constant(Constant::String(segments[i].clone()));
+                self.chunk.write(Instruction::SetField(key_idx), line);
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_load_path_record(
+        &mut self,
+        segments: &[String],
+        line: usize,
+    ) -> Result<(), CompileError> {
+        if segments.is_empty() {
+            return Err(CompileError::new("Empty path"));
+        }
+        let root =
+            self.enclosing
+                .ensure_global(&mangle_symbol(&self.module.prefix, &segments[0]));
+        self.chunk.write(Instruction::LoadGlobal(root), line);
+        for segment in &segments[1..] {
+            let key_idx = self.chunk.add_constant(Constant::String(segment.clone()));
+            self.chunk.write(Instruction::GetField(key_idx), line);
         }
         Ok(())
     }
@@ -787,4 +1227,8 @@ fn module_record_name(id: &ModuleId) -> String {
 
 fn mangle_symbol(module_prefix: &str, name: &str) -> String {
     format!("{}::{}", module_prefix, name)
+}
+
+fn type_method_table_name(type_name: &str) -> String {
+    format!("__type_methods::{}", type_name)
 }

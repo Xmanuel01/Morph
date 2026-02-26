@@ -366,10 +366,12 @@ pub fn train(config_path: &Path) -> Result<(), String> {
     let config = parse_train_config(&config_value)?;
     let tokenizer = build_tokenizer(&config)?;
     let dataset_paths = resolve_dataset_paths(&config.dataset_path)?;
-    let mut data_cfg = DatasetConfig::new(config.seq_len, config.batch_size);
-    data_cfg.add_eos = config.add_eos;
-    data_cfg.drop_remainder = config.drop_remainder;
-    data_cfg.pad_id = config.pad_id;
+        let mut data_cfg = DatasetConfig::new(config.seq_len, config.batch_size);
+        data_cfg.add_eos = config.add_eos;
+        data_cfg.drop_remainder = config.drop_remainder;
+        data_cfg.pad_id = config.pad_id;
+        data_cfg.seed = config.seed;
+        data_cfg.shuffle = config.seed.is_some();
     let mut stream = DatasetStream::new(dataset_paths, tokenizer.clone(), data_cfg)?;
     let mut step = 0usize;
     let mut tokens = 0u64;
@@ -551,10 +553,11 @@ pub fn eval(config_path: &Path) -> Result<(), String> {
         .as_ref()
         .unwrap_or(&config.dataset_path);
     let dataset_paths = resolve_dataset_paths(dataset_path)?;
-    let mut data_cfg = DatasetConfig::new(config.seq_len, config.batch_size);
-    data_cfg.add_eos = config.add_eos;
-    data_cfg.drop_remainder = config.drop_remainder;
-    data_cfg.pad_id = config.pad_id;
+        let mut data_cfg = DatasetConfig::new(config.seq_len, config.batch_size);
+        data_cfg.add_eos = config.add_eos;
+        data_cfg.drop_remainder = config.drop_remainder;
+        data_cfg.pad_id = config.pad_id;
+        data_cfg.seed = config.seed;
     let mut stream = DatasetStream::new(dataset_paths, tokenizer, data_cfg)?;
     if config.backend == "native" {
         let mut engine = init(rt_config_from(&config)).map_err(|e| e.to_string())?;
@@ -633,10 +636,9 @@ fn build_tokenizer(config: &TrainConfig) -> Result<Tokenizer, String> {
             vocab_size,
             save_path,
         } => {
-            let cfg = TokenizerTrainConfig {
-                vocab_size: *vocab_size,
-                ..TokenizerTrainConfig::default()
-            };
+            let mut cfg = TokenizerTrainConfig::default();
+            cfg.vocab_size = *vocab_size;
+            cfg.seed = config.seed;
             let tok = Tokenizer::train_from_path(Path::new(path), &cfg)?;
             if let Some(save_path) = save_path {
                 tok.save(Path::new(save_path))?;
@@ -664,7 +666,8 @@ fn load_config_value(path: &Path) -> Result<Value, String> {
 }
 
 fn parse_train_config(value: &Value) -> Result<TrainConfig, String> {
-    let map = value_as_record(value)?;
+    let map_ref = value_as_record(value)?;
+    let map = &*map_ref;
     let (config_version, legacy_config) = match map.get("config_version") {
         Some(Value::Int(i)) if *i >= 1 => (*i as u32, false),
         Some(_) => return Err("config_version must be Int >= 1".to_string()),
@@ -677,6 +680,7 @@ fn parse_train_config(value: &Value) -> Result<TrainConfig, String> {
         ));
     }
     let model = map.get("model").and_then(|v| as_record(v).ok());
+    let model_ref = model.as_ref().map(|m| &**m).unwrap_or(map);
     let backend = if legacy_config {
         map.get("backend")
             .and_then(|v| as_string(v).ok())
@@ -685,24 +689,25 @@ fn parse_train_config(value: &Value) -> Result<TrainConfig, String> {
         record_string(map, "backend")?
     };
     validate_backend(&backend)?;
-    let vocab_size = record_usize(model.unwrap_or(map), "vocab_size")?;
-    let hidden_size = record_usize(model.unwrap_or(map), "hidden_size")?;
-    let d_model = record_usize_default(model.unwrap_or(map), "d_model", hidden_size);
-    let n_layers = record_usize_default(model.unwrap_or(map), "n_layers", 2);
-    let n_heads = record_usize_default(model.unwrap_or(map), "n_heads", 4);
-    let device = record_string_default(model.unwrap_or(map), "device", "cpu");
-    let dtype = record_string_default(model.unwrap_or(map), "dtype", "fp32");
+    let vocab_size = record_usize(model_ref, "vocab_size")?;
+    let hidden_size = record_usize(model_ref, "hidden_size")?;
+    let d_model = record_usize_default(model_ref, "d_model", hidden_size);
+    let n_layers = record_usize_default(model_ref, "n_layers", 2);
+    let n_heads = record_usize_default(model_ref, "n_heads", 4);
+    let device = record_string_default(model_ref, "device", "cpu");
+    let dtype = record_string_default(model_ref, "dtype", "fp32");
     validate_dtype(&dtype)?;
     validate_device(&device, &backend)?;
     let seq_len = record_usize(map, "seq_len")?;
     let batch_size = record_usize(map, "batch_size")?;
     let lr = record_f32(map, "lr")?;
     let optim = map.get("optim").and_then(|v| as_record(v).ok());
-    let opt_lr = record_f64_default(optim.unwrap_or(map), "lr", lr as f64);
-    let opt_beta1 = record_f64_default(optim.unwrap_or(map), "beta1", 0.9);
-    let opt_beta2 = record_f64_default(optim.unwrap_or(map), "beta2", 0.999);
-    let opt_eps = record_f64_default(optim.unwrap_or(map), "eps", 1e-8);
-    let opt_wd = record_f64_default(optim.unwrap_or(map), "weight_decay", 0.01);
+    let optim_ref = optim.as_ref().map(|m| &**m).unwrap_or(map);
+    let opt_lr = record_f64_default(optim_ref, "lr", lr as f64);
+    let opt_beta1 = record_f64_default(optim_ref, "beta1", 0.9);
+    let opt_beta2 = record_f64_default(optim_ref, "beta2", 0.999);
+    let opt_eps = record_f64_default(optim_ref, "eps", 1e-8);
+    let opt_wd = record_f64_default(optim_ref, "weight_decay", 0.01);
     let dataset_path = record_string(map, "dataset_path")?;
     let eval_dataset_path = map.get("eval_dataset_path").and_then(|v| as_string(v).ok());
     let checkpoint_dir = record_string(map, "checkpoint_dir")?;
@@ -722,7 +727,8 @@ fn parse_train_config(value: &Value) -> Result<TrainConfig, String> {
     let tokenizer = if let Some(value) = map.get("tokenizer_path") {
         TokenizerConfig::Load(as_string(value)?)
     } else if let Some(value) = map.get("tokenizer_train") {
-        let tmap = value_as_record(value)?;
+        let tmap_ref = value_as_record(value)?;
+        let tmap = &*tmap_ref;
         let path = record_string(tmap, "path")?;
         let vocab_size = record_usize_default(tmap, "vocab_size", vocab_size);
         let save_path = tmap.get("save_path").and_then(|v| as_string(v).ok());
@@ -789,20 +795,24 @@ fn compile_error_message(err: &CompileError) -> String {
     }
 }
 
-fn value_as_record(value: &Value) -> Result<&std::collections::HashMap<String, Value>, String> {
+fn value_as_record<'a>(
+    value: &'a Value,
+) -> Result<std::cell::Ref<'a, std::collections::HashMap<String, Value>>, String> {
     match value {
         Value::Obj(obj) => match obj.as_obj() {
-            Obj::Record(map) => Ok(map),
+            Obj::Record(map) => Ok(map.borrow()),
             _ => Err("Expected record config".to_string()),
         },
         _ => Err("Expected record config".to_string()),
     }
 }
 
-fn as_record(value: &Value) -> Result<&std::collections::HashMap<String, Value>, String> {
+fn as_record<'a>(
+    value: &'a Value,
+) -> Result<std::cell::Ref<'a, std::collections::HashMap<String, Value>>, String> {
     match value {
         Value::Obj(obj) => match obj.as_obj() {
-            Obj::Record(map) => Ok(map),
+            Obj::Record(map) => Ok(map.borrow()),
             _ => Err("Expected record".to_string()),
         },
         _ => Err("Expected record".to_string()),

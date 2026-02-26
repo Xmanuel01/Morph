@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -15,8 +16,8 @@ use crate::dataset::{resolve_dataset_paths, Batch, DatasetConfig, DatasetStream}
 use crate::error::{RuntimeError, RuntimeFrame};
 use crate::ffi::FfiLoader;
 use crate::object::{
-    channel_value, function_value, record_value, string_value, task_handle_value, NativeFunction,
-    NativeImpl, Obj,
+    channel_value, function_value, record_value, string_value, task_handle_value, BoundFunctionObj,
+    NativeFunction, NativeImpl, Obj,
 };
 use crate::tokenizer::{bytes_to_ids, ids_to_bytes, Tokenizer, TrainConfig};
 use crate::value::{ObjRef, Value};
@@ -1060,6 +1061,23 @@ impl VM {
                     }
                     self.stack.push(record_value(map));
                 }
+                Instruction::MakeList(count) => {
+                    let mut values = Vec::with_capacity(count as usize);
+                    for _ in 0..count {
+                        let value = match self.stack.pop() {
+                            Some(val) => val,
+                            None => {
+                                return TaskRunOutcome::Errored(trace(RuntimeError::new(
+                                    "Stack underflow",
+                                )))
+                            }
+                        };
+                        values.push(value);
+                    }
+                    values.reverse();
+                    self.stack
+                        .push(Value::Obj(ObjRef::new(Obj::List(RefCell::new(values)))));
+                }
                 Instruction::GetField(name_idx) => {
                     let target = match self.stack.pop() {
                         Some(val) => val,
@@ -1079,14 +1097,37 @@ impl VM {
                     };
                     let value = match target.clone() {
                         Value::Obj(obj) => match obj.as_obj() {
-                            Obj::Record(map) => match map.get(&name).cloned() {
-                                Some(val) => val,
-                                None => {
+                            Obj::Record(map) => {
+                                let (field_value, type_name) = {
+                                    let map = map.borrow();
+                                    let value = map.get(&name).cloned();
+                                    let ty = map.get("__type").cloned();
+                                    (value, ty)
+                                };
+                                if let Some(val) = field_value {
+                                    val
+                                } else if let Some(Value::Obj(obj)) = type_name {
+                                    if let Obj::String(type_name) = obj.as_obj() {
+                                        if let Some(val) =
+                                            self.lookup_method(type_name, &name, target.clone())
+                                        {
+                                            val
+                                        } else {
+                                            return TaskRunOutcome::Errored(trace(
+                                                RuntimeError::new("Unknown field"),
+                                            ));
+                                        }
+                                    } else {
+                                        return TaskRunOutcome::Errored(trace(RuntimeError::new(
+                                            "Unknown field",
+                                        )));
+                                    }
+                                } else {
                                     return TaskRunOutcome::Errored(trace(RuntimeError::new(
                                         "Unknown field",
-                                    )))
+                                    )));
                                 }
-                            },
+                            }
                             Obj::TcpListener(_) => match name.as_str() {
                                 "accept" => self.bound_native("net.accept", 0, target),
                                 "port" => self.bound_native("net.listener.port", 0, target),
@@ -1140,6 +1181,170 @@ impl VM {
                     };
                     self.stack.push(value);
                 }
+                Instruction::GetIndex => {
+                    let index = match self.stack.pop() {
+                        Some(val) => val,
+                        None => {
+                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
+                                "Stack underflow",
+                            )))
+                        }
+                    };
+                    let target = match self.stack.pop() {
+                        Some(val) => val,
+                        None => {
+                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
+                                "Stack underflow",
+                            )))
+                        }
+                    };
+                    let idx = match index {
+                        Value::Int(i) => i,
+                        _ => {
+                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
+                                "Index expects Int",
+                            )))
+                        }
+                    };
+                    let value = match target {
+                        Value::Obj(obj) => match obj.as_obj() {
+                            Obj::List(items) => {
+                                if idx < 0 {
+                                    return TaskRunOutcome::Errored(trace(RuntimeError::new(
+                                        "Index out of range",
+                                    )));
+                                }
+                                let items = items.borrow();
+                                let idx = idx as usize;
+                                match items.get(idx).cloned() {
+                                    Some(val) => val,
+                                    None => {
+                                        return TaskRunOutcome::Errored(trace(RuntimeError::new(
+                                            "Index out of range",
+                                        )))
+                                    }
+                                }
+                            }
+                            _ => {
+                                return TaskRunOutcome::Errored(trace(RuntimeError::new(
+                                    "Indexing expects a list",
+                                )))
+                            }
+                        },
+                        _ => {
+                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
+                                "Indexing expects a list",
+                            )))
+                        }
+                    };
+                    self.stack.push(value);
+                }
+                Instruction::SetField(name_idx) => {
+                    let value = match self.stack.pop() {
+                        Some(val) => val,
+                        None => {
+                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
+                                "Stack underflow",
+                            )))
+                        }
+                    };
+                    let target = match self.stack.pop() {
+                        Some(val) => val,
+                        None => {
+                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
+                                "Stack underflow",
+                            )))
+                        }
+                    };
+                    let name = match &func.chunk.constants[name_idx as usize] {
+                        Constant::String(s) => s.clone(),
+                        _ => {
+                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
+                                "Field name must be string constant",
+                            )))
+                        }
+                    };
+                    match target {
+                        Value::Obj(obj) => match obj.as_obj() {
+                            Obj::Record(map) => {
+                                map.borrow_mut().insert(name, value);
+                            }
+                            _ => {
+                                return TaskRunOutcome::Errored(trace(RuntimeError::new(
+                                    "Field assignment expects record",
+                                )))
+                            }
+                        },
+                        _ => {
+                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
+                                "Field assignment expects record",
+                            )))
+                        }
+                    }
+                }
+                Instruction::SetIndex => {
+                    let value = match self.stack.pop() {
+                        Some(val) => val,
+                        None => {
+                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
+                                "Stack underflow",
+                            )))
+                        }
+                    };
+                    let index = match self.stack.pop() {
+                        Some(val) => val,
+                        None => {
+                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
+                                "Stack underflow",
+                            )))
+                        }
+                    };
+                    let target = match self.stack.pop() {
+                        Some(val) => val,
+                        None => {
+                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
+                                "Stack underflow",
+                            )))
+                        }
+                    };
+                    let idx = match index {
+                        Value::Int(i) => i,
+                        _ => {
+                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
+                                "Index expects Int",
+                            )))
+                        }
+                    };
+                    match target {
+                        Value::Obj(obj) => match obj.as_obj() {
+                            Obj::List(items) => {
+                                if idx < 0 {
+                                    return TaskRunOutcome::Errored(trace(RuntimeError::new(
+                                        "Index out of range",
+                                    )));
+                                }
+                                let mut items = items.borrow_mut();
+                                let idx = idx as usize;
+                                if idx >= items.len() {
+                                    return TaskRunOutcome::Errored(trace(RuntimeError::new(
+                                        "Index out of range",
+                                    )));
+                                }
+                                items[idx] = value;
+                            }
+                            _ => {
+                                return TaskRunOutcome::Errored(trace(RuntimeError::new(
+                                    "Index assignment expects list",
+                                )))
+                            }
+                        },
+                        _ => {
+                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
+                                "Index assignment expects list",
+                            )))
+                        }
+                    }
+                }
                 Instruction::Call(argc) => {
                     if let Some(caller) = self.frames.last_mut() {
                         caller.ip = next_ip;
@@ -1159,6 +1364,24 @@ impl VM {
                     self.stack.truncate(caller_sp);
                     self.stack.push(ret);
                     continue;
+                }
+                Instruction::TryUnwrap => {
+                    let value = match self.stack.pop() {
+                        Some(val) => val,
+                        None => {
+                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
+                                "Stack underflow",
+                            )))
+                        }
+                    };
+                    match value {
+                        Value::Null => {
+                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
+                                "Tried to unwrap none",
+                            )))
+                        }
+                        _ => self.stack.push(value),
+                    }
                 }
             }
             budget = budget.saturating_sub(1);
@@ -1197,6 +1420,25 @@ impl VM {
                             func_index: f.func_index,
                             ip: 0,
                             base: callee_index + 1, // locals start at first arg
+                            caller_sp: callee_index,
+                        });
+                    }
+                    Obj::BoundFunction(bf) => {
+                        if argc as u16 != bf.arity {
+                            return Err(RuntimeError::new("Arity mismatch"));
+                        }
+                        let func = program
+                            .functions
+                            .get(bf.func_index as usize)
+                            .ok_or_else(|| RuntimeError::new("Function not found"))?;
+                        if func.arity != bf.arity + 1 {
+                            return Err(RuntimeError::new("Bound function arity mismatch"));
+                        }
+                        self.stack.insert(callee_index + 1, bf.bound.clone());
+                        self.frames.push(CallFrame {
+                            func_index: bf.func_index,
+                            ip: 0,
+                            base: callee_index + 1,
                             caller_sp: callee_index,
                         });
                     }
@@ -1743,6 +1985,51 @@ impl VM {
         })))
     }
 
+    fn lookup_method(&self, type_name: &str, method: &str, receiver: Value) -> Option<Value> {
+        let table_name = format!("__type_methods::{}", type_name);
+        let idx = self.globals_map.get(&table_name).copied()?;
+        let table = self.globals.get(idx as usize)?;
+        let method_val = match table {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::Record(map) => {
+                    let map = map.borrow();
+                    map.get(method).cloned()?
+                }
+                _ => return None,
+            },
+            _ => return None,
+        };
+        Some(self.bind_method_value(method_val, receiver))
+    }
+
+    fn bind_method_value(&self, value: Value, receiver: Value) -> Value {
+        match value {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::Function(f) => {
+                    if f.arity == 0 {
+                        return Value::Obj(obj);
+                    }
+                    Value::Obj(ObjRef::new(Obj::BoundFunction(BoundFunctionObj {
+                        func_index: f.func_index,
+                        arity: f.arity.saturating_sub(1),
+                        bound: receiver,
+                    })))
+                }
+                Obj::BoundFunction(_) => Value::Obj(obj),
+                Obj::NativeFunction(nf) => Value::Obj(ObjRef::new(Obj::NativeFunction(
+                    NativeFunction {
+                        name: nf.name.clone(),
+                        arity: nf.arity.saturating_sub(1),
+                        kind: nf.kind.clone(),
+                        bound: Some(receiver),
+                    },
+                ))),
+                _ => Value::Obj(obj),
+            },
+            _ => value,
+        }
+    }
+
     fn net_bind(&mut self, host: Value, port: Value) -> Result<Value, RuntimeError> {
         let host = match host {
             Value::Obj(obj) => match obj.as_obj() {
@@ -2117,6 +2404,11 @@ impl VM {
                         return Err(RuntimeError::new("http.serve expects handler arity 1"));
                     }
                 }
+                Obj::BoundFunction(bf) => {
+                    if bf.arity != 1 {
+                        return Err(RuntimeError::new("http.serve expects handler arity 1"));
+                    }
+                }
                 Obj::NativeFunction(nf) => {
                     if nf.arity != 1 {
                         return Err(RuntimeError::new("http.serve expects handler arity 1"));
@@ -2202,6 +2494,7 @@ impl VM {
             }),
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::Record(map) => {
+                    let map = map.borrow();
                     let status = match map.get("status") {
                         Some(Value::Int(i)) => (*i).clamp(100, 599) as u16,
                         _ => 200,
@@ -2218,7 +2511,8 @@ impl VM {
                     let mut headers = HashMap::new();
                     if let Some(Value::Obj(obj)) = map.get("headers") {
                         if let Obj::Record(hmap) = obj.as_obj() {
-                            for (k, v) in hmap {
+                            let hmap = hmap.borrow();
+                            for (k, v) in hmap.iter() {
                                 if let Value::Obj(vobj) = v {
                                     if let Obj::String(s) = vobj.as_obj() {
                                         headers.insert(k.to_lowercase(), s.clone());
@@ -2276,6 +2570,7 @@ impl VM {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::String(s) => s.clone(),
                 Obj::Record(map) => {
+                    let map = map.borrow();
                     let path_value = map
                         .get("path")
                         .ok_or_else(|| RuntimeError::new("tokenizer.train config missing path"))?;
@@ -2294,6 +2589,13 @@ impl VM {
                         if min > 0 {
                             train_cfg.min_freq = min as usize;
                         }
+                    }
+                    if let Some(value) = map.get("seed") {
+                        let seed = value_as_int(value)?;
+                        if seed < 0 {
+                            return Err(RuntimeError::new("tokenizer.train seed must be >= 0"));
+                        }
+                        train_cfg.seed = Some(seed as u64);
                     }
                     if let Some(value) = map.get("save_path") {
                         save_path = Some(value_as_string(value)?);
@@ -2382,6 +2684,7 @@ impl VM {
         let cfg = match config {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::Record(map) => {
+                    let map = map.borrow();
                     let seq_len = map
                         .get("seq_len")
                         .ok_or_else(|| RuntimeError::new("dataset config missing seq_len"))
@@ -2405,6 +2708,16 @@ impl VM {
                         if id >= 0 {
                             cfg.pad_id = id as u32;
                         }
+                    }
+                    if let Some(value) = map.get("seed") {
+                        let seed = value_as_int(value)?;
+                        if seed < 0 {
+                            return Err(RuntimeError::new("dataset seed must be >= 0"));
+                        }
+                        cfg.seed = Some(seed as u64);
+                    }
+                    if let Some(value) = map.get("shuffle") {
+                        cfg.shuffle = value_as_bool(value)?;
                     }
                     cfg
                 }
@@ -2444,7 +2757,7 @@ impl VM {
             _ => return Err(RuntimeError::new("checkpoint.save expects record state")),
         };
         let state = match obj.as_obj() {
-            Obj::Record(map) => map.clone(),
+            Obj::Record(map) => map.borrow().clone(),
             _ => return Err(RuntimeError::new("checkpoint.save expects record state")),
         };
         let weights = match state.get("weights") {
@@ -2586,15 +2899,17 @@ impl VM {
                     String::from_utf8_lossy(bytes).to_string(),
                 )),
                 Obj::List(items) => {
+                    let items = items.borrow();
                     let mut out = Vec::with_capacity(items.len());
-                    for item in items {
+                    for item in items.iter() {
                         out.push(self.value_to_json(item.clone())?);
                     }
                     Ok(serde_json::Value::Array(out))
                 }
                 Obj::Record(map) => {
+                    let map = map.borrow();
                     let mut out = serde_json::Map::new();
-                    for (k, v) in map {
+                    for (k, v) in map.iter() {
                         let value = self.value_to_json(v.clone())?;
                         out.insert(k.clone(), value);
                     }
@@ -2882,9 +3197,10 @@ fn json_to_value(value: serde_json::Value) -> Value {
             }
         }
         serde_json::Value::String(s) => string_value(&s),
-        serde_json::Value::Array(items) => Value::Obj(ObjRef::new(Obj::List(
-            items.into_iter().map(json_to_value).collect(),
-        ))),
+        serde_json::Value::Array(items) => {
+            let values = items.into_iter().map(json_to_value).collect();
+            Value::Obj(ObjRef::new(Obj::List(RefCell::new(values))))
+        }
         serde_json::Value::Object(map) => {
             let mut out = HashMap::new();
             for (k, v) in map {
@@ -2925,8 +3241,9 @@ fn value_to_token_ids(value: &Value) -> Result<Vec<u32>, RuntimeError> {
             Obj::Buffer(bytes) => bytes_to_ids(bytes)
                 .map_err(|err| RuntimeError::new(&format!("Invalid token buffer: {}", err))),
             Obj::List(items) => {
+                let items = items.borrow();
                 let mut out = Vec::with_capacity(items.len());
-                for item in items {
+                for item in items.iter() {
                     match item {
                         Value::Int(i) if *i >= 0 => out.push(*i as u32),
                         _ => return Err(RuntimeError::new("Token list must contain Int values")),
@@ -3024,9 +3341,10 @@ fn display_value(v: &Value) -> String {
         Value::Obj(obj) => match obj.as_obj() {
             Obj::String(s) => s.clone(),
             Obj::Buffer(bytes) => format!("<buffer {} bytes>", bytes.len()),
-            Obj::List(values) => format!("<list {} items>", values.len()),
+            Obj::List(values) => format!("<list {} items>", values.borrow().len()),
             Obj::Json(_) => "<json>".to_string(),
             Obj::Function(f) => format!("<fn {}>", f.name.clone().unwrap_or_default()),
+            Obj::BoundFunction(_) => "<bound_fn>".to_string(),
             Obj::NativeFunction(n) => format!("<native {}>", n.name),
             Obj::TaskHandle(id) => format!("<task {}>", id),
             Obj::Channel(_) => "<channel>".to_string(),

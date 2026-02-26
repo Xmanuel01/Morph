@@ -41,3 +41,17 @@ fn token_buffer_roundtrip() {
     let decoded = bytes_to_ids(&bytes).expect("decode");
     assert_eq!(decoded, ids);
 }
+
+#[test]
+fn tokenizer_seed_is_deterministic() {
+    let dir = tempdir().expect("tempdir");
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "alpha beta gamma delta").expect("write");
+    let mut cfg = TrainConfig::default();
+    cfg.vocab_size = 6;
+    cfg.seed = Some(42);
+    let tok1 = Tokenizer::train_from_path(&file, &cfg).expect("train1");
+    let tok2 = Tokenizer::train_from_path(&file, &cfg).expect("train2");
+    let ids: Vec<u32> = (0..tok1.vocab_size() as u32).collect();
+    assert_eq!(tok1.decode(&ids), tok2.decode(&ids));
+}

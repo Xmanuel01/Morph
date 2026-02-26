@@ -18,6 +18,10 @@ fn main() ::
 ::
 ```
 
+Optional determinism:
+- `seed` (Int >= 0) controls model initialization and is also used to seed tokenizer
+  training tie-breaks and dataset file shuffling for repeatable runs.
+
 ## Evaluation
 
 ```

@@ -24,3 +24,11 @@ fn sleep_yields_and_tasks_complete() {
     );
     assert_eq!(value, Value::Int(3));
 }
+
+#[test]
+fn unary_spawn_and_await() {
+    let value = run_value(
+        "fn work() -> Int ::\n    return 7\n::\nlet h := spawn work\nawait h\n",
+    );
+    assert_eq!(value, Value::Int(7));
+}

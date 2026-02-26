@@ -17,6 +17,7 @@ pub struct TrainConfig {
     pub vocab_size: usize,
     pub lowercase: bool,
     pub min_freq: usize,
+    pub seed: Option<u64>,
 }
 
 impl Default for TrainConfig {
@@ -25,6 +26,7 @@ impl Default for TrainConfig {
             vocab_size: 32000,
             lowercase: false,
             min_freq: 1,
+            seed: None,
         }
     }
 }
@@ -60,7 +62,17 @@ impl Tokenizer {
             .into_iter()
             .filter(|(_, freq)| *freq >= config.min_freq)
             .collect();
-        items.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        if let Some(seed) = config.seed {
+            items.sort_by(|a, b| {
+                b.1.cmp(&a.1).then_with(|| {
+                    let ha = seeded_hash(seed, &a.0);
+                    let hb = seeded_hash(seed, &b.0);
+                    ha.cmp(&hb).then_with(|| a.0.cmp(&b.0))
+                })
+            });
+        } else {
+            items.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        }
         let mut vocab = Vec::with_capacity(config.vocab_size);
         vocab.push("<unk>".to_string());
         vocab.push("<eos>".to_string());
@@ -169,6 +181,7 @@ fn collect_files(path: &Path) -> Result<Vec<PathBuf>, String> {
     }
     let mut files = Vec::new();
     collect_files_in_dir(path, &mut files)?;
+    files.sort();
     Ok(files)
 }
 
@@ -185,4 +198,13 @@ fn collect_files_in_dir(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), Stri
         }
     }
     Ok(())
+}
+
+fn seeded_hash(seed: u64, text: &str) -> u64 {
+    let mut hash = 14695981039346656037u64 ^ seed;
+    for byte in text.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(1099511628211);
+    }
+    hash
 }

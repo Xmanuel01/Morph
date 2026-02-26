@@ -1,0 +1,40 @@
+// Minimal std::nn + std::loss + std::optim training sanity loop.
+// Requires enkai_tensor with torch backend enabled (ENKAI_TORCH=1).
+
+import std::tensor
+import std::nn
+import std::loss
+import std::optim
+
+fn main() -> Int ::
+    let device := tensor.device("cpu")
+    let dtype := "fp32"
+    let vocab := 32
+    let dim := 64
+    let batch := 4
+    let seq := 8
+
+    let emb := nn.embedding_params(vocab, dim, dtype, device)
+    let proj := nn.linear_params(dim, vocab, dtype, device)
+    let w_emb := emb.w
+    let w_out := proj.w
+    let b_out := proj.b
+
+    let opt := optim.adamw_create([w_emb, w_out, b_out], 0.001, 0.9, 0.999, 0.00000001, 0.0)
+
+    let step := 0
+    while step < 5 ::
+        tensor.zero_grad_multi([w_emb, w_out, b_out])
+        let input_ids := tensor.zeros([batch, seq], "int64", device)
+        let targets := tensor.zeros([batch * seq], "int64", device)
+        let x := nn.embedding(w_emb, input_ids)
+        let x2 := tensor.view(x, [batch * seq, dim])
+        let logits := nn.linear(x2, w_out, b_out)
+        let loss_t := loss.cross_entropy(logits, targets)
+        tensor.backward(loss_t)
+        optim.adamw_step(opt)
+        step := step + 1
+    ::
+
+    return 0
+::

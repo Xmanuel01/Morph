@@ -1,0 +1,24 @@
+// std::optim (v1.1 core)
+
+native::import "enkai_tensor" ::
+    fn enkai_opt_adamw_create(params_json: String, lr: Float, beta1: Float, beta2: Float, eps: Float, weight_decay: Float) -> Int
+    fn enkai_opt_adamw_step(opt: Int) -> Int
+    fn enkai_opt_retain(handle: Int) -> Int
+    fn enkai_tensor_opt_free(handle: Int) -> Int
+::
+
+pub fn adamw_create(params, lr: Float, beta1: Float, beta2: Float, eps: Float, weight_decay: Float) -> OptimizerState ::
+    return enkai_opt_adamw_create(json.stringify(params), lr, beta1, beta2, eps, weight_decay)
+::
+
+pub fn adamw_step(opt: OptimizerState) -> Int ::
+    return enkai_opt_adamw_step(opt)
+::
+
+pub fn retain(opt: OptimizerState) -> Int ::
+    return enkai_opt_retain(opt)
+::
+
+pub fn free(opt: OptimizerState) -> Int ::
+    return enkai_tensor_opt_free(opt)
+::

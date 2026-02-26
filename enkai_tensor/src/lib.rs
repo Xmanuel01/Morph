@@ -1060,6 +1060,46 @@ pub extern "C" fn enkai_tensor_item(handle: i64) -> f64 {
 }
 
 #[no_mangle]
+pub extern "C" fn enkai_tensor_require_grad(handle: i64) -> i64 {
+    ffi_guard(0, || {
+        clear_error();
+        #[cfg(feature = "torch")]
+        {
+            if let Ok(freed) = TENSOR_FREED.lock() {
+                if freed.contains(&handle) {
+                    set_error("Stale tensor handle (freed)");
+                    return 0;
+                }
+            }
+            let mut guard = match TENSORS.lock() {
+                Ok(g) => g,
+                Err(_) => {
+                    set_error("tensor registry poisoned");
+                    return 0;
+                }
+            };
+            let entry = match guard.get_mut(&handle) {
+                Some(e) => e,
+                None => {
+                    set_error("Invalid tensor handle");
+                    return 0;
+                }
+            };
+            if !entry.tensor.requires_grad() {
+                entry.tensor = entry.tensor.set_requires_grad(true);
+            }
+            handle
+        }
+        #[cfg(not(feature = "torch"))]
+        {
+            let _ = handle;
+            set_error("torch backend not enabled");
+            0
+        }
+    })
+}
+
+#[no_mangle]
 pub extern "C" fn enkai_tensor_grad(handle: i64) -> i64 {
     ffi_guard(0, || {
         clear_error();

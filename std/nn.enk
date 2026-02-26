@@ -1,0 +1,57 @@
+// std::nn (v1.1 core)
+
+import std::tensor
+
+pub fn embedding(w: Tensor, ids: Tensor) -> Tensor ::
+    return tensor.embedding(w, ids)
+::
+
+pub fn linear(x: Tensor, w: Tensor, b: Tensor) -> Tensor ::
+    return tensor.linear(x, w, b)
+::
+
+pub fn layernorm(x: Tensor, w: Tensor, b: Tensor, eps: Float) -> Tensor ::
+    return tensor.layernorm(x, w, b, eps)
+::
+
+pub fn gelu(x: Tensor) -> Tensor ::
+    return tensor.gelu(x)
+::
+
+pub fn relu(x: Tensor) -> Tensor ::
+    return tensor.relu(x)
+::
+
+pub fn dropout(x: Tensor, p: Float, train: Bool) -> Tensor ::
+    return tensor.dropout(x, p, train)
+::
+
+pub fn embedding_params(vocab: Int, dim: Int, dtype: DType, device: Device) ::
+    let w := tensor.randn([vocab, dim], dtype, device)
+    w := tensor.require_grad(w)
+    let out := json.parse("{\"w\":0}")
+    out.w := w
+    return out
+::
+
+pub fn linear_params(in_dim: Int, out_dim: Int, dtype: DType, device: Device) ::
+    let w := tensor.randn([out_dim, in_dim], dtype, device)
+    w := tensor.require_grad(w)
+    let b := tensor.zeros([out_dim], dtype, device)
+    b := tensor.require_grad(b)
+    let out := json.parse("{\"w\":0,\"b\":0}")
+    out.w := w
+    out.b := b
+    return out
+::
+
+pub fn layernorm_params(dim: Int, dtype: DType, device: Device) ::
+    let w := tensor.randn([dim], dtype, device)
+    w := tensor.require_grad(w)
+    let b := tensor.zeros([dim], dtype, device)
+    b := tensor.require_grad(b)
+    let out := json.parse("{\"w\":0,\"b\":0}")
+    out.w := w
+    out.b := b
+    return out
+::

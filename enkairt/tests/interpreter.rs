@@ -1,5 +1,6 @@
 use enkaic::compiler::compile_module;
 use enkaic::parser::parse_module;
+use enkairt::error::RuntimeError;
 use enkairt::{Value, VM};
 
 fn run_value(source: &str) -> Value {
@@ -7,6 +8,13 @@ fn run_value(source: &str) -> Value {
     let program = compile_module(&module).expect("compile");
     let mut vm = VM::new(false, false, false, false);
     vm.run(&program).expect("run")
+}
+
+fn run_result(source: &str) -> Result<Value, RuntimeError> {
+    let module = parse_module(source).expect("parse");
+    let program = compile_module(&module).expect("compile");
+    let mut vm = VM::new(false, false, false, false);
+    vm.run(&program)
 }
 
 #[test]
@@ -67,4 +75,34 @@ fn logic_short_circuit_or() {
         "let x := 0\nfn set() -> Bool ::\n    x := 1\n    return true\n::\ntrue or set()\nx",
     );
     assert_eq!(result, Value::Int(0));
+}
+
+#[test]
+fn list_literal_and_index() {
+    let result = run_value("let xs := [1, 2, 3]\nxs[1]");
+    assert_eq!(result, Value::Int(2));
+}
+
+#[test]
+fn list_index_assignment() {
+    let result = run_value("let xs := [1, 2]\nxs[0] := 5\nxs[0]");
+    assert_eq!(result, Value::Int(5));
+}
+
+#[test]
+fn record_field_assignment() {
+    let result = run_value("let r := json.parse(\"{\\\"a\\\":0}\")\nr.a := 7\nr.a");
+    assert_eq!(result, Value::Int(7));
+}
+
+#[test]
+fn try_unwrap_value() {
+    let result = run_value("let x := 5\nx?");
+    assert_eq!(result, Value::Int(5));
+}
+
+#[test]
+fn try_unwrap_none_errors() {
+    let result = run_result("let x := none\nx?");
+    assert!(result.is_err());
 }
