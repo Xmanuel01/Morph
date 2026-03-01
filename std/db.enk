@@ -1,0 +1,29 @@
+// std::db (v1.3 baseline, SQLite)
+
+native::import "enkai_native" ::
+    fn db_sqlite_open(path: String) -> Int
+    fn db_sqlite_close(handle: Int) -> Bool
+    fn db_sqlite_exec(handle: Int, sql: String) -> Int
+    fn db_sqlite_query(handle: Int, sql: String) -> String
+::
+
+pub fn sqlite_open(path: String) -> Int? ::
+    let handle := db_sqlite_open(path)
+    if handle <= 0 ::
+        return none
+    ::
+    return handle
+::
+
+pub fn sqlite_close(handle: Int) -> Bool ::
+    return db_sqlite_close(handle)
+::
+
+pub fn sqlite_exec(handle: Int, sql: String) -> Int ::
+    return db_sqlite_exec(handle, sql)
+::
+
+pub fn sqlite_query(handle: Int, sql: String) ::
+    let raw := db_sqlite_query(handle, sql)
+    return json.parse(raw)
+::

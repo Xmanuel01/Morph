@@ -499,6 +499,7 @@ fn type_from_ref(r: TypeRef) -> Type {
                 Some("TcpConnection") => Type::TcpConnection,
                 Some("Request") => Type::HttpRequest,
                 Some("Response") => Type::HttpResponse,
+                Some("HttpStream") => Type::HttpStream,
                 Some("Void") => Type::Void,
                 _ => Type::Unknown,
             };
@@ -603,6 +604,28 @@ fn inject_builtins(
         ),
     );
     http_exports.insert(
+        "serve_with".to_string(),
+        Type::Function(
+            vec![Type::String, Type::Int, Type::Unknown, Type::Unknown],
+            Box::new(Type::Void),
+        ),
+    );
+    http_exports.insert(
+        "route".to_string(),
+        Type::Function(
+            vec![
+                Type::String,
+                Type::String,
+                Type::Function(vec![Type::HttpRequest], Box::new(Type::HttpResponse)),
+            ],
+            Box::new(Type::Unknown),
+        ),
+    );
+    http_exports.insert(
+        "middleware".to_string(),
+        Type::Function(vec![Type::String, Type::Unknown], Box::new(Type::Unknown)),
+    );
+    http_exports.insert(
         "get".to_string(),
         Type::Function(vec![Type::String], Box::new(Type::HttpResponse)),
     );
@@ -611,6 +634,24 @@ fn inject_builtins(
         Type::Function(
             vec![Type::String, Type::Unknown],
             Box::new(Type::HttpResponse),
+        ),
+    );
+    http_exports.insert(
+        "request".to_string(),
+        Type::Function(vec![Type::Unknown], Box::new(Type::HttpResponse)),
+    );
+    http_exports.insert(
+        "header".to_string(),
+        Type::Function(
+            vec![Type::HttpRequest, Type::String],
+            Box::new(Type::Optional(Box::new(Type::String))),
+        ),
+    );
+    http_exports.insert(
+        "query".to_string(),
+        Type::Function(
+            vec![Type::HttpRequest, Type::String],
+            Box::new(Type::Optional(Box::new(Type::String))),
         ),
     );
     http_exports.insert(
@@ -628,6 +669,18 @@ fn inject_builtins(
     http_exports.insert(
         "not_found".to_string(),
         Type::Function(vec![Type::Unknown], Box::new(Type::HttpResponse)),
+    );
+    http_exports.insert(
+        "stream_open".to_string(),
+        Type::Function(vec![Type::Int, Type::Unknown], Box::new(Type::HttpStream)),
+    );
+    http_exports.insert(
+        "stream_send".to_string(),
+        Type::Function(vec![Type::HttpStream, Type::Unknown], Box::new(Type::Void)),
+    );
+    http_exports.insert(
+        "stream_close".to_string(),
+        Type::Function(vec![Type::HttpStream], Box::new(Type::Void)),
     );
     exports.entry(http_id).or_insert(http_exports);
     let json_id = ModuleId(vec!["json".to_string()]);

@@ -824,9 +824,11 @@ fn build_tokenizer(config: &TrainConfig) -> Result<Tokenizer, String> {
             vocab_size,
             save_path,
         } => {
-            let mut cfg = TokenizerTrainConfig::default();
-            cfg.vocab_size = *vocab_size;
-            cfg.seed = config.seed;
+            let cfg = TokenizerTrainConfig {
+                vocab_size: *vocab_size,
+                seed: config.seed,
+                ..TokenizerTrainConfig::default()
+            };
             let tok = Tokenizer::train_from_path(Path::new(path), &cfg)?;
             if let Some(save_path) = save_path {
                 tok.save(Path::new(save_path))?;
@@ -868,7 +870,7 @@ fn parse_train_config(value: &Value) -> Result<TrainConfig, String> {
         ));
     }
     let model = map.get("model").and_then(|v| as_record(v).ok());
-    let model_ref = model.as_ref().map(|m| &**m).unwrap_or(map);
+    let model_ref = model.as_deref().unwrap_or(map);
     let backend = if legacy_config {
         map.get("backend")
             .and_then(|v| as_string(v).ok())
@@ -889,7 +891,7 @@ fn parse_train_config(value: &Value) -> Result<TrainConfig, String> {
     let batch_size = record_usize(map, "batch_size")?;
     let lr = record_f32(map, "lr")?;
     let optim = map.get("optim").and_then(|v| as_record(v).ok());
-    let optim_ref = optim.as_ref().map(|m| &**m).unwrap_or(map);
+    let optim_ref = optim.as_deref().unwrap_or(map);
     let opt_lr = record_f64_default(optim_ref, "lr", lr as f64);
     let opt_beta1 = record_f64_default(optim_ref, "beta1", 0.9);
     let opt_beta2 = record_f64_default(optim_ref, "beta2", 0.999);

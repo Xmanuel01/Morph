@@ -1,6 +1,9 @@
 use memmap2::Mmap;
+use rusqlite::types::ValueRef;
+use rusqlite::Connection;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::net::{SocketAddr, TcpStream};
 use std::process::{Child, Command, Stdio};
 use std::sync::{
     atomic::{AtomicI64, Ordering},
@@ -455,6 +458,16 @@ fn next_process_handle() -> i64 {
     NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
+fn db_table() -> &'static Mutex<HashMap<i64, Connection>> {
+    static TABLE: OnceLock<Mutex<HashMap<i64, Connection>>> = OnceLock::new();
+    TABLE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn next_db_handle() -> i64 {
+    static NEXT: AtomicI64 = AtomicI64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
 fn parse_args_json(text: &str) -> Option<Vec<String>> {
     let value: serde_json::Value = serde_json::from_str(text).ok()?;
     let arr = value.as_array()?;
@@ -582,6 +595,189 @@ pub extern "C" fn process_run(
 #[no_mangle]
 pub extern "C" fn process_exit(code: i64) {
     std::process::exit(code as i32);
+}
+
+#[no_mangle]
+pub extern "C" fn db_sqlite_open(path_ptr: *const u8, path_len: usize) -> i64 {
+    let path = match string_from_raw(path_ptr, path_len) {
+        Some(path) => path,
+        None => return 0,
+    };
+    let conn = match Connection::open(path) {
+        Ok(conn) => conn,
+        Err(_) => return 0,
+    };
+    let _ = conn.busy_timeout(std::time::Duration::from_secs(5));
+    let handle = next_db_handle();
+    if let Ok(mut table) = db_table().lock() {
+        table.insert(handle, conn);
+        handle
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn db_sqlite_close(handle: i64) -> u8 {
+    if handle <= 0 {
+        return 0;
+    }
+    if let Ok(mut table) = db_table().lock() {
+        if table.remove(&handle).is_some() {
+            1
+        } else {
+            0
+        }
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn db_sqlite_exec(handle: i64, sql_ptr: *const u8, sql_len: usize) -> i64 {
+    if handle <= 0 {
+        return -1;
+    }
+    let sql = match string_from_raw(sql_ptr, sql_len) {
+        Some(sql) => sql,
+        None => return -1,
+    };
+    let mut table = match db_table().lock() {
+        Ok(table) => table,
+        Err(_) => return -1,
+    };
+    let conn = match table.get_mut(&handle) {
+        Some(conn) => conn,
+        None => return -1,
+    };
+    match conn.execute_batch(&sql) {
+        Ok(_) => conn.changes() as i64,
+        Err(_) => -1,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn db_sqlite_query(handle: i64, sql_ptr: *const u8, sql_len: usize) -> FfiSlice {
+    if handle <= 0 {
+        return string_slice("[]".to_string());
+    }
+    let sql = match string_from_raw(sql_ptr, sql_len) {
+        Some(sql) => sql,
+        None => return string_slice("[]".to_string()),
+    };
+    let mut table = match db_table().lock() {
+        Ok(table) => table,
+        Err(_) => return string_slice("[]".to_string()),
+    };
+    let conn = match table.get_mut(&handle) {
+        Some(conn) => conn,
+        None => return string_slice("[]".to_string()),
+    };
+    let mut stmt = match conn.prepare(&sql) {
+        Ok(stmt) => stmt,
+        Err(_) => return string_slice("[]".to_string()),
+    };
+    let col_count = stmt.column_count();
+    let mut col_names = Vec::with_capacity(col_count);
+    for idx in 0..col_count {
+        let name = stmt
+            .column_name(idx)
+            .map(|s| s.to_string())
+            .unwrap_or_else(|_| format!("c{}", idx));
+        col_names.push(name);
+    }
+    let mut rows = match stmt.query([]) {
+        Ok(rows) => rows,
+        Err(_) => return string_slice("[]".to_string()),
+    };
+    let mut out = Vec::new();
+    loop {
+        let row = match rows.next() {
+            Ok(Some(row)) => row,
+            Ok(None) => break,
+            Err(_) => return string_slice("[]".to_string()),
+        };
+        let mut obj = serde_json::Map::new();
+        for (idx, key) in col_names.iter().enumerate() {
+            let value = match row.get_ref(idx) {
+                Ok(ValueRef::Null) => serde_json::Value::Null,
+                Ok(ValueRef::Integer(i)) => serde_json::json!(i),
+                Ok(ValueRef::Real(f)) => serde_json::json!(f),
+                Ok(ValueRef::Text(bytes)) => {
+                    serde_json::Value::String(String::from_utf8_lossy(bytes).to_string())
+                }
+                Ok(ValueRef::Blob(bytes)) => {
+                    serde_json::Value::String(String::from_utf8_lossy(bytes).to_string())
+                }
+                Err(_) => serde_json::Value::Null,
+            };
+            obj.insert(key.clone(), value);
+        }
+        out.push(serde_json::Value::Object(obj));
+    }
+    match serde_json::to_string(&out) {
+        Ok(text) => string_slice(text),
+        Err(_) => string_slice("[]".to_string()),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn tls_fetch_server_info(
+    host_ptr: *const u8,
+    host_len: usize,
+    port: i64,
+    timeout_ms: i64,
+) -> FfiSlice {
+    let host = match string_from_raw(host_ptr, host_len) {
+        Some(host) => host,
+        None => return null_slice(),
+    };
+    let port = if port <= 0 || port > u16::MAX as i64 {
+        return null_slice();
+    } else {
+        port as u16
+    };
+    let timeout_ms = timeout_ms.clamp(100, 60_000) as u64;
+    let addr = format!("{}:{}", host, port);
+    let socket: SocketAddr = match addr.parse() {
+        Ok(addr) => addr,
+        Err(_) => return null_slice(),
+    };
+    let stream =
+        match TcpStream::connect_timeout(&socket, std::time::Duration::from_millis(timeout_ms)) {
+            Ok(stream) => stream,
+            Err(_) => return null_slice(),
+        };
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(timeout_ms)));
+    let _ = stream.set_write_timeout(Some(std::time::Duration::from_millis(timeout_ms)));
+    let connector = match native_tls::TlsConnector::new() {
+        Ok(conn) => conn,
+        Err(_) => return null_slice(),
+    };
+    let stream = match connector.connect(&host, stream) {
+        Ok(stream) => stream,
+        Err(_) => return null_slice(),
+    };
+    let cert_sha256 = stream
+        .peer_certificate()
+        .ok()
+        .flatten()
+        .and_then(|cert| cert.to_der().ok())
+        .map(|der| {
+            let mut hasher = Sha256::new();
+            hasher.update(&der);
+            format!("{:x}", hasher.finalize())
+        })
+        .unwrap_or_default();
+    let json = serde_json::json!({
+        "host": host,
+        "port": port,
+        "cert_sha256": cert_sha256
+    });
+    match serde_json::to_string(&json) {
+        Ok(text) => string_slice(text),
+        Err(_) => null_slice(),
+    }
 }
 
 #[cfg(test)]

@@ -18,6 +18,7 @@ pub enum Type {
     TcpConnection,
     HttpRequest,
     HttpResponse,
+    HttpStream,
     Void,
     Optional(Box<Type>),
     Function(Vec<Type>, Box<Type>),
@@ -45,6 +46,7 @@ impl Type {
             Type::TcpConnection => "TcpConnection".to_string(),
             Type::HttpRequest => "Request".to_string(),
             Type::HttpResponse => "Response".to_string(),
+            Type::HttpStream => "HttpStream".to_string(),
             Type::Void => "Void".to_string(),
             Type::Optional(inner) => format!("{}?", inner.display()),
             Type::Function(params, ret) => {

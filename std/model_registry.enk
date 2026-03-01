@@ -1,0 +1,19 @@
+// std::model_registry (v1.3 serving registry helpers)
+
+import std::env
+
+pub fn model_path() -> String? ::
+    return env.get("ENKAI_SERVE_MODEL_PATH")
+::
+
+pub fn model_name() -> String? ::
+    return env.get("ENKAI_SERVE_MODEL_NAME")
+::
+
+pub fn model_version() -> String? ::
+    return env.get("ENKAI_SERVE_MODEL_VERSION")
+::
+
+pub fn registry_path() -> String? ::
+    return env.get("ENKAI_SERVE_MODEL_REGISTRY")
+::

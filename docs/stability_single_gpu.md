@@ -1,6 +1,6 @@
 # Single-GPU Stability Guide
 
-This guide defines the single-GPU stability gate for Enkai v1.2.0.
+This guide defines the single-GPU stability gate for Enkai v1.3.0.
 
 ## Goal
 

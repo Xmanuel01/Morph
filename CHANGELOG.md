@@ -11,6 +11,23 @@
 ### Breaking changes
 - None yet.
 
+## v1.3.0
+
+### Highlights
+- Added serving-oriented runtime APIs: `http.serve_with`, `http.route`, `http.middleware`, `http.request`, request helpers, and streaming helpers.
+- Added HTTP middleware surface for auth, rate limiting, JSONL logging, and default route handling.
+- Added structured HTTP error payloads and runtime response metadata headers (`x-enkai-request-id`, `x-enkai-latency-ms`, tenant/error-code where applicable).
+- Added CLI `enkai serve` model-selection flow with registry/version pinning or direct checkpoint selection.
+- Added filesystem-based model registry helpers via `std::model_registry`.
+- Added `std::db` (SQLite) and `std::tls` helper modules backed by `enkai_native`.
+
+### Fixes
+- Normalized rate-limit IP keys to avoid per-connection bypass when client source ports change.
+- Stabilized HTTP integration tests by serializing test server lifecycles to prevent port-binding races.
+
+### Breaking changes
+- None.
+
 ## v1.2.0
 
 ### Highlights

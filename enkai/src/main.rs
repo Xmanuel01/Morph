@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 
+use semver::Version;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use toml::Value as TomlValue;
@@ -16,7 +17,7 @@ use enkai_runtime::{Value, VM};
 
 mod train;
 
-const LANG_VERSION: &str = "1.2.0";
+const LANG_VERSION: &str = "1.3.0";
 
 #[derive(Debug, Clone)]
 struct DependencySpec {
@@ -53,6 +54,14 @@ struct BuildCacheMeta {
     program: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ServeModelSelection {
+    checkpoint_path: PathBuf,
+    model_name: Option<String>,
+    model_version: Option<String>,
+    registry: Option<PathBuf>,
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() == 2 && (args[1] == "--version" || args[1] == "-V") {
@@ -66,6 +75,7 @@ fn main() {
 
     let exit_code = match args[1].as_str() {
         "run" => run_command(&args[2..]),
+        "serve" => serve_command(&args[2..]),
         "check" => check_command(&args[2..]),
         "fmt" => fmt_command(&args[2..]),
         "build" => build_command(&args[2..]),
@@ -166,6 +176,268 @@ fn run_command(args: &[String]) -> i32 {
             1
         }
     }
+}
+
+fn serve_command(args: &[String]) -> i32 {
+    let mut host: Option<String> = None;
+    let mut port: Option<String> = None;
+    let mut registry: Option<String> = None;
+    let mut model: Option<String> = None;
+    let mut model_version: Option<String> = None;
+    let mut latest = false;
+    let mut checkpoint: Option<String> = None;
+    let mut run_args = Vec::new();
+    let mut target: Option<String> = None;
+    let mut idx = 0usize;
+    while idx < args.len() {
+        let arg = &args[idx];
+        match arg.as_str() {
+            "--host" => {
+                idx += 1;
+                if idx >= args.len() {
+                    eprintln!("enkai serve --host requires a value");
+                    return 1;
+                }
+                host = Some(args[idx].clone());
+            }
+            "--port" => {
+                idx += 1;
+                if idx >= args.len() {
+                    eprintln!("enkai serve --port requires a value");
+                    return 1;
+                }
+                port = Some(args[idx].clone());
+            }
+            "--registry" => {
+                idx += 1;
+                if idx >= args.len() {
+                    eprintln!("enkai serve --registry requires a value");
+                    return 1;
+                }
+                registry = Some(args[idx].clone());
+            }
+            "--model" => {
+                idx += 1;
+                if idx >= args.len() {
+                    eprintln!("enkai serve --model requires a value");
+                    return 1;
+                }
+                model = Some(args[idx].clone());
+            }
+            "--model-version" => {
+                idx += 1;
+                if idx >= args.len() {
+                    eprintln!("enkai serve --model-version requires a value");
+                    return 1;
+                }
+                model_version = Some(args[idx].clone());
+            }
+            "--latest" => {
+                latest = true;
+            }
+            "--checkpoint" => {
+                idx += 1;
+                if idx >= args.len() {
+                    eprintln!("enkai serve --checkpoint requires a value");
+                    return 1;
+                }
+                checkpoint = Some(args[idx].clone());
+            }
+            "--trace-vm" | "--disasm" | "--trace-task" | "--trace-net" => {
+                run_args.push(arg.clone());
+            }
+            _ => {
+                if arg.starts_with("--") {
+                    eprintln!("Unknown serve option: {}", arg);
+                    return 1;
+                }
+                if target.is_some() {
+                    eprintln!("enkai serve accepts only one file or directory target");
+                    return 1;
+                }
+                target = Some(arg.clone());
+            }
+        }
+        idx += 1;
+    }
+    let model_selection = match resolve_serve_model_selection(
+        checkpoint.as_deref(),
+        registry.as_deref(),
+        model.as_deref(),
+        model_version.as_deref(),
+        latest,
+    ) {
+        Ok(selection) => selection,
+        Err(err) => {
+            eprintln!("enkai serve: {}", err);
+            return 1;
+        }
+    };
+    if let Some(host) = host {
+        env::set_var("ENKAI_SERVE_HOST", host);
+    }
+    if let Some(port) = port {
+        env::set_var("ENKAI_SERVE_PORT", port);
+    }
+    if let Some(selection) = model_selection {
+        env::set_var(
+            "ENKAI_SERVE_MODEL_PATH",
+            selection.checkpoint_path.to_string_lossy().to_string(),
+        );
+        if let Some(name) = selection.model_name {
+            env::set_var("ENKAI_SERVE_MODEL_NAME", name);
+        }
+        if let Some(version) = selection.model_version {
+            env::set_var("ENKAI_SERVE_MODEL_VERSION", version);
+        }
+        if let Some(registry_path) = selection.registry {
+            env::set_var(
+                "ENKAI_SERVE_MODEL_REGISTRY",
+                registry_path.to_string_lossy().to_string(),
+            );
+        }
+    }
+    run_args.push(target.unwrap_or_else(|| ".".to_string()));
+    run_command(&run_args)
+}
+
+fn resolve_serve_model_selection(
+    checkpoint: Option<&str>,
+    registry: Option<&str>,
+    model: Option<&str>,
+    model_version: Option<&str>,
+    latest: bool,
+) -> Result<Option<ServeModelSelection>, String> {
+    if checkpoint.is_some()
+        && (registry.is_some() || model.is_some() || model_version.is_some() || latest)
+    {
+        return Err(
+            "use either --checkpoint or --registry/--model/--model-version/--latest".to_string(),
+        );
+    }
+
+    if let Some(path) = checkpoint {
+        let checkpoint_path = canonical_existing_path(Path::new(path), "--checkpoint")?;
+        return Ok(Some(ServeModelSelection {
+            checkpoint_path,
+            model_name: None,
+            model_version: None,
+            registry: None,
+        }));
+    }
+
+    if registry.is_none() && model.is_none() && model_version.is_none() && !latest {
+        return Ok(None);
+    }
+
+    let registry =
+        registry.ok_or_else(|| "missing --registry for model registry resolution".to_string())?;
+    let model = model.ok_or_else(|| "missing --model for model registry resolution".to_string())?;
+    if latest && model_version.is_some() {
+        return Err("use --latest or --model-version, not both".to_string());
+    }
+
+    let registry_path = canonical_existing_path(Path::new(registry), "--registry")?;
+    let model_root = registry_path.join(model);
+    if !model_root.is_dir() {
+        return Err(format!(
+            "model '{}' not found under registry {}",
+            model,
+            registry_path.display()
+        ));
+    }
+
+    let version = if let Some(version) = model_version {
+        version.to_string()
+    } else {
+        select_latest_model_version(&model_root)?
+    };
+    let version_dir = model_root.join(&version);
+    if !version_dir.exists() {
+        return Err(format!(
+            "version '{}' for model '{}' does not exist in {}",
+            version,
+            model,
+            model_root.display()
+        ));
+    }
+    let checkpoint_path = if version_dir.join("checkpoint").exists() {
+        canonical_existing_path(&version_dir.join("checkpoint"), "checkpoint directory")?
+    } else {
+        canonical_existing_path(&version_dir, "model version directory")?
+    };
+    Ok(Some(ServeModelSelection {
+        checkpoint_path,
+        model_name: Some(model.to_string()),
+        model_version: Some(version),
+        registry: Some(registry_path),
+    }))
+}
+
+fn canonical_existing_path(path: &Path, label: &str) -> Result<PathBuf, String> {
+    if !path.exists() {
+        return Err(format!("{} not found: {}", label, path.display()));
+    }
+    fs::canonicalize(path)
+        .map_err(|err| format!("failed to resolve {} {}: {}", label, path.display(), err))
+}
+
+fn select_latest_model_version(model_root: &Path) -> Result<String, String> {
+    let mut versions = Vec::new();
+    let entries = fs::read_dir(model_root).map_err(|err| {
+        format!(
+            "failed to read model registry {}: {}",
+            model_root.display(),
+            err
+        )
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|err| {
+            format!(
+                "failed to read model registry entry in {}: {}",
+                model_root.display(),
+                err
+            )
+        })?;
+        if !entry.path().is_dir() {
+            continue;
+        }
+        let name = entry.file_name();
+        let name = name.to_string_lossy().to_string();
+        if !name.is_empty() {
+            versions.push(name);
+        }
+    }
+    if versions.is_empty() {
+        return Err(format!(
+            "no versions found for model directory {}",
+            model_root.display()
+        ));
+    }
+    versions.sort_by(compare_version_labels);
+    versions
+        .pop()
+        .ok_or_else(|| "failed to select latest model version".to_string())
+}
+
+fn compare_version_labels(a: &String, b: &String) -> std::cmp::Ordering {
+    let parsed_a = parse_semver_label(a);
+    let parsed_b = parse_semver_label(b);
+    match (parsed_a, parsed_b) {
+        (Some(left), Some(right)) => left.cmp(&right),
+        (Some(_), None) => std::cmp::Ordering::Greater,
+        (None, Some(_)) => std::cmp::Ordering::Less,
+        (None, None) => a.cmp(b),
+    }
+}
+
+fn parse_semver_label(value: &str) -> Option<Version> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let candidate = trimmed.strip_prefix('v').unwrap_or(trimmed);
+    Version::parse(candidate).ok()
 }
 
 fn check_command(args: &[String]) -> i32 {
@@ -562,6 +834,9 @@ fn print_usage() {
     eprintln!("Usage:");
     eprintln!("  enkai --version");
     eprintln!("  enkai run [--trace-vm] [--disasm] [--trace-task] [--trace-net] <file|dir>");
+    eprintln!(
+        "  enkai serve [--host <host>] [--port <port>] [--registry <dir> --model <name> [--model-version <v>|--latest] | --checkpoint <path>] [--trace-vm] [--disasm] [--trace-task] [--trace-net] [file|dir]"
+    );
     eprintln!("  enkai check <file|dir>");
     eprintln!("  enkai fmt [--check] <file|dir>");
     eprintln!("  enkai build [dir]");
@@ -852,7 +1127,7 @@ fn compute_build_hash(root: &Path, deps: &[ResolvedDependency]) -> Result<String
     for path in files {
         let name = path.to_string_lossy();
         hasher.update(name.as_bytes());
-        hasher.update(&[0u8]);
+        hasher.update([0u8]);
         let data =
             fs::read(&path).map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
         hasher.update(&data);
@@ -1027,5 +1302,72 @@ mod tests {
         assert_eq!(code, 0);
         let updated = fs::read_to_string(&file).expect("read");
         assert!(updated.contains("\n    print(\"hi\")\n"));
+    }
+
+    #[test]
+    fn serve_requires_flag_values() {
+        let code = serve_command(&["--host".to_string()]);
+        assert_ne!(code, 0);
+        let code = serve_command(&["--port".to_string()]);
+        assert_ne!(code, 0);
+        let code = serve_command(&["--registry".to_string()]);
+        assert_ne!(code, 0);
+        let code = serve_command(&["--model".to_string()]);
+        assert_ne!(code, 0);
+        let code = serve_command(&["--checkpoint".to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn serve_rejects_conflicting_model_flags() {
+        let code = serve_command(&[
+            "--checkpoint".to_string(),
+            ".".to_string(),
+            "--registry".to_string(),
+            ".".to_string(),
+            "--model".to_string(),
+            "demo".to_string(),
+        ]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn resolve_model_selection_checkpoint_path() {
+        let dir = tempdir().expect("tempdir");
+        let ckpt = dir.path().join("checkpoint");
+        fs::create_dir_all(&ckpt).expect("checkpoint dir");
+        let selected = resolve_serve_model_selection(
+            Some(ckpt.to_string_lossy().as_ref()),
+            None,
+            None,
+            None,
+            false,
+        )
+        .expect("selection")
+        .expect("some");
+        assert!(selected.checkpoint_path.ends_with("checkpoint"));
+        assert!(selected.model_name.is_none());
+    }
+
+    #[test]
+    fn resolve_model_selection_latest_semver() {
+        let dir = tempdir().expect("tempdir");
+        let model_root = dir.path().join("registry").join("chat");
+        fs::create_dir_all(model_root.join("v1.2.0")).expect("v1");
+        fs::create_dir_all(model_root.join("v1.10.0")).expect("v2");
+        fs::create_dir_all(model_root.join("dev")).expect("dev");
+        let selected = resolve_serve_model_selection(
+            None,
+            Some(dir.path().join("registry").to_string_lossy().as_ref()),
+            Some("chat"),
+            None,
+            true,
+        )
+        .expect("selection")
+        .expect("some");
+        assert_eq!(selected.model_version.as_deref(), Some("v1.10.0"));
+        assert!(selected
+            .checkpoint_path
+            .ends_with(std::path::Path::new("chat").join("v1.10.0")));
     }
 }

@@ -4,14 +4,15 @@ ENKAI PROGRAMMING LANGUAGE
 Overview
 Enkai is a programming language with block structure defined by :: tokens, a clean
 assignment operator (:=), and an AI-native roadmap (tools, agents, memory, policy).
-This repository contains the v1.2.0 implementation in Rust.
+This repository contains the v1.3.0 implementation in Rust.
 
-Status (v1.2.0)
+Status (v1.3.0)
 - Bytecode VM + globals + type-checking
 - Module system with public/private exports
-- CLI: run/check/fmt/test/train/eval
-- FFI runtime + native std modules (fsx/zstd/hash)
+- CLI: run/serve/check/fmt/build/test/train/eval
+- FFI runtime + native std modules (fsx/zstd/hash/db/tls)
 - Tokenizer + dataset streaming + checkpoints
+- Backend serving stack: routing, middleware/auth/rate-limit, streaming, TLS/SQLite helpers
 
 Workspace structure
 - enkaic: compiler front-end (lexer/parser/AST/type-check stubs)

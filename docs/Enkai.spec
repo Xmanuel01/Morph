@@ -1,8 +1,8 @@
-# Enkai Language Specification (v0.1 -> v1.2.0)
+# Enkai Language Specification (v0.1 -> v1.3.0)
 
 Status: stable.
 Grammar and CLI contracts are frozen at the v0.9.3 baseline for the v1.x line.
-This document is the normative language and runtime surface for Enkai v1.2.0,
+This document is the normative language and runtime surface for Enkai v1.3.0,
 including compatibility constraints carried from v0.1 onward.
 
 -------------------------------------------------------------------------------
@@ -13,7 +13,7 @@ This specification covers:
 - Core syntax and block rules.
 - Module/import semantics.
 - Type and expression forms supported by parser, checker, compiler, and VM.
-- Built-in runtime modules shipped in v1.2.0.
+- Built-in runtime modules shipped in v1.3.0.
 - CLI entrypoints used in production.
 
 This specification does not claim features that are still stubbed or not yet implemented.
@@ -38,6 +38,9 @@ Compatibility baseline:
 - v1.1: runtime semantics for type/enum/impl and AI declarations; std::nn/loss/optim.
 - v1.2: multi-GPU runtime wiring, AMP, grad accumulation/clipping, ranked checkpoints,
   dataset prefetch/metrics, build cache + lockfile, and expanded stdlib.
+- v1.3: serving/backend platform primitives (`enkai serve`, routed HTTP + streaming,
+  auth/rate-limit middleware, JSONL observability), HTTP client config APIs, TLS
+  inspection helper, SQLite connector, and model-registry version pinning hooks.
 
 Compatibility policy:
 - `.enk` and `.en` are primary source extensions.
@@ -45,7 +48,7 @@ Compatibility policy:
   primary contract unless listed explicitly.
 
 -------------------------------------------------------------------------------
-1.2 Validation Gate Status (v1.2.0)
+1.2 Validation Gate Status (v1.3.0)
 -------------------------------------------------------------------------------
 
 Current verification status:
@@ -172,7 +175,7 @@ Types:
 - `enum Name :: VariantA VariantB ::`
 - `impl Name :: fn method(...) :: ... :: ::`
 
-Runtime semantics (v1.2):
+Runtime semantics (v1.3):
 - `type` emits a constructor function that returns a record with `__type = "Name"` and
   the declared fields.
 - `enum` emits a record of variant records. Each variant record includes
@@ -250,7 +253,7 @@ Assignment form:
 8. Types
 -------------------------------------------------------------------------------
 
-Core types used in v1.2.0:
+Core types used in v1.3.0:
 - `Int`, `Float`, `Bool`, `String`, `Void`
 - Optional: `T?`
 - Function: `fn(T1, T2) -> R`
@@ -279,7 +282,7 @@ Formatting and tests:
 - Project test runner (`enkai test`) compiles and executes test files.
 
 -------------------------------------------------------------------------------
-10. Built-in Runtime Modules (v1.2.0)
+10. Built-in Runtime Modules (v1.3.0)
 -------------------------------------------------------------------------------
 
 Concurrency:
@@ -299,9 +302,21 @@ TCP networking:
 
 HTTP server/client:
 - `http.serve(host, port, handler)`
+- `http.serve_with(host, port, routes, config)`
+- `http.route(method, path, handler)` (`:param` segments supported)
+- `http.middleware(name, config)` with kinds:
+  - `auth` (token auth + tenant mapping)
+  - `rate_limit` (token-bucket; key by IP or token)
+  - `jsonl_log` (structured request logs)
+  - `default` (fallback route handler)
 - `http.get(url)`
 - `http.post(url, body)`
+- `http.request(config)` (`method`, `url`, `headers`, `timeout_ms`, `retries`, `retry_backoff_ms`)
+- request helpers: `http.header(req, name)`, `http.query(req, name)`
+- streaming helpers: `http.stream_open(status, headers)`, `http.stream_send(stream, chunk)`, `http.stream_close(stream)`
 - response builders: `http.response(status, body)`, `http.ok(body)`, `http.bad_request(body)`, `http.not_found(body)`
+- default error responses are JSON with `error.code` and `error.message`; runtime headers include
+  request-id metadata for observability.
 
 JSON:
 - `json.parse(text)`
@@ -330,6 +345,7 @@ Native-backed std modules:
 - `std::fsx`
 - `std::zstd`
 - `std::hash`
+- `std::http`
 - `std::nn` (core ML layers)
 - `std::loss` (loss functions)
 - `std::optim` (optimizer helpers)
@@ -339,8 +355,11 @@ Native-backed std modules:
 - `std::log`
 - `std::io`
 - `std::process`
+- `std::db` (SQLite connector)
+- `std::tls` (TLS peer certificate fingerprint helper)
+- `std::model_registry` (serve-time env contract helpers)
 
-Tensor backend (`std::tensor`, v1.2.0 surface):
+Tensor backend (`std::tensor`, v1.3.0 surface):
 - device/tensor creation, math ops, shape/dtype/device transforms
 - autograd and optimizer helper APIs
 - AMP scaler/autocast APIs
@@ -356,17 +375,28 @@ Tensor C ABI checkpoint/distributed hooks:
 For full tensor C ABI contracts and safety preconditions, see `docs/tensor_api.md` and `docs/gpu_backend.md`.
 
 -------------------------------------------------------------------------------
-11. CLI Contract (v1.2.0)
+11. CLI Contract (v1.3.0)
 -------------------------------------------------------------------------------
 
 Commands:
 - `enkai run <file|dir> [--trace-vm] [--disasm] [--trace-task] [--trace-net]`
+- `enkai serve [--host <host>] [--port <port>] [--registry <dir> --model <name> [--model-version <v>|--latest] | --checkpoint <path>] [--trace-vm] [--disasm] [--trace-task] [--trace-net] [file|dir]`
 - `enkai check <file|dir>`
 - `enkai fmt [--check] <file|dir>`
 - `enkai build [dir]`
 - `enkai test [project_root]`
 - `enkai train <config.enk>`
 - `enkai eval <config.enk>`
+
+Serve model-selection contract:
+- `enkai serve` resolves model paths from either:
+  - explicit `--checkpoint <path>`, or
+  - registry tuple `--registry <dir> --model <name>` with `--model-version <v>` or `--latest`.
+- resolved values are exported for program/runtime consumption:
+  - `ENKAI_SERVE_MODEL_PATH`
+  - `ENKAI_SERVE_MODEL_NAME`
+  - `ENKAI_SERVE_MODEL_VERSION`
+  - `ENKAI_SERVE_MODEL_REGISTRY`
 
 Project entry resolution:
 - Running with a directory resolves project root and `src/main.enk`.
@@ -378,7 +408,7 @@ Build caching and lockfile:
 Train/Eval config schema:
 - v1 config requires `config_version: 1` and the mandatory fields listed in
   `docs/25_train_eval_cli.md`.
-- Optional v1.2 fields include `world_size`, `rank`, `grad_accum_steps`, `grad_clip_norm`,
+- Optional v1.2+ fields include `world_size`, `rank`, `grad_accum_steps`, `grad_clip_norm`,
   `amp { enabled, dtype, init_scale, growth_factor, backoff_factor, growth_interval }`,
   `shuffle`, and `prefetch_batches`.
 
@@ -387,7 +417,7 @@ Checkpoint format:
 - Ranked checkpoints write `rank{n}/` subdirectories and a `manifest.json` with `world_size`.
 
 -------------------------------------------------------------------------------
-12. Known Limits in v1.2.0
+12. Known Limits in v1.3.0
 -------------------------------------------------------------------------------
 
 The following are intentionally not fully implemented yet:
@@ -399,9 +429,12 @@ The following are intentionally not fully implemented yet:
   - hook symbols exist and are backend-loadable,
   - single-process/single-rank path is the fully supported baseline,
   - CUDA/NCCL multi-rank behavior is environment-gated and not guaranteed on all targets.
+- HTTP serving supports routed handlers + chunked streaming; full WebSocket runtime APIs are not yet implemented.
+- `std::db` ships SQLite in-tree; Postgres connectors remain optional and are not part of the default runtime build.
+- Model registry support is filesystem-based (`--registry` directory scanning). Remote registries and artifact pull/auth flows are out of scope in v1.3.
 - Current training-forward integration in runtime uses a TinyLM transformer forward/loss path and is not yet a full-scale Transformer stack.
 - Engine-level checkpoint helpers exist, but full train-loop orchestration and multi-rank resume policy are constrained to currently integrated paths.
-- v1.2.0 validation note:
+- v1.3.0 validation note:
   - CPU-mode single-device soak requires operator-run evidence on production hardware.
   - CUDA single-GPU long-soak and distributed (2-GPU/4-GPU) reliability remain
     operator-run requirements and are not auto-proven by repository state alone.
@@ -412,7 +445,7 @@ These limits are part of the current stable contract and should be treated as pr
 13. Change Control
 -------------------------------------------------------------------------------
 
-For any language/runtime surface change after v1.2.0:
+For any language/runtime surface change after v1.3.0:
 1) Implement the change and add/adjust compiler/runtime tests.
 2) Update this specification to match the shipped behavior.
 3) Update changelog and targeted docs (`docs/xx_*.md`, `docs/tensor_api.md`, etc.).

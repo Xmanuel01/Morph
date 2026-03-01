@@ -1,10 +1,11 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
+use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Component, Path};
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use enkaic::bytecode::{Constant, Instruction, Program};
 
@@ -17,7 +18,7 @@ use crate::error::{RuntimeError, RuntimeFrame};
 use crate::ffi::FfiLoader;
 use crate::object::{
     channel_value, function_value, record_value, string_value, task_handle_value, BoundFunctionObj,
-    NativeFunction, NativeImpl, Obj,
+    HttpStream, NativeFunction, NativeImpl, Obj, StreamCommand,
 };
 use crate::tokenizer::{bytes_to_ids, ids_to_bytes, Tokenizer, TrainConfig};
 use crate::value::{ObjRef, Value};
@@ -50,6 +51,7 @@ struct Task {
     join_waiters: Vec<usize>,
     pending_error: Option<RuntimeError>,
     http_conn: Option<TcpStream>,
+    http_meta: Option<HttpRequestMeta>,
     policy: Option<String>,
 }
 
@@ -78,8 +80,49 @@ struct ServerEvent {
     stream: TcpStream,
 }
 
+#[derive(Clone)]
+struct HttpRoute {
+    method: String,
+    path: String,
+    handler: Value,
+}
+
+struct ServerAuthConfig {
+    header: String,
+    tokens: HashMap<String, String>,
+    allow_anonymous: bool,
+}
+
+struct RateLimitConfig {
+    capacity: f64,
+    refill_per_sec: f64,
+    key: RateLimitKey,
+}
+
+#[derive(Clone, Copy)]
+enum RateLimitKey {
+    Ip,
+    Token,
+}
+
+struct RateLimitBucket {
+    tokens: f64,
+    last: Instant,
+}
+
+struct ServerLogger {
+    path: std::path::PathBuf,
+}
+
 struct HttpServer {
     handler: Value,
+    routes: Vec<HttpRoute>,
+    default_handler: Option<Value>,
+    auth: Option<ServerAuthConfig>,
+    rate_limit: Option<RateLimitConfig>,
+    rate_state: HashMap<String, RateLimitBucket>,
+    logger: Option<ServerLogger>,
+    policy: Option<String>,
     stop: mpsc::Sender<()>,
 }
 
@@ -90,6 +133,18 @@ struct HttpRequestData {
     query: String,
     headers: HashMap<String, String>,
     body: Vec<u8>,
+    remote_addr: String,
+}
+
+struct HttpRequestMeta {
+    id: u64,
+    server_id: usize,
+    start: Instant,
+    method: String,
+    path: String,
+    remote_addr: String,
+    tenant: Option<String>,
+    error_code: Option<String>,
 }
 
 #[derive(Clone)]
@@ -98,6 +153,40 @@ struct HttpResponseData {
     headers: HashMap<String, String>,
     body: Vec<u8>,
 }
+
+#[derive(Clone)]
+struct HttpRequestOptions {
+    headers: HashMap<String, String>,
+    timeout_ms: Option<u64>,
+    retries: usize,
+    retry_backoff_ms: u64,
+}
+
+impl Default for HttpRequestOptions {
+    fn default() -> Self {
+        Self {
+            headers: HashMap::new(),
+            timeout_ms: None,
+            retries: 0,
+            retry_backoff_ms: 100,
+        }
+    }
+}
+
+type CapabilityRequirement = (Vec<String>, Option<CapabilityContext>);
+type HttpServerConfigParsed = (
+    Option<Value>,
+    Option<ServerAuthConfig>,
+    Option<RateLimitConfig>,
+    Option<ServerLogger>,
+);
+type PreparedHttpRequest = (
+    Option<Value>,
+    HashMap<String, String>,
+    Option<String>,
+    Option<HttpResponseData>,
+    Option<String>,
+);
 
 #[derive(Debug, Clone)]
 struct Policy {
@@ -171,6 +260,8 @@ pub struct VM {
     servers: Vec<HttpServer>,
     server_sender: mpsc::Sender<ServerEvent>,
     server_receiver: mpsc::Receiver<ServerEvent>,
+    next_request_id: u64,
+    active_http_conn: Option<TcpStream>,
     policies: HashMap<String, Policy>,
     active_policy: Option<String>,
 }
@@ -200,6 +291,8 @@ impl VM {
             servers: Vec::new(),
             server_sender,
             server_receiver,
+            next_request_id: 0,
+            active_http_conn: None,
             policies: HashMap::new(),
             active_policy: None,
         }
@@ -347,6 +440,33 @@ impl VM {
             }))),
         );
         http_record.insert(
+            "serve_with".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "http.serve_with".to_string(),
+                arity: 4,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        http_record.insert(
+            "route".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "http.route".to_string(),
+                arity: 3,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        http_record.insert(
+            "middleware".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "http.middleware".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        http_record.insert(
             "get".to_string(),
             Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
                 name: "http.get".to_string(),
@@ -365,10 +485,64 @@ impl VM {
             }))),
         );
         http_record.insert(
+            "request".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "http.request".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        http_record.insert(
+            "header".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "http.header".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        http_record.insert(
+            "query".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "http.query".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        http_record.insert(
             "response".to_string(),
             Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
                 name: "http.response".to_string(),
                 arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        http_record.insert(
+            "stream_open".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "http.stream_open".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        http_record.insert(
+            "stream_send".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "http.stream_send".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        http_record.insert(
+            "stream_close".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "http.stream_close".to_string(),
+                arity: 1,
                 kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
                 bound: None,
             }))),
@@ -613,11 +787,13 @@ impl VM {
         }
         self.pending_state = None;
         std::mem::swap(&mut self.active_policy, &mut task.policy);
+        std::mem::swap(&mut self.active_http_conn, &mut task.http_conn);
         std::mem::swap(&mut self.stack, &mut task.stack);
         std::mem::swap(&mut self.frames, &mut task.frames);
         let outcome = self.execute(program, budget);
         std::mem::swap(&mut self.stack, &mut task.stack);
         std::mem::swap(&mut self.frames, &mut task.frames);
+        std::mem::swap(&mut self.active_http_conn, &mut task.http_conn);
         std::mem::swap(&mut self.active_policy, &mut task.policy);
         if let Some(state) = self.pending_state.take() {
             task.state = state;
@@ -645,6 +821,7 @@ impl VM {
             join_waiters: Vec::new(),
             pending_error: None,
             http_conn: None,
+            http_meta: None,
             policy: self.active_policy.clone(),
         };
         task.stack.push(func);
@@ -691,6 +868,7 @@ impl VM {
             join_waiters: Vec::new(),
             pending_error: None,
             http_conn,
+            http_meta: None,
             policy: self.active_policy.clone(),
         };
         task.stack.push(func);
@@ -727,11 +905,13 @@ impl VM {
     fn finish_task(&mut self, task_id: usize, result: Result<Value, RuntimeError>) {
         let mut joiners = Vec::new();
         let mut http_conn = None;
+        let mut http_meta = None;
         if let Some(task) = self.tasks.get_mut(task_id).and_then(|t| t.as_mut()) {
             task.state = TaskState::Finished;
             task.result = Some(result.clone());
             joiners.append(&mut task.join_waiters);
             http_conn = task.http_conn.take();
+            http_meta = task.http_meta.take();
         }
         if self.trace_task {
             println!("[task] finish {}", task_id);
@@ -755,7 +935,16 @@ impl VM {
             self.ready.push_back(id);
         }
         if let Some(stream) = http_conn {
-            self.respond_http_task(stream, &result);
+            let mut response = self.response_from_result(&result);
+            if let Some(meta) = &http_meta {
+                self.attach_response_meta_headers(&mut response, meta);
+                self.log_http_meta(meta, response.status, false);
+            }
+            std::thread::spawn(move || {
+                let _ = write_http_response(stream, response);
+            });
+        } else if let Some(meta) = &http_meta {
+            self.log_http_meta(meta, 0, true);
         }
     }
 
@@ -857,18 +1046,95 @@ impl VM {
     fn drain_server_events(&mut self, program: &Program) {
         while let Ok(event) = self.server_receiver.try_recv() {
             let stream = event.stream;
-            let handler = match self.servers.get(event.server_id) {
-                Some(server) => server.handler.clone(),
+            let (handler, params, tenant, error_resp, error_code) =
+                match self.prepare_http_request(event.server_id, &event.request) {
+                    Ok(value) => value,
+                    Err(err) => {
+                        self.write_http_error(stream, &err.to_string());
+                        continue;
+                    }
+                };
+            if let Some(mut resp) = error_resp {
+                let request_id = self.next_request_id;
+                self.next_request_id = self.next_request_id.saturating_add(1);
+                resp.headers
+                    .entry("x-enkai-request-id".to_string())
+                    .or_insert_with(|| request_id.to_string());
+                if let Some(code) = error_code.clone() {
+                    resp.headers
+                        .entry("x-enkai-error-code".to_string())
+                        .or_insert(code);
+                }
+                if let Some(tenant_id) = tenant.clone() {
+                    resp.headers
+                        .entry("x-enkai-tenant".to_string())
+                        .or_insert(tenant_id);
+                }
+                self.log_http_event(
+                    event.server_id,
+                    &event.request,
+                    tenant.clone(),
+                    resp.status,
+                    error_code.clone(),
+                    false,
+                );
+                let _ = write_http_response(stream, resp);
+                continue;
+            }
+            let handler = match handler {
+                Some(h) => h,
                 None => {
-                    self.write_http_error(stream, "Unknown server");
+                    let request_id = self.next_request_id;
+                    self.next_request_id = self.next_request_id.saturating_add(1);
+                    let mut resp = error_response(404, "not_found", "Not Found");
+                    resp.headers
+                        .entry("x-enkai-request-id".to_string())
+                        .or_insert_with(|| request_id.to_string());
+                    if let Some(tenant_id) = tenant.clone() {
+                        resp.headers
+                            .entry("x-enkai-tenant".to_string())
+                            .or_insert(tenant_id);
+                    }
+                    self.log_http_event(
+                        event.server_id,
+                        &event.request,
+                        tenant.clone(),
+                        resp.status,
+                        Some("not_found".to_string()),
+                        false,
+                    );
+                    let _ = write_http_response(stream, resp);
                     continue;
                 }
             };
-            let request = self.http_request_value(event.request);
-            if let Err(err) =
+            let mut meta = HttpRequestMeta {
+                id: self.next_request_id,
+                server_id: event.server_id,
+                start: Instant::now(),
+                method: event.request.method.clone(),
+                path: event.request.path.clone(),
+                remote_addr: event.request.remote_addr.clone(),
+                tenant,
+                error_code: None,
+            };
+            if let Some(code) = error_code {
+                meta.error_code = Some(code);
+            }
+            self.next_request_id = self.next_request_id.saturating_add(1);
+            let request = self.http_request_value_with_params(event.request, params);
+            let server_policy = self
+                .servers
+                .get(event.server_id)
+                .and_then(|server| server.policy.clone());
+            if let Ok(task_id) =
                 self.spawn_task_with_args(program, handler, vec![request], Some(stream))
             {
-                eprintln!("Failed to spawn http handler: {}", err);
+                if let Some(task) = self.tasks.get_mut(task_id).and_then(|t| t.as_mut()) {
+                    task.http_meta = Some(meta);
+                    if let Some(policy) = server_policy {
+                        task.policy = Some(policy);
+                    }
+                }
             }
         }
     }
@@ -1725,6 +1991,60 @@ impl VM {
                             self.stack.push(Value::Null);
                             return Ok(());
                         }
+                        if nf.name == "http.serve_with" {
+                            let host = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("serve_with expects host"))?;
+                            let port = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("serve_with expects port"))?;
+                            let routes = args
+                                .get(2)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("serve_with expects routes"))?;
+                            let config = args
+                                .get(3)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("serve_with expects config"))?;
+                            self.stack.truncate(callee_index);
+                            self.http_serve_with(host, port, routes, config)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "http.route" {
+                            let method = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("route expects method"))?;
+                            let path = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("route expects path"))?;
+                            let handler = args
+                                .get(2)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("route expects handler"))?;
+                            self.stack.truncate(callee_index);
+                            let route = self.http_route(method, path, handler)?;
+                            self.stack.push(route);
+                            return Ok(());
+                        }
+                        if nf.name == "http.middleware" {
+                            let name = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("middleware expects name"))?;
+                            let config = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("middleware expects config"))?;
+                            self.stack.truncate(callee_index);
+                            let middleware = self.http_middleware(name, config)?;
+                            self.stack.push(middleware);
+                            return Ok(());
+                        }
                         if nf.name == "http.get" {
                             let url = args
                                 .first()
@@ -1751,6 +2071,45 @@ impl VM {
                             }
                             return Ok(());
                         }
+                        if nf.name == "http.request" {
+                            let config = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("request expects config"))?;
+                            self.stack.truncate(callee_index);
+                            if let Some(value) = self.http_request(config)? {
+                                self.stack.push(value);
+                            }
+                            return Ok(());
+                        }
+                        if nf.name == "http.header" {
+                            let req = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("header expects request"))?;
+                            let name = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("header expects name"))?;
+                            self.stack.truncate(callee_index);
+                            let value = self.http_header(req, name)?;
+                            self.stack.push(value);
+                            return Ok(());
+                        }
+                        if nf.name == "http.query" {
+                            let req = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("query expects request"))?;
+                            let name = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("query expects name"))?;
+                            self.stack.truncate(callee_index);
+                            let value = self.http_query(req, name)?;
+                            self.stack.push(value);
+                            return Ok(());
+                        }
                         if nf.name == "http.response" {
                             let status = args
                                 .first()
@@ -1763,6 +2122,44 @@ impl VM {
                             self.stack.truncate(callee_index);
                             let resp = self.http_response(status, body)?;
                             self.stack.push(resp);
+                            return Ok(());
+                        }
+                        if nf.name == "http.stream_open" {
+                            let status = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("stream_open expects status"))?;
+                            let headers = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("stream_open expects headers"))?;
+                            self.stack.truncate(callee_index);
+                            let stream = self.http_stream_open(status, headers)?;
+                            self.stack.push(stream);
+                            return Ok(());
+                        }
+                        if nf.name == "http.stream_send" {
+                            let stream = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("stream_send expects stream"))?;
+                            let chunk = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("stream_send expects chunk"))?;
+                            self.stack.truncate(callee_index);
+                            self.http_stream_send(stream, chunk)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "http.stream_close" {
+                            let stream = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("stream_close expects stream"))?;
+                            self.stack.truncate(callee_index);
+                            self.http_stream_close(stream)?;
+                            self.stack.push(Value::Null);
                             return Ok(());
                         }
                         if nf.name == "http.ok" {
@@ -2039,7 +2436,7 @@ impl VM {
         &self,
         name: &str,
         args: &[Value],
-    ) -> Result<Option<(Vec<String>, Option<CapabilityContext>)>, RuntimeError> {
+    ) -> Result<Option<CapabilityRequirement>, RuntimeError> {
         let mut capability: Option<Vec<String>> = None;
         let mut context: Option<CapabilityContext> = None;
         match name {
@@ -2057,13 +2454,13 @@ impl VM {
             }
             "fsx_read_bytes" => {
                 capability = Some(vec!["fs".to_string(), "read".to_string()]);
-                if let Some(path) = args.get(0) {
+                if let Some(path) = args.first() {
                     context = Some(CapabilityContext::for_path(&value_as_string(path)?));
                 }
             }
             "fsx_write_bytes" => {
                 capability = Some(vec!["fs".to_string(), "write".to_string()]);
-                if let Some(path) = args.get(0) {
+                if let Some(path) = args.first() {
                     context = Some(CapabilityContext::for_path(&value_as_string(path)?));
                 }
             }
@@ -2073,14 +2470,14 @@ impl VM {
             "env_set" | "env_remove" | "env_set_cwd" => {
                 capability = Some(vec!["env".to_string(), "write".to_string()]);
                 if name == "env_set_cwd" {
-                    if let Some(path) = args.get(0) {
+                    if let Some(path) = args.first() {
                         context = Some(CapabilityContext::for_path(&value_as_string(path)?));
                     }
                 }
             }
             "process_spawn" | "process_run" => {
                 capability = Some(vec!["process".to_string(), "spawn".to_string()]);
-                if let Some(cmd) = args.get(0) {
+                if let Some(cmd) = args.first() {
                     context = Some(CapabilityContext::for_path(&value_as_string(cmd)?));
                 }
             }
@@ -2090,9 +2487,21 @@ impl VM {
             "process_exit" => {
                 capability = Some(vec!["process".to_string(), "exit".to_string()]);
             }
+            "db_sqlite_open" | "db_sqlite_exec" | "db_sqlite_close" => {
+                capability = Some(vec!["db".to_string(), "write".to_string()]);
+            }
+            "db_sqlite_query" => {
+                capability = Some(vec!["db".to_string(), "read".to_string()]);
+            }
+            "tls_fetch_server_info" => {
+                capability = Some(vec!["net".to_string(), "tls".to_string()]);
+                if let Some(host) = args.first() {
+                    context = Some(CapabilityContext::for_domain(&value_as_string(host)?));
+                }
+            }
             "net.bind" => {
                 capability = Some(vec!["net".to_string(), "listen".to_string()]);
-                if let Some(host) = args.get(0) {
+                if let Some(host) = args.first() {
                     context = Some(CapabilityContext::for_domain(&value_as_string(host)?));
                 }
             }
@@ -2110,51 +2519,68 @@ impl VM {
             }
             "http.get" | "http.post" => {
                 capability = Some(vec!["net".to_string(), "http".to_string()]);
-                if let Some(url) = args.get(0) {
+                if let Some(url) = args.first() {
                     if let Some(domain) = domain_from_url(&value_as_string(url)?) {
                         context = Some(CapabilityContext::for_domain(&domain));
                     }
                 }
             }
+            "http.request" => {
+                capability = Some(vec!["net".to_string(), "http".to_string()]);
+                if let Some(Value::Obj(obj)) = args.first() {
+                    if let Obj::Record(map) = obj.as_obj() {
+                        if let Some(value) = map.borrow().get("url") {
+                            if let Ok(url) = value_as_string(value) {
+                                if let Some(domain) = domain_from_url(&url) {
+                                    context = Some(CapabilityContext::for_domain(&domain));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             "http.serve" => {
                 capability = Some(vec!["net".to_string(), "serve".to_string()]);
-                if let Some(host) = args.get(0) {
+                if let Some(host) = args.first() {
                     context = Some(CapabilityContext::for_domain(&value_as_string(host)?));
                 }
             }
+            "http.serve_with" | "http.stream_open" | "http.stream_send" | "http.stream_close" => {
+                capability = Some(vec!["net".to_string(), "serve".to_string()]);
+            }
             "tokenizer.train" | "tokenizer.load" => {
                 capability = Some(vec!["fs".to_string(), "read".to_string()]);
-                if let Some(path) = args.get(0) {
+                if let Some(path) = args.first() {
                     context = Some(CapabilityContext::for_path(&value_as_string(path)?));
                 }
             }
             "tokenizer.save" => {
                 capability = Some(vec!["fs".to_string(), "write".to_string()]);
-                if let Some(path) = args.get(0) {
+                if let Some(path) = args.first() {
                     context = Some(CapabilityContext::for_path(&value_as_string(path)?));
                 }
             }
             "dataset.open" => {
                 capability = Some(vec!["fs".to_string(), "read".to_string()]);
-                if let Some(path) = args.get(0) {
+                if let Some(path) = args.first() {
                     context = Some(CapabilityContext::for_path(&value_as_string(path)?));
                 }
             }
             "checkpoint.save" => {
                 capability = Some(vec!["fs".to_string(), "write".to_string()]);
-                if let Some(dir) = args.get(0) {
+                if let Some(dir) = args.first() {
                     context = Some(CapabilityContext::for_path(&value_as_string(dir)?));
                 }
             }
             "checkpoint.load" | "checkpoint.latest" => {
                 capability = Some(vec!["fs".to_string(), "read".to_string()]);
-                if let Some(dir) = args.get(0) {
+                if let Some(dir) = args.first() {
                     context = Some(CapabilityContext::for_path(&value_as_string(dir)?));
                 }
             }
             "checkpoint.rotate" => {
                 capability = Some(vec!["fs".to_string(), "write".to_string()]);
-                if let Some(dir) = args.get(0) {
+                if let Some(dir) = args.first() {
                     context = Some(CapabilityContext::for_path(&value_as_string(dir)?));
                 }
             }
@@ -2577,7 +3003,71 @@ impl VM {
             Value::Int(p) => p,
             _ => return Err(RuntimeError::new("http.serve expects port int")),
         };
+        if !(1..=65535).contains(&port) {
+            return Err(RuntimeError::new(
+                "http.serve port must be in range 1..65535",
+            ));
+        }
         self.validate_http_handler(&handler)?;
+        let server = HttpServer {
+            handler,
+            routes: Vec::new(),
+            default_handler: None,
+            auth: None,
+            rate_limit: None,
+            rate_state: HashMap::new(),
+            logger: None,
+            policy: self.active_policy.clone(),
+            stop: mpsc::channel().0,
+        };
+        self.start_http_server(host, port, server)
+    }
+
+    fn http_serve_with(
+        &mut self,
+        host: Value,
+        port: Value,
+        routes: Value,
+        config: Value,
+    ) -> Result<(), RuntimeError> {
+        let host = match host {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::String(s) => s.clone(),
+                _ => return Err(RuntimeError::new("http.serve_with expects host string")),
+            },
+            _ => return Err(RuntimeError::new("http.serve_with expects host string")),
+        };
+        let port = match port {
+            Value::Int(p) => p,
+            _ => return Err(RuntimeError::new("http.serve_with expects port int")),
+        };
+        if !(1..=65535).contains(&port) {
+            return Err(RuntimeError::new(
+                "http.serve_with port must be in range 1..65535",
+            ));
+        }
+        let routes = self.parse_http_routes(routes)?;
+        let (default_handler, auth, rate_limit, logger) = self.parse_http_server_config(config)?;
+        let server = HttpServer {
+            handler: Value::Null,
+            routes,
+            default_handler,
+            auth,
+            rate_limit,
+            rate_state: HashMap::new(),
+            logger,
+            policy: self.active_policy.clone(),
+            stop: mpsc::channel().0,
+        };
+        self.start_http_server(host, port, server)
+    }
+
+    fn start_http_server(
+        &mut self,
+        host: String,
+        port: i64,
+        mut server: HttpServer,
+    ) -> Result<(), RuntimeError> {
         let addr = format!("{}:{}", host, port);
         let listener = TcpListener::bind(addr)
             .map_err(|err| RuntimeError::new(&format!("http.serve bind failed: {}", err)))?;
@@ -2586,10 +3076,8 @@ impl VM {
             .map_err(|err| RuntimeError::new(&format!("http.serve failed: {}", err)))?;
         let server_id = self.servers.len();
         let (stop_sender, stop_receiver) = mpsc::channel();
-        self.servers.push(HttpServer {
-            handler,
-            stop: stop_sender,
-        });
+        server.stop = stop_sender;
+        self.servers.push(server);
         let sender = self.server_sender.clone();
         std::thread::spawn(move || loop {
             if stop_receiver.try_recv().is_ok() {
@@ -2597,7 +3085,12 @@ impl VM {
             }
             match listener.accept() {
                 Ok((mut stream, _)) => {
-                    if let Ok(req) = read_http_request(&mut stream) {
+                    let remote_addr = stream
+                        .peer_addr()
+                        .map(|addr| addr.to_string())
+                        .unwrap_or_else(|_| String::new());
+                    if let Ok(mut req) = read_http_request(&mut stream) {
+                        req.remote_addr = remote_addr;
                         let _ = sender.send(ServerEvent {
                             server_id,
                             request: req,
@@ -2625,15 +3118,325 @@ impl VM {
         Ok(())
     }
 
+    fn http_route(
+        &self,
+        method: Value,
+        path: Value,
+        handler: Value,
+    ) -> Result<Value, RuntimeError> {
+        let method = value_as_string(&method)?.to_uppercase();
+        let path = value_as_string(&path)?;
+        if path.is_empty() || !path.starts_with('/') {
+            return Err(RuntimeError::new("http.route path must start with '/'"));
+        }
+        self.validate_http_handler(&handler)?;
+        let mut map = HashMap::new();
+        map.insert("method".to_string(), string_value(&method));
+        map.insert("path".to_string(), string_value(&path));
+        map.insert("handler".to_string(), handler);
+        Ok(record_value(map))
+    }
+
+    fn http_middleware(&self, name: Value, config: Value) -> Result<Value, RuntimeError> {
+        let name = value_as_string(&name)?.to_lowercase();
+        match name.as_str() {
+            "auth" | "rate_limit" | "jsonl_log" | "default" => {}
+            _ => {
+                return Err(RuntimeError::new(
+                    "unsupported middleware; expected auth/rate_limit/jsonl_log/default",
+                ))
+            }
+        }
+        let mut map = HashMap::new();
+        map.insert("name".to_string(), string_value(&name));
+        map.insert("config".to_string(), config);
+        Ok(record_value(map))
+    }
+
+    fn parse_http_routes(&self, routes: Value) -> Result<Vec<HttpRoute>, RuntimeError> {
+        let list = match routes {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::List(items) => items.borrow().clone(),
+                _ => return Err(RuntimeError::new("routes must be List")),
+            },
+            Value::Null => Vec::new(),
+            _ => return Err(RuntimeError::new("routes must be List")),
+        };
+        let mut out = Vec::with_capacity(list.len());
+        for route_val in list {
+            let route_obj = match route_val {
+                Value::Obj(obj) => obj,
+                _ => return Err(RuntimeError::new("route must be record")),
+            };
+            let route_map = match route_obj.as_obj() {
+                Obj::Record(map) => map.borrow().clone(),
+                _ => return Err(RuntimeError::new("route must be record")),
+            };
+            let method = match route_map.get("method") {
+                Some(value) => value_as_string(value)?.to_uppercase(),
+                None => return Err(RuntimeError::new("route missing method")),
+            };
+            let path = match route_map.get("path") {
+                Some(value) => value_as_string(value)?,
+                None => return Err(RuntimeError::new("route missing path")),
+            };
+            if path.is_empty() || !path.starts_with('/') {
+                return Err(RuntimeError::new("route path must start with '/'"));
+            }
+            let handler = match route_map.get("handler") {
+                Some(value) => value.clone(),
+                None => return Err(RuntimeError::new("route missing handler")),
+            };
+            self.validate_http_handler(&handler)?;
+            out.push(HttpRoute {
+                method,
+                path,
+                handler,
+            });
+        }
+        Ok(out)
+    }
+
+    fn parse_http_server_config(
+        &self,
+        config: Value,
+    ) -> Result<HttpServerConfigParsed, RuntimeError> {
+        if matches!(config, Value::Null) {
+            return Ok((None, None, None, None));
+        }
+        let mut default_handler = None;
+        let mut auth = None;
+        let mut rate_limit = None;
+        let mut logger = None;
+        let obj = match config {
+            Value::Obj(obj) => obj,
+            _ => {
+                return Err(RuntimeError::new(
+                    "http.serve_with config must be record or list",
+                ))
+            }
+        };
+        match obj.as_obj() {
+            Obj::Record(map) => {
+                let map = map.borrow();
+                default_handler = map.get("default").cloned();
+                if let Some(handler) = &default_handler {
+                    self.validate_http_handler(handler)?;
+                }
+                if let Some(value) = map.get("auth") {
+                    auth = self.parse_auth_config(value)?;
+                }
+                if let Some(value) = map.get("rate_limit") {
+                    rate_limit = self.parse_rate_limit_config(value)?;
+                }
+                if let Some(value) = map.get("log_path") {
+                    logger = self.parse_logger_config(value)?;
+                } else if let Some(value) = map.get("logger") {
+                    logger = self.parse_logger_config(value)?;
+                }
+                if let Some(value) = map.get("middlewares") {
+                    self.apply_http_middlewares(
+                        value,
+                        &mut default_handler,
+                        &mut auth,
+                        &mut rate_limit,
+                        &mut logger,
+                    )?;
+                }
+            }
+            Obj::List(_) => {
+                self.apply_http_middlewares(
+                    &Value::Obj(obj.clone()),
+                    &mut default_handler,
+                    &mut auth,
+                    &mut rate_limit,
+                    &mut logger,
+                )?;
+            }
+            _ => {
+                return Err(RuntimeError::new(
+                    "http.serve_with config must be record or list",
+                ))
+            }
+        }
+        Ok((default_handler, auth, rate_limit, logger))
+    }
+
+    fn parse_logger_config(&self, value: &Value) -> Result<Option<ServerLogger>, RuntimeError> {
+        if matches!(value, Value::Null) {
+            return Ok(None);
+        }
+        let path = match value {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::String(text) => text.clone(),
+                Obj::Record(map) => {
+                    let map = map.borrow();
+                    let path_val = map
+                        .get("path")
+                        .ok_or_else(|| RuntimeError::new("logger.path missing"))?;
+                    value_as_string(path_val)?
+                }
+                _ => return Err(RuntimeError::new("logger must be path string or record")),
+            },
+            _ => return Err(RuntimeError::new("logger must be path string or record")),
+        };
+        if path.trim().is_empty() {
+            return Err(RuntimeError::new("logger path must not be empty"));
+        }
+        Ok(Some(ServerLogger {
+            path: std::path::PathBuf::from(path),
+        }))
+    }
+
+    fn apply_http_middlewares(
+        &self,
+        value: &Value,
+        default_handler: &mut Option<Value>,
+        auth: &mut Option<ServerAuthConfig>,
+        rate_limit: &mut Option<RateLimitConfig>,
+        logger: &mut Option<ServerLogger>,
+    ) -> Result<(), RuntimeError> {
+        let middlewares = value_as_list(value)?;
+        for middleware in middlewares {
+            let entry = value_as_record(&middleware)?;
+            let name_value = entry
+                .get("name")
+                .or_else(|| entry.get("kind"))
+                .ok_or_else(|| RuntimeError::new("middleware entry missing name"))?;
+            let name = value_as_string(name_value)?.to_lowercase();
+            let enabled = match entry.get("enabled") {
+                Some(Value::Bool(value)) => *value,
+                Some(_) => return Err(RuntimeError::new("middleware enabled must be Bool")),
+                None => true,
+            };
+            if !enabled {
+                continue;
+            }
+            let cfg = entry.get("config").cloned().unwrap_or(Value::Null);
+            match name.as_str() {
+                "auth" => *auth = self.parse_auth_config(&cfg)?,
+                "rate_limit" => *rate_limit = self.parse_rate_limit_config(&cfg)?,
+                "jsonl_log" => *logger = self.parse_logger_config(&cfg)?,
+                "default" => {
+                    if matches!(cfg, Value::Null) {
+                        *default_handler = None;
+                    } else {
+                        self.validate_http_handler(&cfg)?;
+                        *default_handler = Some(cfg);
+                    }
+                }
+                _ => {
+                    return Err(RuntimeError::new(
+                        "unsupported middleware; expected auth/rate_limit/jsonl_log/default",
+                    ))
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn parse_auth_config(&self, value: &Value) -> Result<Option<ServerAuthConfig>, RuntimeError> {
+        match value {
+            Value::Null => Ok(None),
+            Value::Obj(obj) => {
+                let map = match obj.as_obj() {
+                    Obj::Record(map) => map.borrow(),
+                    _ => return Err(RuntimeError::new("auth must be record")),
+                };
+                let header = match map.get("header") {
+                    Some(v) => value_as_string(v)?.to_lowercase(),
+                    None => "authorization".to_string(),
+                };
+                let allow_anonymous = match map.get("allow_anonymous") {
+                    Some(Value::Bool(b)) => *b,
+                    Some(_) => return Err(RuntimeError::new("auth.allow_anonymous must be Bool")),
+                    None => false,
+                };
+                let tokens_val = map
+                    .get("tokens")
+                    .ok_or_else(|| RuntimeError::new("auth.tokens missing"))?;
+                let tokens_list = value_as_list(tokens_val)?;
+                let mut tokens = HashMap::new();
+                for entry in tokens_list {
+                    let entry_obj = match entry {
+                        Value::Obj(obj) => obj,
+                        _ => return Err(RuntimeError::new("auth token entry must be record")),
+                    };
+                    let entry_map = match entry_obj.as_obj() {
+                        Obj::Record(map) => map.borrow(),
+                        _ => return Err(RuntimeError::new("auth token entry must be record")),
+                    };
+                    let token = entry_map
+                        .get("token")
+                        .ok_or_else(|| RuntimeError::new("auth token entry missing token"))
+                        .and_then(value_as_string)?;
+                    let tenant = match entry_map.get("tenant") {
+                        Some(v) => value_as_string(v)?,
+                        None => String::new(),
+                    };
+                    tokens.insert(token, tenant);
+                }
+                Ok(Some(ServerAuthConfig {
+                    header,
+                    tokens,
+                    allow_anonymous,
+                }))
+            }
+            _ => Err(RuntimeError::new("auth must be record")),
+        }
+    }
+
+    fn parse_rate_limit_config(
+        &self,
+        value: &Value,
+    ) -> Result<Option<RateLimitConfig>, RuntimeError> {
+        match value {
+            Value::Null => Ok(None),
+            Value::Obj(obj) => {
+                let map = match obj.as_obj() {
+                    Obj::Record(map) => map.borrow(),
+                    _ => return Err(RuntimeError::new("rate_limit must be record")),
+                };
+                let capacity = match map.get("capacity") {
+                    Some(Value::Int(i)) if *i > 0 => *i as f64,
+                    Some(Value::Float(f)) if *f > 0.0 => *f,
+                    Some(_) => return Err(RuntimeError::new("rate_limit.capacity must be > 0")),
+                    None => return Err(RuntimeError::new("rate_limit.capacity missing")),
+                };
+                let refill_per_sec = match map.get("refill_per_sec") {
+                    Some(Value::Float(f)) if *f > 0.0 => *f,
+                    Some(Value::Int(i)) if *i > 0 => *i as f64,
+                    Some(_) => {
+                        return Err(RuntimeError::new("rate_limit.refill_per_sec must be > 0"))
+                    }
+                    None => capacity, // default 1s burst
+                };
+                let key = match map.get("key") {
+                    Some(v) => match value_as_string(v)?.to_lowercase().as_str() {
+                        "token" => RateLimitKey::Token,
+                        _ => RateLimitKey::Ip,
+                    },
+                    None => RateLimitKey::Ip,
+                };
+                Ok(Some(RateLimitConfig {
+                    capacity,
+                    refill_per_sec,
+                    key,
+                }))
+            }
+            _ => Err(RuntimeError::new("rate_limit must be record")),
+        }
+    }
+
     fn http_get(&mut self, url: Value) -> Result<Option<Value>, RuntimeError> {
-        self.http_request("GET", url, None)
+        self.http_request_simple("GET", url, None)
     }
 
     fn http_post(&mut self, url: Value, body: Value) -> Result<Option<Value>, RuntimeError> {
-        self.http_request("POST", url, Some(body))
+        self.http_request_simple("POST", url, Some(body))
     }
 
-    fn http_request(
+    fn http_request_simple(
         &mut self,
         method: &str,
         url: Value,
@@ -2659,13 +3462,96 @@ impl VM {
         } else {
             Vec::new()
         };
+        let opts = HttpRequestOptions::default();
+        self.http_request_threaded(method, url, body_bytes, opts)
+    }
+
+    fn http_request(&mut self, config: Value) -> Result<Option<Value>, RuntimeError> {
+        let config_obj = match config {
+            Value::Obj(obj) => obj,
+            _ => return Err(RuntimeError::new("http.request expects config record")),
+        };
+        let map = match config_obj.as_obj() {
+            Obj::Record(map) => map.borrow(),
+            _ => return Err(RuntimeError::new("http.request expects config record")),
+        };
+        let method = match map.get("method") {
+            Some(v) => value_as_string(v)?.to_uppercase(),
+            None => "GET".to_string(),
+        };
+        let url = match map.get("url") {
+            Some(v) => value_as_string(v)?,
+            None => return Err(RuntimeError::new("http.request config missing url")),
+        };
+        let body_bytes = match map.get("body") {
+            Some(Value::Obj(obj)) => match obj.as_obj() {
+                Obj::Buffer(bytes) => bytes.clone(),
+                Obj::String(s) => s.as_bytes().to_vec(),
+                _ => return Err(RuntimeError::new("http.request body expects Buffer/String")),
+            },
+            Some(Value::Null) | None => Vec::new(),
+            Some(_) => return Err(RuntimeError::new("http.request body expects Buffer/String")),
+        };
+        let headers = if let Some(Value::Obj(obj)) = map.get("headers") {
+            if let Obj::Record(hmap) = obj.as_obj() {
+                let mut out = HashMap::new();
+                for (k, v) in hmap.borrow().iter() {
+                    if let Value::Obj(vobj) = v {
+                        if let Obj::String(s) = vobj.as_obj() {
+                            out.insert(k.to_string(), s.clone());
+                        }
+                    }
+                }
+                out
+            } else {
+                HashMap::new()
+            }
+        } else {
+            HashMap::new()
+        };
+        let timeout_ms = match map.get("timeout_ms") {
+            Some(Value::Int(i)) if *i > 0 => Some(*i as u64),
+            Some(Value::Float(f)) if *f > 0.0 => Some(*f as u64),
+            _ => None,
+        };
+        let retries = match map.get("retries") {
+            Some(Value::Int(i)) if *i >= 0 => *i as usize,
+            Some(_) => return Err(RuntimeError::new("http.request retries must be >= 0")),
+            None => 0,
+        };
+        let backoff_ms = match map.get("retry_backoff_ms") {
+            Some(Value::Int(i)) if *i >= 0 => *i as u64,
+            Some(Value::Float(f)) if *f >= 0.0 => *f as u64,
+            Some(_) => {
+                return Err(RuntimeError::new(
+                    "http.request retry_backoff_ms must be >= 0",
+                ))
+            }
+            None => 100,
+        };
+        let opts = HttpRequestOptions {
+            headers,
+            timeout_ms,
+            retries,
+            retry_backoff_ms: backoff_ms,
+        };
+        self.http_request_threaded(&method, url, body_bytes, opts)
+    }
+
+    fn http_request_threaded(
+        &mut self,
+        method: &str,
+        url: String,
+        body: Vec<u8>,
+        opts: HttpRequestOptions,
+    ) -> Result<Option<Value>, RuntimeError> {
         let task_id = self
             .current_task
             .ok_or_else(|| RuntimeError::new("No current task"))?;
         let sender = self.io_sender.clone();
         let method = method.to_string();
         std::thread::spawn(move || {
-            let result = http_request_thread(&method, &url, &body_bytes);
+            let result = http_request_thread(&method, &url, &body, &opts);
             let _ = sender.send(IoEvent {
                 task_id,
                 result: IoResult::HttpResponse(result),
@@ -2674,6 +3560,270 @@ impl VM {
         self.pending_state = Some(TaskState::BlockedIo);
         self.yield_now = true;
         Ok(None)
+    }
+
+    fn http_header(&self, req: Value, name: Value) -> Result<Value, RuntimeError> {
+        let name = value_as_string(&name)?.to_lowercase();
+        let map = self.request_headers_map(req)?;
+        Ok(match map.get(&name) {
+            Some(value) => string_value(value),
+            None => Value::Null,
+        })
+    }
+
+    fn http_query(&self, req: Value, name: Value) -> Result<Value, RuntimeError> {
+        let name = value_as_string(&name)?;
+        let query = self.request_query(req)?;
+        Ok(match query_param(&query, &name) {
+            Some(v) => string_value(&v),
+            None => Value::Null,
+        })
+    }
+
+    fn http_stream_open(&mut self, status: Value, headers: Value) -> Result<Value, RuntimeError> {
+        let status = match status {
+            Value::Int(i) => i.clamp(100, 599) as u16,
+            _ => return Err(RuntimeError::new("stream_open expects status int")),
+        };
+        let mut headers_map = HashMap::new();
+        if let Value::Obj(obj) = headers {
+            if let Obj::Record(hmap) = obj.as_obj() {
+                for (k, v) in hmap.borrow().iter() {
+                    if let Value::Obj(vobj) = v {
+                        if let Obj::String(s) = vobj.as_obj() {
+                            headers_map.insert(k.to_lowercase(), s.clone());
+                        }
+                    }
+                }
+            }
+        }
+        headers_map
+            .entry("transfer-encoding".to_string())
+            .or_insert_with(|| "chunked".to_string());
+        headers_map
+            .entry("connection".to_string())
+            .or_insert_with(|| "close".to_string());
+        let stream = self.active_http_conn.take();
+        let stream =
+            stream.ok_or_else(|| RuntimeError::new("stream_open requires http handler"))?;
+        let (tx, rx) = mpsc::channel::<StreamCommand>();
+        std::thread::spawn(move || {
+            let _ = write_http_stream(stream, status, headers_map, rx);
+        });
+        Ok(Value::Obj(ObjRef::new(Obj::HttpStream(HttpStream {
+            sender: tx,
+        }))))
+    }
+
+    fn http_stream_send(&self, stream: Value, chunk: Value) -> Result<(), RuntimeError> {
+        let sender = match stream {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::HttpStream(handle) => handle.sender.clone(),
+                _ => return Err(RuntimeError::new("stream_send expects HttpStream")),
+            },
+            _ => return Err(RuntimeError::new("stream_send expects HttpStream")),
+        };
+        let bytes = match chunk {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::Buffer(bytes) => bytes.clone(),
+                Obj::String(s) => s.as_bytes().to_vec(),
+                _ => return Err(RuntimeError::new("stream_send expects Buffer/String")),
+            },
+            Value::Null => Vec::new(),
+            _ => return Err(RuntimeError::new("stream_send expects Buffer/String")),
+        };
+        let _ = sender.send(StreamCommand::Data(bytes));
+        Ok(())
+    }
+
+    fn http_stream_close(&self, stream: Value) -> Result<(), RuntimeError> {
+        let sender = match stream {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::HttpStream(handle) => handle.sender.clone(),
+                _ => return Err(RuntimeError::new("stream_close expects HttpStream")),
+            },
+            _ => return Err(RuntimeError::new("stream_close expects HttpStream")),
+        };
+        let _ = sender.send(StreamCommand::Close);
+        Ok(())
+    }
+
+    fn prepare_http_request(
+        &mut self,
+        server_id: usize,
+        req: &HttpRequestData,
+    ) -> Result<PreparedHttpRequest, RuntimeError> {
+        let server = match self.servers.get_mut(server_id) {
+            Some(server) => server,
+            None => {
+                return Ok((
+                    None,
+                    HashMap::new(),
+                    None,
+                    Some(error_response(500, "server_missing", "Unknown server")),
+                    Some("server_missing".to_string()),
+                ))
+            }
+        };
+        let mut params = HashMap::new();
+        let handler = if !server.routes.is_empty() {
+            let mut selected = None;
+            for route in &server.routes {
+                if !route_method_match(&route.method, &req.method) {
+                    continue;
+                }
+                if let Some(p) = match_route(&route.path, &req.path) {
+                    params = p;
+                    selected = Some(route.handler.clone());
+                    break;
+                }
+            }
+            selected.or_else(|| server.default_handler.clone())
+        } else {
+            Some(server.handler.clone())
+        };
+        let mut tenant: Option<String> = None;
+        let mut token_value: Option<String> = None;
+        if let Some(auth) = &server.auth {
+            let token = extract_auth_token(req, auth);
+            match token {
+                Some(tok) => {
+                    token_value = Some(tok.clone());
+                    if let Some(t) = auth.tokens.get(&tok) {
+                        if !t.is_empty() {
+                            tenant = Some(t.clone());
+                        }
+                    } else {
+                        return Ok((
+                            None,
+                            params,
+                            None,
+                            Some(error_response(401, "unauthorized", "Invalid API token")),
+                            Some("unauthorized".to_string()),
+                        ));
+                    }
+                }
+                None => {
+                    if !auth.allow_anonymous {
+                        return Ok((
+                            None,
+                            params,
+                            None,
+                            Some(error_response(401, "unauthorized", "Missing API token")),
+                            Some("unauthorized".to_string()),
+                        ));
+                    }
+                }
+            }
+        }
+        if let Some(rate) = &server.rate_limit {
+            let key = match rate.key {
+                RateLimitKey::Token => token_value
+                    .clone()
+                    .unwrap_or_else(|| remote_ip_only(&req.remote_addr)),
+                RateLimitKey::Ip => remote_ip_only(&req.remote_addr),
+            };
+            if !rate_limit_allow(&mut server.rate_state, &key, rate) {
+                return Ok((
+                    None,
+                    params,
+                    tenant.clone(),
+                    Some(error_response(429, "rate_limited", "Rate limit exceeded")),
+                    Some("rate_limited".to_string()),
+                ));
+            }
+        }
+        Ok((handler, params, tenant, None, None))
+    }
+
+    fn log_http_event(
+        &self,
+        server_id: usize,
+        req: &HttpRequestData,
+        tenant: Option<String>,
+        status: u16,
+        error_code: Option<String>,
+        stream: bool,
+    ) {
+        let logger = match self.servers.get(server_id).and_then(|s| s.logger.as_ref()) {
+            Some(logger) => logger,
+            None => return,
+        };
+        let entry = serde_json::json!({
+            "ts_ms": unix_ms(),
+            "method": req.method.as_str(),
+            "path": req.path.as_str(),
+            "status": status,
+            "remote_addr": req.remote_addr.as_str(),
+            "tenant": tenant,
+            "error_code": error_code,
+            "stream": stream,
+        });
+        let _ = logger.append(&entry);
+    }
+
+    fn http_request_value_with_params(
+        &self,
+        req: HttpRequestData,
+        params: HashMap<String, String>,
+    ) -> Value {
+        let value = self.http_request_value(req);
+        if params.is_empty() {
+            return value;
+        }
+        if let Value::Obj(obj) = &value {
+            if let Obj::Record(map) = obj.as_obj() {
+                let mut param_map = HashMap::new();
+                for (k, v) in params {
+                    param_map.insert(k, string_value(&v));
+                }
+                map.borrow_mut()
+                    .insert("params".to_string(), record_value(param_map));
+            }
+        }
+        value
+    }
+
+    fn request_headers_map(&self, req: Value) -> Result<HashMap<String, String>, RuntimeError> {
+        let obj = match req {
+            Value::Obj(obj) => obj,
+            _ => return Err(RuntimeError::new("request expected record")),
+        };
+        let map = match obj.as_obj() {
+            Obj::Record(map) => map.borrow(),
+            _ => return Err(RuntimeError::new("request expected record")),
+        };
+        let headers = match map.get("headers") {
+            Some(Value::Obj(obj)) => match obj.as_obj() {
+                Obj::Record(hmap) => hmap.borrow(),
+                _ => return Err(RuntimeError::new("request headers expected record")),
+            },
+            _ => return Err(RuntimeError::new("request headers missing")),
+        };
+        let mut out = HashMap::new();
+        for (k, v) in headers.iter() {
+            if let Value::Obj(vobj) = v {
+                if let Obj::String(s) = vobj.as_obj() {
+                    out.insert(k.to_lowercase(), s.clone());
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    fn request_query(&self, req: Value) -> Result<String, RuntimeError> {
+        let obj = match req {
+            Value::Obj(obj) => obj,
+            _ => return Err(RuntimeError::new("request expected record")),
+        };
+        let map = match obj.as_obj() {
+            Obj::Record(map) => map.borrow(),
+            _ => return Err(RuntimeError::new("request expected record")),
+        };
+        match map.get("query") {
+            Some(v) => value_as_string(v),
+            None => Ok(String::new()),
+        }
     }
 
     fn http_response(&self, status: Value, body: Value) -> Result<Value, RuntimeError> {
@@ -2752,6 +3902,8 @@ impl VM {
             "body".to_string(),
             Value::Obj(ObjRef::new(Obj::Buffer(req.body))),
         );
+        map.insert("params".to_string(), record_value(HashMap::new()));
+        map.insert("remote_addr".to_string(), string_value(&req.remote_addr));
         record_value(map)
     }
 
@@ -2770,8 +3922,8 @@ impl VM {
         record_value(map)
     }
 
-    fn respond_http_task(&mut self, stream: TcpStream, result: &Result<Value, RuntimeError>) {
-        let response = match result {
+    fn response_from_result(&self, result: &Result<Value, RuntimeError>) -> HttpResponseData {
+        match result {
             Ok(value) => match self.response_from_value(value.clone()) {
                 Ok(resp) => resp,
                 Err(err) => HttpResponseData {
@@ -2785,10 +3937,51 @@ impl VM {
                 headers: HashMap::new(),
                 body: err.to_string().into_bytes(),
             },
+        }
+    }
+
+    fn log_http_meta(&self, meta: &HttpRequestMeta, status: u16, stream: bool) {
+        let logger = match self
+            .servers
+            .get(meta.server_id)
+            .and_then(|s| s.logger.as_ref())
+        {
+            Some(logger) => logger,
+            None => return,
         };
-        std::thread::spawn(move || {
-            let _ = write_http_response(stream, response);
+        let latency_ms = meta.start.elapsed().as_millis() as u64;
+        let entry = serde_json::json!({
+            "ts_ms": unix_ms(),
+            "request_id": meta.id,
+            "method": meta.method.as_str(),
+            "path": meta.path.as_str(),
+            "status": status,
+            "latency_ms": latency_ms,
+            "remote_addr": meta.remote_addr.as_str(),
+            "tenant": meta.tenant.as_ref(),
+            "error_code": meta.error_code.as_ref(),
+            "stream": stream,
         });
+        let _ = logger.append(&entry);
+    }
+
+    fn attach_response_meta_headers(&self, resp: &mut HttpResponseData, meta: &HttpRequestMeta) {
+        resp.headers
+            .entry("x-enkai-request-id".to_string())
+            .or_insert_with(|| meta.id.to_string());
+        resp.headers
+            .entry("x-enkai-latency-ms".to_string())
+            .or_insert_with(|| meta.start.elapsed().as_millis().to_string());
+        if let Some(tenant) = &meta.tenant {
+            resp.headers
+                .entry("x-enkai-tenant".to_string())
+                .or_insert_with(|| tenant.clone());
+        }
+        if let Some(code) = &meta.error_code {
+            resp.headers
+                .entry("x-enkai-error-code".to_string())
+                .or_insert_with(|| code.clone());
+        }
     }
 
     fn write_http_error(&self, stream: TcpStream, message: &str) {
@@ -3330,6 +4523,69 @@ fn write_http_response(mut stream: TcpStream, resp: HttpResponseData) -> std::io
     Ok(())
 }
 
+fn write_http_stream(
+    mut stream: TcpStream,
+    status: u16,
+    mut headers: HashMap<String, String>,
+    rx: mpsc::Receiver<StreamCommand>,
+) -> std::io::Result<()> {
+    headers
+        .entry("transfer-encoding".to_string())
+        .or_insert_with(|| "chunked".to_string());
+    headers
+        .entry("connection".to_string())
+        .or_insert_with(|| "close".to_string());
+    let reason = http_status_reason(status);
+    let mut head = Vec::new();
+    head.extend_from_slice(format!("HTTP/1.1 {} {}\r\n", status, reason).as_bytes());
+    for (k, v) in headers {
+        head.extend_from_slice(format!("{}: {}\r\n", header_key(&k), v).as_bytes());
+    }
+    head.extend_from_slice(b"\r\n");
+    stream.write_all(&head)?;
+    for cmd in rx {
+        match cmd {
+            StreamCommand::Data(bytes) => {
+                if bytes.is_empty() {
+                    continue;
+                }
+                let chunk_len = format!("{:X}\r\n", bytes.len());
+                stream.write_all(chunk_len.as_bytes())?;
+                stream.write_all(&bytes)?;
+                stream.write_all(b"\r\n")?;
+            }
+            StreamCommand::Close => break,
+        }
+    }
+    stream.write_all(b"0\r\n\r\n")?;
+    let _ = stream.shutdown(std::net::Shutdown::Both);
+    Ok(())
+}
+
+impl ServerLogger {
+    fn append(&self, entry: &serde_json::Value) -> Result<(), RuntimeError> {
+        let line =
+            serde_json::to_string(entry).map_err(|e| RuntimeError::new(&e.to_string()))? + "\n";
+        if let Some(parent) = self.path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+            .map_err(|e| RuntimeError::new(&e.to_string()))?;
+        file.write_all(line.as_bytes())
+            .map_err(|e| RuntimeError::new(&e.to_string()))
+    }
+}
+
+fn unix_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_secs(0))
+        .as_millis() as u64
+}
+
 fn format_http_response_bytes(resp: &HttpResponseData) -> Vec<u8> {
     let reason = http_status_reason(resp.status);
     let mut headers = resp.headers.clone();
@@ -3443,6 +4699,7 @@ fn read_http_request(stream: &mut TcpStream) -> Result<HttpRequestData, String> 
         query,
         headers,
         body,
+        remote_addr: String::new(),
     })
 }
 
@@ -3458,11 +4715,45 @@ fn split_query(path: &str) -> (String, String) {
     }
 }
 
-fn http_request_thread(method: &str, url: &str, body: &[u8]) -> Result<HttpResponseData, String> {
-    let (host, port, path) = parse_url(url)?;
-    let addr = format!("{}:{}", host, port);
-    let mut stream = TcpStream::connect(addr).map_err(|err| err.to_string())?;
-    let request = build_http_request(method, &host, &path, body);
+fn http_request_thread(
+    method: &str,
+    url: &str,
+    body: &[u8],
+    opts: &HttpRequestOptions,
+) -> Result<HttpResponseData, String> {
+    let mut last_err = None;
+    for attempt in 0..=opts.retries {
+        match http_request_once(method, url, body, opts) {
+            Ok(resp) => return Ok(resp),
+            Err(err) => {
+                last_err = Some(err);
+                if attempt < opts.retries {
+                    std::thread::sleep(Duration::from_millis(
+                        opts.retry_backoff_ms.saturating_mul(attempt as u64 + 1),
+                    ));
+                }
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| "http request failed".to_string()))
+}
+
+fn http_request_once(
+    method: &str,
+    url: &str,
+    body: &[u8],
+    opts: &HttpRequestOptions,
+) -> Result<HttpResponseData, String> {
+    let (scheme, host, port, path) = parse_url(url)?;
+    let request = build_http_request(method, &host, &path, body, &opts.headers);
+    if scheme == "https" {
+        return http_request_https(&host, port, &request, opts.timeout_ms);
+    }
+    let mut stream = connect_with_timeout(&host, port, opts.timeout_ms)?;
+    if let Some(timeout) = opts.timeout_ms {
+        let _ = stream.set_read_timeout(Some(Duration::from_millis(timeout)));
+        let _ = stream.set_write_timeout(Some(Duration::from_millis(timeout)));
+    }
     stream.write_all(&request).map_err(|err| err.to_string())?;
     let mut resp_buf = Vec::new();
     stream
@@ -3471,18 +4762,63 @@ fn http_request_thread(method: &str, url: &str, body: &[u8]) -> Result<HttpRespo
     parse_http_response(&resp_buf)
 }
 
-fn parse_url(url: &str) -> Result<(String, u16, String), String> {
-    let url = if let Some(rest) = url.strip_prefix("http://") {
-        rest
-    } else if url.starts_with("https://") {
-        return Err("https not supported".to_string());
+fn connect_with_timeout(
+    host: &str,
+    port: u16,
+    timeout_ms: Option<u64>,
+) -> Result<TcpStream, String> {
+    let addr = format!("{}:{}", host, port);
+    if let Some(ms) = timeout_ms {
+        let timeout = Duration::from_millis(ms);
+        TcpStream::connect_timeout(&addr.parse().map_err(|_| "invalid address")?, timeout)
+            .map_err(|err| err.to_string())
     } else {
-        url
+        TcpStream::connect(addr).map_err(|err| err.to_string())
+    }
+}
+
+fn http_request_https(
+    host: &str,
+    port: u16,
+    request: &[u8],
+    timeout_ms: Option<u64>,
+) -> Result<HttpResponseData, String> {
+    let addr = format!("{}:{}", host, port);
+    let stream = if let Some(ms) = timeout_ms {
+        let timeout = Duration::from_millis(ms);
+        TcpStream::connect_timeout(&addr.parse().map_err(|_| "invalid address")?, timeout)
+            .map_err(|err| err.to_string())?
+    } else {
+        TcpStream::connect(addr).map_err(|err| err.to_string())?
     };
-    let (host_port, path) = if let Some((h, p)) = url.split_once('/') {
+    if let Some(timeout) = timeout_ms {
+        let _ = stream.set_read_timeout(Some(Duration::from_millis(timeout)));
+        let _ = stream.set_write_timeout(Some(Duration::from_millis(timeout)));
+    }
+    let connector = native_tls::TlsConnector::new().map_err(|err| err.to_string())?;
+    let mut stream = connector
+        .connect(host, stream)
+        .map_err(|err| err.to_string())?;
+    stream.write_all(request).map_err(|err| err.to_string())?;
+    let mut resp_buf = Vec::new();
+    stream
+        .read_to_end(&mut resp_buf)
+        .map_err(|err| err.to_string())?;
+    parse_http_response(&resp_buf)
+}
+
+fn parse_url(url: &str) -> Result<(String, String, u16, String), String> {
+    let (scheme, rest) = if let Some(rest) = url.strip_prefix("http://") {
+        ("http", rest)
+    } else if let Some(rest) = url.strip_prefix("https://") {
+        ("https", rest)
+    } else {
+        ("http", url)
+    };
+    let (host_port, path) = if let Some((h, p)) = rest.split_once('/') {
         (h, format!("/{}", p))
     } else {
-        (url, "/".to_string())
+        (rest, "/".to_string())
     };
     if host_port.is_empty() {
         return Err("invalid url".to_string());
@@ -3491,19 +4827,34 @@ fn parse_url(url: &str) -> Result<(String, u16, String), String> {
         if let Ok(port) = p.parse::<u16>() {
             (h.to_string(), port)
         } else {
-            (host_port.to_string(), 80)
+            (
+                host_port.to_string(),
+                if scheme == "https" { 443 } else { 80 },
+            )
         }
     } else {
-        (host_port.to_string(), 80)
+        (
+            host_port.to_string(),
+            if scheme == "https" { 443 } else { 80 },
+        )
     };
-    Ok((host, port, path))
+    Ok((scheme.to_string(), host, port, path))
 }
 
-fn build_http_request(method: &str, host: &str, path: &str, body: &[u8]) -> Vec<u8> {
+fn build_http_request(
+    method: &str,
+    host: &str,
+    path: &str,
+    body: &[u8],
+    headers: &HashMap<String, String>,
+) -> Vec<u8> {
     let mut out = Vec::new();
     out.extend_from_slice(format!("{} {} HTTP/1.1\r\n", method, path).as_bytes());
     out.extend_from_slice(format!("Host: {}\r\n", host).as_bytes());
     out.extend_from_slice(b"Connection: close\r\n");
+    for (k, v) in headers {
+        out.extend_from_slice(format!("{}: {}\r\n", header_key(k), v).as_bytes());
+    }
     if !body.is_empty() {
         out.extend_from_slice(format!("Content-Length: {}\r\n", body.len()).as_bytes());
     } else {
@@ -3543,6 +4894,164 @@ fn parse_http_response(buf: &[u8]) -> Result<HttpResponseData, String> {
         headers,
         body,
     })
+}
+
+fn error_response(status: u16, code: &str, message: &str) -> HttpResponseData {
+    let body = serde_json::json!({
+        "error": {
+            "code": code,
+            "message": message
+        }
+    });
+    let mut headers = HashMap::new();
+    headers.insert("content-type".to_string(), "application/json".to_string());
+    headers.insert("x-enkai-error-code".to_string(), code.to_string());
+    HttpResponseData {
+        status,
+        headers,
+        body: body.to_string().into_bytes(),
+    }
+}
+
+fn route_method_match(route_method: &str, req_method: &str) -> bool {
+    if route_method == "*" || route_method.eq_ignore_ascii_case("ANY") {
+        return true;
+    }
+    route_method.eq_ignore_ascii_case(req_method)
+}
+
+fn match_route(pattern: &str, path: &str) -> Option<HashMap<String, String>> {
+    if pattern == path {
+        return Some(HashMap::new());
+    }
+    let pat = split_path(pattern);
+    let actual = split_path(path);
+    if pat.is_empty() && actual.is_empty() {
+        return Some(HashMap::new());
+    }
+    if pat.len() != actual.len() {
+        return None;
+    }
+    let mut params = HashMap::new();
+    for (seg_pat, seg_val) in pat.iter().zip(actual.iter()) {
+        if seg_pat.starts_with(':') {
+            let key = seg_pat.trim_start_matches(':');
+            if key.is_empty() {
+                return None;
+            }
+            params.insert(key.to_string(), url_decode(seg_val));
+        } else if seg_pat != seg_val {
+            return None;
+        }
+    }
+    Some(params)
+}
+
+fn split_path(path: &str) -> Vec<&str> {
+    let trimmed = path.trim_matches('/');
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    trimmed.split('/').filter(|s| !s.is_empty()).collect()
+}
+
+fn extract_auth_token(req: &HttpRequestData, auth: &ServerAuthConfig) -> Option<String> {
+    let header = auth.header.to_lowercase();
+    let value = req.headers.get(&header)?;
+    let value = value.trim();
+    if header == "authorization" {
+        let lower = value.to_lowercase();
+        if let Some(rest) = lower.strip_prefix("bearer ") {
+            let offset = value.len().saturating_sub(rest.len());
+            return Some(value[offset..].trim().to_string());
+        }
+    }
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
+fn remote_ip_only(remote_addr: &str) -> String {
+    if let Ok(addr) = remote_addr.parse::<std::net::SocketAddr>() {
+        return addr.ip().to_string();
+    }
+    remote_addr
+        .rsplit_once(':')
+        .map(|(host, _)| host.to_string())
+        .unwrap_or_else(|| remote_addr.to_string())
+}
+
+fn rate_limit_allow(
+    state: &mut HashMap<String, RateLimitBucket>,
+    key: &str,
+    config: &RateLimitConfig,
+) -> bool {
+    let now = Instant::now();
+    let bucket = state.entry(key.to_string()).or_insert(RateLimitBucket {
+        tokens: config.capacity,
+        last: now,
+    });
+    let elapsed = now.duration_since(bucket.last).as_secs_f64();
+    if elapsed > 0.0 {
+        bucket.tokens = (bucket.tokens + elapsed * config.refill_per_sec).min(config.capacity);
+        bucket.last = now;
+    }
+    if bucket.tokens >= 1.0 {
+        bucket.tokens -= 1.0;
+        true
+    } else {
+        false
+    }
+}
+
+fn query_param(query: &str, name: &str) -> Option<String> {
+    if query.is_empty() {
+        return None;
+    }
+    for pair in query.split('&') {
+        if pair.is_empty() {
+            continue;
+        }
+        let mut it = pair.splitn(2, '=');
+        let key = it.next().unwrap_or("");
+        let val = it.next().unwrap_or("");
+        if url_decode(key) == name {
+            return Some(url_decode(val));
+        }
+    }
+    None
+}
+
+fn url_decode(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut idx = 0usize;
+    while idx < bytes.len() {
+        match bytes[idx] {
+            b'%' if idx + 2 < bytes.len() => {
+                if let Ok(hex) = std::str::from_utf8(&bytes[idx + 1..idx + 3]) {
+                    if let Ok(val) = u8::from_str_radix(hex, 16) {
+                        out.push(val);
+                        idx += 3;
+                        continue;
+                    }
+                }
+                out.push(bytes[idx]);
+                idx += 1;
+            }
+            b'+' => {
+                out.push(b' ');
+                idx += 1;
+            }
+            b => {
+                out.push(b);
+                idx += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).to_string()
 }
 
 fn json_to_value(value: serde_json::Value) -> Value {
@@ -3821,7 +5330,7 @@ fn domain_from_url(url: &str) -> Option<String> {
         .or_else(|| url.strip_prefix("http://"))
         .unwrap_or(url);
     let host_port = without_scheme.split('/').next().unwrap_or(without_scheme);
-    let host = host_port.split('@').last().unwrap_or(host_port);
+    let host = host_port.split('@').next_back().unwrap_or(host_port);
     let host = host.split(':').next().unwrap_or(host);
     if host.is_empty() {
         None
@@ -3882,6 +5391,7 @@ fn display_value(v: &Value) -> String {
             Obj::Channel(_) => "<channel>".to_string(),
             Obj::TcpListener(_) => "<tcp_listener>".to_string(),
             Obj::TcpConnection(_) => "<tcp_connection>".to_string(),
+            Obj::HttpStream(_) => "<http_stream>".to_string(),
             Obj::Tokenizer(tok) => format!("<tokenizer {}>", tok.vocab_size()),
             Obj::DatasetStream(_) => "<dataset>".to_string(),
             Obj::Record(_) => "<record>".to_string(),

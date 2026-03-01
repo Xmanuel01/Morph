@@ -31,7 +31,8 @@ fn copy_std_modules(dest: &Path) {
     }
 }
 
-const POLICY_ALLOW_ALL: &str = "policy default ::\n    allow io\n    allow fs\n    allow env\n    allow process\n    allow net\n::\n\n";
+const POLICY_ALLOW_ALL: &str =
+    "policy default ::\n    allow io\n    allow fs\n    allow env\n    allow process\n    allow net\n    allow db\n::\n\n";
 
 fn inject_policy(source: &str) -> String {
     if source.contains("policy ") {
@@ -262,4 +263,47 @@ fn policy_blocks_fs_without_allow() {
     assert!(result.is_err());
     let message = result.err().unwrap().to_string();
     assert!(message.contains("Policy denied"));
+}
+
+#[test]
+fn std_db_sqlite_roundtrip() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    copy_std_modules(temp.path());
+    let db_path = temp.path().join("state.db");
+    let db_path = db_path.to_string_lossy().replace('\\', "/");
+    let source = format!(
+        "import std::db\n\
+        let h := db.sqlite_open(\"{}\")?\n\
+        db.sqlite_exec(h, \"create table if not exists items(id integer primary key, name text)\")\n\
+        db.sqlite_exec(h, \"delete from items\")\n\
+        db.sqlite_exec(h, \"insert into items(name) values ('hello')\")\n\
+        let rows := db.sqlite_query(h, \"select name from items order by id\")\n\
+        db.sqlite_close(h)\n\
+        rows\n",
+        db_path
+    );
+    let value = run_package(temp.path(), "main.enk", &source).expect("run");
+    let rows = match value {
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::List(items) => items.borrow().clone(),
+            _ => panic!("expected rows list"),
+        },
+        _ => panic!("expected rows list"),
+    };
+    assert!(!rows.is_empty());
+    let first = match &rows[0] {
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::Record(map) => map.borrow().get("name").cloned().expect("name"),
+            _ => panic!("expected row record"),
+        },
+        _ => panic!("expected row record"),
+    };
+    let first_name = match first {
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::String(text) => text.clone(),
+            _ => panic!("expected name string"),
+        },
+        _ => panic!("expected name string"),
+    };
+    assert_eq!(first_name, "hello");
 }

@@ -1,0 +1,10 @@
+// std::tls (v1.3 baseline)
+
+native::import "enkai_native" ::
+    fn tls_fetch_server_info(host: String, port: Int, timeout_ms: Int) -> String?
+::
+
+pub fn inspect(host: String, port: Int, timeout_ms: Int) ::
+    let raw := tls_fetch_server_info(host, port, timeout_ms)?
+    return json.parse(raw)
+::

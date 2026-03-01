@@ -8,6 +8,7 @@ use crate::dataset::DatasetStream;
 use crate::ffi::native_fn::FfiFunction;
 use crate::tokenizer::Tokenizer;
 use crate::value::{ObjRef, Value};
+use std::sync::mpsc;
 
 pub type NativeFunc =
     dyn Fn(&mut crate::vm::VM, &[Value]) -> Result<Value, crate::error::RuntimeError>;
@@ -25,6 +26,7 @@ pub enum Obj {
     Channel(RefCell<ChannelState>),
     TcpListener(RefCell<std::net::TcpListener>),
     TcpConnection(RefCell<std::net::TcpStream>),
+    HttpStream(HttpStream),
     Tokenizer(Tokenizer),
     DatasetStream(RefCell<DatasetStream>),
     Record(RefCell<std::collections::HashMap<String, Value>>),
@@ -44,6 +46,7 @@ impl Obj {
             Obj::Channel(_) => "Channel",
             Obj::TcpListener(_) => "TcpListener",
             Obj::TcpConnection(_) => "TcpConnection",
+            Obj::HttpStream(_) => "HttpStream",
             Obj::Tokenizer(_) => "Tokenizer",
             Obj::DatasetStream(_) => "DatasetStream",
             Obj::Record(_) => "Record",
@@ -76,6 +79,17 @@ pub struct NativeFunction {
     pub arity: u16,
     pub kind: NativeImpl,
     pub bound: Option<Value>,
+}
+
+#[derive(Debug, Clone)]
+pub enum StreamCommand {
+    Data(Vec<u8>),
+    Close,
+}
+
+#[derive(Debug, Clone)]
+pub struct HttpStream {
+    pub sender: mpsc::Sender<StreamCommand>,
 }
 
 impl std::fmt::Debug for NativeFunction {
