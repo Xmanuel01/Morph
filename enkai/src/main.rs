@@ -15,9 +15,10 @@ use enkai_compiler::modules::load_package;
 use enkai_compiler::{TypeChecker, TypeError};
 use enkai_runtime::{Value, VM};
 
+mod frontend;
 mod train;
 
-const LANG_VERSION: &str = "1.3.0";
+const LANG_VERSION: &str = "1.4.0";
 
 #[derive(Debug, Clone)]
 struct DependencySpec {
@@ -76,6 +77,8 @@ fn main() {
     let exit_code = match args[1].as_str() {
         "run" => run_command(&args[2..]),
         "serve" => serve_command(&args[2..]),
+        "new" => frontend::new_command(&args[2..]),
+        "sdk" => frontend::sdk_command(&args[2..]),
         "check" => check_command(&args[2..]),
         "fmt" => fmt_command(&args[2..]),
         "build" => build_command(&args[2..]),
@@ -837,6 +840,8 @@ fn print_usage() {
     eprintln!(
         "  enkai serve [--host <host>] [--port <port>] [--registry <dir> --model <name> [--model-version <v>|--latest] | --checkpoint <path>] [--trace-vm] [--disasm] [--trace-task] [--trace-net] [file|dir]"
     );
+    frontend::print_new_usage();
+    frontend::print_sdk_usage();
     eprintln!("  enkai check <file|dir>");
     eprintln!("  enkai fmt [--check] <file|dir>");
     eprintln!("  enkai build [dir]");

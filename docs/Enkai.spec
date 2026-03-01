@@ -1,8 +1,8 @@
-# Enkai Language Specification (v0.1 -> v1.3.0)
+# Enkai Language Specification (v0.1 -> v1.4.0)
 
 Status: stable.
 Grammar and CLI contracts are frozen at the v0.9.3 baseline for the v1.x line.
-This document is the normative language and runtime surface for Enkai v1.3.0,
+This document is the normative language and runtime surface for Enkai v1.4.0,
 including compatibility constraints carried from v0.1 onward.
 
 -------------------------------------------------------------------------------
@@ -13,7 +13,7 @@ This specification covers:
 - Core syntax and block rules.
 - Module/import semantics.
 - Type and expression forms supported by parser, checker, compiler, and VM.
-- Built-in runtime modules shipped in v1.3.0.
+- Built-in runtime modules shipped in v1.4.0.
 - CLI entrypoints used in production.
 
 This specification does not claim features that are still stubbed or not yet implemented.
@@ -41,6 +41,9 @@ Compatibility baseline:
 - v1.3: serving/backend platform primitives (`enkai serve`, routed HTTP + streaming,
   auth/rate-limit middleware, JSONL observability), HTTP client config APIs, TLS
   inspection helper, SQLite connector, and model-registry version pinning hooks.
+- v1.4: frontend developer stack (`enkai new` scaffolds, typed SDK generation via
+  `enkai sdk`, React/TypeScript reference app contract, and SDK/backend endpoint
+  contract tests).
 
 Compatibility policy:
 - `.enk` and `.en` are primary source extensions.
@@ -48,7 +51,7 @@ Compatibility policy:
   primary contract unless listed explicitly.
 
 -------------------------------------------------------------------------------
-1.2 Validation Gate Status (v1.3.0)
+1.2 Validation Gate Status (v1.4.0)
 -------------------------------------------------------------------------------
 
 Current verification status:
@@ -175,7 +178,7 @@ Types:
 - `enum Name :: VariantA VariantB ::`
 - `impl Name :: fn method(...) :: ... :: ::`
 
-Runtime semantics (v1.3):
+Runtime semantics (v1.4):
 - `type` emits a constructor function that returns a record with `__type = "Name"` and
   the declared fields.
 - `enum` emits a record of variant records. Each variant record includes
@@ -253,7 +256,7 @@ Assignment form:
 8. Types
 -------------------------------------------------------------------------------
 
-Core types used in v1.3.0:
+Core types used in v1.4.0:
 - `Int`, `Float`, `Bool`, `String`, `Void`
 - Optional: `T?`
 - Function: `fn(T1, T2) -> R`
@@ -282,7 +285,7 @@ Formatting and tests:
 - Project test runner (`enkai test`) compiles and executes test files.
 
 -------------------------------------------------------------------------------
-10. Built-in Runtime Modules (v1.3.0)
+10. Built-in Runtime Modules (v1.4.0)
 -------------------------------------------------------------------------------
 
 Concurrency:
@@ -359,7 +362,7 @@ Native-backed std modules:
 - `std::tls` (TLS peer certificate fingerprint helper)
 - `std::model_registry` (serve-time env contract helpers)
 
-Tensor backend (`std::tensor`, v1.3.0 surface):
+Tensor backend (`std::tensor`, v1.4.0 surface):
 - device/tensor creation, math ops, shape/dtype/device transforms
 - autograd and optimizer helper APIs
 - AMP scaler/autocast APIs
@@ -375,12 +378,14 @@ Tensor C ABI checkpoint/distributed hooks:
 For full tensor C ABI contracts and safety preconditions, see `docs/tensor_api.md` and `docs/gpu_backend.md`.
 
 -------------------------------------------------------------------------------
-11. CLI Contract (v1.3.0)
+11. CLI Contract (v1.4.0)
 -------------------------------------------------------------------------------
 
 Commands:
 - `enkai run <file|dir> [--trace-vm] [--disasm] [--trace-task] [--trace-net]`
 - `enkai serve [--host <host>] [--port <port>] [--registry <dir> --model <name> [--model-version <v>|--latest] | --checkpoint <path>] [--trace-vm] [--disasm] [--trace-task] [--trace-net] [file|dir]`
+- `enkai new <backend|frontend-chat|fullstack-chat> <target_dir> [--api-version <v>] [--backend-url <url>] [--force]`
+- `enkai sdk generate <output_file> [--api-version <v>]`
 - `enkai check <file|dir>`
 - `enkai fmt [--check] <file|dir>`
 - `enkai build [dir]`
@@ -397,6 +402,18 @@ Serve model-selection contract:
   - `ENKAI_SERVE_MODEL_NAME`
   - `ENKAI_SERVE_MODEL_VERSION`
   - `ENKAI_SERVE_MODEL_REGISTRY`
+
+Frontend scaffolding + SDK contract:
+- `enkai new backend` creates an Enkai HTTP backend scaffold with versioned routes:
+  - `GET /api/<version>/health`
+  - `POST /api/<version>/chat`
+  - `GET /api/<version>/chat/stream`
+- `enkai new frontend-chat` creates React/TypeScript UI scaffolding with:
+  - typed SDK (`src/sdk/enkaiClient.ts`)
+  - env contract (`VITE_ENKAI_API_BASE_URL`, `VITE_ENKAI_API_VERSION`, `VITE_ENKAI_API_TOKEN`)
+  - streaming chat UI and error handling conventions.
+- `enkai new fullstack-chat` emits both backend and frontend scaffolds with aligned API version defaults.
+- Generated SDK pins `x-enkai-api-version` and path prefix `/api/<version>`.
 
 Project entry resolution:
 - Running with a directory resolves project root and `src/main.enk`.
@@ -417,7 +434,7 @@ Checkpoint format:
 - Ranked checkpoints write `rank{n}/` subdirectories and a `manifest.json` with `world_size`.
 
 -------------------------------------------------------------------------------
-12. Known Limits in v1.3.0
+12. Known Limits in v1.4.0
 -------------------------------------------------------------------------------
 
 The following are intentionally not fully implemented yet:
@@ -431,10 +448,11 @@ The following are intentionally not fully implemented yet:
   - CUDA/NCCL multi-rank behavior is environment-gated and not guaranteed on all targets.
 - HTTP serving supports routed handlers + chunked streaming; full WebSocket runtime APIs are not yet implemented.
 - `std::db` ships SQLite in-tree; Postgres connectors remain optional and are not part of the default runtime build.
-- Model registry support is filesystem-based (`--registry` directory scanning). Remote registries and artifact pull/auth flows are out of scope in v1.3.
+- Model registry support is filesystem-based (`--registry` directory scanning). Remote registries and artifact pull/auth flows are out of scope in v1.4.
+- Frontend scaffolds target React + TypeScript web projects; non-web/mobile generators are not part of v1.4.
 - Current training-forward integration in runtime uses a TinyLM transformer forward/loss path and is not yet a full-scale Transformer stack.
 - Engine-level checkpoint helpers exist, but full train-loop orchestration and multi-rank resume policy are constrained to currently integrated paths.
-- v1.3.0 validation note:
+- v1.4.0 validation note:
   - CPU-mode single-device soak requires operator-run evidence on production hardware.
   - CUDA single-GPU long-soak and distributed (2-GPU/4-GPU) reliability remain
     operator-run requirements and are not auto-proven by repository state alone.
@@ -445,7 +463,7 @@ These limits are part of the current stable contract and should be treated as pr
 13. Change Control
 -------------------------------------------------------------------------------
 
-For any language/runtime surface change after v1.3.0:
+For any language/runtime surface change after v1.4.0:
 1) Implement the change and add/adjust compiler/runtime tests.
 2) Update this specification to match the shipped behavior.
 3) Update changelog and targeted docs (`docs/xx_*.md`, `docs/tensor_api.md`, etc.).

@@ -11,6 +11,29 @@
 ### Breaking changes
 - None yet.
 
+## v1.4.0
+
+### Highlights
+- Added frontend stack scaffolding in CLI:
+  - `enkai new backend`
+  - `enkai new frontend-chat`
+  - `enkai new fullstack-chat`
+- Added typed SDK generator command:
+  - `enkai sdk generate <output_file> [--api-version <v>]`
+- Shipped React/TypeScript reference chat UI scaffold with streaming response handling, auth token input, and error UX conventions.
+- Standardized frontend/backend version pinning contract:
+  - route prefix `/api/<version>`
+  - request header `x-enkai-api-version`.
+
+### Fixes
+- Added contract tests to validate scaffolded backend route layout and generated SDK endpoint/header behavior.
+- Added end-to-end fullstack contract test coverage for generated backend/frontend scaffolds, including streaming event parsing and version mismatch behavior.
+- Added persisted conversation flow in backend scaffold with conversation ID continuity across stream/chat APIs and persisted state snapshots.
+- Hardened CLI argument validation for new SDK/scaffold commands with deterministic error messages.
+
+### Breaking changes
+- None.
+
 ## v1.3.0
 
 ### Highlights

@@ -12,16 +12,37 @@ pub fn serve(host: String, port: Int, routes: List, config: Any) ::
     return http.serve_with(host, port, routes, config)
 ::
 
+pub fn header(req: Request, name: String) -> String? ::
+    return http.header(req, name)
+::
+
+pub fn query(req: Request, name: String) -> String? ::
+    return http.query(req, name)
+::
+
 pub fn sse_open() -> HttpStream ::
     let headers := json.parse("{\"content-type\":\"text/event-stream\",\"cache-control\":\"no-cache\"}")
     return http.stream_open(200, headers)
 ::
 
 pub fn sse_send(stream: HttpStream, data: String) ::
-    let payload := "data: " + data + "\n\n"
-    return http.stream_send(stream, payload)
+    http.stream_send(stream, "data: ")
+    http.stream_send(stream, data)
+    return http.stream_send(stream, "\n\n")
 ::
 
 pub fn sse_close(stream: HttpStream) ::
     return http.stream_close(stream)
+::
+
+pub fn ok(body: String) -> Response ::
+    return http.ok(body)
+::
+
+pub fn bad_request(body: String) -> Response ::
+    return http.bad_request(body)
+::
+
+pub fn not_found(body: String) -> Response ::
+    return http.not_found(body)
 ::
