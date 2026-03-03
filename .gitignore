@@ -2,3 +2,5 @@
 **/*.rs.bk
 /checkpoints
 /data
+/enkai/conversation_state.json
+/enkai/logs/

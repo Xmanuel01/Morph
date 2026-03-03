@@ -19,8 +19,10 @@ fn dataset_produces_batches() {
     let dir = tempdir().expect("tempdir");
     let file = dir.path().join("data.txt");
     fs::write(&file, "alpha beta gamma\ndelta epsilon").unwrap();
-    let mut cfg = TrainConfig::default();
-    cfg.vocab_size = 16;
+    let cfg = TrainConfig {
+        vocab_size: 16,
+        ..TrainConfig::default()
+    };
     let tokenizer = Tokenizer::train_from_path(&file, &cfg).expect("tokenizer");
     let mut data_cfg = DatasetConfig::new(4, 2);
     data_cfg.drop_remainder = false;
@@ -38,8 +40,10 @@ fn dataset_shuffle_is_deterministic() {
     fs::write(dir.path().join("a.txt"), "alpha").unwrap();
     fs::write(dir.path().join("b.txt"), "beta").unwrap();
     fs::write(dir.path().join("c.txt"), "gamma").unwrap();
-    let mut cfg = TrainConfig::default();
-    cfg.vocab_size = 16;
+    let cfg = TrainConfig {
+        vocab_size: 16,
+        ..TrainConfig::default()
+    };
     let tokenizer = Tokenizer::train_from_path(dir.path(), &cfg).expect("tokenizer");
     let files = resolve_dataset_paths(dir.path().to_string_lossy().as_ref()).expect("paths");
     let mut data_cfg = DatasetConfig::new(1, 1);

@@ -2,6 +2,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
+use std::sync::{Mutex, OnceLock};
 
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -15,10 +16,19 @@ use enkai_compiler::modules::load_package;
 use enkai_compiler::{TypeChecker, TypeError};
 use enkai_runtime::{Value, VM};
 
+mod bootstrap;
 mod frontend;
 mod train;
 
-const LANG_VERSION: &str = "1.4.0";
+const LANG_VERSION: &str = "1.5.0";
+
+pub(crate) fn env_guard() -> std::sync::MutexGuard<'static, ()> {
+    static ENV_GUARD: OnceLock<Mutex<()>> = OnceLock::new();
+    ENV_GUARD
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|err| err.into_inner())
+}
 
 #[derive(Debug, Clone)]
 struct DependencySpec {
@@ -79,6 +89,10 @@ fn main() {
         "serve" => serve_command(&args[2..]),
         "new" => frontend::new_command(&args[2..]),
         "sdk" => frontend::sdk_command(&args[2..]),
+        "fmt-lite" => bootstrap::fmt_lite_command(&args[2..]),
+        "lint-lite" => bootstrap::lint_lite_command(&args[2..]),
+        "tokenizer-lite" => bootstrap::tokenizer_lite_command(&args[2..]),
+        "dataset-lite" => bootstrap::dataset_lite_command(&args[2..]),
         "check" => check_command(&args[2..]),
         "fmt" => fmt_command(&args[2..]),
         "build" => build_command(&args[2..]),
@@ -842,6 +856,7 @@ fn print_usage() {
     );
     frontend::print_new_usage();
     frontend::print_sdk_usage();
+    bootstrap::print_usage();
     eprintln!("  enkai check <file|dir>");
     eprintln!("  enkai fmt [--check] <file|dir>");
     eprintln!("  enkai build [dir]");
@@ -1254,7 +1269,7 @@ mod tests {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("bad.enk");
         fs::write(&file, "fn f() -> Int ::\n    return true\n::\n").unwrap();
-        let code = run_command(&vec![file.to_string_lossy().to_string()]);
+        let code = run_command(&[file.to_string_lossy().to_string()]);
         assert_ne!(code, 0);
     }
 
@@ -1268,7 +1283,7 @@ mod tests {
             "fn main() -> Int ::\n    return 0\n::\n",
         )
         .unwrap();
-        let code = test_command(&vec![dir.path().to_string_lossy().to_string()]);
+        let code = test_command(&[dir.path().to_string_lossy().to_string()]);
         assert_eq!(code, 0);
     }
 
@@ -1282,7 +1297,7 @@ mod tests {
             "fn main() -> Int ::\n    return true\n::\n",
         )
         .unwrap();
-        let code = test_command(&vec![dir.path().to_string_lossy().to_string()]);
+        let code = test_command(&[dir.path().to_string_lossy().to_string()]);
         assert_ne!(code, 0);
     }
 
@@ -1291,10 +1306,7 @@ mod tests {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("bad.enk");
         fs::write(&file, "if true ::\nprint(\"hi\")\n::\n").unwrap();
-        let code = fmt_command(&vec![
-            "--check".to_string(),
-            file.to_string_lossy().to_string(),
-        ]);
+        let code = fmt_command(&["--check".to_string(), file.to_string_lossy().to_string()]);
         assert_ne!(code, 0);
     }
 
@@ -1303,7 +1315,7 @@ mod tests {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("fix.enk");
         fs::write(&file, "if true ::\nprint(\"hi\")\n::\n").unwrap();
-        let code = fmt_command(&vec![file.to_string_lossy().to_string()]);
+        let code = fmt_command(&[file.to_string_lossy().to_string()]);
         assert_eq!(code, 0);
         let updated = fs::read_to_string(&file).expect("read");
         assert!(updated.contains("\n    print(\"hi\")\n"));

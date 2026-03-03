@@ -695,6 +695,32 @@ fn inject_builtins(
         Type::Function(vec![Type::Unknown], Box::new(Type::String)),
     );
     exports.entry(json_id).or_insert(json_exports);
+    let bootstrap_id = ModuleId(vec!["bootstrap".to_string()]);
+    imports
+        .entry("bootstrap".to_string())
+        .or_insert(bootstrap_id.clone());
+    let mut bootstrap_exports = std::collections::HashMap::new();
+    bootstrap_exports.insert(
+        "format".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::String)),
+    );
+    bootstrap_exports.insert(
+        "check".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::Bool)),
+    );
+    bootstrap_exports.insert(
+        "lint".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::Unknown)),
+    );
+    bootstrap_exports.insert(
+        "lint_count".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::Int)),
+    );
+    bootstrap_exports.insert(
+        "lint_json".to_string(),
+        Type::Function(vec![Type::String, Type::String], Box::new(Type::String)),
+    );
+    exports.entry(bootstrap_id).or_insert(bootstrap_exports);
     let tokenizer_id = ModuleId(vec!["tokenizer".to_string()]);
     imports
         .entry("tokenizer".to_string())
@@ -708,6 +734,18 @@ fn inject_builtins(
         "load".to_string(),
         Type::Function(vec![Type::String], Box::new(Type::Tokenizer)),
     );
+    tokenizer_exports.insert(
+        "save".to_string(),
+        Type::Function(vec![Type::Tokenizer, Type::String], Box::new(Type::Void)),
+    );
+    tokenizer_exports.insert(
+        "encode".to_string(),
+        Type::Function(vec![Type::Tokenizer, Type::String], Box::new(Type::Buffer)),
+    );
+    tokenizer_exports.insert(
+        "decode".to_string(),
+        Type::Function(vec![Type::Tokenizer, Type::Unknown], Box::new(Type::String)),
+    );
     exports.entry(tokenizer_id).or_insert(tokenizer_exports);
     let dataset_id = ModuleId(vec!["dataset".to_string()]);
     imports
@@ -719,6 +757,13 @@ fn inject_builtins(
         Type::Function(
             vec![Type::String, Type::Tokenizer, Type::Unknown],
             Box::new(Type::DataStream),
+        ),
+    );
+    dataset_exports.insert(
+        "next_batch".to_string(),
+        Type::Function(
+            vec![Type::DataStream],
+            Box::new(Type::Optional(Box::new(Type::Unknown))),
         ),
     );
     exports.entry(dataset_id).or_insert(dataset_exports);

@@ -802,7 +802,6 @@ mod tests {
     use std::net::{TcpListener, TcpStream};
     use std::path::Path;
     use std::sync::mpsc;
-    use std::sync::{Mutex, OnceLock};
     use std::time::{Duration, Instant};
 
     use enkai_compiler::compiler::compile_package;
@@ -812,11 +811,7 @@ mod tests {
     use tempfile::tempdir;
 
     fn frontend_contract_guard() -> std::sync::MutexGuard<'static, ()> {
-        static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
-        GUARD
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|err| err.into_inner())
+        crate::env_guard()
     }
 
     fn send_http_request(host: &str, port: u16, request: &str) -> Vec<u8> {
@@ -1001,9 +996,9 @@ mod tests {
             std::thread::sleep(Duration::from_millis(40));
         }
 
-        let stream_request = format!(
+        let stream_request =
             "GET /api/v1/chat/stream?prompt=hello HTTP/1.1\r\nHost: localhost\r\nx-enkai-api-version: v1\r\nConnection: close\r\n\r\n"
-        );
+                .to_string();
         let stream_resp = send_http_request("127.0.0.1", port, &stream_request);
         assert_eq!(response_status(&stream_resp), 200);
         let stream_body = response_body(&stream_resp);
@@ -1026,9 +1021,9 @@ mod tests {
             chat_body
         );
 
-        let mismatch_request = format!(
+        let mismatch_request =
             "GET /api/v2/chat/stream?prompt=hello HTTP/1.1\r\nHost: localhost\r\nx-enkai-api-version: v2\r\nConnection: close\r\n\r\n"
-        );
+                .to_string();
         let mismatch_resp = send_http_request("127.0.0.1", port, &mismatch_request);
         assert_eq!(response_status(&mismatch_resp), 404);
 

@@ -170,7 +170,6 @@ fn http_server_handles_concurrent_requests() {
 
     let mut handles = Vec::new();
     for _ in 0..50 {
-        let port = port;
         handles.push(std::thread::spawn(move || {
             let request = b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
             let buf = send_raw_request(port, request);

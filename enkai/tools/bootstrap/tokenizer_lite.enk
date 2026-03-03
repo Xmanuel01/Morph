@@ -1,0 +1,51 @@
+import std::env
+import std::io
+
+policy default ::
+    allow env
+    allow fs
+    allow io
+::
+
+fn main() -> Int ::
+    let dataset := env.get("ENKAI_TOKENIZER_LITE_DATASET")
+    if dataset == none ::
+        io.stderr_write_text("missing ENKAI_TOKENIZER_LITE_DATASET\n")
+        return 2
+    ::
+    let output := env.get("ENKAI_TOKENIZER_LITE_OUTPUT")
+    if output == none ::
+        io.stderr_write_text("missing ENKAI_TOKENIZER_LITE_OUTPUT\n")
+        return 2
+    ::
+    let cfg := json.parse("{}")
+    cfg.path := dataset?
+    cfg.save_path := output?
+    let vocab_size := env.get("ENKAI_TOKENIZER_LITE_VOCAB_SIZE")
+    if vocab_size != none ::
+        cfg.vocab_size := json.parse(vocab_size?)
+    ::
+    let min_freq := env.get("ENKAI_TOKENIZER_LITE_MIN_FREQ")
+    if min_freq != none ::
+        cfg.min_freq := json.parse(min_freq?)
+    ::
+    let seed := env.get("ENKAI_TOKENIZER_LITE_SEED")
+    if seed != none ::
+        cfg.seed := json.parse(seed?)
+    ::
+    let lowercase := env.get("ENKAI_TOKENIZER_LITE_LOWERCASE")
+    if lowercase != none ::
+        if lowercase? == "1" ::
+            cfg.lowercase := true
+        ::
+    ::
+    tokenizer.train(cfg)
+    let summary := json.parse("{}")
+    summary.status := "ok"
+    summary.output := output?
+    io.stdout_write_text(json.stringify(summary))
+    io.stdout_write_text("\n")
+    return 0
+::
+
+main()

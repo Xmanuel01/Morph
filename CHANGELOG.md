@@ -11,6 +11,29 @@
 ### Breaking changes
 - None yet.
 
+## v1.5.0
+
+### Highlights
+- Added bootstrap-lite CLI commands:
+  - `enkai fmt-lite [--check] <file|dir>`
+  - `enkai lint-lite [--deny-warn] <file|dir>`
+  - `enkai tokenizer-lite train ...`
+  - `enkai dataset-lite inspect ...`
+- Added Enkai-scripted bootstrap tooling implementations embedded into the CLI and executed through the VM.
+- Added runtime/compiler support for bootstrap tooling primitives:
+  - new `bootstrap` runtime module (`format`, `check`, `lint`, `lint_count`, `lint_json`)
+  - compiler + checker built-in registration for `bootstrap`
+  - expanded tokenizer/dataset callable surface for script-based utilities.
+- Added bootstrap subset specification: `docs/bootstrap_subset.md`.
+
+### Fixes
+- Added deterministic parity tests comparing Enkai bootstrap-lite execution paths with Rust baselines for formatter, linter, tokenizer, and dataset inspection flows.
+- Added CI parity lane for bootstrap-lite (`bootstrap::tests`).
+- Improved tokenizer capability handling for config-record input in policy context extraction.
+
+### Breaking changes
+- None.
+
 ## v1.4.0
 
 ### Highlights

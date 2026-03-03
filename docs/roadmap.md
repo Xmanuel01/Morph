@@ -2,8 +2,17 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v1.4.0.
+- Current production release line is v1.5.0.
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v1.5 (done)
+- Bootstrap-lite command surface:
+  - `enkai fmt-lite`
+  - `enkai lint-lite`
+  - `enkai tokenizer-lite`
+  - `enkai dataset-lite`
+- Enkai-scripted bootstrap tooling pipeline with deterministic parity tests against Rust paths.
+- Bootstrap subset specification finalized (`docs/bootstrap_subset.md`).
 
 v0.1 (done)
 - Lexer/parser/AST with :: blocks

@@ -9,8 +9,10 @@ fn trains_and_roundtrips_tokens() {
     let dir = tempdir().expect("tempdir");
     let file = dir.path().join("data.txt");
     fs::write(&file, "hello world hello").expect("write");
-    let mut cfg = TrainConfig::default();
-    cfg.vocab_size = 8;
+    let cfg = TrainConfig {
+        vocab_size: 8,
+        ..TrainConfig::default()
+    };
     let tok = Tokenizer::train_from_path(&file, &cfg).expect("train");
     let ids = tok.encode("hello world", false);
     assert_eq!(ids, vec![2, 3]);
@@ -23,8 +25,10 @@ fn saves_and_loads_tokenizer() {
     let dir = tempdir().expect("tempdir");
     let file = dir.path().join("data.txt");
     fs::write(&file, "alpha beta beta").expect("write");
-    let mut cfg = TrainConfig::default();
-    cfg.vocab_size = 8;
+    let cfg = TrainConfig {
+        vocab_size: 8,
+        ..TrainConfig::default()
+    };
     let tok = Tokenizer::train_from_path(&file, &cfg).expect("train");
     let out = dir.path().join("tok.json");
     tok.save(&out).expect("save");
@@ -47,9 +51,11 @@ fn tokenizer_seed_is_deterministic() {
     let dir = tempdir().expect("tempdir");
     let file = dir.path().join("data.txt");
     fs::write(&file, "alpha beta gamma delta").expect("write");
-    let mut cfg = TrainConfig::default();
-    cfg.vocab_size = 6;
-    cfg.seed = Some(42);
+    let cfg = TrainConfig {
+        vocab_size: 6,
+        seed: Some(42),
+        ..TrainConfig::default()
+    };
     let tok1 = Tokenizer::train_from_path(&file, &cfg).expect("train1");
     let tok2 = Tokenizer::train_from_path(&file, &cfg).expect("train2");
     let ids: Vec<u32> = (0..tok1.vocab_size() as u32).collect();

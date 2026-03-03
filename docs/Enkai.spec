@@ -1,8 +1,8 @@
-# Enkai Language Specification (v0.1 -> v1.4.0)
+# Enkai Language Specification (v0.1 -> v1.5.0)
 
 Status: stable.
 Grammar and CLI contracts are frozen at the v0.9.3 baseline for the v1.x line.
-This document is the normative language and runtime surface for Enkai v1.4.0,
+This document is the normative language and runtime surface for Enkai v1.5.0,
 including compatibility constraints carried from v0.1 onward.
 
 -------------------------------------------------------------------------------
@@ -13,7 +13,7 @@ This specification covers:
 - Core syntax and block rules.
 - Module/import semantics.
 - Type and expression forms supported by parser, checker, compiler, and VM.
-- Built-in runtime modules shipped in v1.4.0.
+- Built-in runtime modules shipped in v1.5.0.
 - CLI entrypoints used in production.
 
 This specification does not claim features that are still stubbed or not yet implemented.
@@ -44,6 +44,9 @@ Compatibility baseline:
 - v1.4: frontend developer stack (`enkai new` scaffolds, typed SDK generation via
   `enkai sdk`, React/TypeScript reference app contract, and SDK/backend endpoint
   contract tests).
+- v1.5: bootstrap-lite toolchain commands (`fmt-lite`, `lint-lite`,
+  `tokenizer-lite`, `dataset-lite`), bootstrap runtime module, and deterministic
+  parity tests between Rust and Enkai tool paths.
 
 Compatibility policy:
 - `.enk` and `.en` are primary source extensions.
@@ -51,7 +54,7 @@ Compatibility policy:
   primary contract unless listed explicitly.
 
 -------------------------------------------------------------------------------
-1.2 Validation Gate Status (v1.4.0)
+1.2 Validation Gate Status (v1.5.0)
 -------------------------------------------------------------------------------
 
 Current verification status:
@@ -285,7 +288,7 @@ Formatting and tests:
 - Project test runner (`enkai test`) compiles and executes test files.
 
 -------------------------------------------------------------------------------
-10. Built-in Runtime Modules (v1.4.0)
+10. Built-in Runtime Modules (v1.5.0)
 -------------------------------------------------------------------------------
 
 Concurrency:
@@ -325,14 +328,25 @@ JSON:
 - `json.parse(text)`
 - `json.stringify(value)`
 
+Bootstrap:
+- `bootstrap.format(source)` -> canonical formatted source text
+- `bootstrap.check(source)` -> `Bool`
+- `bootstrap.lint(source)` -> issue list records (`line`, `code`, `message`)
+- `bootstrap.lint_count(source)` -> `Int`
+- `bootstrap.lint_json(file, source)` -> JSON string report
+
 Tokenizer:
 - `tokenizer.train(config)`
 - `tokenizer.load(path)`
+- `tokenizer.save(tokenizer, path)`
+- `tokenizer.encode(tokenizer, text)`
+- `tokenizer.decode(tokenizer, tokens)`
 - tokenizer methods: `encode(text)`, `decode(tokens)`, `save(path)`
   - `tokenizer.train` config supports optional `seed` for deterministic tie-breaks.
 
 Dataset streaming:
 - `dataset.open(path, tokenizer, config)`
+- `dataset.next_batch(stream)`
 - stream method: `next_batch()`
   - dataset config supports optional `seed`, `shuffle`, and `prefetch_batches` for deterministic
     file order and background prefetch.
@@ -378,7 +392,7 @@ Tensor C ABI checkpoint/distributed hooks:
 For full tensor C ABI contracts and safety preconditions, see `docs/tensor_api.md` and `docs/gpu_backend.md`.
 
 -------------------------------------------------------------------------------
-11. CLI Contract (v1.4.0)
+11. CLI Contract (v1.5.0)
 -------------------------------------------------------------------------------
 
 Commands:
@@ -388,6 +402,10 @@ Commands:
 - `enkai sdk generate <output_file> [--api-version <v>]`
 - `enkai check <file|dir>`
 - `enkai fmt [--check] <file|dir>`
+- `enkai fmt-lite [--check] <file|dir>`
+- `enkai lint-lite [--deny-warn] <file|dir>`
+- `enkai tokenizer-lite train <dataset_path> <tokenizer_path> [--vocab-size <n>] [--min-freq <n>] [--seed <n>] [--lowercase]`
+- `enkai dataset-lite inspect <dataset_path> <tokenizer_path> --seq-len <n> --batch-size <n> [--seed <n>] [--shuffle] [--drop-remainder|--keep-remainder] [--no-add-eos] [--prefetch-batches <n>] [--output <path>]`
 - `enkai build [dir]`
 - `enkai test [project_root]`
 - `enkai train <config.enk>`
@@ -434,7 +452,7 @@ Checkpoint format:
 - Ranked checkpoints write `rank{n}/` subdirectories and a `manifest.json` with `world_size`.
 
 -------------------------------------------------------------------------------
-12. Known Limits in v1.4.0
+12. Known Limits in v1.5.0
 -------------------------------------------------------------------------------
 
 The following are intentionally not fully implemented yet:
@@ -449,10 +467,10 @@ The following are intentionally not fully implemented yet:
 - HTTP serving supports routed handlers + chunked streaming; full WebSocket runtime APIs are not yet implemented.
 - `std::db` ships SQLite in-tree; Postgres connectors remain optional and are not part of the default runtime build.
 - Model registry support is filesystem-based (`--registry` directory scanning). Remote registries and artifact pull/auth flows are out of scope in v1.4.
-- Frontend scaffolds target React + TypeScript web projects; non-web/mobile generators are not part of v1.4.
+- Frontend scaffolds target React + TypeScript web projects; non-web/mobile generators are not part of the current v1.x scope.
 - Current training-forward integration in runtime uses a TinyLM transformer forward/loss path and is not yet a full-scale Transformer stack.
 - Engine-level checkpoint helpers exist, but full train-loop orchestration and multi-rank resume policy are constrained to currently integrated paths.
-- v1.4.0 validation note:
+- v1.5.0 validation note:
   - CPU-mode single-device soak requires operator-run evidence on production hardware.
   - CUDA single-GPU long-soak and distributed (2-GPU/4-GPU) reliability remain
     operator-run requirements and are not auto-proven by repository state alone.
@@ -463,7 +481,7 @@ These limits are part of the current stable contract and should be treated as pr
 13. Change Control
 -------------------------------------------------------------------------------
 
-For any language/runtime surface change after v1.4.0:
+For any language/runtime surface change after v1.5.0:
 1) Implement the change and add/adjust compiler/runtime tests.
 2) Update this specification to match the shipped behavior.
 3) Update changelog and targeted docs (`docs/xx_*.md`, `docs/tensor_api.md`, etc.).

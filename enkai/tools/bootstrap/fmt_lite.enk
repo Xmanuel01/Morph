@@ -1,0 +1,46 @@
+import std::env
+import std::io
+
+policy default ::
+    allow env
+    allow fs
+    allow io
+::
+
+fn main() -> Int ::
+    let file := env.get("ENKAI_BOOTSTRAP_FILE")
+    if file == none ::
+        io.stderr_write_text("missing ENKAI_BOOTSTRAP_FILE\n")
+        return 2
+    ::
+    let source := io.read_text(file?)
+    if source == none ::
+        io.stderr_write_text("unable to read source\n")
+        return 1
+    ::
+    let check_flag := env.get("ENKAI_FMT_LITE_CHECK")
+    if check_flag != none ::
+        if check_flag? == "1" ::
+            if not bootstrap.check(source?) ::
+                let item := json.parse("{}")
+                item.file := file?
+                item.code := "not_formatted"
+                io.stderr_write_text(json.stringify(item))
+                io.stderr_write_text("\n")
+                return 1
+            ::
+            return 0
+        ::
+    ::
+    let formatted := bootstrap.format(source?)
+    if formatted != source? ::
+        let wrote := io.write_text(file?, formatted)
+        if not wrote ::
+            io.stderr_write_text("unable to write formatted output\n")
+            return 1
+        ::
+    ::
+    return 0
+::
+
+main()

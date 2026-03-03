@@ -8,6 +8,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use enkaic::bytecode::{Constant, Instruction, Program};
+use enkaic::formatter::{check_format, format_source};
 
 use crate::checkpoint::{
     latest_checkpoint, load_checkpoint, rotate_checkpoints, save_checkpoint, CheckpointMeta,
@@ -627,6 +628,60 @@ impl VM {
                 .insert("json".to_string(), self.globals.len() as u16);
             self.globals.push(json_value);
         }
+        let mut bootstrap_record = std::collections::HashMap::new();
+        bootstrap_record.insert(
+            "format".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "bootstrap.format".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        bootstrap_record.insert(
+            "check".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "bootstrap.check".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        bootstrap_record.insert(
+            "lint".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "bootstrap.lint".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        bootstrap_record.insert(
+            "lint_count".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "bootstrap.lint_count".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        bootstrap_record.insert(
+            "lint_json".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "bootstrap.lint_json".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        let bootstrap_value = record_value(bootstrap_record);
+        if let Some(idx) = self.globals_map.get("bootstrap").copied() {
+            self.globals[idx as usize] = bootstrap_value;
+        } else {
+            self.globals_map
+                .insert("bootstrap".to_string(), self.globals.len() as u16);
+            self.globals.push(bootstrap_value);
+        }
         let mut tokenizer_record = std::collections::HashMap::new();
         tokenizer_record.insert(
             "train".to_string(),
@@ -646,6 +701,33 @@ impl VM {
                 bound: None,
             }))),
         );
+        tokenizer_record.insert(
+            "save".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "tokenizer.save".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        tokenizer_record.insert(
+            "encode".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "tokenizer.encode".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        tokenizer_record.insert(
+            "decode".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "tokenizer.decode".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
         let tokenizer_value = record_value(tokenizer_record);
         if let Some(idx) = self.globals_map.get("tokenizer").copied() {
             self.globals[idx as usize] = tokenizer_value;
@@ -660,6 +742,15 @@ impl VM {
             Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
                 name: "dataset.open".to_string(),
                 arity: 3,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        dataset_record.insert(
+            "next_batch".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "dataset.next_batch".to_string(),
+                arity: 1,
                 kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
                 bound: None,
             }))),
@@ -2212,6 +2303,60 @@ impl VM {
                             self.stack.push(text);
                             return Ok(());
                         }
+                        if nf.name == "bootstrap.format" {
+                            let value = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("format expects source"))?;
+                            self.stack.truncate(callee_index);
+                            let text = self.bootstrap_format(value)?;
+                            self.stack.push(text);
+                            return Ok(());
+                        }
+                        if nf.name == "bootstrap.check" {
+                            let value = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("check expects source"))?;
+                            self.stack.truncate(callee_index);
+                            let ok = self.bootstrap_check(value)?;
+                            self.stack.push(ok);
+                            return Ok(());
+                        }
+                        if nf.name == "bootstrap.lint" {
+                            let value = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("lint expects source"))?;
+                            self.stack.truncate(callee_index);
+                            let lint = self.bootstrap_lint(value)?;
+                            self.stack.push(lint);
+                            return Ok(());
+                        }
+                        if nf.name == "bootstrap.lint_count" {
+                            let value = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("lint_count expects source"))?;
+                            self.stack.truncate(callee_index);
+                            let count = self.bootstrap_lint_count(value)?;
+                            self.stack.push(count);
+                            return Ok(());
+                        }
+                        if nf.name == "bootstrap.lint_json" {
+                            let file = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("lint_json expects file"))?;
+                            let source = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("lint_json expects source"))?;
+                            self.stack.truncate(callee_index);
+                            let text = self.bootstrap_lint_json(file, source)?;
+                            self.stack.push(text);
+                            return Ok(());
+                        }
                         if nf.name == "tokenizer.train" {
                             let config = args.first().cloned().ok_or_else(|| {
                                 RuntimeError::new("tokenizer.train expects config")
@@ -2548,7 +2693,29 @@ impl VM {
             "http.serve_with" | "http.stream_open" | "http.stream_send" | "http.stream_close" => {
                 capability = Some(vec!["net".to_string(), "serve".to_string()]);
             }
-            "tokenizer.train" | "tokenizer.load" => {
+            "tokenizer.train" => {
+                capability = Some(vec!["fs".to_string(), "read".to_string()]);
+                if let Some(config) = args.first() {
+                    match config {
+                        Value::Obj(obj) => match obj.as_obj() {
+                            Obj::Record(map) => {
+                                if let Some(path) = map.borrow().get("path") {
+                                    context =
+                                        Some(CapabilityContext::for_path(&value_as_string(path)?));
+                                }
+                            }
+                            _ => {
+                                context =
+                                    Some(CapabilityContext::for_path(&value_as_string(config)?));
+                            }
+                        },
+                        _ => {
+                            context = Some(CapabilityContext::for_path(&value_as_string(config)?));
+                        }
+                    }
+                }
+            }
+            "tokenizer.load" => {
                 capability = Some(vec!["fs".to_string(), "read".to_string()]);
                 if let Some(path) = args.first() {
                     context = Some(CapabilityContext::for_path(&value_as_string(path)?));
@@ -2556,7 +2723,7 @@ impl VM {
             }
             "tokenizer.save" => {
                 capability = Some(vec!["fs".to_string(), "write".to_string()]);
-                if let Some(path) = args.first() {
+                if let Some(path) = args.get(1) {
                     context = Some(CapabilityContext::for_path(&value_as_string(path)?));
                 }
             }
@@ -4073,6 +4240,52 @@ impl VM {
         Ok(string_value(&text))
     }
 
+    fn bootstrap_format(&self, source: Value) -> Result<Value, RuntimeError> {
+        let source = value_as_string(&source)?;
+        let formatted = format_source(&source)
+            .map_err(|err| RuntimeError::new(&format!("format failed: {}", err)))?;
+        Ok(string_value(&formatted))
+    }
+
+    fn bootstrap_check(&self, source: Value) -> Result<Value, RuntimeError> {
+        let source = value_as_string(&source)?;
+        Ok(Value::Bool(check_format(&source).is_ok()))
+    }
+
+    fn bootstrap_lint(&self, source: Value) -> Result<Value, RuntimeError> {
+        let source = value_as_string(&source)?;
+        let items = collect_lint_issues(&source);
+        let values: Vec<Value> = items
+            .iter()
+            .map(|item| lint_issue(item.line, item.code, item.message))
+            .collect();
+        Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(values)))))
+    }
+
+    fn bootstrap_lint_count(&self, source: Value) -> Result<Value, RuntimeError> {
+        let source = value_as_string(&source)?;
+        Ok(Value::Int(collect_lint_issues(&source).len() as i64))
+    }
+
+    fn bootstrap_lint_json(&self, file: Value, source: Value) -> Result<Value, RuntimeError> {
+        let file = value_as_string(&file)?;
+        let source = value_as_string(&source)?;
+        let entries: Vec<serde_json::Value> = collect_lint_issues(&source)
+            .iter()
+            .map(|item| {
+                serde_json::json!({
+                    "file": file.as_str(),
+                    "line": item.line,
+                    "code": item.code,
+                    "message": item.message,
+                })
+            })
+            .collect();
+        let text = serde_json::to_string(&entries)
+            .map_err(|err| RuntimeError::new(&format!("lint_json failed: {}", err)))?;
+        Ok(string_value(&text))
+    }
+
     fn tokenizer_train(&self, config: Value) -> Result<Value, RuntimeError> {
         let mut train_cfg = TrainConfig::default();
         let mut save_path: Option<String> = None;
@@ -4084,7 +4297,8 @@ impl VM {
                     let path_value = map
                         .get("path")
                         .ok_or_else(|| RuntimeError::new("tokenizer.train config missing path"))?;
-                    let path = value_as_string(path_value)?;
+                    let path = value_as_string(path_value)
+                        .map_err(|_| RuntimeError::new("tokenizer.train path must be string"))?;
                     if let Some(value) = map.get("vocab_size") {
                         let size = value_as_int(value)?;
                         if size > 0 {
@@ -4108,7 +4322,9 @@ impl VM {
                         train_cfg.seed = Some(seed as u64);
                     }
                     if let Some(value) = map.get("save_path") {
-                        save_path = Some(value_as_string(value)?);
+                        save_path = Some(value_as_string(value).map_err(|_| {
+                            RuntimeError::new("tokenizer.train save_path must be string")
+                        })?);
                     }
                     path
                 }
@@ -4119,6 +4335,11 @@ impl VM {
         let tokenizer = Tokenizer::train_from_path(Path::new(&path), &train_cfg)
             .map_err(|err| RuntimeError::new(&format!("tokenizer.train failed: {}", err)))?;
         if let Some(save_path) = save_path {
+            let save_context = CapabilityContext::for_path(&save_path);
+            self.check_capability(
+                &["fs".to_string(), "write".to_string()],
+                Some(&save_context),
+            )?;
             tokenizer
                 .save(Path::new(&save_path))
                 .map_err(|err| RuntimeError::new(&err))?;
@@ -5257,6 +5478,57 @@ fn capability_matches(rule: &[String], requested: &[String]) -> bool {
         return false;
     }
     rule.iter().zip(requested.iter()).all(|(a, b)| a == b)
+}
+
+#[derive(Clone, Copy)]
+struct LintIssue {
+    line: i64,
+    code: &'static str,
+    message: &'static str,
+}
+
+fn collect_lint_issues(source: &str) -> Vec<LintIssue> {
+    let mut items = Vec::new();
+    for (idx, line) in source.lines().enumerate() {
+        let line_no = (idx + 1) as i64;
+        if line.ends_with(' ') || line.ends_with('\t') {
+            items.push(LintIssue {
+                line: line_no,
+                code: "trailing_whitespace",
+                message: "Line has trailing whitespace",
+            });
+        }
+        if line.contains('\t') {
+            items.push(LintIssue {
+                line: line_no,
+                code: "tab_indent",
+                message: "Line uses tab indentation",
+            });
+        }
+        if line.chars().count() > 120 {
+            items.push(LintIssue {
+                line: line_no,
+                code: "line_too_long",
+                message: "Line exceeds 120 characters",
+            });
+        }
+        if line.contains("TODO") {
+            items.push(LintIssue {
+                line: line_no,
+                code: "todo_marker",
+                message: "TODO marker should be tracked as a task",
+            });
+        }
+    }
+    items
+}
+
+fn lint_issue(line: i64, code: &str, message: &str) -> Value {
+    let mut map = HashMap::new();
+    map.insert("line".to_string(), Value::Int(line));
+    map.insert("code".to_string(), string_value(code));
+    map.insert("message".to_string(), string_value(message));
+    record_value(map)
 }
 
 fn domain_matches(pattern: &str, domain: &str) -> bool {

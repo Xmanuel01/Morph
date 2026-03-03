@@ -1,0 +1,75 @@
+import std::env
+import std::io
+
+policy default ::
+    allow env
+    allow fs
+    allow io
+::
+
+fn bool_from_env(name: String, default: Bool) -> Bool ::
+    let value := env.get(name)
+    if value == none ::
+        return default
+    ::
+    return value? == "1"
+::
+
+fn main() -> Int ::
+    let dataset_path := env.get("ENKAI_DATASET_LITE_DATASET")
+    if dataset_path == none ::
+        io.stderr_write_text("missing ENKAI_DATASET_LITE_DATASET\n")
+        return 2
+    ::
+    let tokenizer_path := env.get("ENKAI_DATASET_LITE_TOKENIZER")
+    if tokenizer_path == none ::
+        io.stderr_write_text("missing ENKAI_DATASET_LITE_TOKENIZER\n")
+        return 2
+    ::
+    let seq_len_raw := env.get("ENKAI_DATASET_LITE_SEQ_LEN")
+    if seq_len_raw == none ::
+        io.stderr_write_text("missing ENKAI_DATASET_LITE_SEQ_LEN\n")
+        return 2
+    ::
+    let batch_size_raw := env.get("ENKAI_DATASET_LITE_BATCH_SIZE")
+    if batch_size_raw == none ::
+        io.stderr_write_text("missing ENKAI_DATASET_LITE_BATCH_SIZE\n")
+        return 2
+    ::
+    let cfg := json.parse("{}")
+    cfg.seq_len := json.parse(seq_len_raw?)
+    cfg.batch_size := json.parse(batch_size_raw?)
+    cfg.add_eos := bool_from_env("ENKAI_DATASET_LITE_ADD_EOS", true)
+    cfg.drop_remainder := bool_from_env("ENKAI_DATASET_LITE_DROP_REMAINDER", true)
+    cfg.shuffle := bool_from_env("ENKAI_DATASET_LITE_SHUFFLE", false)
+    let prefetch_raw := env.get("ENKAI_DATASET_LITE_PREFETCH_BATCHES")
+    if prefetch_raw != none ::
+        cfg.prefetch_batches := json.parse(prefetch_raw?)
+    ::
+    let seed_raw := env.get("ENKAI_DATASET_LITE_SEED")
+    if seed_raw != none ::
+        cfg.seed := json.parse(seed_raw?)
+    ::
+    let tok := tokenizer.load(tokenizer_path?)
+    let stream := dataset.open(dataset_path?, tok, cfg)
+    let batch := dataset.next_batch(stream)
+    if batch == none ::
+        io.stderr_write_text("dataset produced no batch\n")
+        return 1
+    ::
+    let summary := json.parse("{}")
+    summary.batch_size := batch?.batch_size
+    summary.seq_len := batch?.seq_len
+    summary.token_count := batch?.token_count
+    summary.packing_efficiency := batch?.packing_efficiency
+    let summary_text := json.stringify(summary)
+    let output := env.get("ENKAI_DATASET_LITE_OUTPUT")
+    if output != none ::
+        io.write_text(output?, summary_text)
+    ::
+    io.stdout_write_text(summary_text)
+    io.stdout_write_text("\n")
+    return 0
+::
+
+main()
