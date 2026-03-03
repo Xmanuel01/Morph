@@ -1,4 +1,4 @@
-# Self-Host Workflow (v1.8)
+# Self-Host Workflow (v1.9)
 
 ## Purpose
 
@@ -15,7 +15,9 @@ required fallback path when a self-host lane fails.
    - `enkai litec stage parse <file.enk>`
    - `enkai litec stage check <file.enk>`
    - `enkai litec stage codegen <file.enk> --out <program.bin>`
-4. Run corpus-level self-host checks:
+4. Run stage1-compiled program directly:
+   - `enkai litec run <file.enk>`
+5. Run corpus-level self-host checks:
    - `enkai litec selfhost <corpus_dir>`
    - `enkai litec selfhost-ci <corpus_dir>`
 
@@ -27,6 +29,7 @@ Repository baseline corpus:
 The self-host lane is expected to run:
 - bootstrap self-host tests (`bootstrap::tests::litec_selfhost_...`)
 - `enkai litec selfhost-ci enkai/tools/bootstrap/selfhost_corpus`
+- `master_pipeline_cpu_smoke`
 
 ## Fallback Path
 

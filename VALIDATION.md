@@ -99,7 +99,7 @@ Operator run required:
 Expected result:
 - all commands exit `0`.
 
-## 6) v1.8 compatibility + self-host gates
+## 6) v1.9 compatibility + self-host gates
 
 - [x] Legacy config compatibility test:
   - `legacy_config_without_config_version_still_trains`
@@ -107,6 +107,11 @@ Expected result:
   - `legacy_checkpoint_meta_without_format_version_loads`
 - [x] Self-host CI corpus gate:
   - `enkai litec selfhost-ci enkai/tools/bootstrap/selfhost_corpus`
+- [x] Master pipeline smoke:
+  - `master_pipeline_cpu_smoke`
 - [x] Consolidated pipeline scripts:
-  - `powershell -ExecutionPolicy Bypass -File scripts/v1_8_release_pipeline.ps1`
-  - `sh scripts/v1_8_release_pipeline.sh`
+  - `powershell -ExecutionPolicy Bypass -File scripts/v1_9_release_pipeline.ps1`
+  - `sh scripts/v1_9_release_pipeline.sh`
+- [ ] Optional GPU evidence verification (after operator runs):
+  - `powershell -ExecutionPolicy Bypass -File scripts/verify_gpu_gates.ps1 -LogDir artifacts/gpu`
+  - `sh scripts/verify_gpu_gates.sh artifacts/gpu`

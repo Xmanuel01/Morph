@@ -20,7 +20,7 @@ mod bootstrap;
 mod frontend;
 mod train;
 
-const LANG_VERSION: &str = "1.8.0";
+const LANG_VERSION: &str = "1.9.0";
 
 pub(crate) fn env_guard() -> std::sync::MutexGuard<'static, ()> {
     static ENV_GUARD: OnceLock<Mutex<()>> = OnceLock::new();
@@ -1241,6 +1241,7 @@ fn find_entry_file(root: &Path) -> Option<PathBuf> {
 mod tests {
     use super::*;
     use std::fs;
+    use std::path::Path;
 
     use tempfile::tempdir;
 
@@ -1387,5 +1388,55 @@ mod tests {
         assert!(selected
             .checkpoint_path
             .ends_with(std::path::Path::new("chat").join("v1.10.0")));
+    }
+
+    #[test]
+    fn master_pipeline_cpu_smoke() {
+        let dir = tempdir().expect("tempdir");
+        let data = dir.path().join("data.txt");
+        fs::write(&data, "alpha beta\ngamma delta\n").expect("dataset");
+        let ckpt = dir.path().join("ckpt");
+        let config_path = dir.path().join("config.enk");
+        let json = serde_json::json!({
+            "config_version": 1,
+            "backend": "cpu",
+            "vocab_size": 8,
+            "hidden_size": 4,
+            "seq_len": 4,
+            "batch_size": 2,
+            "lr": 0.1,
+            "dataset_path": data.to_string_lossy(),
+            "checkpoint_dir": ckpt.to_string_lossy(),
+            "max_steps": 1,
+            "save_every": 1,
+            "log_every": 1,
+            "eval_steps": 1,
+            "drop_remainder": false,
+            "tokenizer_train": { "path": data.to_string_lossy(), "vocab_size": 8 }
+        });
+        let escaped = json.to_string().replace('\\', "\\\\").replace('\"', "\\\"");
+        let source = format!("fn main() ::\n    return json.parse(\"{}\")\n::\n", escaped);
+        fs::write(&config_path, source).expect("config");
+        super::train::train(&config_path).expect("train");
+        super::train::eval(&config_path).expect("eval");
+
+        let frontend_out = dir.path().join("frontend");
+        let frontend_code = super::frontend::new_command(&[
+            "frontend-chat".to_string(),
+            frontend_out.to_string_lossy().to_string(),
+        ]);
+        assert_eq!(frontend_code, 0);
+        assert!(frontend_out.join("src").join("App.tsx").is_file());
+
+        let corpus = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tools")
+            .join("bootstrap")
+            .join("selfhost_corpus");
+        let selfhost_code = super::bootstrap::litec_command(&[
+            "selfhost-ci".to_string(),
+            corpus.to_string_lossy().to_string(),
+            "--no-compare-stage0".to_string(),
+        ]);
+        assert_eq!(selfhost_code, 0);
     }
 }

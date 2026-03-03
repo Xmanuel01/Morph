@@ -2,8 +2,20 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v1.8.0.
+- Current production release line is v1.9.0.
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v1.9 (done)
+- Added stage1 execution command:
+  - `enkai litec run <input.enk>`
+- Added master pipeline smoke test (`master_pipeline_cpu_smoke`) covering train/eval + frontend scaffold + self-host checks.
+- Added GPU evidence verification scripts:
+  - `scripts/verify_gpu_gates.ps1`
+  - `scripts/verify_gpu_gates.sh`
+- Added consolidated v1.9 release pipeline scripts:
+  - `scripts/v1_9_release_pipeline.ps1`
+  - `scripts/v1_9_release_pipeline.sh`
+- Updated CI with v1.9 release pipeline lane.
 
 v1.8 (done)
 - Added compatibility/deprecation policy documentation (`docs/29_compatibility_policy.md`).

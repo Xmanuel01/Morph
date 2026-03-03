@@ -1,4 +1,4 @@
-# Compatibility And Deprecation Policy (v1.8)
+# Compatibility And Deprecation Policy (v1.9)
 
 ## Scope
 
@@ -13,7 +13,7 @@ This policy defines compatibility guarantees for:
 - Grammar remains frozen at the v0.9.3 baseline for v1.x.
 - `config_version: 1` is the stable train/eval schema for v1.x.
 - Checkpoints with `format_version: 1` are the stable checkpoint format for v1.x.
-- Checkpoints missing `format_version` are treated as legacy v0 metadata and remain loadable in v1.8.
+- Checkpoints missing `format_version` are treated as legacy v0 metadata and remain loadable in v1.9.
 - Generated frontend SDK/backend route contract must preserve:
   - `/api/<version>` prefix
   - `x-enkai-api-version` request header.
@@ -39,6 +39,8 @@ Release candidates must pass:
 - frontend API contract tests in `enkai/src/frontend.rs`
 - self-host compatibility checks:
   - `enkai litec selfhost-ci enkai/tools/bootstrap/selfhost_corpus`
+- master release smoke:
+  - `master_pipeline_cpu_smoke`
 
 ## Migration Guidance
 
@@ -63,4 +65,4 @@ Recommended metadata fields in `meta.json`:
 - `dtype`
 - `device`.
 
-When resaving from v1.8 train/eval flows, metadata is written in v1 format.
+When resaving from v1.9 train/eval flows, metadata is written in v1 format.

@@ -25,6 +25,7 @@ pub fn print_usage() {
     eprintln!("  enkai litec check <input.enk>");
     eprintln!("  enkai litec compile <input.enk> --out <program.bin>");
     eprintln!("  enkai litec verify <input.enk>");
+    eprintln!("  enkai litec run <input.enk>");
     eprintln!("  enkai litec stage <parse|check|codegen> <input.enk> [--out <program.bin>]");
     eprintln!("  enkai litec selfhost <corpus_dir>");
     eprintln!("  enkai litec selfhost-ci <corpus_dir> [--no-compare-stage0]");
@@ -467,6 +468,7 @@ pub fn litec_command(args: &[String]) -> i32 {
         "check" => litec_check(&args[1..]),
         "compile" => litec_compile(&args[1..]),
         "verify" => litec_verify(&args[1..]),
+        "run" => litec_run(&args[1..]),
         "stage" => litec_stage(&args[1..]),
         "selfhost" => litec_selfhost(&args[1..]),
         "selfhost-ci" => litec_selfhost_ci(&args[1..]),
@@ -558,6 +560,43 @@ fn litec_verify(args: &[String]) -> i32 {
         }
         Err(err) => {
             eprintln!("{}", err);
+            1
+        }
+    }
+}
+
+fn litec_run(args: &[String]) -> i32 {
+    if args.len() != 1 {
+        eprintln!("Usage: enkai litec run <input.enk>");
+        return 1;
+    }
+    let input = PathBuf::from(&args[0]);
+    if !input.is_file() {
+        eprintln!("input file not found: {}", input.display());
+        return 1;
+    }
+    let stage1_bytes = match compile_stage1_program_bytes(&input, "codegen") {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            eprintln!("litec run compile failed: {}", err);
+            return 1;
+        }
+    };
+    let program = match decode_program_bytes(&input, &stage1_bytes, "stage1") {
+        Ok(program) => program,
+        Err(err) => {
+            eprintln!("litec run decode failed: {}", err);
+            return 1;
+        }
+    };
+    match run_program(&program) {
+        Ok(Value::Int(code)) => code as i32,
+        Ok(value) => {
+            println!("{}", canonical_value(&value));
+            0
+        }
+        Err(err) => {
+            eprintln!("litec run runtime error: {}", err);
             1
         }
     }
@@ -1311,6 +1350,19 @@ mod tests {
         ]);
         assert_eq!(codegen_code, 0);
         assert!(out.exists());
+    }
+
+    #[test]
+    fn litec_run_executes_stage1_program() {
+        let dir = tempdir().expect("tempdir");
+        let input = dir.path().join("run.enk");
+        fs::write(
+            &input,
+            "fn main() -> Int ::\n    let x := 3\n    let y := 4\n    return x + y - 7\n::\nmain()\n",
+        )
+        .expect("write input");
+        let code = litec_command(&["run".to_string(), input.to_string_lossy().to_string()]);
+        assert_eq!(code, 0);
     }
 
     #[test]

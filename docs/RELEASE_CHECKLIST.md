@@ -14,9 +14,12 @@ Use this checklist for production releases.
 - [ ] `cargo fmt`
 - [ ] `cargo clippy -- -D warnings`
 - [ ] `cargo test`
-- [ ] v1.8 consolidated pipeline:
-  - `powershell -ExecutionPolicy Bypass -File scripts/v1_8_release_pipeline.ps1`
-  - or `sh scripts/v1_8_release_pipeline.sh`
+- [ ] v1.9 consolidated pipeline:
+  - `powershell -ExecutionPolicy Bypass -File scripts/v1_9_release_pipeline.ps1`
+  - or `sh scripts/v1_9_release_pipeline.sh`
+- [ ] If GPU soak runs were executed, verify artifacts:
+  - `powershell -ExecutionPolicy Bypass -File scripts/verify_gpu_gates.ps1 -LogDir artifacts/gpu`
+  - or `sh scripts/verify_gpu_gates.sh artifacts/gpu`
 - [ ] Complete `VALIDATION.md` gates for the target release
 
 ## 3) Tag

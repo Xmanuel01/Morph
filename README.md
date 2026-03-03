@@ -4,9 +4,9 @@ ENKAI PROGRAMMING LANGUAGE
 Overview
 Enkai is a programming language with block structure defined by :: tokens, a clean
 assignment operator (:=), and an AI-native roadmap (tools, agents, memory, policy).
-This repository contains the v1.8.0 implementation in Rust.
+This repository contains the v1.9.0 implementation in Rust.
 
-Status (v1.8.0)
+Status (v1.9.0)
 - Bytecode VM + globals + type-checking
 - Module system with public/private exports
 - CLI: run/serve/new/sdk/check/fmt/fmt-lite/lint-lite/tokenizer-lite/dataset-lite/litec/build/test/train/eval
@@ -15,7 +15,8 @@ Status (v1.8.0)
 - Backend serving stack: routing, middleware/auth/rate-limit, streaming, TLS/SQLite helpers
 - Frontend stack: React/TypeScript scaffolds + typed SDK generation
 - Bootstrap-lite/core toolchain path with `litec` stage0/stage1 bytecode equivalence checks, phase staging (`litec stage`), and self-host CI corpus validation (`litec selfhost-ci`)
-- Compatibility/deprecation governance and self-host fallback workflow docs for v1.8 release readiness
+- Compatibility/deprecation governance and self-host fallback workflow docs for v1.9 release readiness
+- Master release pipeline and GPU evidence verification scripts for v1.9 operational sign-off
 
 Workspace structure
 - enkaic: compiler front-end (lexer/parser/AST/type-check stubs)

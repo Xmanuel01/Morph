@@ -1,8 +1,8 @@
-# Enkai Language Specification (v0.1 -> v1.8.0)
+# Enkai Language Specification (v0.1 -> v1.9.0)
 
 Status: stable.
 Grammar and CLI contracts are frozen at the v0.9.3 baseline for the v1.x line.
-This document is the normative language and runtime surface for Enkai v1.8.0,
+This document is the normative language and runtime surface for Enkai v1.9.0,
 including compatibility constraints carried from v0.1 onward.
 
 -------------------------------------------------------------------------------
@@ -13,7 +13,7 @@ This specification covers:
 - Core syntax and block rules.
 - Module/import semantics.
 - Type and expression forms supported by parser, checker, compiler, and VM.
-- Built-in runtime modules shipped in v1.8.0.
+- Built-in runtime modules shipped in v1.9.0.
 - CLI entrypoints used in production.
 
 This specification does not claim features that are still stubbed or not yet implemented.
@@ -54,6 +54,8 @@ Compatibility baseline:
   (`use`/`type`/`enum`/`impl` + non-capturing lambda), and self-host CI lane coverage.
 - v1.8: compatibility/deprecation policy, legacy config/checkpoint compatibility
   gates, and documented self-host daily workflow + fallback process.
+- v1.9: stage1 execution command (`enkai litec run`), unified master pipeline
+  smoke test, and GPU evidence verification scripts for operator-run soak gates.
 
 Compatibility policy:
 - `.enk` and `.en` are primary source extensions.
@@ -61,7 +63,7 @@ Compatibility policy:
   primary contract unless listed explicitly.
 
 -------------------------------------------------------------------------------
-1.2 Validation Gate Status (v1.8.0)
+1.2 Validation Gate Status (v1.9.0)
 -------------------------------------------------------------------------------
 
 Current verification status:
@@ -266,7 +268,7 @@ Assignment form:
 8. Types
 -------------------------------------------------------------------------------
 
-Core types used in v1.8.0:
+Core types used in v1.9.0:
 - `Int`, `Float`, `Bool`, `String`, `Void`
 - Optional: `T?`
 - Function: `fn(T1, T2) -> R`
@@ -295,7 +297,7 @@ Formatting and tests:
 - Project test runner (`enkai test`) compiles and executes test files.
 
 -------------------------------------------------------------------------------
-10. Built-in Runtime Modules (v1.8.0)
+10. Built-in Runtime Modules (v1.9.0)
 -------------------------------------------------------------------------------
 
 Concurrency:
@@ -388,7 +390,7 @@ Native-backed std modules:
 - `std::tls` (TLS peer certificate fingerprint helper)
 - `std::model_registry` (serve-time env contract helpers)
 
-Tensor backend (`std::tensor`, v1.8.0 surface):
+Tensor backend (`std::tensor`, v1.9.0 surface):
 - device/tensor creation, math ops, shape/dtype/device transforms
 - autograd and optimizer helper APIs
 - AMP scaler/autocast APIs
@@ -404,7 +406,7 @@ Tensor C ABI checkpoint/distributed hooks:
 For full tensor C ABI contracts and safety preconditions, see `docs/tensor_api.md` and `docs/gpu_backend.md`.
 
 -------------------------------------------------------------------------------
-11. CLI Contract (v1.8.0)
+11. CLI Contract (v1.9.0)
 -------------------------------------------------------------------------------
 
 Commands:
@@ -421,6 +423,7 @@ Commands:
 - `enkai litec check <input.enk>`
 - `enkai litec compile <input.enk> --out <program.bin>`
 - `enkai litec verify <input.enk>`
+- `enkai litec run <input.enk>`
 - `enkai litec stage <parse|check|codegen> <input.enk> [--out <program.bin>]`
 - `enkai litec selfhost <corpus_dir>`
 - `enkai litec selfhost-ci <corpus_dir> [--no-compare-stage0]`
@@ -472,7 +475,7 @@ Checkpoint format:
 - Ranked checkpoints write `rank{n}/` subdirectories and a `manifest.json` with `world_size`.
 
 -------------------------------------------------------------------------------
-12. Known Limits in v1.8.0
+12. Known Limits in v1.9.0
 -------------------------------------------------------------------------------
 
 The following are intentionally not fully implemented yet:
@@ -500,10 +503,12 @@ The following are intentionally not fully implemented yet:
 - `enkai litec selfhost-ci` runs subset corpus compile/execute parity and optional
   stage0 result comparison; it does not yet build full production binaries from
   an Enkai-compiled compiler artifact.
-- v1.8.0 validation note:
+- v1.9.0 validation note:
   - CPU-mode single-device soak requires operator-run evidence on production hardware.
   - CUDA single-GPU long-soak and distributed (2-GPU/4-GPU) reliability remain
     operator-run requirements and are not auto-proven by repository state alone.
+  - Operator logs can be verified with `scripts/verify_gpu_gates.ps1` or
+    `scripts/verify_gpu_gates.sh`.
 
 These limits are part of the current stable contract and should be treated as production constraints.
 
@@ -511,10 +516,11 @@ These limits are part of the current stable contract and should be treated as pr
 13. Change Control
 -------------------------------------------------------------------------------
 
-For any language/runtime surface change after v1.8.0:
+For any language/runtime surface change after v1.9.0:
 1) Implement the change and add/adjust compiler/runtime tests.
 2) Update this specification to match the shipped behavior.
 3) Update changelog and targeted docs (`docs/xx_*.md`, `docs/tensor_api.md`, etc.).
 4) If compatibility/deprecation behavior changes, update `docs/29_compatibility_policy.md`.
+
 
 

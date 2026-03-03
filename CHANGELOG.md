@@ -11,6 +11,28 @@
 ### Breaking changes
 - None yet.
 
+## v1.9.0
+
+### Highlights
+- Added stage1 execution command:
+  - `enkai litec run <input.enk>`
+- Added master pipeline smoke test:
+  - `master_pipeline_cpu_smoke` (train/eval + frontend scaffold + self-host checks)
+- Added GPU evidence verification scripts:
+  - `scripts/verify_gpu_gates.ps1`
+  - `scripts/verify_gpu_gates.sh`
+- Added consolidated v1.9 release pipeline scripts:
+  - `scripts/v1_9_release_pipeline.ps1`
+  - `scripts/v1_9_release_pipeline.sh`
+
+### Fixes
+- Added self-host regression test coverage for `litec run`.
+- Extended self-host corpus fixture to include method dispatch usage in stage1 flow.
+- Updated CI to run v1.9 release pipeline lane.
+
+### Breaking changes
+- None.
+
 ## v1.8.0
 
 ### Highlights
