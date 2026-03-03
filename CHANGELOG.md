@@ -11,6 +11,27 @@
 ### Breaking changes
 - None yet.
 
+## v1.8.0
+
+### Highlights
+- Added compatibility + deprecation governance docs:
+  - `docs/29_compatibility_policy.md`
+  - `docs/28_selfhost_workflow.md`
+- Added consolidated v1.8 release pipeline scripts:
+  - `scripts/v1_8_release_pipeline.ps1`
+  - `scripts/v1_8_release_pipeline.sh`
+- Added explicit compatibility gates for legacy training artifacts:
+  - legacy train config without `config_version`
+  - legacy checkpoints missing `format_version`
+
+### Fixes
+- Added train/eval warning path for legacy configs to guide migration to `config_version: 1`.
+- Added self-host CI test coverage for the `--no-compare-stage0` fallback mode.
+- Added repository self-host corpus fixtures for stable day-to-day bootstrap checks.
+
+### Breaking changes
+- None.
+
 ## v1.7.0
 
 ### Highlights

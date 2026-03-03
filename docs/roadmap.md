@@ -2,8 +2,19 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v1.7.0.
+- Current production release line is v1.8.0.
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v1.8 (done)
+- Added compatibility/deprecation policy documentation (`docs/29_compatibility_policy.md`).
+- Added self-host day-to-day workflow + fallback guide (`docs/28_selfhost_workflow.md`).
+- Added v1.8 release pipeline scripts:
+  - `scripts/v1_8_release_pipeline.ps1`
+  - `scripts/v1_8_release_pipeline.sh`
+- Added compatibility tests for:
+  - legacy train config without `config_version`
+  - legacy checkpoint metadata without `format_version`
+- Added runtime warning path for legacy config parsing in train/eval.
 
 v1.7 (done)
 - Added bootstrap self-host beta command:

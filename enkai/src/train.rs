@@ -403,9 +403,20 @@ struct LogEvent {
     found_inf: Option<bool>,
 }
 
+fn emit_legacy_config_warning(config_path: &Path) {
+    eprintln!(
+        "Warning: config {} is using legacy schema without config_version. \
+Set config_version = 1 to stay on the stable contract. Legacy parsing is planned for removal in v2.0.",
+        config_path.display()
+    );
+}
+
 pub fn train(config_path: &Path) -> Result<(), String> {
     let config_value = load_config_value(config_path)?;
     let config = parse_train_config(&config_value)?;
+    if config.legacy_config {
+        emit_legacy_config_warning(config_path);
+    }
     let tokenizer = build_tokenizer(&config)?;
     let mut dataset_paths = resolve_dataset_paths(&config.dataset_path)?;
     dataset_paths = shard_paths(dataset_paths, config.world_size, config.rank);
@@ -713,6 +724,9 @@ pub fn train(config_path: &Path) -> Result<(), String> {
 pub fn eval(config_path: &Path) -> Result<(), String> {
     let config_value = load_config_value(config_path)?;
     let config = parse_train_config(&config_value)?;
+    if config.legacy_config {
+        emit_legacy_config_warning(config_path);
+    }
     let tokenizer = build_tokenizer(&config)?;
     let dataset_path = config
         .eval_dataset_path
@@ -1712,5 +1726,76 @@ mod tests {
         let latest = Path::new(&ckpt).join("latest");
         assert!(latest.is_dir());
         train(&config_path).expect("train native resume");
+    }
+
+    #[test]
+    fn legacy_config_without_config_version_still_trains() {
+        let dir = tempdir().expect("tempdir");
+        let data = dir.path().join("legacy_data.txt");
+        fs::write(&data, "alpha beta gamma\ndelta epsilon").expect("write data");
+        let ckpt = dir.path().join("legacy_ckpt");
+        let config_path = dir.path().join("legacy_config.enk");
+        let config = serde_json::json!({
+            "vocab_size": 8,
+            "hidden_size": 4,
+            "seq_len": 4,
+            "batch_size": 2,
+            "lr": 0.1,
+            "dataset_path": data.to_string_lossy(),
+            "checkpoint_dir": ckpt.to_string_lossy(),
+            "max_steps": 1,
+            "save_every": 1,
+            "log_every": 1,
+            "drop_remainder": false,
+            "tokenizer_train": { "path": data.to_string_lossy(), "vocab_size": 8 }
+        });
+        write_config(&config_path, &config).expect("write config");
+        train(&config_path).expect("legacy train");
+        let latest = latest_checkpoint(&ckpt)
+            .expect("latest lookup")
+            .expect("checkpoint path");
+        assert!(latest.ends_with("step_00000001"));
+    }
+
+    #[test]
+    fn legacy_checkpoint_meta_without_format_version_loads() {
+        let dir = tempdir().expect("tempdir");
+        let data = dir.path().join("compat_data.txt");
+        fs::write(&data, "alpha beta gamma\ndelta epsilon").expect("write data");
+        let ckpt = dir.path().join("compat_ckpt");
+        let config_path = dir.path().join("compat_config.enk");
+        let config = serde_json::json!({
+            "config_version": 1,
+            "backend": "cpu",
+            "vocab_size": 8,
+            "hidden_size": 4,
+            "seq_len": 4,
+            "batch_size": 2,
+            "lr": 0.1,
+            "dataset_path": data.to_string_lossy(),
+            "checkpoint_dir": ckpt.to_string_lossy(),
+            "max_steps": 1,
+            "save_every": 1,
+            "log_every": 1,
+            "eval_steps": 1,
+            "drop_remainder": false,
+            "tokenizer_train": { "path": data.to_string_lossy(), "vocab_size": 8 }
+        });
+        write_config(&config_path, &config).expect("write config");
+        train(&config_path).expect("train");
+        let latest = latest_checkpoint(&ckpt)
+            .expect("latest lookup")
+            .expect("checkpoint path");
+        let meta_path = latest.join("meta.json");
+        let meta_text = fs::read_to_string(&meta_path).expect("read meta");
+        let mut meta_json: serde_json::Value = serde_json::from_str(&meta_text).expect("meta json");
+        let obj = meta_json.as_object_mut().expect("meta object");
+        obj.remove("format_version");
+        fs::write(
+            &meta_path,
+            serde_json::to_string_pretty(&meta_json).expect("serialize meta"),
+        )
+        .expect("write meta");
+        eval(&config_path).expect("legacy checkpoint eval");
     }
 }

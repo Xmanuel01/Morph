@@ -98,3 +98,15 @@ Operator run required:
 
 Expected result:
 - all commands exit `0`.
+
+## 6) v1.8 compatibility + self-host gates
+
+- [x] Legacy config compatibility test:
+  - `legacy_config_without_config_version_still_trains`
+- [x] Legacy checkpoint compatibility test:
+  - `legacy_checkpoint_meta_without_format_version_loads`
+- [x] Self-host CI corpus gate:
+  - `enkai litec selfhost-ci enkai/tools/bootstrap/selfhost_corpus`
+- [x] Consolidated pipeline scripts:
+  - `powershell -ExecutionPolicy Bypass -File scripts/v1_8_release_pipeline.ps1`
+  - `sh scripts/v1_8_release_pipeline.sh`

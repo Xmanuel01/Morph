@@ -1327,8 +1327,8 @@ mod tests {
             corpus.join("main_b.enk"),
             "use std.io\n\
              type Pair ::\n    value: Int\n::\n\
-             impl Pair ::\n    fn add(self: Pair, x: Int) -> Int ::\n        return self.value + x\n    ::\n::\n\
-             fn main() -> Int ::\n    let p := Pair(4)\n    return 7\n::\n\
+             impl Pair ::\n    fn add(x: Int) -> Int ::\n        return self.value + x\n    ::\n::\n\
+             fn main() -> Int ::\n    let p := Pair(4)\n    let _tmp := p.add(3)\n    return 7\n::\n\
              main()\n",
         )
         .expect("write b");
@@ -1337,5 +1337,11 @@ mod tests {
             corpus.to_string_lossy().to_string(),
         ]);
         assert_eq!(code, 0);
+        let no_compare = litec_command(&[
+            "selfhost-ci".to_string(),
+            corpus.to_string_lossy().to_string(),
+            "--no-compare-stage0".to_string(),
+        ]);
+        assert_eq!(no_compare, 0);
     }
 }

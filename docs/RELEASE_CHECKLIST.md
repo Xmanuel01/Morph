@@ -14,6 +14,9 @@ Use this checklist for production releases.
 - [ ] `cargo fmt`
 - [ ] `cargo clippy -- -D warnings`
 - [ ] `cargo test`
+- [ ] v1.8 consolidated pipeline:
+  - `powershell -ExecutionPolicy Bypass -File scripts/v1_8_release_pipeline.ps1`
+  - or `sh scripts/v1_8_release_pipeline.sh`
 - [ ] Complete `VALIDATION.md` gates for the target release
 
 ## 3) Tag

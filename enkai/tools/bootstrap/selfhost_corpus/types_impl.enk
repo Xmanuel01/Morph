@@ -5,13 +5,14 @@ type Counter ::
 ::
 
 impl Counter ::
-    fn add(self: Counter, x: Int) -> Int ::
+    fn add(x: Int) -> Int ::
         return self.value + x
     ::
 ::
 
 fn main() -> Int ::
     let c := Counter(5)
+    let _tmp := c.add(4)
     return 9
 ::
 

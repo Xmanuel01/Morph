@@ -23,6 +23,14 @@ jobs:
         run: |
           cargo build -p enkai_native
           cargo test --workspace
+  v1-8-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run v1.8 release pipeline
+        run: sh scripts/v1_8_release_pipeline.sh
   bootstrap-parity:
     runs-on: ubuntu-latest
     steps:
