@@ -20,7 +20,7 @@ mod bootstrap;
 mod frontend;
 mod train;
 
-const LANG_VERSION: &str = "1.6.0";
+const LANG_VERSION: &str = "1.7.0";
 
 pub(crate) fn env_guard() -> std::sync::MutexGuard<'static, ()> {
     static ENV_GUARD: OnceLock<Mutex<()>> = OnceLock::new();

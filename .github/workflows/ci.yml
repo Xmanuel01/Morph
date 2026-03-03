@@ -33,6 +33,18 @@ jobs:
         run: cargo build -p enkai_native
       - name: Bootstrap parity tests
         run: cargo test -p enkai --bin enkai bootstrap::tests::
+  selfhost-beta:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build native runtime module
+        run: cargo build -p enkai_native
+      - name: Run self-host beta tests
+        run: |
+          cargo test -p enkai --bin enkai bootstrap::tests::litec_selfhost_
+          cargo run -p enkai -- litec selfhost-ci enkai/tools/bootstrap/selfhost_corpus
   package-check:
     runs-on: ubuntu-latest
     steps:

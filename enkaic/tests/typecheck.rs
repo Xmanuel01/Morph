@@ -57,3 +57,13 @@ fn native_import_rejects_optional_scalar_return() {
     let msg = type_err("native::import \"libdemo\" ::\n    fn bad() -> Bool?\n::\n");
     assert!(msg.contains("Invalid FFI return type"));
 }
+
+#[test]
+fn unknown_callee_call_is_permitted() {
+    assert!(type_ok(
+        "type Boxed ::\n    value: Int\n::\n\
+         impl Boxed ::\n    fn add(self: Boxed, x: Int) -> Int ::\n        return self.value + x\n    ::\n::\n\
+         fn main() -> Int ::\n    let b := Boxed(3)\n    let out := b.add(2)\n    return 0\n::\n\
+         main()\n"
+    ));
+}

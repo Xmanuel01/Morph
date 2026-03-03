@@ -5642,24 +5642,22 @@ fn format_compile_error(err: &enkaic::compiler::CompileError) -> String {
 fn validate_bootstrap_subset(module: &Module) -> Result<(), RuntimeError> {
     for item in &module.items {
         match item {
-            Item::Import(_) | Item::Policy(_) => {}
+            Item::Import(_) | Item::Use(_) | Item::Policy(_) | Item::Type(_) | Item::Enum(_) => {}
             Item::Fn(decl) => validate_subset_block(&decl.body)?,
+            Item::Impl(decl) => {
+                for method in &decl.methods {
+                    validate_subset_block(&method.body)?;
+                }
+            }
             Item::Stmt(stmt) => validate_subset_stmt(stmt)?,
             Item::NativeImport(_) => {
                 return Err(RuntimeError::new(
                     "subset disallows native::import declarations",
                 ));
             }
-            Item::Use(_) => return Err(RuntimeError::new("subset disallows use declarations")),
-            Item::Type(_)
-            | Item::Enum(_)
-            | Item::Impl(_)
-            | Item::Tool(_)
-            | Item::Prompt(_)
-            | Item::Model(_)
-            | Item::Agent(_) => {
+            Item::Tool(_) | Item::Prompt(_) | Item::Model(_) | Item::Agent(_) => {
                 return Err(RuntimeError::new(
-                    "subset only supports import/policy/fn/stmts declarations",
+                    "subset only supports import/use/policy/type/enum/impl/fn/stmts declarations",
                 ));
             }
         }
@@ -5753,7 +5751,7 @@ fn validate_subset_expr(expr: &Expr) -> Result<(), RuntimeError> {
             Ok(())
         }
         Expr::Try { expr, .. } => validate_subset_expr(expr),
-        Expr::Lambda { .. } => Err(RuntimeError::new("subset disallows lambda expressions")),
+        Expr::Lambda { body, .. } => validate_subset_expr(body),
         Expr::Match { .. } => Err(RuntimeError::new("subset disallows match expressions")),
     }
 }

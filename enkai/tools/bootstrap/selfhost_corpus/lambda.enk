@@ -1,0 +1,6 @@
+fn main() -> Int ::
+    let plus_two := (x: Int) -> Int => x + 2
+    return plus_two(8)
+::
+
+main()

@@ -413,6 +413,15 @@ impl TypeChecker {
                         }
                     }
                     Ok(*ret)
+                } else if ct == Type::Unknown {
+                    for arg in args {
+                        let expr = match arg {
+                            Arg::Positional(e) => e,
+                            Arg::Named(_, e) => e,
+                        };
+                        self.check_expr(expr)?;
+                    }
+                    Ok(Type::Unknown)
                 } else {
                     Err(self.error("Callee is not a function", span.clone()))
                 }
@@ -453,6 +462,60 @@ impl TypeChecker {
                 Type::Optional(inner) => Ok(*inner),
                 _ => Ok(Type::Unknown),
             },
+            Expr::Lambda {
+                params,
+                return_type,
+                body,
+                span,
+            } => {
+                let mut param_types = Vec::with_capacity(params.len());
+                self.push();
+                for param in params {
+                    let declared = type_from_ref_opt(param.type_ann.clone());
+                    if let Some(default_expr) = &param.default {
+                        let default_ty = self.check_expr(default_expr)?;
+                        if declared != Type::Unknown && !compatible(&declared, &default_ty) {
+                            self.pop();
+                            return Err(self.error(
+                                format!(
+                                    "Default value type mismatch for parameter {}: expected {}, found {}",
+                                    param.name,
+                                    declared.display(),
+                                    default_ty.display()
+                                ),
+                                line_span(default_expr),
+                            ));
+                        }
+                    }
+                    self.define(&param.name, declared.clone());
+                    param_types.push(declared);
+                }
+                let body_ty = match self.check_expr(body) {
+                    Ok(ty) => ty,
+                    Err(err) => {
+                        self.pop();
+                        return Err(err);
+                    }
+                };
+                self.pop();
+                let ret_ty = if let Some(ret) = return_type.clone() {
+                    let declared_ret = type_from_ref(ret);
+                    if declared_ret != Type::Unknown && !compatible(&declared_ret, &body_ty) {
+                        return Err(self.error(
+                            format!(
+                                "Lambda return type mismatch: expected {}, found {}",
+                                declared_ret.display(),
+                                body_ty.display()
+                            ),
+                            span.clone(),
+                        ));
+                    }
+                    declared_ret
+                } else {
+                    body_ty
+                };
+                Ok(Type::Function(param_types, Box::new(ret_ty)))
+            }
             _ => Ok(Type::Unknown),
         }
     }

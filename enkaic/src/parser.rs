@@ -1134,9 +1134,11 @@ impl Parser {
             });
         }
         if self.check(TokenKind::LParen) {
-            if self.looks_like_lambda()? {
-                return self.parse_lambda();
+            let checkpoint = self.pos;
+            if let Ok(lambda) = self.parse_lambda() {
+                return Ok(lambda);
             }
+            self.pos = checkpoint;
             self.expect(TokenKind::LParen)?;
             let expr = self.parse_expr()?;
             self.expect(TokenKind::RParen)?;
@@ -1365,40 +1367,6 @@ impl Parser {
             self.peek().kind,
             TokenKind::Newline | TokenKind::Semicolon | TokenKind::Eof | TokenKind::BlockEnd
         )
-    }
-
-    fn looks_like_lambda(&self) -> Result<bool, ParseError> {
-        if !self.check(TokenKind::LParen) {
-            return Ok(false);
-        }
-        let mut depth = 0;
-        let mut idx = self.pos;
-        while idx < self.tokens.len() {
-            let kind = &self.tokens[idx].kind;
-            match kind {
-                TokenKind::LParen => depth += 1,
-                TokenKind::RParen => {
-                    depth -= 1;
-                    if depth == 0 {
-                        let next = self.tokens.get(idx + 1).map(|t| &t.kind);
-                        let next_next = self.tokens.get(idx + 2).map(|t| &t.kind);
-                        if matches!(next, Some(TokenKind::FatArrow)) {
-                            return Ok(true);
-                        }
-                        if matches!(next, Some(TokenKind::Arrow))
-                            && matches!(next_next, Some(TokenKind::FatArrow))
-                        {
-                            return Ok(true);
-                        }
-                        return Ok(false);
-                    }
-                }
-                TokenKind::Eof => break,
-                _ => {}
-            }
-            idx += 1;
-        }
-        Err(self.error("Unterminated parameter list", self.current()))
     }
 
     fn check(&self, kind: TokenKind) -> bool {

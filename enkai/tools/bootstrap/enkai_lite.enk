@@ -13,6 +13,22 @@ fn fail(message: String) -> Int ::
     return 1
 ::
 
+fn parse_phase(source: String) -> Record ::
+    let parsed := compiler.parse_subset(source)
+    let summary := json.parse("{}")
+    summary.functions := parsed.functions
+    summary.items := parsed.items
+    return summary
+::
+
+fn check_phase(source: String) -> Bool ::
+    return compiler.check_subset(source)
+::
+
+fn codegen_phase(source: String, output: String) -> Bool ::
+    return compiler.emit_subset(source, output)
+::
+
 fn main() -> Int ::
     let mode := env.get("ENKAI_LITEC_MODE")
     if mode == none ::
@@ -26,10 +42,20 @@ fn main() -> Int ::
     if source == none ::
         return fail("unable to read input source")
     ::
-    let parsed := compiler.parse_subset(source?)
-    let checked := compiler.check_subset(source?)
+    let parsed := parse_phase(source?)
+    let checked := check_phase(source?)
     if not checked ::
         return fail("subset check failed")
+    ::
+    if mode? == "parse" ::
+        let summary := json.parse("{}")
+        summary.mode := "parse"
+        summary.input := input?
+        summary.functions := parsed.functions
+        summary.items := parsed.items
+        io.stdout_write_text(json.stringify(summary))
+        io.stdout_write_text("\n")
+        return 0
     ::
     if mode? == "check" ::
         let summary := json.parse("{}")
@@ -46,12 +72,31 @@ fn main() -> Int ::
         if output == none ::
             return fail("missing ENKAI_LITEC_OUTPUT")
         ::
-        let emitted := compiler.emit_subset(source?, output?)
+        let emitted := codegen_phase(source?, output?)
         if not emitted ::
             return fail("emit_subset returned false")
         ::
         let summary := json.parse("{}")
         summary.mode := "compile"
+        summary.input := input?
+        summary.output := output?
+        summary.functions := parsed.functions
+        summary.items := parsed.items
+        io.stdout_write_text(json.stringify(summary))
+        io.stdout_write_text("\n")
+        return 0
+    ::
+    if mode? == "codegen" ::
+        let output := env.get("ENKAI_LITEC_OUTPUT")
+        if output == none ::
+            return fail("missing ENKAI_LITEC_OUTPUT")
+        ::
+        let emitted := codegen_phase(source?, output?)
+        if not emitted ::
+            return fail("emit_subset returned false")
+        ::
+        let summary := json.parse("{}")
+        summary.mode := "codegen"
         summary.input := input?
         summary.output := output?
         summary.functions := parsed.functions

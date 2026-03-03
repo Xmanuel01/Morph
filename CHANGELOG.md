@@ -11,6 +11,28 @@
 ### Breaking changes
 - None yet.
 
+## v1.7.0
+
+### Highlights
+- Added bootstrap self-host beta command:
+  - `enkai litec selfhost <corpus_dir>`
+- Added staged bootstrap frontend command:
+  - `enkai litec stage <parse|check|codegen> <input.enk> [--out <program.bin>]`
+- Added self-host CI command:
+  - `enkai litec selfhost-ci <corpus_dir> [--no-compare-stage0]`
+- Expanded bootstrap-core subset validation for Stage1 corpus support:
+  - allows `use`, `type`, `enum`, `impl` declarations
+  - allows non-capturing lambda expressions
+- Refactored `enkai_lite.enk` into explicit parse/check/codegen phase functions, so stage orchestration for selected compiler components is executed in Enkai.
+- Added shared Stage0/Stage1 bytecode equivalence helper used by `litec verify`, `litec selfhost`, and `litec selfhost-ci`.
+
+### Fixes
+- Added self-host beta tests covering expanded subset acceptance and corpus verification behavior.
+- Added CI `selfhost-beta` lane to run bootstrap self-host regression tests and execute `litec selfhost-ci` against repository corpus.
+
+### Breaking changes
+- None.
+
 ## v1.6.0
 
 ### Highlights

@@ -1,8 +1,8 @@
-# Enkai Language Specification (v0.1 -> v1.6.0)
+# Enkai Language Specification (v0.1 -> v1.7.0)
 
 Status: stable.
 Grammar and CLI contracts are frozen at the v0.9.3 baseline for the v1.x line.
-This document is the normative language and runtime surface for Enkai v1.6.0,
+This document is the normative language and runtime surface for Enkai v1.7.0,
 including compatibility constraints carried from v0.1 onward.
 
 -------------------------------------------------------------------------------
@@ -13,7 +13,7 @@ This specification covers:
 - Core syntax and block rules.
 - Module/import semantics.
 - Type and expression forms supported by parser, checker, compiler, and VM.
-- Built-in runtime modules shipped in v1.6.0.
+- Built-in runtime modules shipped in v1.7.0.
 - CLI entrypoints used in production.
 
 This specification does not claim features that are still stubbed or not yet implemented.
@@ -49,6 +49,9 @@ Compatibility baseline:
   parity tests between Rust and Enkai tool paths.
 - v1.6: bootstrap-core `litec` command surface, runtime `compiler` module for
   subset parse/check/emit, and stage0/stage1 bytecode equivalence verification.
+- v1.7: self-host beta flow via `enkai litec selfhost`, staged bootstrap frontend
+  flow via `enkai litec stage`, expanded bootstrap-core subset
+  (`use`/`type`/`enum`/`impl` + non-capturing lambda), and self-host CI lane coverage.
 
 Compatibility policy:
 - `.enk` and `.en` are primary source extensions.
@@ -56,7 +59,7 @@ Compatibility policy:
   primary contract unless listed explicitly.
 
 -------------------------------------------------------------------------------
-1.2 Validation Gate Status (v1.6.0)
+1.2 Validation Gate Status (v1.7.0)
 -------------------------------------------------------------------------------
 
 Current verification status:
@@ -261,7 +264,7 @@ Assignment form:
 8. Types
 -------------------------------------------------------------------------------
 
-Core types used in v1.6.0:
+Core types used in v1.7.0:
 - `Int`, `Float`, `Bool`, `String`, `Void`
 - Optional: `T?`
 - Function: `fn(T1, T2) -> R`
@@ -290,7 +293,7 @@ Formatting and tests:
 - Project test runner (`enkai test`) compiles and executes test files.
 
 -------------------------------------------------------------------------------
-10. Built-in Runtime Modules (v1.6.0)
+10. Built-in Runtime Modules (v1.7.0)
 -------------------------------------------------------------------------------
 
 Concurrency:
@@ -383,7 +386,7 @@ Native-backed std modules:
 - `std::tls` (TLS peer certificate fingerprint helper)
 - `std::model_registry` (serve-time env contract helpers)
 
-Tensor backend (`std::tensor`, v1.6.0 surface):
+Tensor backend (`std::tensor`, v1.7.0 surface):
 - device/tensor creation, math ops, shape/dtype/device transforms
 - autograd and optimizer helper APIs
 - AMP scaler/autocast APIs
@@ -399,7 +402,7 @@ Tensor C ABI checkpoint/distributed hooks:
 For full tensor C ABI contracts and safety preconditions, see `docs/tensor_api.md` and `docs/gpu_backend.md`.
 
 -------------------------------------------------------------------------------
-11. CLI Contract (v1.6.0)
+11. CLI Contract (v1.7.0)
 -------------------------------------------------------------------------------
 
 Commands:
@@ -416,6 +419,9 @@ Commands:
 - `enkai litec check <input.enk>`
 - `enkai litec compile <input.enk> --out <program.bin>`
 - `enkai litec verify <input.enk>`
+- `enkai litec stage <parse|check|codegen> <input.enk> [--out <program.bin>]`
+- `enkai litec selfhost <corpus_dir>`
+- `enkai litec selfhost-ci <corpus_dir> [--no-compare-stage0]`
 - `enkai build [dir]`
 - `enkai test [project_root]`
 - `enkai train <config.enk>`
@@ -462,7 +468,7 @@ Checkpoint format:
 - Ranked checkpoints write `rank{n}/` subdirectories and a `manifest.json` with `world_size`.
 
 -------------------------------------------------------------------------------
-12. Known Limits in v1.6.0
+12. Known Limits in v1.7.0
 -------------------------------------------------------------------------------
 
 The following are intentionally not fully implemented yet:
@@ -481,8 +487,16 @@ The following are intentionally not fully implemented yet:
 - Current training-forward integration in runtime uses a TinyLM transformer forward/loss path and is not yet a full-scale Transformer stack.
 - Engine-level checkpoint helpers exist, but full train-loop orchestration and multi-rank resume policy are constrained to currently integrated paths.
 - `enkai litec` is intentionally subset-scoped; unsupported subset constructs
-  (for/match/try/break/continue/lambda) are rejected by bootstrap-core validation.
-- v1.6.0 validation note:
+  (for/match/try/break/continue and `match` expressions) are rejected by
+  bootstrap-core validation.
+- Lambda expressions compile as non-capturing function values; references to
+  outer locals from lambda bodies are not supported in the current bytecode model.
+- `enkai litec selfhost` verifies bytecode equivalence for the expanded subset, but
+  does not yet replace the Rust Stage0 compiler in release builds.
+- `enkai litec selfhost-ci` runs subset corpus compile/execute parity and optional
+  stage0 result comparison; it does not yet build full production binaries from
+  an Enkai-compiled compiler artifact.
+- v1.7.0 validation note:
   - CPU-mode single-device soak requires operator-run evidence on production hardware.
   - CUDA single-GPU long-soak and distributed (2-GPU/4-GPU) reliability remain
     operator-run requirements and are not auto-proven by repository state alone.
@@ -493,7 +507,8 @@ These limits are part of the current stable contract and should be treated as pr
 13. Change Control
 -------------------------------------------------------------------------------
 
-For any language/runtime surface change after v1.6.0:
+For any language/runtime surface change after v1.7.0:
 1) Implement the change and add/adjust compiler/runtime tests.
 2) Update this specification to match the shipped behavior.
 3) Update changelog and targeted docs (`docs/xx_*.md`, `docs/tensor_api.md`, etc.).
+

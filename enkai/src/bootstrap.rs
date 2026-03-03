@@ -3,10 +3,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use enkai_compiler::bytecode::Program;
 use enkai_compiler::compiler::{compile_module, compile_package, CompileError};
 use enkai_compiler::modules::load_package;
 use enkai_compiler::parse_module_named;
 use enkai_compiler::{TypeChecker, TypeError};
+use enkai_runtime::object::Obj;
 use enkai_runtime::{Value, VM};
 
 const FMT_LITE_SCRIPT: &str = include_str!("../tools/bootstrap/fmt_lite.enk");
@@ -23,6 +25,9 @@ pub fn print_usage() {
     eprintln!("  enkai litec check <input.enk>");
     eprintln!("  enkai litec compile <input.enk> --out <program.bin>");
     eprintln!("  enkai litec verify <input.enk>");
+    eprintln!("  enkai litec stage <parse|check|codegen> <input.enk> [--out <program.bin>]");
+    eprintln!("  enkai litec selfhost <corpus_dir>");
+    eprintln!("  enkai litec selfhost-ci <corpus_dir> [--no-compare-stage0]");
 }
 
 pub fn fmt_lite_command(args: &[String]) -> i32 {
@@ -462,6 +467,9 @@ pub fn litec_command(args: &[String]) -> i32 {
         "check" => litec_check(&args[1..]),
         "compile" => litec_compile(&args[1..]),
         "verify" => litec_verify(&args[1..]),
+        "stage" => litec_stage(&args[1..]),
+        "selfhost" => litec_selfhost(&args[1..]),
+        "selfhost-ci" => litec_selfhost_ci(&args[1..]),
         other => {
             eprintln!("unknown litec subcommand: {}", other);
             1
@@ -543,56 +551,306 @@ fn litec_verify(args: &[String]) -> i32 {
         eprintln!("input file not found: {}", input.display());
         return 1;
     }
-    let stage0 = match compile_stage0_program_bytes(&input) {
-        Ok(bytes) => bytes,
-        Err(err) => {
-            eprintln!("stage0 compile failed: {}", err);
-            return 1;
+    match verify_stage_equivalence(&input) {
+        Ok(()) => {
+            println!("litec verify ok");
+            0
         }
-    };
-    let stage1_path = match temp_stage1_program_path() {
-        Ok(path) => path,
         Err(err) => {
-            eprintln!("failed to allocate stage1 path: {}", err);
-            return 1;
+            eprintln!("{}", err);
+            1
         }
-    };
-    let code = match run_litec_mode("compile", &input, Some(&stage1_path)) {
-        Ok(code) => code,
-        Err(err) => {
-            let _ = fs::remove_file(&stage1_path);
-            eprintln!("stage1 compile failed: {}", err);
-            return 1;
-        }
-    };
-    if code != 0 {
-        let _ = fs::remove_file(&stage1_path);
-        eprintln!("stage1 compile returned non-zero status {}", code);
-        return code;
     }
-    let stage1 = match fs::read(&stage1_path) {
-        Ok(bytes) => bytes,
-        Err(err) => {
-            let _ = fs::remove_file(&stage1_path);
+}
+
+fn litec_stage(args: &[String]) -> i32 {
+    if args.len() < 2 {
+        eprintln!(
+            "Usage: enkai litec stage <parse|check|codegen> <input.enk> [--out <program.bin>]"
+        );
+        return 1;
+    }
+    let mode = match args[0].as_str() {
+        "parse" => "parse",
+        "check" => "check",
+        "codegen" => "codegen",
+        other => {
             eprintln!(
-                "failed to read stage1 output {}: {}",
-                stage1_path.display(),
-                err
+                "unknown litec stage '{}', expected parse|check|codegen",
+                other
             );
             return 1;
         }
     };
-    let _ = fs::remove_file(&stage1_path);
+    let input = PathBuf::from(&args[1]);
+    if !input.is_file() {
+        eprintln!("input file not found: {}", input.display());
+        return 1;
+    }
+    let mut output: Option<PathBuf> = None;
+    let mut index = 2usize;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--out" => {
+                index += 1;
+                let Some(path) = args.get(index) else {
+                    eprintln!("--out requires a value");
+                    return 1;
+                };
+                output = Some(PathBuf::from(path));
+            }
+            other => {
+                eprintln!("Unexpected argument: {}", other);
+                return 1;
+            }
+        }
+        index += 1;
+    }
+    if mode == "codegen" && output.is_none() {
+        eprintln!("enkai litec stage codegen requires --out <program.bin>");
+        return 1;
+    }
+    if mode != "codegen" && output.is_some() {
+        eprintln!("--out is only valid for codegen stage");
+        return 1;
+    }
+    match run_litec_mode(mode, &input, output.as_deref()) {
+        Ok(code) => code,
+        Err(err) => {
+            eprintln!("litec stage failed: {}", err);
+            1
+        }
+    }
+}
+
+fn litec_selfhost(args: &[String]) -> i32 {
+    if args.len() != 1 {
+        eprintln!("Usage: enkai litec selfhost <corpus_dir>");
+        return 1;
+    }
+    let corpus = PathBuf::from(&args[0]);
+    if !corpus.is_dir() {
+        eprintln!("corpus directory not found: {}", corpus.display());
+        return 1;
+    }
+    let files = match super::collect_source_files(&corpus) {
+        Ok(files) => files,
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    };
+    if files.is_empty() {
+        eprintln!("no source files found in {}", corpus.display());
+        return 1;
+    }
+    for file in &files {
+        if let Err(err) = verify_stage_equivalence(file) {
+            eprintln!("selfhost mismatch for {}: {}", file.display(), err);
+            return 1;
+        }
+    }
+    println!("litec selfhost ok ({} files)", files.len());
+    0
+}
+
+fn litec_selfhost_ci(args: &[String]) -> i32 {
+    if args.is_empty() {
+        eprintln!("Usage: enkai litec selfhost-ci <corpus_dir> [--no-compare-stage0]");
+        return 1;
+    }
+    let corpus = PathBuf::from(&args[0]);
+    if !corpus.is_dir() {
+        eprintln!("corpus directory not found: {}", corpus.display());
+        return 1;
+    }
+    let mut compare_stage0 = true;
+    for arg in &args[1..] {
+        match arg.as_str() {
+            "--no-compare-stage0" => compare_stage0 = false,
+            other => {
+                eprintln!("Unexpected argument: {}", other);
+                return 1;
+            }
+        }
+    }
+    let files = match super::collect_source_files(&corpus) {
+        Ok(files) => files,
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    };
+    if files.is_empty() {
+        eprintln!("no source files found in {}", corpus.display());
+        return 1;
+    }
+    let mut passed = 0usize;
+    for file in &files {
+        let stage1_bytes = match compile_stage1_program_bytes(file, "codegen") {
+            Ok(bytes) => bytes,
+            Err(err) => {
+                eprintln!("[fail] {}: {}", file.display(), err);
+                return 1;
+            }
+        };
+        let stage1 = match decode_program_bytes(file, &stage1_bytes, "stage1") {
+            Ok(program) => program,
+            Err(err) => {
+                eprintln!("[fail] {}: {}", file.display(), err);
+                return 1;
+            }
+        };
+        let stage1_value = match run_program(&stage1) {
+            Ok(value) => value,
+            Err(err) => {
+                eprintln!("[fail] {}: stage1 runtime error: {}", file.display(), err);
+                return 1;
+            }
+        };
+        if compare_stage0 {
+            let stage0_bytes = match compile_stage0_program_bytes(file) {
+                Ok(bytes) => bytes,
+                Err(err) => {
+                    eprintln!("[fail] {}: stage0 compile failed: {}", file.display(), err);
+                    return 1;
+                }
+            };
+            let stage0 = match decode_program_bytes(file, &stage0_bytes, "stage0") {
+                Ok(program) => program,
+                Err(err) => {
+                    eprintln!("[fail] {}: {}", file.display(), err);
+                    return 1;
+                }
+            };
+            let stage0_value = match run_program(&stage0) {
+                Ok(value) => value,
+                Err(err) => {
+                    eprintln!("[fail] {}: stage0 runtime error: {}", file.display(), err);
+                    return 1;
+                }
+            };
+            if canonical_value(&stage0_value) != canonical_value(&stage1_value) {
+                eprintln!(
+                    "[fail] {}: stage0/stage1 result mismatch (stage0={}, stage1={})",
+                    file.display(),
+                    canonical_value(&stage0_value),
+                    canonical_value(&stage1_value)
+                );
+                return 1;
+            }
+        }
+        println!("[pass] {}", file.display());
+        passed += 1;
+    }
+    println!(
+        "litec selfhost-ci ok ({} files, compare_stage0={})",
+        passed, compare_stage0
+    );
+    0
+}
+
+fn verify_stage_equivalence(input: &Path) -> Result<(), String> {
+    let stage0 = match compile_stage0_program_bytes(input) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            return Err(format!("stage0 compile failed: {}", err));
+        }
+    };
+    let stage1 = compile_stage1_program_bytes(input, "compile")?;
     if stage0 != stage1 {
-        eprintln!(
+        return Err(format!(
             "stage0/stage1 bytecode mismatch (stage0={} bytes, stage1={} bytes)",
             stage0.len(),
             stage1.len()
-        );
-        return 1;
+        ));
     }
-    println!("litec verify ok");
-    0
+    Ok(())
+}
+
+fn compile_stage1_program_bytes(input: &Path, mode: &str) -> Result<Vec<u8>, String> {
+    let stage1_path = temp_stage1_program_path()
+        .map_err(|err| format!("failed to allocate stage1 path: {}", err))?;
+    let code = match run_litec_mode(mode, input, Some(&stage1_path)) {
+        Ok(code) => code,
+        Err(err) => {
+            let _ = fs::remove_file(&stage1_path);
+            return Err(format!("stage1 compile failed: {}", err));
+        }
+    };
+    if code != 0 {
+        let _ = fs::remove_file(&stage1_path);
+        return Err(format!("stage1 compile returned non-zero status {}", code));
+    }
+    let stage1 = fs::read(&stage1_path).map_err(|err| {
+        let _ = fs::remove_file(&stage1_path);
+        format!(
+            "failed to read stage1 output {}: {}",
+            stage1_path.display(),
+            err
+        )
+    })?;
+    let _ = fs::remove_file(&stage1_path);
+    Ok(stage1)
+}
+
+fn decode_program_bytes(input: &Path, bytes: &[u8], label: &str) -> Result<Program, String> {
+    bincode::deserialize::<Program>(bytes)
+        .map_err(|err| format!("{} decode failed for {}: {}", label, input.display(), err))
+}
+
+fn run_program(program: &Program) -> Result<Value, String> {
+    let mut vm = VM::new(false, false, false, false);
+    vm.run(program).map_err(|err| err.to_string())
+}
+
+fn canonical_value(value: &Value) -> String {
+    match value {
+        Value::Int(v) => format!("Int({})", v),
+        Value::Float(v) => format!("Float({})", v),
+        Value::Bool(v) => format!("Bool({})", v),
+        Value::Null => "Null".to_string(),
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::String(text) => format!("String({:?})", text),
+            Obj::Buffer(bytes) => format!("Buffer({:?})", bytes),
+            Obj::List(items) => {
+                let values = items
+                    .borrow()
+                    .iter()
+                    .map(canonical_value)
+                    .collect::<Vec<_>>();
+                format!("List([{}])", values.join(","))
+            }
+            Obj::Record(map) => {
+                let map = map.borrow();
+                let mut keys = map.keys().cloned().collect::<Vec<_>>();
+                keys.sort();
+                let mut pairs = Vec::with_capacity(keys.len());
+                for key in keys {
+                    if let Some(value) = map.get(&key) {
+                        pairs.push(format!("{}={}", key, canonical_value(value)));
+                    }
+                }
+                format!("Record({{{}}})", pairs.join(","))
+            }
+            Obj::Json(value) => format!("Json({})", value),
+            Obj::Function(func) => format!("Function({:?}/{})", func.name, func.arity),
+            Obj::BoundFunction(func) => {
+                format!(
+                    "BoundFunction(func={},arity={})",
+                    func.func_index, func.arity
+                )
+            }
+            Obj::NativeFunction(func) => format!("NativeFunction({}/{})", func.name, func.arity),
+            Obj::TaskHandle(id) => format!("TaskHandle({})", id),
+            Obj::Channel(_) => "Channel".to_string(),
+            Obj::TcpListener(_) => "TcpListener".to_string(),
+            Obj::TcpConnection(_) => "TcpConnection".to_string(),
+            Obj::HttpStream(_) => "HttpStream".to_string(),
+            Obj::Tokenizer(_) => "Tokenizer".to_string(),
+            Obj::DatasetStream(_) => "DatasetStream".to_string(),
+        },
+    }
 }
 
 fn temp_stage1_program_path() -> Result<PathBuf, String> {
@@ -991,5 +1249,93 @@ mod tests {
         .expect("write input");
         let code = litec_command(&["check".to_string(), input.to_string_lossy().to_string()]);
         assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_accepts_expanded_selfhost_subset() {
+        let dir = tempdir().expect("tempdir");
+        let input = dir.path().join("expanded_subset.enk");
+        fs::write(
+            &input,
+            "type Counter ::\n    value: Int\n::\n\
+             enum Kind ::\n    One\n::\n\
+             impl Counter ::\n    fn bump(self: Counter, delta: Int) -> Int ::\n        return self.value + delta\n    ::\n::\n\
+             fn main() -> Int ::\n    let add := (x: Int) -> Int => x + 3\n    return add(4)\n::\n\
+             main()\n",
+        )
+        .expect("write input");
+        let code = litec_command(&["check".to_string(), input.to_string_lossy().to_string()]);
+        assert_eq!(code, 0);
+    }
+
+    #[test]
+    fn litec_selfhost_verifies_corpus() {
+        let dir = tempdir().expect("tempdir");
+        let corpus = dir.path().join("corpus");
+        fs::create_dir_all(&corpus).expect("corpus dir");
+        fs::write(
+            corpus.join("a.enk"),
+            "fn main() -> Int ::\n    return 7\n::\nmain()\n",
+        )
+        .expect("write a");
+        fs::write(
+            corpus.join("b.enk"),
+            "type Boxed ::\n    value: Int\n::\n\
+             impl Boxed ::\n    fn add(self: Boxed, x: Int) -> Int ::\n        return self.value + x\n    ::\n::\n\
+             fn main() -> Int ::\n    let f := (x: Int) -> Int => x + 1\n    return f(6)\n::\n\
+             main()\n",
+        )
+        .expect("write b");
+        let code = litec_command(&["selfhost".to_string(), corpus.to_string_lossy().to_string()]);
+        assert_eq!(code, 0);
+    }
+
+    #[test]
+    fn litec_stage_parse_and_codegen() {
+        let dir = tempdir().expect("tempdir");
+        let input = dir.path().join("stage.enk");
+        fs::write(&input, "fn main() -> Int ::\n    return 9\n::\nmain()\n").expect("write input");
+        let parse_code = litec_command(&[
+            "stage".to_string(),
+            "parse".to_string(),
+            input.to_string_lossy().to_string(),
+        ]);
+        assert_eq!(parse_code, 0);
+        let out = dir.path().join("stage.bin");
+        let codegen_code = litec_command(&[
+            "stage".to_string(),
+            "codegen".to_string(),
+            input.to_string_lossy().to_string(),
+            "--out".to_string(),
+            out.to_string_lossy().to_string(),
+        ]);
+        assert_eq!(codegen_code, 0);
+        assert!(out.exists());
+    }
+
+    #[test]
+    fn litec_selfhost_ci_executes_corpus() {
+        let dir = tempdir().expect("tempdir");
+        let corpus = dir.path().join("ci-corpus");
+        fs::create_dir_all(&corpus).expect("corpus dir");
+        fs::write(
+            corpus.join("main_a.enk"),
+            "fn main() -> Int ::\n    let x := 2\n    let f := (v: Int) -> Int => v + 5\n    return f(x)\n::\nmain()\n",
+        )
+        .expect("write a");
+        fs::write(
+            corpus.join("main_b.enk"),
+            "use std.io\n\
+             type Pair ::\n    value: Int\n::\n\
+             impl Pair ::\n    fn add(self: Pair, x: Int) -> Int ::\n        return self.value + x\n    ::\n::\n\
+             fn main() -> Int ::\n    let p := Pair(4)\n    return 7\n::\n\
+             main()\n",
+        )
+        .expect("write b");
+        let code = litec_command(&[
+            "selfhost-ci".to_string(),
+            corpus.to_string_lossy().to_string(),
+        ]);
+        assert_eq!(code, 0);
     }
 }

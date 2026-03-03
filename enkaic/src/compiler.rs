@@ -1043,6 +1043,37 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                 self.compile_expr(expr)?;
                 self.chunk.write(Instruction::TryUnwrap, span.line);
             }
+            Expr::Lambda {
+                params,
+                body,
+                return_type: _,
+                span,
+            } => {
+                if params.iter().any(|param| param.default.is_some()) {
+                    return Err(CompileError::new(
+                        "Lambda parameter defaults are not supported yet",
+                    )
+                    .with_span(span.clone()));
+                }
+                let lambda_name = format!("{}$lambda{}", self.name, self.enclosing.functions.len());
+                let lambda_func_idx = {
+                    let mut lambda_builder = FunctionBuilder::new(
+                        &lambda_name,
+                        params,
+                        self.enclosing,
+                        false,
+                        self.module.clone(),
+                    );
+                    let body_items = vec![Item::Stmt(Stmt::Expr((**body).clone()))];
+                    lambda_builder.compile_items(&body_items)?;
+                    let function = lambda_builder.finish();
+                    let func_idx = self.enclosing.functions.len() as u16;
+                    self.enclosing.functions.push(function);
+                    func_idx
+                };
+                let const_idx = self.chunk.add_constant(Constant::Function(lambda_func_idx));
+                self.chunk.write(Instruction::Const(const_idx), span.line);
+            }
             _ => return Err(CompileError::new("Unsupported expression")),
         }
         Ok(())

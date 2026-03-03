@@ -1,8 +1,8 @@
-# Enkai Bootstrap Core (v1.6)
+# Enkai Bootstrap Core (v1.7)
 
 ## Purpose
 
-`v1.6.0` introduces bootstrap-core primitives for a deterministic Stage0/Stage1 path.
+`v1.7.0` extends bootstrap-core primitives for a deterministic Stage0/Stage1 path.
 The objective is to validate that Enkai-scripted compiler orchestration produces the
 same bytecode as direct Rust Stage0 compilation for the supported subset.
 
@@ -11,12 +11,28 @@ same bytecode as direct Rust Stage0 compilation for the supported subset.
 - `enkai litec check <input.enk>`
 - `enkai litec compile <input.enk> --out <program.bin>`
 - `enkai litec verify <input.enk>`
+- `enkai litec stage <parse|check|codegen> <input.enk> [--out <program.bin>]`
+- `enkai litec selfhost <corpus_dir>`
+- `enkai litec selfhost-ci <corpus_dir> [--no-compare-stage0]`
 
 `litec verify` performs:
 
 1. Stage0 compile (Rust parser/checker/compiler).
 2. Stage1 compile through Enkai-scripted `enkai_lite.enk`.
 3. Bytecode equality check on serialized `Program` output.
+
+`litec selfhost` performs:
+
+1. Recursively discovers `.enk`/`.en` files in a corpus directory.
+2. Runs the same Stage0/Stage1 bytecode equivalence check per file.
+3. Fails fast on the first mismatch; succeeds only when all files match.
+
+`litec selfhost-ci` performs:
+
+1. Stage1 compile through Enkai phase pipeline (`parse` + `check` + `codegen`) per corpus file.
+2. Runs Stage1 bytecode in VM for each file.
+3. Optionally compiles/runs Stage0 and compares canonicalized result values.
+4. Fails fast on compile/runtime/result mismatch.
 
 ## Runtime Surface
 
@@ -26,25 +42,29 @@ Bootstrap-core relies on the `compiler` runtime module:
 - `compiler.check_subset(source)` -> validates subset + typecheck.
 - `compiler.emit_subset(source, output_path)` -> emits bytecode file.
 
+The staged bootstrap script (`enkai/tools/bootstrap/enkai_lite.enk`) executes parser/checker/codegen
+phase orchestration in Enkai code.
+
 These APIs are policy-gated for filesystem writes where applicable.
 
 ## Subset Contract
 
 The bootstrap-core subset intentionally allows:
 
-- top-level `import`, `policy`, `fn`, and top-level statements
+- top-level `import`, `use`, `policy`, `type`, `enum`, `impl`, `fn`, and top-level statements
 - statements: `let`, assignment, expression, `if`, `while`, `return`
-- expressions: literals, identifiers, unary/binary, call, index, field, list, postfix `?`
+- expressions: literals, identifiers, unary/binary, call, index, field, list, non-capturing lambda, postfix `?`
 
 The subset intentionally rejects:
 
-- declarations: `native::import`, `use`, `type`, `enum`, `impl`, `tool`, `prompt`, `model`, `agent`
+- declarations: `native::import`, `tool`, `prompt`, `model`, `agent`
 - statements: `for`, `match`, `try/catch`, `break`, `continue`
-- expressions: `lambda`, `match` expression
+- expressions: `match` expression
 
 ## Quality Gates
 
 - `cargo fmt --all --check`
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace`
-- bootstrap-core tests for `litec compile`, `litec verify`, and subset-rejection behavior.
+- bootstrap-core tests for `litec compile`, `litec verify`, `litec stage`, `litec selfhost`, and subset-rejection behavior.
+- self-host CI command validation over repository corpus (`enkai/tools/bootstrap/selfhost_corpus`).

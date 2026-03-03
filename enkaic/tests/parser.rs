@@ -154,6 +154,18 @@ fn main() -> Int ::
 }
 
 #[test]
+fn parses_lambda_with_return_type() {
+    let source = "\
+fn main() -> Int ::
+    let add := (x: Int) -> Int => x + 1
+    return add(2)
+::
+";
+    let module = parse_module(source).expect("module should parse");
+    assert!(!module.items.is_empty());
+}
+
+#[test]
 fn parses_import_decl() {
     let source = "import app::utils\nfn main() -> Int ::\n    return 0\n::\n";
     let module = parse_module(source).expect("module should parse");

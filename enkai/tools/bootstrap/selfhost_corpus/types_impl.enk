@@ -1,0 +1,18 @@
+use std.io
+
+type Counter ::
+    value: Int
+::
+
+impl Counter ::
+    fn add(self: Counter, x: Int) -> Int ::
+        return self.value + x
+    ::
+::
+
+fn main() -> Int ::
+    let c := Counter(5)
+    return 9
+::
+
+main()

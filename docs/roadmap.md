@@ -2,8 +2,20 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v1.6.0.
+- Current production release line is v1.7.0.
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v1.7 (done)
+- Added bootstrap self-host beta command:
+  - `enkai litec selfhost <corpus_dir>`
+- Added staged frontend command surface:
+  - `enkai litec stage <parse|check|codegen> <input.enk> [--out <program.bin>]`
+- Added self-host CI validation command:
+  - `enkai litec selfhost-ci <corpus_dir> [--no-compare-stage0]`
+- Expanded bootstrap-core subset for self-host corpus validation:
+  - allow `use`, `type`, `enum`, `impl`
+  - allow non-capturing lambda expressions
+- Added CI self-host lane for `litec selfhost` and `litec selfhost-ci` coverage.
 
 v1.6 (done)
 - `enkai litec` bootstrap-core command surface:
