@@ -20,7 +20,7 @@ mod bootstrap;
 mod frontend;
 mod train;
 
-const LANG_VERSION: &str = "1.5.0";
+const LANG_VERSION: &str = "1.6.0";
 
 pub(crate) fn env_guard() -> std::sync::MutexGuard<'static, ()> {
     static ENV_GUARD: OnceLock<Mutex<()>> = OnceLock::new();
@@ -93,6 +93,7 @@ fn main() {
         "lint-lite" => bootstrap::lint_lite_command(&args[2..]),
         "tokenizer-lite" => bootstrap::tokenizer_lite_command(&args[2..]),
         "dataset-lite" => bootstrap::dataset_lite_command(&args[2..]),
+        "litec" => bootstrap::litec_command(&args[2..]),
         "check" => check_command(&args[2..]),
         "fmt" => fmt_command(&args[2..]),
         "build" => build_command(&args[2..]),

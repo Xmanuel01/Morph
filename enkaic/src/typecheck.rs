@@ -721,6 +721,24 @@ fn inject_builtins(
         Type::Function(vec![Type::String, Type::String], Box::new(Type::String)),
     );
     exports.entry(bootstrap_id).or_insert(bootstrap_exports);
+    let compiler_id = ModuleId(vec!["compiler".to_string()]);
+    imports
+        .entry("compiler".to_string())
+        .or_insert(compiler_id.clone());
+    let mut compiler_exports = std::collections::HashMap::new();
+    compiler_exports.insert(
+        "parse_subset".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::Unknown)),
+    );
+    compiler_exports.insert(
+        "check_subset".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::Bool)),
+    );
+    compiler_exports.insert(
+        "emit_subset".to_string(),
+        Type::Function(vec![Type::String, Type::String], Box::new(Type::Bool)),
+    );
+    exports.entry(compiler_id).or_insert(compiler_exports);
     let tokenizer_id = ModuleId(vec!["tokenizer".to_string()]);
     imports
         .entry("tokenizer".to_string())

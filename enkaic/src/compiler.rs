@@ -161,6 +161,7 @@ impl<'a> ProgramBuilder<'a> {
         let _ = self.ensure_global("policy");
         let _ = self.ensure_global("json");
         let _ = self.ensure_global("bootstrap");
+        let _ = self.ensure_global("compiler");
         let _ = self.ensure_global("tokenizer");
         let _ = self.ensure_global("dataset");
         let _ = self.ensure_global("checkpoint");

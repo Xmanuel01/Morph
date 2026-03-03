@@ -11,6 +11,29 @@
 ### Breaking changes
 - None yet.
 
+## v1.6.0
+
+### Highlights
+- Added bootstrap-core CLI commands:
+  - `enkai litec check <input.enk>`
+  - `enkai litec compile <input.enk> --out <program.bin>`
+  - `enkai litec verify <input.enk>`
+- Added Enkai-scripted bootstrap-core driver (`enkai/tools/bootstrap/enkai_lite.enk`) for Stage1 orchestration.
+- Added runtime/compiler `compiler` module:
+  - `parse_subset`
+  - `check_subset`
+  - `emit_subset`
+- Added subset validation in runtime for bootstrap-core compilation flow.
+- Added bootstrap-core docs: `docs/bootstrap_core.md`.
+
+### Fixes
+- Added stage0/stage1 bytecode equivalence verification path (`enkai litec verify`) and tests.
+- Hardened policy checks for compiler emission output paths.
+- Standardized CI bootstrap parity lane by building `enkai_native` before parity tests.
+
+### Breaking changes
+- None.
+
 ## v1.5.0
 
 ### Highlights

@@ -1,8 +1,8 @@
-# Enkai Bootstrap Subset (v1.5)
+# Enkai Bootstrap Subset (v1.6)
 
 ## Purpose
 
-This document defines the stable subset used for bootstrap-lite tooling in v1.5.0.
+This document defines the stable subset used for bootstrap-lite tooling in v1.6.0.
 The goal is deterministic tool output and safe migration toward deeper self-hosting.
 
 ## Scope
@@ -24,7 +24,7 @@ The subset is intentionally constrained to language/runtime features already pro
 
 ## Out of Subset
 
-The following are intentionally excluded from bootstrap-lite scripts in v1.5.0:
+The following are intentionally excluded from bootstrap-lite scripts in v1.6.0:
 
 - `for` loops.
 - `try/catch`.
@@ -41,6 +41,8 @@ Bootstrap-lite commands:
 - `enkai lint-lite [--deny-warn] <file|dir>`
 - `enkai tokenizer-lite train <dataset_path> <tokenizer_path> [flags]`
 - `enkai dataset-lite inspect <dataset_path> <tokenizer_path> --seq-len <n> --batch-size <n> [flags]`
+
+Bootstrap-core stage commands are documented in `docs/bootstrap_core.md`.
 
 Determinism requirement:
 

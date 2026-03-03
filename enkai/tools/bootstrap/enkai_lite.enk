@@ -1,0 +1,66 @@
+import std::env
+import std::io
+
+policy default ::
+    allow env
+    allow fs
+    allow io
+::
+
+fn fail(message: String) -> Int ::
+    io.stderr_write_text(message)
+    io.stderr_write_text("\n")
+    return 1
+::
+
+fn main() -> Int ::
+    let mode := env.get("ENKAI_LITEC_MODE")
+    if mode == none ::
+        return fail("missing ENKAI_LITEC_MODE")
+    ::
+    let input := env.get("ENKAI_LITEC_INPUT")
+    if input == none ::
+        return fail("missing ENKAI_LITEC_INPUT")
+    ::
+    let source := io.read_text(input?)
+    if source == none ::
+        return fail("unable to read input source")
+    ::
+    let parsed := compiler.parse_subset(source?)
+    let checked := compiler.check_subset(source?)
+    if not checked ::
+        return fail("subset check failed")
+    ::
+    if mode? == "check" ::
+        let summary := json.parse("{}")
+        summary.mode := "check"
+        summary.input := input?
+        summary.functions := parsed.functions
+        summary.items := parsed.items
+        io.stdout_write_text(json.stringify(summary))
+        io.stdout_write_text("\n")
+        return 0
+    ::
+    if mode? == "compile" ::
+        let output := env.get("ENKAI_LITEC_OUTPUT")
+        if output == none ::
+            return fail("missing ENKAI_LITEC_OUTPUT")
+        ::
+        let emitted := compiler.emit_subset(source?, output?)
+        if not emitted ::
+            return fail("emit_subset returned false")
+        ::
+        let summary := json.parse("{}")
+        summary.mode := "compile"
+        summary.input := input?
+        summary.output := output?
+        summary.functions := parsed.functions
+        summary.items := parsed.items
+        io.stdout_write_text(json.stringify(summary))
+        io.stdout_write_text("\n")
+        return 0
+    ::
+    return fail("unknown ENKAI_LITEC_MODE")
+::
+
+main()

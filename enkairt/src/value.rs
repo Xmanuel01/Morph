@@ -67,7 +67,12 @@ impl PartialEq for Value {
             (Value::Float(a), Value::Float(b)) => a == b,
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (Value::Null, Value::Null) => true,
-            (Value::Obj(a), Value::Obj(b)) => Rc::ptr_eq(&a.0, &b.0),
+            (Value::Obj(a), Value::Obj(b)) => match (a.as_obj(), b.as_obj()) {
+                (Obj::String(x), Obj::String(y)) => x == y,
+                (Obj::Buffer(x), Obj::Buffer(y)) => x == y,
+                (Obj::TaskHandle(x), Obj::TaskHandle(y)) => x == y,
+                _ => Rc::ptr_eq(&a.0, &b.0),
+            },
             _ => false,
         }
     }

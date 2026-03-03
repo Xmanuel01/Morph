@@ -3,8 +3,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use enkai_compiler::compiler::{compile_package, CompileError};
+use enkai_compiler::compiler::{compile_module, compile_package, CompileError};
 use enkai_compiler::modules::load_package;
+use enkai_compiler::parse_module_named;
 use enkai_compiler::{TypeChecker, TypeError};
 use enkai_runtime::{Value, VM};
 
@@ -12,12 +13,16 @@ const FMT_LITE_SCRIPT: &str = include_str!("../tools/bootstrap/fmt_lite.enk");
 const LINT_LITE_SCRIPT: &str = include_str!("../tools/bootstrap/lint_lite.enk");
 const TOKENIZER_LITE_SCRIPT: &str = include_str!("../tools/bootstrap/tokenizer_lite.enk");
 const DATASET_LITE_SCRIPT: &str = include_str!("../tools/bootstrap/dataset_lite.enk");
+const ENKAI_LITEC_SCRIPT: &str = include_str!("../tools/bootstrap/enkai_lite.enk");
 
 pub fn print_usage() {
     eprintln!("  enkai fmt-lite [--check] <file|dir>");
     eprintln!("  enkai lint-lite [--deny-warn] <file|dir>");
     eprintln!("  enkai tokenizer-lite train <dataset_path> <tokenizer_path> [--vocab-size <n>] [--min-freq <n>] [--seed <n>] [--lowercase]");
     eprintln!("  enkai dataset-lite inspect <dataset_path> <tokenizer_path> --seq-len <n> --batch-size <n> [--seed <n>] [--shuffle] [--drop-remainder|--keep-remainder] [--no-add-eos] [--prefetch-batches <n>] [--output <path>]");
+    eprintln!("  enkai litec check <input.enk>");
+    eprintln!("  enkai litec compile <input.enk> --out <program.bin>");
+    eprintln!("  enkai litec verify <input.enk>");
 }
 
 pub fn fmt_lite_command(args: &[String]) -> i32 {
@@ -448,6 +453,201 @@ fn dataset_lite_inspect(args: &[String]) -> i32 {
     }
 }
 
+pub fn litec_command(args: &[String]) -> i32 {
+    if args.is_empty() {
+        eprintln!("enkai litec requires a subcommand");
+        return 1;
+    }
+    match args[0].as_str() {
+        "check" => litec_check(&args[1..]),
+        "compile" => litec_compile(&args[1..]),
+        "verify" => litec_verify(&args[1..]),
+        other => {
+            eprintln!("unknown litec subcommand: {}", other);
+            1
+        }
+    }
+}
+
+fn litec_check(args: &[String]) -> i32 {
+    if args.len() != 1 {
+        eprintln!("Usage: enkai litec check <input.enk>");
+        return 1;
+    }
+    let input = PathBuf::from(&args[0]);
+    if !input.is_file() {
+        eprintln!("input file not found: {}", input.display());
+        return 1;
+    }
+    match run_litec_mode("check", &input, None) {
+        Ok(code) => code,
+        Err(err) => {
+            eprintln!("litec check failed: {}", err);
+            1
+        }
+    }
+}
+
+fn litec_compile(args: &[String]) -> i32 {
+    if args.is_empty() {
+        eprintln!("Usage: enkai litec compile <input.enk> --out <program.bin>");
+        return 1;
+    }
+    let input = PathBuf::from(&args[0]);
+    if !input.is_file() {
+        eprintln!("input file not found: {}", input.display());
+        return 1;
+    }
+    let mut output: Option<PathBuf> = None;
+    let mut index = 1usize;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--out" => {
+                index += 1;
+                let Some(path) = args.get(index) else {
+                    eprintln!("--out requires a value");
+                    return 1;
+                };
+                output = Some(PathBuf::from(path));
+            }
+            other => {
+                eprintln!("Unexpected argument: {}", other);
+                return 1;
+            }
+        }
+        index += 1;
+    }
+    let output = match output {
+        Some(path) => path,
+        None => {
+            eprintln!("Usage: enkai litec compile <input.enk> --out <program.bin>");
+            return 1;
+        }
+    };
+    match run_litec_mode("compile", &input, Some(&output)) {
+        Ok(code) => code,
+        Err(err) => {
+            eprintln!("litec compile failed: {}", err);
+            1
+        }
+    }
+}
+
+fn litec_verify(args: &[String]) -> i32 {
+    if args.len() != 1 {
+        eprintln!("Usage: enkai litec verify <input.enk>");
+        return 1;
+    }
+    let input = PathBuf::from(&args[0]);
+    if !input.is_file() {
+        eprintln!("input file not found: {}", input.display());
+        return 1;
+    }
+    let stage0 = match compile_stage0_program_bytes(&input) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            eprintln!("stage0 compile failed: {}", err);
+            return 1;
+        }
+    };
+    let stage1_path = match temp_stage1_program_path() {
+        Ok(path) => path,
+        Err(err) => {
+            eprintln!("failed to allocate stage1 path: {}", err);
+            return 1;
+        }
+    };
+    let code = match run_litec_mode("compile", &input, Some(&stage1_path)) {
+        Ok(code) => code,
+        Err(err) => {
+            let _ = fs::remove_file(&stage1_path);
+            eprintln!("stage1 compile failed: {}", err);
+            return 1;
+        }
+    };
+    if code != 0 {
+        let _ = fs::remove_file(&stage1_path);
+        eprintln!("stage1 compile returned non-zero status {}", code);
+        return code;
+    }
+    let stage1 = match fs::read(&stage1_path) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            let _ = fs::remove_file(&stage1_path);
+            eprintln!(
+                "failed to read stage1 output {}: {}",
+                stage1_path.display(),
+                err
+            );
+            return 1;
+        }
+    };
+    let _ = fs::remove_file(&stage1_path);
+    if stage0 != stage1 {
+        eprintln!(
+            "stage0/stage1 bytecode mismatch (stage0={} bytes, stage1={} bytes)",
+            stage0.len(),
+            stage1.len()
+        );
+        return 1;
+    }
+    println!("litec verify ok");
+    0
+}
+
+fn temp_stage1_program_path() -> Result<PathBuf, String> {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|err| err.to_string())?
+        .as_nanos();
+    let mut path = env::temp_dir();
+    path.push(format!(
+        "enkai_litec_stage1_{}_{}.bin",
+        std::process::id(),
+        nonce
+    ));
+    Ok(path)
+}
+
+fn run_litec_mode(mode: &str, input: &Path, output: Option<&Path>) -> Result<i32, String> {
+    let mut envs = vec![
+        ("ENKAI_LITEC_MODE", mode.to_string()),
+        (
+            "ENKAI_LITEC_INPUT",
+            input
+                .canonicalize()
+                .unwrap_or_else(|_| input.to_path_buf())
+                .to_string_lossy()
+                .to_string(),
+        ),
+    ];
+    if let Some(output) = output {
+        envs.push((
+            "ENKAI_LITEC_OUTPUT",
+            output
+                .canonicalize()
+                .unwrap_or_else(|_| output.to_path_buf())
+                .to_string_lossy()
+                .to_string(),
+        ));
+    }
+    run_embedded_script("enkai_lite.enk", ENKAI_LITEC_SCRIPT, &envs)
+}
+
+fn compile_stage0_program_bytes(input: &Path) -> Result<Vec<u8>, String> {
+    let source = fs::read_to_string(input)
+        .map_err(|err| format!("Failed to read {}: {}", input.display(), err))?;
+    let source_name = input.to_string_lossy();
+    let module = parse_module_named(&source, Some(source_name.as_ref()))
+        .map_err(|err| format!("Parse error: {}", err))?;
+    let mut checker = TypeChecker::new();
+    checker
+        .check_module(&module)
+        .map_err(|err| type_error_to_string(&err))?;
+    let program = compile_module(&module).map_err(|err| compile_error_to_string(&err))?;
+    bincode::serialize(&program).map_err(|err| format!("serialize failed: {}", err))
+}
+
 fn run_embedded_script(
     name: &str,
     source: &str,
@@ -744,5 +944,52 @@ mod tests {
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0);
         assert!((lite_eff - batch.packing_efficiency as f64).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn litec_compile_emits_program() {
+        let dir = tempdir().expect("tempdir");
+        let input = dir.path().join("input.enk");
+        fs::write(
+            &input,
+            "fn main() -> Int ::\n    let x := 1 + 2\n    return x\n::\nmain()\n",
+        )
+        .expect("write input");
+        let output = dir.path().join("stage1.bin");
+        let code = litec_command(&[
+            "compile".to_string(),
+            input.to_string_lossy().to_string(),
+            "--out".to_string(),
+            output.to_string_lossy().to_string(),
+        ]);
+        assert_eq!(code, 0);
+        let bytes = fs::read(&output).expect("stage1 output");
+        assert!(!bytes.is_empty());
+    }
+
+    #[test]
+    fn litec_verify_matches_stage0_and_stage1() {
+        let dir = tempdir().expect("tempdir");
+        let input = dir.path().join("verify.enk");
+        fs::write(
+            &input,
+            "fn main() -> Int ::\n    let n := 3\n    let out := 0\n    while n > 0 ::\n        out := out + n\n        n := n - 1\n    ::\n    return out\n::\nmain()\n",
+        )
+        .expect("write input");
+        let code = litec_command(&["verify".to_string(), input.to_string_lossy().to_string()]);
+        assert_eq!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_out_of_subset_constructs() {
+        let dir = tempdir().expect("tempdir");
+        let input = dir.path().join("bad_subset.enk");
+        fs::write(
+            &input,
+            "fn main() -> Int ::\n    let values := [1, 2]\n    for item in values ::\n        print(item)\n    ::\n    return 0\n::\nmain()\n",
+        )
+        .expect("write input");
+        let code = litec_command(&["check".to_string(), input.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
     }
 }

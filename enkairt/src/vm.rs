@@ -7,8 +7,12 @@ use std::path::{Component, Path};
 use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use enkaic::ast::{Arg, Block, Expr, Item, LValue, Module, Stmt};
 use enkaic::bytecode::{Constant, Instruction, Program};
+use enkaic::compiler::compile_module;
 use enkaic::formatter::{check_format, format_source};
+use enkaic::parser::parse_module_named;
+use enkaic::TypeChecker;
 
 use crate::checkpoint::{
     latest_checkpoint, load_checkpoint, rotate_checkpoints, save_checkpoint, CheckpointMeta,
@@ -681,6 +685,42 @@ impl VM {
             self.globals_map
                 .insert("bootstrap".to_string(), self.globals.len() as u16);
             self.globals.push(bootstrap_value);
+        }
+        let mut compiler_record = std::collections::HashMap::new();
+        compiler_record.insert(
+            "parse_subset".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "compiler.parse_subset".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        compiler_record.insert(
+            "check_subset".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "compiler.check_subset".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        compiler_record.insert(
+            "emit_subset".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "compiler.emit_subset".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        let compiler_value = record_value(compiler_record);
+        if let Some(idx) = self.globals_map.get("compiler").copied() {
+            self.globals[idx as usize] = compiler_value;
+        } else {
+            self.globals_map
+                .insert("compiler".to_string(), self.globals.len() as u16);
+            self.globals.push(compiler_value);
         }
         let mut tokenizer_record = std::collections::HashMap::new();
         tokenizer_record.insert(
@@ -2357,6 +2397,40 @@ impl VM {
                             self.stack.push(text);
                             return Ok(());
                         }
+                        if nf.name == "compiler.parse_subset" {
+                            let source = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("parse_subset expects source"))?;
+                            self.stack.truncate(callee_index);
+                            let parsed = self.compiler_parse_subset(source)?;
+                            self.stack.push(parsed);
+                            return Ok(());
+                        }
+                        if nf.name == "compiler.check_subset" {
+                            let source = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("check_subset expects source"))?;
+                            self.stack.truncate(callee_index);
+                            let ok = self.compiler_check_subset(source)?;
+                            self.stack.push(ok);
+                            return Ok(());
+                        }
+                        if nf.name == "compiler.emit_subset" {
+                            let source = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("emit_subset expects source"))?;
+                            let output = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("emit_subset expects output"))?;
+                            self.stack.truncate(callee_index);
+                            let ok = self.compiler_emit_subset(source, output)?;
+                            self.stack.push(ok);
+                            return Ok(());
+                        }
                         if nf.name == "tokenizer.train" {
                             let config = args.first().cloned().ok_or_else(|| {
                                 RuntimeError::new("tokenizer.train expects config")
@@ -2692,6 +2766,12 @@ impl VM {
             }
             "http.serve_with" | "http.stream_open" | "http.stream_send" | "http.stream_close" => {
                 capability = Some(vec!["net".to_string(), "serve".to_string()]);
+            }
+            "compiler.emit_subset" => {
+                capability = Some(vec!["fs".to_string(), "write".to_string()]);
+                if let Some(path) = args.get(1) {
+                    context = Some(CapabilityContext::for_path(&value_as_string(path)?));
+                }
             }
             "tokenizer.train" => {
                 capability = Some(vec!["fs".to_string(), "read".to_string()]);
@@ -4286,6 +4366,53 @@ impl VM {
         Ok(string_value(&text))
     }
 
+    fn compiler_parse_subset(&self, source: Value) -> Result<Value, RuntimeError> {
+        let source = value_as_string(&source)?;
+        let module = parse_subset_module(&source)?;
+        validate_bootstrap_subset(&module)?;
+        let mut summary = HashMap::new();
+        summary.insert("items".to_string(), Value::Int(module.items.len() as i64));
+        summary.insert(
+            "functions".to_string(),
+            Value::Int(
+                module
+                    .items
+                    .iter()
+                    .filter(|item| matches!(item, Item::Fn(_)))
+                    .count() as i64,
+            ),
+        );
+        Ok(record_value(summary))
+    }
+
+    fn compiler_check_subset(&self, source: Value) -> Result<Value, RuntimeError> {
+        let source = value_as_string(&source)?;
+        let module = parse_subset_module(&source)?;
+        validate_bootstrap_subset(&module)?;
+        let mut checker = TypeChecker::new();
+        checker
+            .check_module(&module)
+            .map_err(|err| RuntimeError::new(&format_type_error(&err)))?;
+        Ok(Value::Bool(true))
+    }
+
+    fn compiler_emit_subset(&self, source: Value, output: Value) -> Result<Value, RuntimeError> {
+        let source = value_as_string(&source)?;
+        let output = value_as_string(&output)?;
+        let program = compile_subset_program(&source)?;
+        let bytes = bincode::serialize(&program)
+            .map_err(|err| RuntimeError::new(&format!("emit_subset serialize failed: {}", err)))?;
+        let write_context = CapabilityContext::for_path(&output);
+        self.check_capability(
+            &["fs".to_string(), "write".to_string()],
+            Some(&write_context),
+        )?;
+        std::fs::write(&output, bytes).map_err(|err| {
+            RuntimeError::new(&format!("emit_subset failed to write {}: {}", output, err))
+        })?;
+        Ok(Value::Bool(true))
+    }
+
     fn tokenizer_train(&self, config: Value) -> Result<Value, RuntimeError> {
         let mut train_cfg = TrainConfig::default();
         let mut save_path: Option<String> = None;
@@ -5470,6 +5597,164 @@ fn filter_matches(filter: &PolicyFilterRuntime, context: &CapabilityContext) -> 
             .iter()
             .any(|value| domain_matches(value, domain)),
         _ => false,
+    }
+}
+
+fn parse_subset_module(source: &str) -> Result<Module, RuntimeError> {
+    parse_module_named(source, Some("<enkai-lite>"))
+        .map_err(|err| RuntimeError::new(&format!("subset parse failed: {}", err)))
+}
+
+fn compile_subset_program(source: &str) -> Result<Program, RuntimeError> {
+    let module = parse_subset_module(source)?;
+    validate_bootstrap_subset(&module)?;
+    let mut checker = TypeChecker::new();
+    checker
+        .check_module(&module)
+        .map_err(|err| RuntimeError::new(&format_type_error(&err)))?;
+    compile_module(&module).map_err(|err| RuntimeError::new(&format_compile_error(&err)))
+}
+
+fn format_type_error(err: &enkaic::TypeError) -> String {
+    if let Some(diagnostic) = err.diagnostic() {
+        diagnostic.to_string()
+    } else {
+        format!(
+            "Type error: {} at {}:{}",
+            err.message, err.span.line, err.span.col
+        )
+    }
+}
+
+fn format_compile_error(err: &enkaic::compiler::CompileError) -> String {
+    if let Some(diagnostic) = err.diagnostic() {
+        diagnostic.to_string()
+    } else if let Some(span) = &err.span {
+        format!(
+            "Compile error: {} at {}:{}",
+            err.message, span.line, span.col
+        )
+    } else {
+        format!("Compile error: {}", err.message)
+    }
+}
+
+fn validate_bootstrap_subset(module: &Module) -> Result<(), RuntimeError> {
+    for item in &module.items {
+        match item {
+            Item::Import(_) | Item::Policy(_) => {}
+            Item::Fn(decl) => validate_subset_block(&decl.body)?,
+            Item::Stmt(stmt) => validate_subset_stmt(stmt)?,
+            Item::NativeImport(_) => {
+                return Err(RuntimeError::new(
+                    "subset disallows native::import declarations",
+                ));
+            }
+            Item::Use(_) => return Err(RuntimeError::new("subset disallows use declarations")),
+            Item::Type(_)
+            | Item::Enum(_)
+            | Item::Impl(_)
+            | Item::Tool(_)
+            | Item::Prompt(_)
+            | Item::Model(_)
+            | Item::Agent(_) => {
+                return Err(RuntimeError::new(
+                    "subset only supports import/policy/fn/stmts declarations",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_subset_block(block: &Block) -> Result<(), RuntimeError> {
+    for stmt in &block.stmts {
+        validate_subset_stmt(stmt)?;
+    }
+    Ok(())
+}
+
+fn validate_subset_stmt(stmt: &Stmt) -> Result<(), RuntimeError> {
+    match stmt {
+        Stmt::Let { expr, .. } => validate_subset_expr(expr),
+        Stmt::Assign { target, expr } => {
+            validate_subset_lvalue(target)?;
+            validate_subset_expr(expr)
+        }
+        Stmt::Expr(expr) => validate_subset_expr(expr),
+        Stmt::If {
+            cond,
+            then_block,
+            else_branch,
+        } => {
+            validate_subset_expr(cond)?;
+            validate_subset_block(then_block)?;
+            if let Some(branch) = else_branch {
+                match branch {
+                    enkaic::ast::ElseBranch::Block(block) => validate_subset_block(block)?,
+                    enkaic::ast::ElseBranch::If(stmt) => validate_subset_stmt(stmt)?,
+                }
+            }
+            Ok(())
+        }
+        Stmt::While { cond, body } => {
+            validate_subset_expr(cond)?;
+            validate_subset_block(body)
+        }
+        Stmt::Return { expr } => {
+            if let Some(expr) = expr {
+                validate_subset_expr(expr)?;
+            }
+            Ok(())
+        }
+        Stmt::For { .. } => Err(RuntimeError::new("subset disallows for loops")),
+        Stmt::Match { .. } => Err(RuntimeError::new("subset disallows match statements")),
+        Stmt::Try { .. } => Err(RuntimeError::new("subset disallows try/catch statements")),
+        Stmt::Break => Err(RuntimeError::new("subset disallows break statements")),
+        Stmt::Continue => Err(RuntimeError::new("subset disallows continue statements")),
+    }
+}
+
+fn validate_subset_lvalue(target: &LValue) -> Result<(), RuntimeError> {
+    for access in &target.accesses {
+        if let enkaic::ast::LValueAccess::Index(expr) = access {
+            validate_subset_expr(expr)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_subset_expr(expr: &Expr) -> Result<(), RuntimeError> {
+    match expr {
+        Expr::Literal { .. } | Expr::Ident { .. } => Ok(()),
+        Expr::Binary { left, right, .. } => {
+            validate_subset_expr(left)?;
+            validate_subset_expr(right)
+        }
+        Expr::Unary { expr, .. } => validate_subset_expr(expr),
+        Expr::Call { callee, args, .. } => {
+            validate_subset_expr(callee)?;
+            for arg in args {
+                match arg {
+                    Arg::Positional(expr) | Arg::Named(_, expr) => validate_subset_expr(expr)?,
+                }
+            }
+            Ok(())
+        }
+        Expr::Index { target, index, .. } => {
+            validate_subset_expr(target)?;
+            validate_subset_expr(index)
+        }
+        Expr::Field { target, .. } => validate_subset_expr(target),
+        Expr::List { items, .. } => {
+            for item in items {
+                validate_subset_expr(item)?;
+            }
+            Ok(())
+        }
+        Expr::Try { expr, .. } => validate_subset_expr(expr),
+        Expr::Lambda { .. } => Err(RuntimeError::new("subset disallows lambda expressions")),
+        Expr::Match { .. } => Err(RuntimeError::new("subset disallows match expressions")),
     }
 }
 

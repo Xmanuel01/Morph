@@ -2,8 +2,16 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v1.5.0.
+- Current production release line is v1.6.0.
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v1.6 (done)
+- `enkai litec` bootstrap-core command surface:
+  - `enkai litec check <input.enk>`
+  - `enkai litec compile <input.enk> --out <program.bin>`
+  - `enkai litec verify <input.enk>`
+- Added runtime/compiler `compiler` module (`parse_subset`, `check_subset`, `emit_subset`).
+- Added stage0/stage1 bytecode equivalence verification and bootstrap-core tests.
 
 v1.5 (done)
 - Bootstrap-lite command surface:
