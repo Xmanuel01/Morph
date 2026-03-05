@@ -116,6 +116,78 @@ fn response_status(buf: &[u8]) -> u16 {
         .unwrap_or(0)
 }
 
+fn websocket_header_value(headers: &str, key: &str) -> Option<String> {
+    for line in headers.lines() {
+        let mut parts = line.splitn(2, ':');
+        let name = parts.next()?.trim();
+        if !name.eq_ignore_ascii_case(key) {
+            continue;
+        }
+        return Some(parts.next()?.trim().to_string());
+    }
+    None
+}
+
+fn decode_first_ws_frame(bytes: &[u8]) -> Option<(u8, Vec<u8>)> {
+    if bytes.len() < 2 {
+        return None;
+    }
+    let opcode = bytes[0] & 0x0f;
+    let masked = (bytes[1] & 0x80) != 0;
+    if masked {
+        return None;
+    }
+    let mut idx = 2usize;
+    let mut len = (bytes[1] & 0x7f) as usize;
+    if len == 126 {
+        if bytes.len() < idx + 2 {
+            return None;
+        }
+        len = u16::from_be_bytes([bytes[idx], bytes[idx + 1]]) as usize;
+        idx += 2;
+    } else if len == 127 {
+        if bytes.len() < idx + 8 {
+            return None;
+        }
+        len = u64::from_be_bytes([
+            bytes[idx],
+            bytes[idx + 1],
+            bytes[idx + 2],
+            bytes[idx + 3],
+            bytes[idx + 4],
+            bytes[idx + 5],
+            bytes[idx + 6],
+            bytes[idx + 7],
+        ]) as usize;
+        idx += 8;
+    }
+    if bytes.len() < idx + len {
+        return None;
+    }
+    Some((opcode, bytes[idx..idx + len].to_vec()))
+}
+
+fn encode_client_ws_text(payload: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.push(0x81);
+    let len = payload.len();
+    if len <= 125 {
+        out.push(0x80 | (len as u8));
+    } else if len <= u16::MAX as usize {
+        out.push(0x80 | 126);
+        out.extend_from_slice(&(len as u16).to_be_bytes());
+    } else {
+        out.push(0x80 | 127);
+        out.extend_from_slice(&(len as u64).to_be_bytes());
+    }
+    let mask = [0x12, 0x34, 0x56, 0x78];
+    out.extend_from_slice(&mask);
+    for (idx, byte) in payload.iter().enumerate() {
+        out.push(byte ^ mask[idx % 4]);
+    }
+    out
+}
+
 fn response_status_value(value: &Value) -> Option<i64> {
     match value {
         Value::Obj(obj) => match obj.as_obj() {
@@ -316,4 +388,96 @@ fn http_rate_limit_middleware_enforces_capacity() {
     let second_body = response_body(&items[1]).expect("second body");
     let second_body = String::from_utf8_lossy(&second_body);
     assert!(second_body.contains("\"code\":\"rate_limited\""));
+}
+
+#[test]
+fn http_websocket_upgrade_and_send_text() {
+    let _guard = http_test_guard();
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    drop(listener);
+
+    let source = format!(
+        "fn handler(req: Request) -> Response ::\n    let ws := http.ws_open(req)\n    http.ws_send(ws, \"hello\")\n    http.ws_close(ws)\n    return none\n::\n\
+         http.serve(\"127.0.0.1\", {port}, handler)\n\
+         task.sleep(200)\n"
+    );
+    let server = std::thread::spawn(move || {
+        let _ = run_value(&source);
+    });
+
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+    let request = b"GET /chat HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n";
+    stream.write_all(request).expect("write");
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+        .expect("timeout");
+    let mut raw = Vec::new();
+    stream.read_to_end(&mut raw).expect("read");
+    let split = raw
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .expect("header end");
+    let header_text = String::from_utf8_lossy(&raw[..split + 4]);
+    assert!(header_text.starts_with("HTTP/1.1 101"));
+    let accept = websocket_header_value(&header_text, "Sec-WebSocket-Accept").expect("accept");
+    assert_eq!(accept, "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
+    let (opcode, payload) = decode_first_ws_frame(&raw[split + 4..]).expect("ws frame");
+    assert_eq!(opcode, 0x1);
+    assert_eq!(payload, b"hello");
+
+    server.join().expect("server");
+}
+
+#[test]
+fn http_websocket_recv_and_echo() {
+    let _guard = http_test_guard();
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    drop(listener);
+
+    let source = format!(
+        "fn handler(req: Request) -> Response ::\n    let ws := http.ws_open(req)\n    let msg := http.ws_recv(ws, 1000)\n    if msg != none ::\n        http.ws_send(ws, msg)\n    ::\n    http.ws_close(ws)\n    return none\n::\n\
+         http.serve(\"127.0.0.1\", {port}, handler)\n\
+         task.sleep(200)\n"
+    );
+    let server = std::thread::spawn(move || {
+        let _ = run_value(&source);
+    });
+
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+    let request = b"GET /chat HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n";
+    stream.write_all(request).expect("write");
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+        .expect("timeout");
+    let mut header = vec![0u8; 512];
+    let header_n = stream.read(&mut header).expect("handshake read");
+    let header = &header[..header_n];
+    assert!(response_status(header) == 101);
+
+    let frame = encode_client_ws_text(b"ping");
+    stream.write_all(&frame).expect("ws write");
+    let mut ws_buf = Vec::new();
+    let mut chunk = [0u8; 256];
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let (opcode, payload) = loop {
+        let n = stream.read(&mut chunk).expect("ws read");
+        if n == 0 {
+            break decode_first_ws_frame(&ws_buf).expect("ws response frame");
+        }
+        ws_buf.extend_from_slice(&chunk[..n]);
+        if let Some(frame) = decode_first_ws_frame(&ws_buf) {
+            break frame;
+        }
+        if std::time::Instant::now() >= deadline {
+            panic!("timeout waiting for websocket frame: {:?}", ws_buf);
+        }
+    };
+    assert_eq!(opcode, 0x1);
+    assert_eq!(payload, b"ping");
+
+    server.join().expect("server");
 }

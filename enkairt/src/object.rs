@@ -9,6 +9,7 @@ use crate::ffi::native_fn::FfiFunction;
 use crate::tokenizer::Tokenizer;
 use crate::value::{ObjRef, Value};
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 
 pub type NativeFunc =
     dyn Fn(&mut crate::vm::VM, &[Value]) -> Result<Value, crate::error::RuntimeError>;
@@ -27,6 +28,7 @@ pub enum Obj {
     TcpListener(RefCell<std::net::TcpListener>),
     TcpConnection(RefCell<std::net::TcpStream>),
     HttpStream(HttpStream),
+    WebSocket(WebSocketHandle),
     Tokenizer(Tokenizer),
     DatasetStream(RefCell<DatasetStream>),
     Record(RefCell<std::collections::HashMap<String, Value>>),
@@ -47,6 +49,7 @@ impl Obj {
             Obj::TcpListener(_) => "TcpListener",
             Obj::TcpConnection(_) => "TcpConnection",
             Obj::HttpStream(_) => "HttpStream",
+            Obj::WebSocket(_) => "WebSocket",
             Obj::Tokenizer(_) => "Tokenizer",
             Obj::DatasetStream(_) => "DatasetStream",
             Obj::Record(_) => "Record",
@@ -90,6 +93,26 @@ pub enum StreamCommand {
 #[derive(Debug, Clone)]
 pub struct HttpStream {
     pub sender: mpsc::Sender<StreamCommand>,
+}
+
+#[derive(Debug, Clone)]
+pub enum WsCommand {
+    Text(String),
+    Binary(Vec<u8>),
+    Close,
+}
+
+#[derive(Debug, Clone)]
+pub enum WsIncoming {
+    Text(String),
+    Binary(Vec<u8>),
+    Closed,
+}
+
+#[derive(Debug, Clone)]
+pub struct WebSocketHandle {
+    pub sender: mpsc::Sender<WsCommand>,
+    pub incoming: Arc<Mutex<mpsc::Receiver<WsIncoming>>>,
 }
 
 impl std::fmt::Debug for NativeFunction {

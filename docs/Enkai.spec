@@ -1,8 +1,8 @@
-# Enkai Language Specification (v0.1 -> v1.9.0)
+# Enkai Language Specification (v0.1 -> v1.9.1)
 
 Status: stable.
 Grammar and CLI contracts are frozen at the v0.9.3 baseline for the v1.x line.
-This document is the normative language and runtime surface for Enkai v1.9.0,
+This document is the normative language and runtime surface for Enkai v1.9.1,
 including compatibility constraints carried from v0.1 onward.
 
 -------------------------------------------------------------------------------
@@ -13,7 +13,7 @@ This specification covers:
 - Core syntax and block rules.
 - Module/import semantics.
 - Type and expression forms supported by parser, checker, compiler, and VM.
-- Built-in runtime modules shipped in v1.9.0.
+- Built-in runtime modules shipped in v1.9.1.
 - CLI entrypoints used in production.
 
 This specification does not claim features that are still stubbed or not yet implemented.
@@ -40,7 +40,7 @@ Compatibility baseline:
   dataset prefetch/metrics, build cache + lockfile, and expanded stdlib.
 - v1.3: serving/backend platform primitives (`enkai serve`, routed HTTP + streaming,
   auth/rate-limit middleware, JSONL observability), HTTP client config APIs, TLS
-  inspection helper, SQLite connector, and model-registry version pinning hooks.
+  inspection helper, SQLite/Postgres connectors, and model-registry version pinning hooks.
 - v1.4: frontend developer stack (`enkai new` scaffolds, typed SDK generation via
   `enkai sdk`, React/TypeScript reference app contract, and SDK/backend endpoint
   contract tests).
@@ -63,7 +63,7 @@ Compatibility policy:
   primary contract unless listed explicitly.
 
 -------------------------------------------------------------------------------
-1.2 Validation Gate Status (v1.9.0)
+1.2 Validation Gate Status (v1.9.1)
 -------------------------------------------------------------------------------
 
 Current verification status:
@@ -268,7 +268,7 @@ Assignment form:
 8. Types
 -------------------------------------------------------------------------------
 
-Core types used in v1.9.0:
+Core types used in v1.9.1:
 - `Int`, `Float`, `Bool`, `String`, `Void`
 - Optional: `T?`
 - Function: `fn(T1, T2) -> R`
@@ -297,7 +297,7 @@ Formatting and tests:
 - Project test runner (`enkai test`) compiles and executes test files.
 
 -------------------------------------------------------------------------------
-10. Built-in Runtime Modules (v1.9.0)
+10. Built-in Runtime Modules (v1.9.1)
 -------------------------------------------------------------------------------
 
 Concurrency:
@@ -386,11 +386,11 @@ Native-backed std modules:
 - `std::log`
 - `std::io`
 - `std::process`
-- `std::db` (SQLite connector)
+- `std::db` (SQLite + Postgres connectors)
 - `std::tls` (TLS peer certificate fingerprint helper)
 - `std::model_registry` (serve-time env contract helpers)
 
-Tensor backend (`std::tensor`, v1.9.0 surface):
+Tensor backend (`std::tensor`, v1.9.1 surface):
 - device/tensor creation, math ops, shape/dtype/device transforms
 - autograd and optimizer helper APIs
 - AMP scaler/autocast APIs
@@ -402,11 +402,12 @@ Tensor C ABI checkpoint/distributed hooks:
 - checkpoint hooks are present (`enkai_checkpoint_save`, `enkai_checkpoint_load`, ranked variants)
 - distributed hooks (`enkai_dist_init`, `enkai_dist_allreduce_sum_multi`) are wired and invoked
   when `world_size > 1`; behavior remains environment-gated by CUDA/NCCL/runtime support
+  and explicit opt-in via `ENKAI_ENABLE_DIST=1`
 
 For full tensor C ABI contracts and safety preconditions, see `docs/tensor_api.md` and `docs/gpu_backend.md`.
 
 -------------------------------------------------------------------------------
-11. CLI Contract (v1.9.0)
+11. CLI Contract (v1.9.1)
 -------------------------------------------------------------------------------
 
 Commands:
@@ -427,6 +428,7 @@ Commands:
 - `enkai litec stage <parse|check|codegen> <input.enk> [--out <program.bin>]`
 - `enkai litec selfhost <corpus_dir>`
 - `enkai litec selfhost-ci <corpus_dir> [--no-compare-stage0]`
+- `enkai litec replace-check <corpus_dir> [--no-compare-stage0]`
 - `enkai build [dir]`
 - `enkai test [project_root]`
 - `enkai train <config.enk>`
@@ -475,24 +477,28 @@ Checkpoint format:
 - Ranked checkpoints write `rank{n}/` subdirectories and a `manifest.json` with `world_size`.
 
 -------------------------------------------------------------------------------
-12. Known Limits in v1.9.0
+12. Known Limits in v1.9.1
 -------------------------------------------------------------------------------
 
 The following are intentionally not fully implemented yet:
-- `async fn` declarations are rejected by parser.
 - `await`/`spawn` compile to task operations but do not provide a structured async runtime beyond the existing task model.
-- AI-native tool invocations remain stub-only; policy enforcement is active for native
-  capabilities, but external tool execution is not implemented.
-- Distributed tensor operations are partial:
-  - hook symbols exist and are backend-loadable,
-  - single-process/single-rank path is the fully supported baseline,
-  - CUDA/NCCL multi-rank behavior is environment-gated and not guaranteed on all targets.
-- HTTP serving supports routed handlers + chunked streaming; full WebSocket runtime APIs are not yet implemented.
-- `std::db` ships SQLite in-tree; Postgres connectors remain optional and are not part of the default runtime build.
+- `async fn` declarations are accepted and compile as regular functions with task-based async primitives.
+- AI-native tool declarations compile to `tool.invoke` host calls. Execution requires explicit
+  host configuration (`ENKAI_TOOL_<PATH>` or `ENKAI_TOOL_RUNNER`) and policy allow rules.
+- Distributed tensor operations are environment-gated:
+  - multi-rank init/allreduce paths are implemented for `enkai_tensor` builds with `torch,dist`,
+  - rank-device mapping and explicit opt-in (`ENKAI_ENABLE_DIST=1`) are enforced,
+  - operator-run GPU soak evidence remains required for production sign-off on specific hardware.
+- HTTP serving supports routed handlers, chunked streaming, and server-side WebSocket
+  upgrade + send/recv/close APIs.
+- `std::db` ships SQLite in-tree and includes Postgres connector functions (`pg_open/pg_exec/pg_query/pg_close`)
+  through `enkai_native` using direct `NoTls` connections.
 - Model registry support is filesystem-based (`--registry` directory scanning). Remote registries and artifact pull/auth flows are out of scope in v1.x.
 - Frontend scaffolds target React + TypeScript web projects; non-web/mobile generators are not part of the current v1.x scope.
 - Current training-forward integration in runtime uses a TinyLM transformer forward/loss path and is not yet a full-scale Transformer stack.
 - Engine-level checkpoint helpers exist, but full train-loop orchestration and multi-rank resume policy are constrained to currently integrated paths.
+- Training metrics include best-effort GPU memory/utilization sampling via `nvidia-smi` for CUDA devices.
+  On hosts without `nvidia-smi` or compatible drivers these fields remain `null`.
 - `enkai litec` is intentionally subset-scoped; unsupported subset constructs
   (for/match/try/break/continue and `match` expressions) are rejected by
   bootstrap-core validation.
@@ -503,7 +509,10 @@ The following are intentionally not fully implemented yet:
 - `enkai litec selfhost-ci` runs subset corpus compile/execute parity and optional
   stage0 result comparison; it does not yet build full production binaries from
   an Enkai-compiled compiler artifact.
-- v1.9.0 validation note:
+- `enkai litec replace-check` validates stage0/stage1/stage2 corpus compilation/runtime
+  equivalence and reports compiler fixed-point status for the bootstrap subset; it is not
+  yet a full replacement for Rust Stage0 compiler releases.
+- v1.9.1 validation note:
   - CPU-mode single-device soak requires operator-run evidence on production hardware.
   - CUDA single-GPU long-soak and distributed (2-GPU/4-GPU) reliability remain
     operator-run requirements and are not auto-proven by repository state alone.
@@ -516,11 +525,12 @@ These limits are part of the current stable contract and should be treated as pr
 13. Change Control
 -------------------------------------------------------------------------------
 
-For any language/runtime surface change after v1.9.0:
+For any language/runtime surface change after v1.9.1:
 1) Implement the change and add/adjust compiler/runtime tests.
 2) Update this specification to match the shipped behavior.
 3) Update changelog and targeted docs (`docs/xx_*.md`, `docs/tensor_api.md`, etc.).
 4) If compatibility/deprecation behavior changes, update `docs/29_compatibility_policy.md`.
+
 
 
 

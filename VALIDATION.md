@@ -61,6 +61,7 @@ Operator run required:
 
 - [x] Harness script exists and is gated:
   - `scripts/multi_gpu_harness.ps1`
+  - `scripts/multi_gpu_harness.sh`
   - Skips unless `ENKAI_RUN_MULTI_GPU_TESTS=1`.
 - [x] Harness includes deterministic setup and checks:
   - fixed deterministic dataset generation
@@ -70,7 +71,8 @@ Operator run required:
 
 Operator run required:
 - Command:
-  - `$env:ENKAI_RUN_MULTI_GPU_TESTS=1; $env:ENKAI_SINGLE_GPU_GREEN=1; powershell -ExecutionPolicy Bypass -File scripts/multi_gpu_harness.ps1`
+  - `$env:ENKAI_ENABLE_DIST=1; $env:ENKAI_RUN_MULTI_GPU_TESTS=1; $env:ENKAI_SINGLE_GPU_GREEN=1; powershell -ExecutionPolicy Bypass -File scripts/multi_gpu_harness.ps1`
+  - `ENKAI_ENABLE_DIST=1 ENKAI_RUN_MULTI_GPU_TESTS=1 ENKAI_SINGLE_GPU_GREEN=1 sh scripts/multi_gpu_harness.sh`
 - Green criteria:
   - `PASS: 2-GPU DP correctness validated`
 
@@ -78,12 +80,14 @@ Operator run required:
 
 - [x] 4-GPU harness script added:
   - `scripts/soak_4gpu.ps1`
+  - `scripts/soak_4gpu.sh`
 - [x] Script prints `PASS`/`FAIL`/`SKIPPED`.
 - [x] Script outputs NCCL timeout guidance (`NCCL_ASYNC_ERROR_HANDLING`, `NCCL_TIMEOUT`).
 
 Operator run required:
 - Command:
-  - `$env:ENKAI_RUN_MULTI_GPU_TESTS=1; $env:ENKAI_SINGLE_GPU_GREEN=1; powershell -ExecutionPolicy Bypass -File scripts/soak_4gpu.ps1`
+  - `$env:ENKAI_ENABLE_DIST=1; $env:ENKAI_RUN_MULTI_GPU_TESTS=1; $env:ENKAI_SINGLE_GPU_GREEN=1; powershell -ExecutionPolicy Bypass -File scripts/soak_4gpu.ps1`
+  - `ENKAI_ENABLE_DIST=1 ENKAI_RUN_MULTI_GPU_TESTS=1 ENKAI_SINGLE_GPU_GREEN=1 sh scripts/soak_4gpu.sh`
 - Green criteria:
   - `PASS: 4-GPU soak completed`
   - no hang
@@ -95,6 +99,9 @@ Operator run required:
 - [x] `cargo fmt`
 - [x] `cargo clippy --workspace -- -D warnings`
 - [x] `cargo test --workspace`
+- [x] Backend protocol/runtime regression checks included in workspace tests:
+  - WebSocket upgrade + frame send path (`http_websocket_upgrade_and_send_text`)
+  - Postgres connector failure-mode contract (`std_db_postgres_open_failure_is_none`)
 
 Expected result:
 - all commands exit `0`.
@@ -107,6 +114,8 @@ Expected result:
   - `legacy_checkpoint_meta_without_format_version_loads`
 - [x] Self-host CI corpus gate:
   - `enkai litec selfhost-ci enkai/tools/bootstrap/selfhost_corpus`
+- [x] Self-host replacement-readiness gate:
+  - `enkai litec replace-check enkai/tools/bootstrap/selfhost_corpus --no-compare-stage0`
 - [x] Master pipeline smoke:
   - `master_pipeline_cpu_smoke`
 - [x] Consolidated pipeline scripts:

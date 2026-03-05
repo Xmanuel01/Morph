@@ -4,17 +4,18 @@ ENKAI PROGRAMMING LANGUAGE
 Overview
 Enkai is a programming language with block structure defined by :: tokens, a clean
 assignment operator (:=), and an AI-native roadmap (tools, agents, memory, policy).
-This repository contains the v1.9.0 implementation in Rust.
+This repository contains the v1.9.1 implementation in Rust.
 
-Status (v1.9.0)
+Status (v1.9.1)
 - Bytecode VM + globals + type-checking
 - Module system with public/private exports
 - CLI: run/serve/new/sdk/check/fmt/fmt-lite/lint-lite/tokenizer-lite/dataset-lite/litec/build/test/train/eval
 - FFI runtime + native std modules (fsx/zstd/hash/db/tls)
 - Tokenizer + dataset streaming + checkpoints
-- Backend serving stack: routing, middleware/auth/rate-limit, streaming, TLS/SQLite helpers
+- Backend serving stack: routing, middleware/auth/rate-limit, SSE/WebSocket streaming, TLS/SQLite/Postgres helpers
 - Frontend stack: React/TypeScript scaffolds + typed SDK generation
 - Bootstrap-lite/core toolchain path with `litec` stage0/stage1 bytecode equivalence checks, phase staging (`litec stage`), and self-host CI corpus validation (`litec selfhost-ci`)
+- Self-host replacement-readiness gate with Stage1/Stage2 fixed-point checks (`litec replace-check`)
 - Compatibility/deprecation governance and self-host fallback workflow docs for v1.9 release readiness
 - Master release pipeline and GPU evidence verification scripts for v1.9 operational sign-off
 
@@ -70,6 +71,7 @@ Tensor/FFI features (current)
 - AMP support: GradScaler handles, autocast enter/exit, and `enkai_amp_step` convenience.
 - Ranked checkpoint save/load with SHA-256 integrity files (per-rank shards).
 - Distributed stubs: device-per-rank selection; all-reduce requires NCCL and is not implemented yet.
+- Multi-rank distributed mode is explicitly gated: set `ENKAI_ENABLE_DIST=1`.
 - See `docs/tensor_api.md` for the full surface and safety contracts.
 
 License

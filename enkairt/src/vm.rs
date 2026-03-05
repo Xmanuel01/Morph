@@ -4,15 +4,21 @@ use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Component, Path};
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use base64::Engine;
 use enkaic::ast::{Arg, Block, Expr, Item, LValue, Module, Stmt};
 use enkaic::bytecode::{Constant, Instruction, Program};
-use enkaic::compiler::compile_module;
+use enkaic::compiler::compile_package;
 use enkaic::formatter::{check_format, format_source};
+use enkaic::modules::load_package;
 use enkaic::parser::parse_module_named;
 use enkaic::TypeChecker;
+use sha1::{Digest, Sha1};
 
 use crate::checkpoint::{
     latest_checkpoint, load_checkpoint, rotate_checkpoints, save_checkpoint, CheckpointMeta,
@@ -23,7 +29,8 @@ use crate::error::{RuntimeError, RuntimeFrame};
 use crate::ffi::FfiLoader;
 use crate::object::{
     channel_value, function_value, record_value, string_value, task_handle_value, BoundFunctionObj,
-    HttpStream, NativeFunction, NativeImpl, Obj, StreamCommand,
+    HttpStream, NativeFunction, NativeImpl, Obj, StreamCommand, WebSocketHandle, WsCommand,
+    WsIncoming,
 };
 use crate::tokenizer::{bytes_to_ids, ids_to_bytes, Tokenizer, TrainConfig};
 use crate::value::{ObjRef, Value};
@@ -78,6 +85,10 @@ struct IoEvent {
     task_id: usize,
     result: IoResult,
 }
+
+static TOOL_IO_FILE_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+type ToolProcessOutput = (Vec<u8>, Vec<u8>, Option<i32>);
 
 struct ServerEvent {
     server_id: usize,
@@ -553,6 +564,42 @@ impl VM {
             }))),
         );
         http_record.insert(
+            "ws_open".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "http.ws_open".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        http_record.insert(
+            "ws_send".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "http.ws_send".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        http_record.insert(
+            "ws_recv".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "http.ws_recv".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        http_record.insert(
+            "ws_close".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "http.ws_close".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        http_record.insert(
             "ok".to_string(),
             Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
                 name: "http.ok".to_string(),
@@ -586,6 +633,24 @@ impl VM {
             self.globals_map
                 .insert("http".to_string(), self.globals.len() as u16);
             self.globals.push(http_value);
+        }
+        let mut tool_record = std::collections::HashMap::new();
+        tool_record.insert(
+            "invoke".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "tool.invoke".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        let tool_value = record_value(tool_record);
+        if let Some(idx) = self.globals_map.get("tool").copied() {
+            self.globals[idx as usize] = tool_value;
+        } else {
+            self.globals_map
+                .insert("tool".to_string(), self.globals.len() as u16);
+            self.globals.push(tool_value);
         }
         let mut policy_record = std::collections::HashMap::new();
         policy_record.insert(
@@ -2293,6 +2358,66 @@ impl VM {
                             self.stack.push(Value::Null);
                             return Ok(());
                         }
+                        if nf.name == "http.ws_open" {
+                            let req = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("ws_open expects request"))?;
+                            self.stack.truncate(callee_index);
+                            let ws = self.http_ws_open(req)?;
+                            self.stack.push(ws);
+                            return Ok(());
+                        }
+                        if nf.name == "http.ws_send" {
+                            let ws = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("ws_send expects websocket"))?;
+                            let message = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("ws_send expects message"))?;
+                            self.stack.truncate(callee_index);
+                            self.http_ws_send(ws, message)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "http.ws_recv" {
+                            let ws = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("ws_recv expects websocket"))?;
+                            let timeout_ms = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("ws_recv expects timeout_ms"))?;
+                            self.stack.truncate(callee_index);
+                            let msg = self.http_ws_recv(ws, timeout_ms)?;
+                            self.stack.push(msg);
+                            return Ok(());
+                        }
+                        if nf.name == "http.ws_close" {
+                            let ws = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("ws_close expects websocket"))?;
+                            self.stack.truncate(callee_index);
+                            self.http_ws_close(ws)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "tool.invoke" {
+                            let tool_name = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("tool.invoke expects tool name")
+                            })?;
+                            let tool_args = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("tool.invoke expects args record")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let value = self.tool_invoke(tool_name, tool_args)?;
+                            self.stack.push(value);
+                            return Ok(());
+                        }
                         if nf.name == "http.ok" {
                             let body = args
                                 .first()
@@ -2706,10 +2831,11 @@ impl VM {
             "process_exit" => {
                 capability = Some(vec!["process".to_string(), "exit".to_string()]);
             }
-            "db_sqlite_open" | "db_sqlite_exec" | "db_sqlite_close" => {
+            "db_sqlite_open" | "db_sqlite_exec" | "db_sqlite_close" | "db_postgres_open"
+            | "db_postgres_exec" | "db_postgres_close" => {
                 capability = Some(vec!["db".to_string(), "write".to_string()]);
             }
-            "db_sqlite_query" => {
+            "db_sqlite_query" | "db_postgres_query" => {
                 capability = Some(vec!["db".to_string(), "read".to_string()]);
             }
             "tls_fetch_server_info" => {
@@ -2764,8 +2890,18 @@ impl VM {
                     context = Some(CapabilityContext::for_domain(&value_as_string(host)?));
                 }
             }
-            "http.serve_with" | "http.stream_open" | "http.stream_send" | "http.stream_close" => {
+            "http.serve_with" | "http.stream_open" | "http.stream_send" | "http.stream_close"
+            | "http.ws_open" | "http.ws_send" | "http.ws_recv" | "http.ws_close" => {
                 capability = Some(vec!["net".to_string(), "serve".to_string()]);
+            }
+            "tool.invoke" => {
+                if let Some(path_value) = args.first() {
+                    let tool_path = value_as_string(path_value)?;
+                    capability = Some(tool_path_to_capability(&tool_path));
+                    context = Some(CapabilityContext::for_path(&tool_path));
+                } else {
+                    capability = Some(vec!["tool".to_string(), "invoke".to_string()]);
+                }
             }
             "compiler.emit_subset" => {
                 capability = Some(vec!["fs".to_string(), "write".to_string()]);
@@ -3895,6 +4031,123 @@ impl VM {
         Ok(())
     }
 
+    fn http_ws_open(&mut self, req: Value) -> Result<Value, RuntimeError> {
+        let headers = self.request_headers_map(req)?;
+        let upgrade = headers
+            .get("upgrade")
+            .map(|v| v.to_ascii_lowercase())
+            .unwrap_or_default();
+        if upgrade != "websocket" {
+            return Err(RuntimeError::new(
+                "ws_open requires Upgrade: websocket request header",
+            ));
+        }
+        let connection = headers
+            .get("connection")
+            .map(|v| v.to_ascii_lowercase())
+            .unwrap_or_default();
+        if !connection
+            .split(',')
+            .any(|part| part.trim().eq_ignore_ascii_case("upgrade"))
+        {
+            return Err(RuntimeError::new(
+                "ws_open requires Connection: Upgrade request header",
+            ));
+        }
+        let ws_key = headers
+            .get("sec-websocket-key")
+            .cloned()
+            .ok_or_else(|| RuntimeError::new("ws_open missing Sec-WebSocket-Key header"))?;
+        let accept = websocket_accept_key(&ws_key);
+        let stream = self
+            .active_http_conn
+            .take()
+            .ok_or_else(|| RuntimeError::new("ws_open requires http handler"))?;
+        let (tx, rx) = mpsc::channel::<WsCommand>();
+        let (incoming_tx, incoming_rx) = mpsc::channel::<WsIncoming>();
+        let incoming = Arc::new(Mutex::new(incoming_rx));
+        let incoming_for_thread = Arc::clone(&incoming);
+        std::thread::spawn(move || {
+            let _ = write_websocket_session(stream, &accept, rx, incoming_tx);
+        });
+        Ok(Value::Obj(ObjRef::new(Obj::WebSocket(WebSocketHandle {
+            sender: tx,
+            incoming: incoming_for_thread,
+        }))))
+    }
+
+    fn http_ws_send(&self, ws: Value, message: Value) -> Result<(), RuntimeError> {
+        let sender = match ws {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::WebSocket(handle) => handle.sender.clone(),
+                _ => return Err(RuntimeError::new("ws_send expects WebSocket")),
+            },
+            _ => return Err(RuntimeError::new("ws_send expects WebSocket")),
+        };
+        let command = match message {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::String(text) => WsCommand::Text(text.clone()),
+                Obj::Buffer(bytes) => WsCommand::Binary(bytes.clone()),
+                _ => return Err(RuntimeError::new("ws_send expects String or Buffer")),
+            },
+            Value::Null => WsCommand::Text(String::new()),
+            _ => return Err(RuntimeError::new("ws_send expects String or Buffer")),
+        };
+        sender
+            .send(command)
+            .map_err(|_| RuntimeError::new("websocket stream is closed"))?;
+        Ok(())
+    }
+
+    fn http_ws_close(&self, ws: Value) -> Result<(), RuntimeError> {
+        let sender = match ws {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::WebSocket(handle) => handle.sender.clone(),
+                _ => return Err(RuntimeError::new("ws_close expects WebSocket")),
+            },
+            _ => return Err(RuntimeError::new("ws_close expects WebSocket")),
+        };
+        sender
+            .send(WsCommand::Close)
+            .map_err(|_| RuntimeError::new("websocket stream is closed"))?;
+        Ok(())
+    }
+
+    fn http_ws_recv(&self, ws: Value, timeout_ms: Value) -> Result<Value, RuntimeError> {
+        let incoming = match ws {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::WebSocket(handle) => Arc::clone(&handle.incoming),
+                _ => return Err(RuntimeError::new("ws_recv expects WebSocket")),
+            },
+            _ => return Err(RuntimeError::new("ws_recv expects WebSocket")),
+        };
+        let timeout = match timeout_ms {
+            Value::Int(ms) if ms >= 0 => ms as u64,
+            _ => return Err(RuntimeError::new("ws_recv expects timeout_ms >= 0")),
+        };
+        let receiver = incoming
+            .lock()
+            .map_err(|_| RuntimeError::new("websocket receive lock poisoned"))?;
+        let message = if timeout == 0 {
+            match receiver.try_recv() {
+                Ok(value) => Some(value),
+                Err(mpsc::TryRecvError::Empty) => None,
+                Err(mpsc::TryRecvError::Disconnected) => Some(WsIncoming::Closed),
+            }
+        } else {
+            match receiver.recv_timeout(Duration::from_millis(timeout)) {
+                Ok(value) => Some(value),
+                Err(mpsc::RecvTimeoutError::Timeout) => None,
+                Err(mpsc::RecvTimeoutError::Disconnected) => Some(WsIncoming::Closed),
+            }
+        };
+        Ok(match message {
+            Some(WsIncoming::Text(text)) => string_value(&text),
+            Some(WsIncoming::Binary(bytes)) => Value::Obj(ObjRef::new(Obj::Buffer(bytes))),
+            Some(WsIncoming::Closed) | None => Value::Null,
+        })
+    }
+
     fn prepare_http_request(
         &mut self,
         server_id: usize,
@@ -4318,6 +4571,48 @@ impl VM {
         let text =
             serde_json::to_string(&json).map_err(|err| RuntimeError::new(&err.to_string()))?;
         Ok(string_value(&text))
+    }
+
+    fn tool_invoke(&self, tool_name: Value, tool_args: Value) -> Result<Value, RuntimeError> {
+        let tool_name = value_as_string(&tool_name)?;
+        let tool_args_json = self.value_to_json(tool_args)?;
+        let payload = serde_json::json!({
+            "tool": tool_name,
+            "args": tool_args_json,
+        });
+        let payload_bytes = serde_json::to_vec(&payload)
+            .map_err(|err| RuntimeError::new(&format!("tool payload encode failed: {}", err)))?;
+        let tool_command = resolve_tool_command(&tool_name)?;
+        let timeout_ms = tool_timeout_ms();
+        let (stdout, stderr, code) = run_tool_process(&tool_command, &payload_bytes, timeout_ms)?;
+        if code.unwrap_or(1) != 0 {
+            let stderr_text = String::from_utf8_lossy(&stderr).trim().to_string();
+            let detail = if stderr_text.is_empty() {
+                "tool process failed without stderr output".to_string()
+            } else {
+                stderr_text
+            };
+            return Err(RuntimeError::new(&format!(
+                "Tool invocation failed for {} (exit={}): {}",
+                tool_name,
+                code.unwrap_or(-1),
+                detail
+            )));
+        }
+        if stdout.is_empty() {
+            return Ok(Value::Null);
+        }
+        let stdout_text = String::from_utf8(stdout).map_err(|_| {
+            RuntimeError::new("tool output is not valid UTF-8; expected JSON or text")
+        })?;
+        let trimmed = stdout_text.trim();
+        if trimmed.is_empty() {
+            return Ok(Value::Null);
+        }
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            return Ok(json_to_value(json));
+        }
+        Ok(string_value(trimmed))
     }
 
     fn bootstrap_format(&self, source: Value) -> Result<Value, RuntimeError> {
@@ -4910,6 +5205,138 @@ fn write_http_stream(
     Ok(())
 }
 
+fn websocket_accept_key(client_key: &str) -> String {
+    let mut hasher = Sha1::new();
+    hasher.update(client_key.as_bytes());
+    hasher.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+    let digest = hasher.finalize();
+    base64::engine::general_purpose::STANDARD.encode(digest)
+}
+
+fn write_websocket_session(
+    mut stream: TcpStream,
+    accept: &str,
+    rx: mpsc::Receiver<WsCommand>,
+    incoming: mpsc::Sender<WsIncoming>,
+) -> std::io::Result<()> {
+    let mut response = String::new();
+    response.push_str("HTTP/1.1 101 Switching Protocols\r\n");
+    response.push_str("Upgrade: websocket\r\n");
+    response.push_str("Connection: Upgrade\r\n");
+    response.push_str("Sec-WebSocket-Accept: ");
+    response.push_str(accept);
+    response.push_str("\r\n\r\n");
+    stream.write_all(response.as_bytes())?;
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(25)));
+    let mut closed = false;
+    loop {
+        while let Ok(cmd) = rx.try_recv() {
+            match cmd {
+                WsCommand::Text(text) => write_ws_frame(&mut stream, 0x1, text.as_bytes())?,
+                WsCommand::Binary(bytes) => write_ws_frame(&mut stream, 0x2, &bytes)?,
+                WsCommand::Close => {
+                    let _ = write_ws_frame(&mut stream, 0x8, &[]);
+                    closed = true;
+                    break;
+                }
+            }
+        }
+        if closed {
+            break;
+        }
+        match read_ws_frame(&mut stream) {
+            Ok(Some(WsIncoming::Closed)) => {
+                let _ = incoming.send(WsIncoming::Closed);
+                let _ = write_ws_frame(&mut stream, 0x8, &[]);
+                break;
+            }
+            Ok(Some(message)) => {
+                let _ = incoming.send(message);
+            }
+            Ok(None) => {}
+            Err(_) => {
+                let _ = incoming.send(WsIncoming::Closed);
+                let _ = write_ws_frame(&mut stream, 0x8, &[]);
+                break;
+            }
+        }
+    }
+    let _ = incoming.send(WsIncoming::Closed);
+    let _ = stream.shutdown(std::net::Shutdown::Both);
+    Ok(())
+}
+
+fn read_ws_frame(stream: &mut TcpStream) -> std::io::Result<Option<WsIncoming>> {
+    let mut header = [0u8; 2];
+    match stream.read_exact(&mut header) {
+        Ok(()) => {}
+        Err(err)
+            if err.kind() == std::io::ErrorKind::WouldBlock
+                || err.kind() == std::io::ErrorKind::TimedOut =>
+        {
+            return Ok(None);
+        }
+        Err(err) => return Err(err),
+    }
+    let opcode = header[0] & 0x0f;
+    let masked = (header[1] & 0x80) != 0;
+    let mut payload_len = (header[1] & 0x7f) as usize;
+    if payload_len == 126 {
+        let mut ext = [0u8; 2];
+        stream.read_exact(&mut ext)?;
+        payload_len = u16::from_be_bytes(ext) as usize;
+    } else if payload_len == 127 {
+        let mut ext = [0u8; 8];
+        stream.read_exact(&mut ext)?;
+        payload_len = u64::from_be_bytes(ext) as usize;
+    }
+    let mut mask = [0u8; 4];
+    if masked {
+        stream.read_exact(&mut mask)?;
+    }
+    let mut payload = vec![0u8; payload_len];
+    if payload_len > 0 {
+        stream.read_exact(&mut payload)?;
+    }
+    if masked {
+        for (idx, byte) in payload.iter_mut().enumerate() {
+            *byte ^= mask[idx % 4];
+        }
+    }
+    match opcode {
+        0x1 => Ok(Some(WsIncoming::Text(
+            String::from_utf8_lossy(&payload).to_string(),
+        ))),
+        0x2 => Ok(Some(WsIncoming::Binary(payload))),
+        0x8 => Ok(Some(WsIncoming::Closed)),
+        0x9 => {
+            let _ = write_ws_frame(stream, 0xA, &payload);
+            Ok(None)
+        }
+        0xA => Ok(None),
+        _ => Ok(None),
+    }
+}
+
+fn write_ws_frame(stream: &mut TcpStream, opcode: u8, payload: &[u8]) -> std::io::Result<()> {
+    let mut header = Vec::with_capacity(14);
+    header.push(0x80 | (opcode & 0x0f));
+    let len = payload.len();
+    if len <= 125 {
+        header.push(len as u8);
+    } else if len <= u16::MAX as usize {
+        header.push(126);
+        header.extend_from_slice(&(len as u16).to_be_bytes());
+    } else {
+        header.push(127);
+        header.extend_from_slice(&(len as u64).to_be_bytes());
+    }
+    stream.write_all(&header)?;
+    stream.write_all(payload)?;
+    stream.flush()?;
+    Ok(())
+}
+
 impl ServerLogger {
     fn append(&self, entry: &serde_json::Value) -> Result<(), RuntimeError> {
         let line =
@@ -5354,6 +5781,170 @@ fn rate_limit_allow(
     }
 }
 
+fn tool_path_to_capability(tool_path: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for segment in tool_path.split('.') {
+        let segment = segment.trim();
+        if !segment.is_empty() {
+            out.push(segment.to_string());
+        }
+    }
+    if out.is_empty() {
+        vec!["tool".to_string(), "invoke".to_string()]
+    } else {
+        out
+    }
+}
+
+fn resolve_tool_command(tool_path: &str) -> Result<Vec<String>, RuntimeError> {
+    let env_key = format!("ENKAI_TOOL_{}", sanitize_tool_env_key(tool_path));
+    if let Ok(spec) = std::env::var(&env_key) {
+        let command = parse_tool_command_spec(&spec)?;
+        if command.is_empty() {
+            return Err(RuntimeError::new(&format!("{} is set but empty", env_key)));
+        }
+        return Ok(command);
+    }
+    if let Ok(spec) = std::env::var("ENKAI_TOOL_RUNNER") {
+        let mut command = parse_tool_command_spec(&spec)?;
+        if command.is_empty() {
+            return Err(RuntimeError::new("ENKAI_TOOL_RUNNER is set but empty"));
+        }
+        command.push(tool_path.to_string());
+        return Ok(command);
+    }
+    Err(RuntimeError::new(&format!(
+        "Tool {} is not configured. Set {} or ENKAI_TOOL_RUNNER",
+        tool_path, env_key
+    )))
+}
+
+fn sanitize_tool_env_key(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_uppercase());
+        } else {
+            out.push('_');
+        }
+    }
+    out
+}
+
+fn parse_tool_command_spec(spec: &str) -> Result<Vec<String>, RuntimeError> {
+    let trimmed = spec.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+    if trimmed.starts_with('[') {
+        return serde_json::from_str::<Vec<String>>(trimmed).map_err(|err| {
+            RuntimeError::new(&format!(
+                "Invalid tool command JSON array {}: {}",
+                trimmed, err
+            ))
+        });
+    }
+    Ok(trimmed
+        .split_whitespace()
+        .map(|item| item.to_string())
+        .collect())
+}
+
+fn tool_timeout_ms() -> u64 {
+    match std::env::var("ENKAI_TOOL_TIMEOUT_MS") {
+        Ok(value) => value.trim().parse::<u64>().unwrap_or(30_000),
+        Err(_) => 30_000,
+    }
+}
+
+fn run_tool_process(
+    command: &[String],
+    payload: &[u8],
+    timeout_ms: u64,
+) -> Result<ToolProcessOutput, RuntimeError> {
+    if command.is_empty() {
+        return Err(RuntimeError::new("tool command cannot be empty"));
+    }
+    let stdout_path = tool_temp_path("stdout");
+    let stderr_path = tool_temp_path("stderr");
+    let stdout_file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&stdout_path)
+        .map_err(|err| RuntimeError::new(&format!("tool stdout open failed: {}", err)))?;
+    let stderr_file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&stderr_path)
+        .map_err(|err| RuntimeError::new(&format!("tool stderr open failed: {}", err)))?;
+
+    let mut child = Command::new(&command[0])
+        .args(&command[1..])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::from(stdout_file))
+        .stderr(Stdio::from(stderr_file))
+        .spawn()
+        .map_err(|err| RuntimeError::new(&format!("tool spawn failed: {}", err)))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(payload)
+            .map_err(|err| RuntimeError::new(&format!("tool stdin write failed: {}", err)))?;
+    }
+
+    let deadline = Instant::now() + Duration::from_millis(timeout_ms.max(1));
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = std::fs::remove_file(&stdout_path);
+                    let _ = std::fs::remove_file(&stderr_path);
+                    return Err(RuntimeError::new(&format!(
+                        "tool timed out after {}ms",
+                        timeout_ms
+                    )));
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(err) => {
+                let _ = std::fs::remove_file(&stdout_path);
+                let _ = std::fs::remove_file(&stderr_path);
+                return Err(RuntimeError::new(&format!("tool wait failed: {}", err)));
+            }
+        }
+    };
+
+    let stdout = std::fs::read(&stdout_path)
+        .map_err(|err| RuntimeError::new(&format!("tool stdout read failed: {}", err)))?;
+    let stderr = std::fs::read(&stderr_path)
+        .map_err(|err| RuntimeError::new(&format!("tool stderr read failed: {}", err)))?;
+    let _ = std::fs::remove_file(&stdout_path);
+    let _ = std::fs::remove_file(&stderr_path);
+    Ok((stdout, stderr, status.code()))
+}
+
+fn tool_temp_path(kind: &str) -> std::path::PathBuf {
+    let mut path = std::env::temp_dir();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_secs(0))
+        .as_nanos();
+    let seq = TOOL_IO_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    path.push(format!(
+        "enkai_tool_{}_{}_{}_{}.tmp",
+        std::process::id(),
+        now,
+        seq,
+        kind
+    ));
+    path
+}
+
 fn query_param(query: &str, name: &str) -> Option<String> {
     if query.is_empty() {
         return None;
@@ -5612,7 +6203,36 @@ fn compile_subset_program(source: &str) -> Result<Program, RuntimeError> {
     checker
         .check_module(&module)
         .map_err(|err| RuntimeError::new(&format_type_error(&err)))?;
-    compile_module(&module).map_err(|err| RuntimeError::new(&format_compile_error(&err)))
+
+    // Compile through package loading to preserve import behavior (`std::*` and local imports)
+    // while still enforcing subset rules on the entry source.
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.hash(&mut hasher);
+    let source_hash = hasher.finish();
+    let mut tmp = std::env::temp_dir();
+    tmp.push(format!(
+        "enkai_subset_{}_{}.enk",
+        std::process::id(),
+        source_hash
+    ));
+    std::fs::write(&tmp, source).map_err(|err| RuntimeError::new(&err.to_string()))?;
+    let package = match load_package(&tmp) {
+        Ok(package) => package,
+        Err(err) => {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(RuntimeError::new(&err.to_string()));
+        }
+    };
+    let _ = std::fs::remove_file(&tmp);
+    TypeChecker::check_package(&package)
+        .map_err(|err| RuntimeError::new(&format_type_error(&err)))?;
+    let mut program =
+        compile_package(&package).map_err(|err| RuntimeError::new(&format_compile_error(&err)))?;
+    for function in &mut program.functions {
+        function.source_name = None;
+    }
+    Ok(program)
 }
 
 fn format_type_error(err: &enkaic::TypeError) -> String {
@@ -5947,6 +6567,7 @@ fn display_value(v: &Value) -> String {
             Obj::TcpListener(_) => "<tcp_listener>".to_string(),
             Obj::TcpConnection(_) => "<tcp_connection>".to_string(),
             Obj::HttpStream(_) => "<http_stream>".to_string(),
+            Obj::WebSocket(_) => "<websocket>".to_string(),
             Obj::Tokenizer(tok) => format!("<tokenizer {}>", tok.vocab_size()),
             Obj::DatasetStream(_) => "<dataset>".to_string(),
             Obj::Record(_) => "<record>".to_string(),

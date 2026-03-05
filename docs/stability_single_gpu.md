@@ -53,4 +53,4 @@ ENKAI_CONFIG=configs/enkai_50m.enk ENKAI_KILL_STEP=2000 ENKAI_POST_RESUME_STEPS=
 - `configs/enkai_50m.enk` is the default template. You can override values by editing the file.
 - Checkpoints are written atomically with integrity hashes.
 - Resume uses the latest complete step checkpoint (`checkpoints/enkai_50m/step_*`).
-- Multi-GPU harness is scaffolded but disabled by default. Enable via `ENKAI_RUN_MULTI_GPU_TESTS=1` only after single-GPU soak is green.
+- Multi-GPU harnesses are implemented but disabled by default. Enable via `ENKAI_RUN_MULTI_GPU_TESTS=1` only after single-GPU soak is green.

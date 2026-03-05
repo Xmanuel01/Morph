@@ -307,3 +307,14 @@ fn std_db_sqlite_roundtrip() {
     };
     assert_eq!(first_name, "hello");
 }
+
+#[test]
+fn std_db_postgres_open_failure_is_none() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    copy_std_modules(temp.path());
+    let source = "import std::db\n\
+        let h := db.pg_open(\"host=127.0.0.1 port=1 user=enkai password=enkai dbname=enkai connect_timeout=1\")\n\
+        h == none\n";
+    let value = run_package(temp.path(), "main.enk", source).expect("run");
+    assert_eq!(value, Value::Bool(true));
+}

@@ -1,6 +1,7 @@
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -223,6 +224,11 @@ pub fn init(cfg: TrainConfig) -> Result<Engine, RuntimeError> {
     if e.cfg.rank >= e.cfg.world_size {
         return Err(RuntimeError::new("rank must be < world_size"));
     }
+    if e.cfg.world_size > 1 && !dist_env_enabled() {
+        return Err(RuntimeError::new(
+            "distributed mode requires ENKAI_ENABLE_DIST=1",
+        ));
+    }
     if e.cfg.world_size > 1 {
         e.backend
             .configure_dist(e.cfg.world_size as i32, e.cfg.rank as i32)?;
@@ -293,14 +299,16 @@ pub fn train_step(engine: &mut Engine, batch: &Batch) -> Result<Metrics, Runtime
                 engine.accum_tokens = 0;
                 engine.accum_forward_ms = 0.0;
                 engine.accum_backward_ms = 0.0;
+                let (gpu_mem_mb, gpu_util) =
+                    sample_gpu_metrics(engine.cfg.rank, &engine.cfg.model.device);
                 let metrics = Metrics {
                     step: engine.step,
                     loss,
                     tokens_per_sec: 0.0,
                     step_time_ms: 0.0,
                     lr: engine.cfg.optim.lr as f32,
-                    gpu_mem_mb: None,
-                    gpu_util: None,
+                    gpu_mem_mb,
+                    gpu_util,
                     did_update: false,
                     accum_steps: target_accum,
                     token_count,
@@ -352,14 +360,15 @@ pub fn train_step(engine: &mut Engine, batch: &Batch) -> Result<Metrics, Runtime
         engine.accum_backward_ms = 0.0;
     }
 
+    let (gpu_mem_mb, gpu_util) = sample_gpu_metrics(engine.cfg.rank, &engine.cfg.model.device);
     let metrics = Metrics {
         step: engine.step,
         loss,
         tokens_per_sec,
         step_time_ms,
         lr: engine.cfg.optim.lr as f32,
-        gpu_mem_mb: None,
-        gpu_util: None,
+        gpu_mem_mb,
+        gpu_util,
         did_update,
         accum_steps: target_accum,
         token_count,
@@ -389,6 +398,7 @@ pub fn eval_step(engine: &mut Engine, batch: &Batch) -> Result<Metrics, RuntimeE
     let tokens = (batch.token_count as f32) * engine.cfg.world_size as f32;
     let elapsed_s = elapsed.as_secs_f32().max(1e-6);
     let tokens_per_sec = tokens / elapsed_s;
+    let (gpu_mem_mb, gpu_util) = sample_gpu_metrics(engine.cfg.rank, &engine.cfg.model.device);
     engine.step += 1;
     let metrics = Metrics {
         step: engine.step,
@@ -396,8 +406,8 @@ pub fn eval_step(engine: &mut Engine, batch: &Batch) -> Result<Metrics, RuntimeE
         tokens_per_sec,
         step_time_ms: to_ms(elapsed),
         lr: 0.0,
-        gpu_mem_mb: None,
-        gpu_util: None,
+        gpu_mem_mb,
+        gpu_util,
         did_update: true,
         accum_steps: 1,
         token_count: batch.token_count,
@@ -507,6 +517,61 @@ fn to_ms(duration: Duration) -> f32 {
     (duration.as_secs_f64() * 1_000.0) as f32
 }
 
+fn sample_gpu_metrics(rank: usize, device: &str) -> (Option<f32>, Option<f32>) {
+    let gpu_index = match parse_cuda_device_index(device, rank) {
+        Some(index) => index,
+        None => return (None, None),
+    };
+    query_nvidia_smi(gpu_index).unwrap_or((None, None))
+}
+
+fn parse_cuda_device_index(device: &str, rank: usize) -> Option<usize> {
+    let normalized = device.trim().to_ascii_lowercase();
+    if normalized == "cuda" {
+        return Some(rank);
+    }
+    if let Some(rest) = normalized.strip_prefix("cuda:") {
+        return rest.parse::<usize>().ok();
+    }
+    None
+}
+
+fn query_nvidia_smi(gpu_index: usize) -> Option<(Option<f32>, Option<f32>)> {
+    let output = Command::new("nvidia-smi")
+        .args([
+            "--query-gpu=memory.used,utilization.gpu",
+            "--format=csv,noheader,nounits",
+            "-i",
+            &gpu_index.to_string(),
+        ])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(output.stdout).ok()?;
+    let line = text.lines().next()?.trim();
+    if line.is_empty() {
+        return None;
+    }
+    let mut parts = line.split(',').map(|part| part.trim());
+    let mem = parts.next().and_then(|raw| raw.parse::<f32>().ok());
+    let util = parts.next().and_then(|raw| raw.parse::<f32>().ok());
+    Some((mem, util))
+}
+
+fn dist_env_enabled() -> bool {
+    match std::env::var("ENKAI_ENABLE_DIST") {
+        Ok(value) => {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        }
+        Err(_) => false,
+    }
+}
+
 fn maybe_log(engine: &mut Engine, metrics: &Metrics) -> Result<(), RuntimeError> {
     if !metrics.did_update {
         return Ok(());
@@ -522,4 +587,24 @@ fn maybe_log(engine: &mut Engine, metrics: &Metrics) -> Result<(), RuntimeError>
     }
     crate::logging::print_summary("train", metrics);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_cuda_device_index;
+
+    #[test]
+    fn parse_cuda_device_index_defaults_to_rank() {
+        assert_eq!(parse_cuda_device_index("cuda", 2), Some(2));
+    }
+
+    #[test]
+    fn parse_cuda_device_index_explicit_index() {
+        assert_eq!(parse_cuda_device_index("cuda:3", 0), Some(3));
+    }
+
+    #[test]
+    fn parse_cuda_device_index_rejects_cpu() {
+        assert_eq!(parse_cuda_device_index("cpu", 0), None);
+    }
 }

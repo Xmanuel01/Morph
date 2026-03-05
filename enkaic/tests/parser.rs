@@ -166,6 +166,44 @@ fn main() -> Int ::
 }
 
 #[test]
+fn parses_async_fn_decl() {
+    let source = "\
+async fn work() -> Int ::
+    return 1
+::
+";
+    let module = parse_module(source).expect("module should parse");
+    assert!(!module.items.is_empty());
+}
+
+#[test]
+fn parses_pub_async_fn_decl() {
+    let source = "\
+pub async fn work() -> Int ::
+    return 1
+::
+";
+    let module = parse_module(source).expect("module should parse");
+    assert!(!module.items.is_empty());
+}
+
+#[test]
+fn parses_async_impl_method() {
+    let source = "\
+type Worker ::
+    id: Int
+::
+impl Worker ::
+    async fn run() -> Int ::
+        return self.id
+    ::
+::
+";
+    let module = parse_module(source).expect("module should parse");
+    assert!(!module.items.is_empty());
+}
+
+#[test]
 fn parses_import_decl() {
     let source = "import app::utils\nfn main() -> Int ::\n    return 0\n::\n";
     let module = parse_module(source).expect("module should parse");

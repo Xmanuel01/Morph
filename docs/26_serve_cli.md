@@ -35,3 +35,11 @@ For registry mode, Enkai resolves:
 - `ENKAI_SERVE_MODEL_REGISTRY`
 
 Programs can read these through `std::env` or `std::model_registry`.
+
+## Runtime Protocol Notes
+
+- HTTP routed handlers and middleware are available through `std::http`.
+- Streaming responses can use:
+  - chunked HTTP stream APIs (`http.stream_open/http.stream_send/http.stream_close`)
+  - SSE helpers (`std::http.sse_*`)
+  - server-side WebSocket helpers (`std::http.ws_open/ws_send/ws_close`)

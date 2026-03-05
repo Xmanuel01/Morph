@@ -61,6 +61,13 @@ Streaming helpers:
 - `http.stream_send(stream, chunk)`
 - `http.stream_close(stream)`
 
+WebSocket helpers (server-side):
+
+- `http.ws_open(req)` upgrades an incoming HTTP request to WebSocket.
+- `http.ws_send(ws, message)` sends text/binary frames (String/Buffer).
+- `http.ws_recv(ws, timeout_ms)` receives inbound text/binary frames; returns `none` on timeout or closed session.
+- `http.ws_close(ws)` sends close frame and terminates connection.
+
 ## Common errors
 
 - Handler must be `fn(Request) -> Response`.

@@ -2,7 +2,7 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v1.9.0.
+- Current production release line is v1.9.1.
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
 
 v1.9 (done)
@@ -16,6 +16,10 @@ v1.9 (done)
   - `scripts/v1_9_release_pipeline.ps1`
   - `scripts/v1_9_release_pipeline.sh`
 - Updated CI with v1.9 release pipeline lane.
+- Added replacement-readiness fixed-point command:
+  - `enkai litec replace-check <corpus_dir> [--no-compare-stage0]`
+- Added explicit distributed runtime opt-in gate:
+  - `ENKAI_ENABLE_DIST=1` required for multi-rank mode.
 
 v1.8 (done)
 - Added compatibility/deprecation policy documentation (`docs/29_compatibility_policy.md`).
@@ -57,6 +61,55 @@ v1.5 (done)
 - Enkai-scripted bootstrap tooling pipeline with deterministic parity tests against Rust paths.
 - Bootstrap subset specification finalized (`docs/bootstrap_subset.md`).
 
+v1.4 (done)
+- Added frontend developer stack commands:
+  - `enkai new backend`
+  - `enkai new frontend-chat`
+  - `enkai new fullstack-chat`
+- Added typed SDK generation:
+  - `enkai sdk generate <output_file> [--api-version <v>]`
+- Added end-to-end contract coverage for generated backend/frontend streaming flows and API-version pinning.
+- Added persisted conversation flow in backend scaffold.
+
+v1.3 (done)
+- Added serving/backend runtime and CLI:
+  - `enkai serve`
+  - routed HTTP + middleware + SSE/WebSocket streaming token flow
+- Added auth/rate-limit middleware baseline and structured request/response metadata.
+- Added model registry version-pinning helpers.
+- Added stdlib modules for backend integration:
+  - `std::db` (SQLite + Postgres)
+  - `std::tls`
+
+v1.2 (done)
+- Added scale/runtime training controls:
+  - multi-rank config wiring
+  - grad accumulation
+  - grad clipping
+  - AMP config path
+- Added ranked checkpoint manifests and compatibility handling.
+- Added dataset prefetch and packing-efficiency metrics.
+- Added best-effort GPU metrics sampling (`gpu_mem_mb`, `gpu_util`) for CUDA configs.
+- Added deterministic resolver + lockfile + build cache via `enkai build`.
+- Added stdlib systems modules:
+  - `std::env`, `std::path`, `std::process`, `std::time`, `std::io`, `std::log`
+
+v1.1 (done)
+- Implemented runtime semantics for `type` / `enum` / `impl` method dispatch.
+- Implemented runtime semantics for `tool` / `agent` / `prompt` / `model` / `memory`.
+- Added first-class ML stdlib:
+  - `std::nn`
+  - `std::loss`
+  - `std::optim`
+- Added deterministic seed wiring and checker/runtime tensor-related surface coverage.
+
+v1.0 (done)
+- Froze grammar/CLI compatibility to v0.9.3 baseline.
+- Enforced train/eval config schema v1 (`config_version: 1`).
+- Enforced checkpoint metadata format v1 (`format_version: 1`) with legacy fallback.
+- Locked training path to TinyLM CE forward.
+- Formalized release validation process (`VALIDATION.md`, `docs/RELEASE_CHECKLIST.md`).
+
 v0.1 (done)
 - Lexer/parser/AST with :: blocks
 - Tree-walk interpreter
@@ -79,17 +132,5 @@ v0.3 (done)
 - Local path dependencies in Enkai.toml
 - Expand stdlib: strings + fs (policy-gated)
 - Keep AI primitives as stubs unless testable
-
-v0.5 (planned)
-- LSP + formatter improvements
-- Async runtime (spawn/await)
-- HTTP server library
-- Agent + tool abstractions
-
-v1.0 (planned)
-- Fast compiler backend
-- Strong sandboxing + capability permissions
-- Stable stdlib
-- Polished docs + examples
 
 

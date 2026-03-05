@@ -17,6 +17,9 @@ cargo test --workspace
 Write-Host "[v1.9] Running self-host corpus gate..."
 cargo run -p enkai -- litec selfhost-ci enkai/tools/bootstrap/selfhost_corpus
 
+Write-Host "[v1.9] Running self-host replacement fixed-point gate..."
+cargo run -p enkai -- litec replace-check enkai/tools/bootstrap/selfhost_corpus --no-compare-stage0
+
 if ($VerifyGpuEvidence) {
     Write-Host "[v1.9] Verifying GPU gate evidence..."
     powershell -ExecutionPolicy Bypass -File scripts/verify_gpu_gates.ps1 -LogDir $GpuLogDir

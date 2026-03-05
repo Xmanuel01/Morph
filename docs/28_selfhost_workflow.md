@@ -20,6 +20,8 @@ required fallback path when a self-host lane fails.
 5. Run corpus-level self-host checks:
    - `enkai litec selfhost <corpus_dir>`
    - `enkai litec selfhost-ci <corpus_dir>`
+6. Run replacement-readiness fixed-point gate:
+   - `enkai litec replace-check <corpus_dir>`
 
 Repository baseline corpus:
 - `enkai/tools/bootstrap/selfhost_corpus`

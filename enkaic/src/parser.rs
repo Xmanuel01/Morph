@@ -140,8 +140,11 @@ impl Parser {
             return Ok(Item::Agent(self.parse_agent_decl(false)?));
         }
         if self.matches(TokenKind::Async) {
+            if self.matches(TokenKind::Fn) {
+                return Ok(Item::Fn(self.parse_fn_decl(false)?));
+            }
             let token = self.previous();
-            return Err(self.error("Async functions are not supported yet", token));
+            return Err(self.error("Expected 'fn' after async", token));
         }
         Ok(Item::Stmt(self.parse_stmt()?))
     }
@@ -160,8 +163,11 @@ impl Parser {
             return Ok(Item::Enum(self.parse_enum_decl(true)?));
         }
         if self.matches(TokenKind::Async) {
+            if self.matches(TokenKind::Fn) {
+                return Ok(Item::Fn(self.parse_fn_decl(true)?));
+            }
             let token = self.previous();
-            return Err(self.error("Async functions are not supported yet", token));
+            return Err(self.error("Expected 'fn' after async", token));
         }
         let token = self.current();
         Err(self.error("Only fn, type, enum, and use can be public", token))
@@ -297,10 +303,6 @@ impl Parser {
     }
 
     fn parse_fn_decl(&mut self, is_pub: bool) -> Result<FnDecl, ParseError> {
-        if self.matches(TokenKind::Async) {
-            let token = self.previous();
-            return Err(self.error("Async functions are not supported yet", token));
-        }
         let (name, name_span) = self.expect_ident_with_span()?;
         let params = self.parse_param_list()?;
         let return_type = if self.matches(TokenKind::Arrow) {
@@ -368,7 +370,13 @@ impl Parser {
         self.expect(TokenKind::BlockStart)?;
         self.consume_newlines();
         while !self.check(TokenKind::BlockEnd) {
-            if self.matches(TokenKind::Fn) {
+            if self.matches(TokenKind::Async) {
+                if !self.matches(TokenKind::Fn) {
+                    let token = self.current();
+                    return Err(self.error("Expected 'fn' after async in impl block", token));
+                }
+                methods.push(self.parse_fn_decl(false)?);
+            } else if self.matches(TokenKind::Fn) {
                 methods.push(self.parse_fn_decl(false)?);
             } else {
                 let token = self.current();

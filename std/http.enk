@@ -35,6 +35,26 @@ pub fn sse_close(stream: HttpStream) ::
     return http.stream_close(stream)
 ::
 
+pub fn ws_open(req: Request) ::
+    return http.ws_open(req)
+::
+
+pub fn ws_send(ws, message: String) ::
+    return http.ws_send(ws, message)
+::
+
+pub fn ws_recv(ws) ::
+    return http.ws_recv(ws, 0)
+::
+
+pub fn ws_recv_timeout(ws, timeout_ms: Int) ::
+    return http.ws_recv(ws, timeout_ms)
+::
+
+pub fn ws_close(ws) ::
+    return http.ws_close(ws)
+::
+
 pub fn ok(body: String) -> Response ::
     return http.ok(body)
 ::

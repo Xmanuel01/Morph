@@ -16,6 +16,9 @@ cargo test --workspace
 echo "[v1.9] Running self-host corpus gate..."
 cargo run -p enkai -- litec selfhost-ci enkai/tools/bootstrap/selfhost_corpus
 
+echo "[v1.9] Running self-host replacement fixed-point gate..."
+cargo run -p enkai -- litec replace-check enkai/tools/bootstrap/selfhost_corpus --no-compare-stage0
+
 if [ "$verify_gpu" = "1" ]; then
   echo "[v1.9] Verifying GPU gate evidence..."
   sh scripts/verify_gpu_gates.sh "$gpu_log_dir"

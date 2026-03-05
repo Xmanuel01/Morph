@@ -9,6 +9,50 @@
 - None yet.
 
 ### Breaking changes
+- None.
+
+## v1.9.1
+
+### Highlights
+- Added bootstrap replacement-readiness command:
+  - `enkai litec replace-check <corpus_dir> [--no-compare-stage0]`
+- Added Stage1->Stage2 replacement-readiness checks and Stage2->Stage3 fixed-point status reporting for `enkai_lite` compiler artifacts.
+- Added explicit distributed runtime opt-in gate:
+  - `ENKAI_ENABLE_DIST=1` required for multi-rank distributed mode.
+- Hardened distributed tensor runtime paths:
+  - explicit multi-rank init/allreduce failure modes in `enkai_tensor`,
+  - rank-device validation and reconfiguration guards,
+  - fallback distributed symbols with clear build-feature errors when `torch,dist` is missing.
+- Added Linux 2-GPU and 4-GPU harness parity scripts:
+  - `scripts/multi_gpu_harness.sh`
+  - `scripts/soak_4gpu.sh`
+- Added server-side WebSocket runtime APIs for HTTP handlers:
+  - `http.ws_open(req)`
+  - `http.ws_send(ws, message)`
+  - `http.ws_recv(ws, timeout_ms)`
+  - `http.ws_close(ws)`
+- Added host tool invocation runtime for `tool` declarations:
+  - compiled tool declarations now route through `tool.invoke(name, args)`
+  - host binding via `ENKAI_TOOL_<PATH>` or `ENKAI_TOOL_RUNNER`
+- Enabled `async fn` parsing in modules and impl blocks (compiled with existing task-based async primitives).
+- Added Postgres connector APIs in `std::db` backed by `enkai_native`:
+  - `pg_open`, `pg_exec`, `pg_query`, `pg_close`
+- Added best-effort GPU profiling fields in engine metrics for CUDA device configs:
+  - `gpu_mem_mb`, `gpu_util` sampled via `nvidia-smi` when available.
+- Expanded v1.8 release pipeline scripts to include replacement fixed-point gates and optional GPU evidence verification.
+
+### Fixes
+- Added parser-level distributed config guard in training config handling to prevent accidental multi-rank runs without explicit opt-in.
+- Updated CUDA rank-device test to set distributed opt-in env gate.
+- Added bootstrap test coverage for replacement fixed-point command.
+- Added distributed guard tests in `enkai_tensor/tests/dist_guards.rs`.
+- Added HTTP integration test coverage for WebSocket upgrade + text frame delivery.
+- Added HTTP integration test coverage for inbound WebSocket recv + echo flow.
+- Added parser coverage for `async fn` in module/public/impl contexts.
+- Added AI declaration coverage for configured host tool invocation.
+- Added `std::db` regression test coverage for Postgres open failure semantics (`none` on unreachable DSN).
+
+### Breaking changes
 - None yet.
 
 ## v1.9.0
@@ -175,6 +219,44 @@
 ### Fixes
 - Improved checkpoint metadata compatibility in ranked loads.
 - Deterministic dataset sharding across ranks.
+
+### Breaking changes
+- None.
+
+## v1.1.0
+
+### Highlights
+- Implemented runtime semantics for previously parsed declarations:
+  - `type`, `enum`, `impl` method dispatch
+  - AI-native declarations: `tool`, `agent`, `prompt`, `model`, `memory`
+- Added first-class ML stdlib modules:
+  - `std::nn`
+  - `std::loss`
+  - `std::optim`
+- Added deterministic seed controls in train/tokenizer/dataset flows.
+- Extended checker/runtime surface with `Tensor`, `Device`, `DType`, and `Shape` contracts used by std ML modules.
+
+### Fixes
+- Added regression coverage for method dispatch, task `spawn`/`await` semantics, tokenizer determinism, and dataset determinism.
+- Added `examples/nn_sanity.enk` for end-to-end `std::nn`-based training sanity checks.
+
+### Breaking changes
+- None.
+
+## v1.0.0
+
+### Highlights
+- Froze v1 grammar/CLI compatibility baseline to the v0.9.3 language contract.
+- Introduced train/eval config schema v1 (`config_version: 1`) with explicit validation of backend/device/dtype contracts.
+- Froze checkpoint metadata schema v1 (`format_version: 1`) and preserved backward compatibility for legacy checkpoints.
+- Locked training runtime to TinyLM CE forward path (`forward_tinylm`) and removed accidental training-path usage of `forward_l2`.
+- Added formal release + validation governance:
+  - `VALIDATION.md`
+  - `docs/RELEASE_CHECKLIST.md`
+
+### Fixes
+- Added metadata compatibility tests for checkpoint load/save and legacy fallback behavior.
+- Added release gate checks to prevent config/checkpoint schema drift.
 
 ### Breaking changes
 - None.

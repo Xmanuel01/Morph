@@ -745,7 +745,34 @@ fn inject_builtins(
         "stream_close".to_string(),
         Type::Function(vec![Type::HttpStream], Box::new(Type::Void)),
     );
+    http_exports.insert(
+        "ws_open".to_string(),
+        Type::Function(vec![Type::HttpRequest], Box::new(Type::Unknown)),
+    );
+    http_exports.insert(
+        "ws_send".to_string(),
+        Type::Function(vec![Type::Unknown, Type::Unknown], Box::new(Type::Void)),
+    );
+    http_exports.insert(
+        "ws_recv".to_string(),
+        Type::Function(
+            vec![Type::Unknown, Type::Int],
+            Box::new(Type::Optional(Box::new(Type::Unknown))),
+        ),
+    );
+    http_exports.insert(
+        "ws_close".to_string(),
+        Type::Function(vec![Type::Unknown], Box::new(Type::Void)),
+    );
     exports.entry(http_id).or_insert(http_exports);
+    let tool_id = ModuleId(vec!["tool".to_string()]);
+    imports.entry("tool".to_string()).or_insert(tool_id.clone());
+    let mut tool_exports = std::collections::HashMap::new();
+    tool_exports.insert(
+        "invoke".to_string(),
+        Type::Function(vec![Type::String, Type::Unknown], Box::new(Type::Unknown)),
+    );
+    exports.entry(tool_id).or_insert(tool_exports);
     let json_id = ModuleId(vec!["json".to_string()]);
     imports.entry("json".to_string()).or_insert(json_id.clone());
     let mut json_exports = std::collections::HashMap::new();

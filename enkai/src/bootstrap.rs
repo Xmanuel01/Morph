@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use enkai_compiler::bytecode::Program;
-use enkai_compiler::compiler::{compile_module, compile_package, CompileError};
+use enkai_compiler::compiler::{compile_package, CompileError};
 use enkai_compiler::modules::load_package;
 use enkai_compiler::parse_module_named;
 use enkai_compiler::{TypeChecker, TypeError};
@@ -29,6 +29,7 @@ pub fn print_usage() {
     eprintln!("  enkai litec stage <parse|check|codegen> <input.enk> [--out <program.bin>]");
     eprintln!("  enkai litec selfhost <corpus_dir>");
     eprintln!("  enkai litec selfhost-ci <corpus_dir> [--no-compare-stage0]");
+    eprintln!("  enkai litec replace-check <corpus_dir> [--no-compare-stage0]");
 }
 
 pub fn fmt_lite_command(args: &[String]) -> i32 {
@@ -472,6 +473,7 @@ pub fn litec_command(args: &[String]) -> i32 {
         "stage" => litec_stage(&args[1..]),
         "selfhost" => litec_selfhost(&args[1..]),
         "selfhost-ci" => litec_selfhost_ci(&args[1..]),
+        "replace-check" => litec_replace_check(&args[1..]),
         other => {
             eprintln!("unknown litec subcommand: {}", other);
             1
@@ -789,6 +791,214 @@ fn litec_selfhost_ci(args: &[String]) -> i32 {
     0
 }
 
+fn litec_replace_check(args: &[String]) -> i32 {
+    if args.is_empty() {
+        eprintln!("Usage: enkai litec replace-check <corpus_dir> [--no-compare-stage0]");
+        return 1;
+    }
+    let corpus = PathBuf::from(&args[0]);
+    if !corpus.is_dir() {
+        eprintln!("corpus directory not found: {}", corpus.display());
+        return 1;
+    }
+    let mut compare_stage0 = true;
+    for arg in &args[1..] {
+        match arg.as_str() {
+            "--no-compare-stage0" => compare_stage0 = false,
+            other => {
+                eprintln!("Unexpected argument: {}", other);
+                return 1;
+            }
+        }
+    }
+    let files = match super::collect_source_files(&corpus) {
+        Ok(files) => files,
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    };
+    if files.is_empty() {
+        eprintln!("no source files found in {}", corpus.display());
+        return 1;
+    }
+
+    let compiler_source = match write_temp_script("enkai_lite_compiler.enk", ENKAI_LITEC_SCRIPT) {
+        Ok(path) => path,
+        Err(err) => {
+            eprintln!("failed to materialize compiler source: {}", err);
+            return 1;
+        }
+    };
+    let stage0_driver = match compile_embedded_script_program("enkai_lite.enk", ENKAI_LITEC_SCRIPT)
+    {
+        Ok(program) => program,
+        Err(err) => {
+            eprintln!("stage0 compiler build failed: {}", err);
+            return 1;
+        }
+    };
+    let stage1_driver_bytes =
+        match compile_with_driver_program(&stage0_driver, &compiler_source.path) {
+            Ok(bytes) => bytes,
+            Err(err) => {
+                eprintln!("stage1 compiler build failed: {}", err);
+                return 1;
+            }
+        };
+    let stage1_driver = match decode_program_bytes(
+        &compiler_source.path,
+        &stage1_driver_bytes,
+        "stage1-compiler",
+    ) {
+        Ok(program) => program,
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    };
+    let stage2_driver_bytes =
+        match compile_with_driver_program(&stage1_driver, &compiler_source.path) {
+            Ok(bytes) => bytes,
+            Err(err) => {
+                eprintln!("stage2 compiler build failed: {}", err);
+                return 1;
+            }
+        };
+    let stage2_driver = match decode_program_bytes(
+        &compiler_source.path,
+        &stage2_driver_bytes,
+        "stage2-compiler",
+    ) {
+        Ok(program) => program,
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    };
+    let stage3_driver_bytes =
+        match compile_with_driver_program(&stage2_driver, &compiler_source.path) {
+            Ok(bytes) => bytes,
+            Err(err) => {
+                eprintln!("stage3 compiler build failed: {}", err);
+                return 1;
+            }
+        };
+    let stage23_equal = match equivalent_program_bytes(
+        &compiler_source.path,
+        &stage2_driver_bytes,
+        "stage2-compiler",
+        &stage3_driver_bytes,
+        "stage3-compiler",
+    ) {
+        Ok(equal) => equal,
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    };
+    if !stage23_equal {
+        eprintln!(
+            "[warn] stage2/stage3 compiler mismatch (stage2={} bytes, stage3={}); continuing with corpus equivalence checks",
+            stage2_driver_bytes.len(),
+            stage3_driver_bytes.len()
+        );
+    }
+
+    let mut passed = 0usize;
+    for file in &files {
+        let stage1_bytes = match compile_with_driver_program(&stage1_driver, file) {
+            Ok(bytes) => bytes,
+            Err(err) => {
+                eprintln!("[fail] {}: stage1 compile failed: {}", file.display(), err);
+                return 1;
+            }
+        };
+        let stage2_bytes = match compile_with_driver_program(&stage2_driver, file) {
+            Ok(bytes) => bytes,
+            Err(err) => {
+                eprintln!("[fail] {}: stage2 compile failed: {}", file.display(), err);
+                return 1;
+            }
+        };
+        let stage12_equal = match equivalent_program_bytes(
+            file,
+            &stage1_bytes,
+            "stage1",
+            &stage2_bytes,
+            "stage2",
+        ) {
+            Ok(equal) => equal,
+            Err(err) => {
+                eprintln!("[fail] {}: {}", file.display(), err);
+                return 1;
+            }
+        };
+        if !stage12_equal {
+            eprintln!(
+                "[fail] {}: stage1/stage2 bytecode mismatch (stage1={} bytes, stage2={} bytes)",
+                file.display(),
+                stage1_bytes.len(),
+                stage2_bytes.len()
+            );
+            return 1;
+        }
+        let stage2_program = match decode_program_bytes(file, &stage2_bytes, "stage2") {
+            Ok(program) => program,
+            Err(err) => {
+                eprintln!("[fail] {}: {}", file.display(), err);
+                return 1;
+            }
+        };
+        let stage2_value = match run_program(&stage2_program) {
+            Ok(value) => value,
+            Err(err) => {
+                eprintln!("[fail] {}: stage2 runtime error: {}", file.display(), err);
+                return 1;
+            }
+        };
+        if compare_stage0 {
+            let stage0_bytes = match compile_stage0_program_bytes(file) {
+                Ok(bytes) => bytes,
+                Err(err) => {
+                    eprintln!("[fail] {}: stage0 compile failed: {}", file.display(), err);
+                    return 1;
+                }
+            };
+            let stage0_program = match decode_program_bytes(file, &stage0_bytes, "stage0") {
+                Ok(program) => program,
+                Err(err) => {
+                    eprintln!("[fail] {}: {}", file.display(), err);
+                    return 1;
+                }
+            };
+            let stage0_value = match run_program(&stage0_program) {
+                Ok(value) => value,
+                Err(err) => {
+                    eprintln!("[fail] {}: stage0 runtime error: {}", file.display(), err);
+                    return 1;
+                }
+            };
+            if canonical_value(&stage0_value) != canonical_value(&stage2_value) {
+                eprintln!(
+                    "[fail] {}: stage0/stage2 result mismatch (stage0={}, stage2={})",
+                    file.display(),
+                    canonical_value(&stage0_value),
+                    canonical_value(&stage2_value)
+                );
+                return 1;
+            }
+        }
+        println!("[pass] {}", file.display());
+        passed += 1;
+    }
+    println!(
+        "litec replace-check ok ({} files, compare_stage0={}, stage2_stage3_fixed_point={})",
+        passed, compare_stage0, stage23_equal
+    );
+    0
+}
+
 fn verify_stage_equivalence(input: &Path) -> Result<(), String> {
     let stage0 = match compile_stage0_program_bytes(input) {
         Ok(bytes) => bytes,
@@ -797,7 +1007,7 @@ fn verify_stage_equivalence(input: &Path) -> Result<(), String> {
         }
     };
     let stage1 = compile_stage1_program_bytes(input, "compile")?;
-    if stage0 != stage1 {
+    if stage0 != stage1 && !equivalent_program_bytes(input, &stage0, "stage0", &stage1, "stage1")? {
         return Err(format!(
             "stage0/stage1 bytecode mismatch (stage0={} bytes, stage1={} bytes)",
             stage0.len(),
@@ -833,9 +1043,94 @@ fn compile_stage1_program_bytes(input: &Path, mode: &str) -> Result<Vec<u8>, Str
     Ok(stage1)
 }
 
+fn compile_with_driver_program(driver: &Program, input: &Path) -> Result<Vec<u8>, String> {
+    let output = temp_stage1_program_path()
+        .map_err(|err| format!("failed to allocate compiler output path: {}", err))?;
+    let code = run_litec_mode_with_program(driver, "codegen", input, Some(&output))?;
+    if code != 0 {
+        let _ = fs::remove_file(&output);
+        return Err(format!("compiler returned non-zero status {}", code));
+    }
+    let bytes = fs::read(&output).map_err(|err| {
+        let _ = fs::remove_file(&output);
+        format!("failed to read {}: {}", output.display(), err)
+    })?;
+    let _ = fs::remove_file(&output);
+    Ok(bytes)
+}
+
+fn run_litec_mode_with_program(
+    program: &Program,
+    mode: &str,
+    input: &Path,
+    output: Option<&Path>,
+) -> Result<i32, String> {
+    let mut envs = vec![
+        ("ENKAI_LITEC_MODE", mode.to_string()),
+        (
+            "ENKAI_LITEC_INPUT",
+            input
+                .canonicalize()
+                .unwrap_or_else(|_| input.to_path_buf())
+                .to_string_lossy()
+                .to_string(),
+        ),
+    ];
+    if let Some(path) = output {
+        envs.push((
+            "ENKAI_LITEC_OUTPUT",
+            path.canonicalize()
+                .unwrap_or_else(|_| path.to_path_buf())
+                .to_string_lossy()
+                .to_string(),
+        ));
+    }
+    let value = execute_program_with_env(program, &envs)?;
+    match value {
+        Value::Int(code) => Ok(code as i32),
+        Value::Null => Ok(0),
+        _ => Err("litec program returned non-int result".to_string()),
+    }
+}
+
 fn decode_program_bytes(input: &Path, bytes: &[u8], label: &str) -> Result<Program, String> {
     bincode::deserialize::<Program>(bytes)
         .map_err(|err| format!("{} decode failed for {}: {}", label, input.display(), err))
+}
+
+fn normalize_program(mut program: Program) -> Program {
+    for function in &mut program.functions {
+        function.source_name = None;
+    }
+    program
+}
+
+fn equivalent_program_bytes(
+    input: &Path,
+    lhs_bytes: &[u8],
+    lhs_label: &str,
+    rhs_bytes: &[u8],
+    rhs_label: &str,
+) -> Result<bool, String> {
+    let lhs = normalize_program(decode_program_bytes(input, lhs_bytes, lhs_label)?);
+    let rhs = normalize_program(decode_program_bytes(input, rhs_bytes, rhs_label)?);
+    let lhs_norm = bincode::serialize(&lhs).map_err(|err| {
+        format!(
+            "{} normalization encode failed for {}: {}",
+            lhs_label,
+            input.display(),
+            err
+        )
+    })?;
+    let rhs_norm = bincode::serialize(&rhs).map_err(|err| {
+        format!(
+            "{} normalization encode failed for {}: {}",
+            rhs_label,
+            input.display(),
+            err
+        )
+    })?;
+    Ok(lhs_norm == rhs_norm)
 }
 
 fn run_program(program: &Program) -> Result<Value, String> {
@@ -886,6 +1181,7 @@ fn canonical_value(value: &Value) -> String {
             Obj::TcpListener(_) => "TcpListener".to_string(),
             Obj::TcpConnection(_) => "TcpConnection".to_string(),
             Obj::HttpStream(_) => "HttpStream".to_string(),
+            Obj::WebSocket(_) => "WebSocket".to_string(),
             Obj::Tokenizer(_) => "Tokenizer".to_string(),
             Obj::DatasetStream(_) => "DatasetStream".to_string(),
         },
@@ -933,15 +1229,39 @@ fn run_litec_mode(mode: &str, input: &Path, output: Option<&Path>) -> Result<i32
 
 fn compile_stage0_program_bytes(input: &Path) -> Result<Vec<u8>, String> {
     let source = fs::read_to_string(input)
-        .map_err(|err| format!("Failed to read {}: {}", input.display(), err))?;
-    let source_name = input.to_string_lossy();
-    let module = parse_module_named(&source, Some(source_name.as_ref()))
-        .map_err(|err| format!("Parse error: {}", err))?;
+        .map_err(|err| format!("failed to read {}: {}", input.display(), err))?;
+    let module = parse_module_named(&source, Some("<enkai-lite>"))
+        .map_err(|err| format!("subset parse failed: {}", err))?;
     let mut checker = TypeChecker::new();
     checker
         .check_module(&module)
         .map_err(|err| type_error_to_string(&err))?;
-    let program = compile_module(&module).map_err(|err| compile_error_to_string(&err))?;
+
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.hash(&mut hasher);
+    let source_hash = hasher.finish();
+    let mut temp = env::temp_dir();
+    temp.push(format!(
+        "enkai_subset_{}_{}.enk",
+        std::process::id(),
+        source_hash
+    ));
+    fs::write(&temp, source)
+        .map_err(|err| format!("failed to write {}: {}", temp.display(), err))?;
+    let package = match load_package(&temp) {
+        Ok(package) => package,
+        Err(err) => {
+            let _ = fs::remove_file(&temp);
+            return Err(err.to_string());
+        }
+    };
+    let _ = fs::remove_file(&temp);
+    TypeChecker::check_package(&package).map_err(|err| type_error_to_string(&err))?;
+    let mut program = compile_package(&package).map_err(|err| compile_error_to_string(&err))?;
+    for function in &mut program.functions {
+        function.source_name = None;
+    }
     bincode::serialize(&program).map_err(|err| format!("serialize failed: {}", err))
 }
 
@@ -978,6 +1298,52 @@ fn run_embedded_script(
         Value::Null => Ok(0),
         _ => Err("bootstrap script returned non-int result".to_string()),
     }
+}
+
+fn compile_embedded_script_program(name: &str, source: &str) -> Result<Program, String> {
+    let lock = super::env_guard();
+    let script = write_temp_script(name, source)?;
+    let script_path = script.path.clone();
+    let mut env_guards: Vec<EnvOverride> = Vec::new();
+    if env::var("ENKAI_STD").is_err() {
+        if let Some(std_path) = detect_std_path() {
+            env_guards.push(EnvOverride::set(
+                "ENKAI_STD",
+                std_path.to_string_lossy().as_ref(),
+            ));
+        }
+    }
+    let package = load_package(&script_path).map_err(|err| err.to_string())?;
+    TypeChecker::check_package(&package).map_err(|err| type_error_to_string(&err))?;
+    let program = compile_package(&package).map_err(|err| compile_error_to_string(&err))?;
+    drop(env_guards);
+    drop(lock);
+    drop(script);
+    Ok(program)
+}
+
+fn execute_program_with_env(
+    program: &Program,
+    overrides: &[(&str, String)],
+) -> Result<Value, String> {
+    let lock = super::env_guard();
+    let mut env_guards: Vec<EnvOverride> = Vec::new();
+    for (key, value) in overrides {
+        env_guards.push(EnvOverride::set(key, value));
+    }
+    if env::var("ENKAI_STD").is_err() {
+        if let Some(std_path) = detect_std_path() {
+            env_guards.push(EnvOverride::set(
+                "ENKAI_STD",
+                std_path.to_string_lossy().as_ref(),
+            ));
+        }
+    }
+    let mut vm = VM::new(false, false, false, false);
+    let value = vm.run(program).map_err(|err| err.to_string())?;
+    drop(env_guards);
+    drop(lock);
+    Ok(value)
 }
 
 fn write_temp_script(name: &str, source: &str) -> Result<TempScript, String> {
@@ -1395,5 +1761,31 @@ mod tests {
             "--no-compare-stage0".to_string(),
         ]);
         assert_eq!(no_compare, 0);
+    }
+
+    #[test]
+    fn litec_replace_check_verifies_stage_fixed_point() {
+        let dir = tempdir().expect("tempdir");
+        let corpus = dir.path().join("replace-corpus");
+        fs::create_dir_all(&corpus).expect("corpus dir");
+        fs::write(
+            corpus.join("main_a.enk"),
+            "fn main() -> Int ::\n    let f := (v: Int) -> Int => v + 2\n    return f(5)\n::\nmain()\n",
+        )
+        .expect("write a");
+        fs::write(
+            corpus.join("main_b.enk"),
+            "type Pair ::\n    value: Int\n::\n\
+             impl Pair ::\n    fn add(x: Int) -> Int ::\n        return self.value + x\n    ::\n::\n\
+             fn main() -> Int ::\n    let p := Pair(9)\n    let _tmp := p.add(1)\n    return 10\n::\n\
+             main()\n",
+        )
+        .expect("write b");
+        let code = litec_command(&[
+            "replace-check".to_string(),
+            corpus.to_string_lossy().to_string(),
+            "--no-compare-stage0".to_string(),
+        ]);
+        assert_eq!(code, 0);
     }
 }

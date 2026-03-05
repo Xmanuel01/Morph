@@ -17,6 +17,7 @@ This policy defines compatibility guarantees for:
 - Generated frontend SDK/backend route contract must preserve:
   - `/api/<version>` prefix
   - `x-enkai-api-version` request header.
+- Multi-rank distributed runtime must remain explicitly opt-in through `ENKAI_ENABLE_DIST=1`.
 
 ## Deprecation Rules
 

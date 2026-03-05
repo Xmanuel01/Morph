@@ -2,6 +2,7 @@ $ErrorActionPreference = "Stop"
 
 $Run = ($env:ENKAI_RUN_MULTI_GPU_TESTS -eq "1")
 $SingleGpuGreen = ($env:ENKAI_SINGLE_GPU_GREEN -eq "1")
+$DistEnabled = ($env:ENKAI_ENABLE_DIST -eq "1")
 $Launcher = $env:ENKAI_DP_LAUNCH_CMD
 $WorkDir = if ($env:ENKAI_DP_WORKDIR) { $env:ENKAI_DP_WORKDIR } else { "tmp/dp_harness" }
 $TolLoss = if ($env:ENKAI_DP_LOSS_TOL) { [double]$env:ENKAI_DP_LOSS_TOL } else { 0.05 }
@@ -14,6 +15,7 @@ function Skip($msg) {
 
 if (-not $Run) { Skip "ENKAI_RUN_MULTI_GPU_TESTS not set to 1" }
 if (-not $SingleGpuGreen) { Skip "single-GPU gate not marked green (set ENKAI_SINGLE_GPU_GREEN=1 after soak pass)" }
+if (-not $DistEnabled) { Skip "ENKAI_ENABLE_DIST not set to 1" }
 if (-not (Get-Command nvidia-smi -ErrorAction SilentlyContinue)) { Skip "nvidia-smi not available" }
 $gpuCount = [int]((nvidia-smi -L | Measure-Object).Count)
 if ($gpuCount -lt 2) { Skip "fewer than 2 GPUs detected" }

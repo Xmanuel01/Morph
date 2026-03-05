@@ -21,6 +21,8 @@ Use this checklist for production releases.
   - `powershell -ExecutionPolicy Bypass -File scripts/verify_gpu_gates.ps1 -LogDir artifacts/gpu`
   - or `sh scripts/verify_gpu_gates.sh artifacts/gpu`
 - [ ] Complete `VALIDATION.md` gates for the target release
+- [ ] Self-host replacement-readiness gate:
+  - `enkai litec replace-check enkai/tools/bootstrap/selfhost_corpus --no-compare-stage0`
 
 ## 3) Tag
 

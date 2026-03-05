@@ -719,6 +719,11 @@ impl Backend {
     }
 
     pub fn dist_init(&self, world_size: i32, rank: i32) -> Result<(), RuntimeError> {
+        if world_size > 1 && !dist_env_enabled() {
+            return Err(RuntimeError::new(
+                "distributed mode requires ENKAI_ENABLE_DIST=1",
+            ));
+        }
         let Some(dist_init) = self.symbols.dist_init else {
             return Err(RuntimeError::new(
                 "distributed backend symbols unavailable: enkai_dist_init missing",
@@ -763,6 +768,11 @@ impl Backend {
         self.world_size = world_size;
         self.rank = rank;
         if world_size > 1 {
+            if !dist_env_enabled() {
+                return Err(RuntimeError::new(
+                    "distributed mode requires ENKAI_ENABLE_DIST=1",
+                ));
+            }
             self.dist_init(world_size, rank)?;
         }
         Ok(())
@@ -839,6 +849,18 @@ fn lib_name(base: &str) -> String {
 
 fn to_ms(duration: std::time::Duration) -> f32 {
     (duration.as_secs_f64() * 1_000.0) as f32
+}
+
+fn dist_env_enabled() -> bool {
+    match std::env::var("ENKAI_ENABLE_DIST") {
+        Ok(value) => {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        }
+        Err(_) => false,
+    }
 }
 unsafe fn load_symbols(lib: &Library) -> Result<Symbols, RuntimeError> {
     macro_rules! sym {

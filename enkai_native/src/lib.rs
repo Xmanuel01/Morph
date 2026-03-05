@@ -1,4 +1,5 @@
 use memmap2::Mmap;
+use postgres::{types::Type as PgType, Client as PgClient, NoTls};
 use rusqlite::types::ValueRef;
 use rusqlite::Connection;
 use sha2::{Digest, Sha256};
@@ -468,6 +469,16 @@ fn next_db_handle() -> i64 {
     NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
+fn pg_table() -> &'static Mutex<HashMap<i64, PgClient>> {
+    static TABLE: OnceLock<Mutex<HashMap<i64, PgClient>>> = OnceLock::new();
+    TABLE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn next_pg_handle() -> i64 {
+    static NEXT: AtomicI64 = AtomicI64::new(1_000_000);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
 fn parse_args_json(text: &str) -> Option<Vec<String>> {
     let value: serde_json::Value = serde_json::from_str(text).ok()?;
     let arr = value.as_array()?;
@@ -712,6 +723,174 @@ pub extern "C" fn db_sqlite_query(handle: i64, sql_ptr: *const u8, sql_len: usiz
                 Err(_) => serde_json::Value::Null,
             };
             obj.insert(key.clone(), value);
+        }
+        out.push(serde_json::Value::Object(obj));
+    }
+    match serde_json::to_string(&out) {
+        Ok(text) => string_slice(text),
+        Err(_) => string_slice("[]".to_string()),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn db_postgres_open(conn_ptr: *const u8, conn_len: usize) -> i64 {
+    let conn = match string_from_raw(conn_ptr, conn_len) {
+        Some(conn) => conn,
+        None => return 0,
+    };
+    let client = match PgClient::connect(&conn, NoTls) {
+        Ok(client) => client,
+        Err(_) => return 0,
+    };
+    let handle = next_pg_handle();
+    if let Ok(mut table) = pg_table().lock() {
+        table.insert(handle, client);
+        handle
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn db_postgres_close(handle: i64) -> u8 {
+    if handle <= 0 {
+        return 0;
+    }
+    if let Ok(mut table) = pg_table().lock() {
+        if table.remove(&handle).is_some() {
+            1
+        } else {
+            0
+        }
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn db_postgres_exec(handle: i64, sql_ptr: *const u8, sql_len: usize) -> i64 {
+    if handle <= 0 {
+        return -1;
+    }
+    let sql = match string_from_raw(sql_ptr, sql_len) {
+        Some(sql) => sql,
+        None => return -1,
+    };
+    let mut table = match pg_table().lock() {
+        Ok(table) => table,
+        Err(_) => return -1,
+    };
+    let client = match table.get_mut(&handle) {
+        Some(client) => client,
+        None => return -1,
+    };
+    match client.execute(&sql, &[]) {
+        Ok(count) => count as i64,
+        Err(_) => -1,
+    }
+}
+
+fn pg_cell_to_json(row: &postgres::Row, idx: usize, ty: &PgType) -> serde_json::Value {
+    if *ty == PgType::BOOL {
+        return match row.try_get::<usize, Option<bool>>(idx) {
+            Ok(Some(value)) => serde_json::json!(value),
+            Ok(None) => serde_json::Value::Null,
+            Err(_) => serde_json::Value::Null,
+        };
+    }
+    if *ty == PgType::INT2 {
+        return match row.try_get::<usize, Option<i16>>(idx) {
+            Ok(Some(value)) => serde_json::json!(value),
+            Ok(None) => serde_json::Value::Null,
+            Err(_) => serde_json::Value::Null,
+        };
+    }
+    if *ty == PgType::INT4 {
+        return match row.try_get::<usize, Option<i32>>(idx) {
+            Ok(Some(value)) => serde_json::json!(value),
+            Ok(None) => serde_json::Value::Null,
+            Err(_) => serde_json::Value::Null,
+        };
+    }
+    if *ty == PgType::INT8 {
+        return match row.try_get::<usize, Option<i64>>(idx) {
+            Ok(Some(value)) => serde_json::json!(value),
+            Ok(None) => serde_json::Value::Null,
+            Err(_) => serde_json::Value::Null,
+        };
+    }
+    if *ty == PgType::FLOAT4 {
+        return match row.try_get::<usize, Option<f32>>(idx) {
+            Ok(Some(value)) => serde_json::json!(value),
+            Ok(None) => serde_json::Value::Null,
+            Err(_) => serde_json::Value::Null,
+        };
+    }
+    if *ty == PgType::FLOAT8 {
+        return match row.try_get::<usize, Option<f64>>(idx) {
+            Ok(Some(value)) => serde_json::json!(value),
+            Ok(None) => serde_json::Value::Null,
+            Err(_) => serde_json::Value::Null,
+        };
+    }
+    if *ty == PgType::JSON || *ty == PgType::JSONB {
+        return match row.try_get::<usize, Option<serde_json::Value>>(idx) {
+            Ok(Some(value)) => value,
+            Ok(None) => serde_json::Value::Null,
+            Err(_) => serde_json::Value::Null,
+        };
+    }
+    if *ty == PgType::BYTEA {
+        return match row.try_get::<usize, Option<Vec<u8>>>(idx) {
+            Ok(Some(bytes)) => serde_json::Value::String(hex_bytes(&bytes)),
+            Ok(None) => serde_json::Value::Null,
+            Err(_) => serde_json::Value::Null,
+        };
+    }
+    match row.try_get::<usize, Option<String>>(idx) {
+        Ok(Some(value)) => serde_json::Value::String(value),
+        Ok(None) => serde_json::Value::Null,
+        Err(_) => serde_json::Value::Null,
+    }
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    out
+}
+
+#[no_mangle]
+pub extern "C" fn db_postgres_query(handle: i64, sql_ptr: *const u8, sql_len: usize) -> FfiSlice {
+    if handle <= 0 {
+        return string_slice("[]".to_string());
+    }
+    let sql = match string_from_raw(sql_ptr, sql_len) {
+        Some(sql) => sql,
+        None => return string_slice("[]".to_string()),
+    };
+    let mut table = match pg_table().lock() {
+        Ok(table) => table,
+        Err(_) => return string_slice("[]".to_string()),
+    };
+    let client = match table.get_mut(&handle) {
+        Some(client) => client,
+        None => return string_slice("[]".to_string()),
+    };
+    let rows = match client.query(&sql, &[]) {
+        Ok(rows) => rows,
+        Err(_) => return string_slice("[]".to_string()),
+    };
+    let mut out = Vec::new();
+    for row in rows {
+        let mut obj = serde_json::Map::new();
+        for (idx, col) in row.columns().iter().enumerate() {
+            let value = pg_cell_to_json(&row, idx, col.type_());
+            obj.insert(col.name().to_string(), value);
         }
         out.push(serde_json::Value::Object(obj));
     }

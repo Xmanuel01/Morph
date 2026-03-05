@@ -5,6 +5,10 @@ native::import "enkai_native" ::
     fn db_sqlite_close(handle: Int) -> Bool
     fn db_sqlite_exec(handle: Int, sql: String) -> Int
     fn db_sqlite_query(handle: Int, sql: String) -> String
+    fn db_postgres_open(conn: String) -> Int
+    fn db_postgres_close(handle: Int) -> Bool
+    fn db_postgres_exec(handle: Int, sql: String) -> Int
+    fn db_postgres_query(handle: Int, sql: String) -> String
 ::
 
 pub fn sqlite_open(path: String) -> Int? ::
@@ -25,5 +29,26 @@ pub fn sqlite_exec(handle: Int, sql: String) -> Int ::
 
 pub fn sqlite_query(handle: Int, sql: String) ::
     let raw := db_sqlite_query(handle, sql)
+    return json.parse(raw)
+::
+
+pub fn pg_open(conn: String) -> Int? ::
+    let handle := db_postgres_open(conn)
+    if handle <= 0 ::
+        return none
+    ::
+    return handle
+::
+
+pub fn pg_close(handle: Int) -> Bool ::
+    return db_postgres_close(handle)
+::
+
+pub fn pg_exec(handle: Int, sql: String) -> Int ::
+    return db_postgres_exec(handle, sql)
+::
+
+pub fn pg_query(handle: Int, sql: String) ::
+    let raw := db_postgres_query(handle, sql)
     return json.parse(raw)
 ::

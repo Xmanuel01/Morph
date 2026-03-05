@@ -2,6 +2,7 @@ $ErrorActionPreference = "Stop"
 
 $Run = ($env:ENKAI_RUN_MULTI_GPU_TESTS -eq "1")
 $SingleGpuGreen = ($env:ENKAI_SINGLE_GPU_GREEN -eq "1")
+$DistEnabled = ($env:ENKAI_ENABLE_DIST -eq "1")
 $Launcher = $env:ENKAI_4GPU_LAUNCH_CMD
 $MinHours = if ($env:ENKAI_4GPU_MIN_HOURS) { [int]$env:ENKAI_4GPU_MIN_HOURS } else { 3 }
 $NCCL_TIMEOUT_SEC = if ($env:NCCL_TIMEOUT) { [int]$env:NCCL_TIMEOUT } else { 1800 }
@@ -13,6 +14,7 @@ function Skip($msg) {
 
 if (-not $Run) { Skip "ENKAI_RUN_MULTI_GPU_TESTS not set to 1" }
 if (-not $SingleGpuGreen) { Skip "single-GPU gate not marked green (set ENKAI_SINGLE_GPU_GREEN=1 after soak pass)" }
+if (-not $DistEnabled) { Skip "ENKAI_ENABLE_DIST not set to 1" }
 if (-not (Get-Command nvidia-smi -ErrorAction SilentlyContinue)) { Skip "nvidia-smi not available" }
 $gpuCount = [int]((nvidia-smi -L | Measure-Object).Count)
 if ($gpuCount -lt 4) { Skip "fewer than 4 GPUs detected" }

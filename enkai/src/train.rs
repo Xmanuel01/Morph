@@ -940,6 +940,11 @@ fn parse_train_config(value: &Value) -> Result<TrainConfig, String> {
     if rank >= world_size {
         return Err("rank must be < world_size".to_string());
     }
+    if world_size > 1 && !dist_env_enabled() {
+        return Err(
+            "world_size > 1 requires ENKAI_ENABLE_DIST=1 (explicit distributed opt-in)".to_string(),
+        );
+    }
     if backend == "cpu" && world_size > 1 {
         return Err("world_size > 1 requires backend = \"native\"".to_string());
     }
@@ -1245,6 +1250,18 @@ fn validate_device(device: &str, backend: &str) -> Result<(), String> {
         }
     }
     Err("device must be \"cpu\", \"cuda\", or \"cuda:<index>\"".to_string())
+}
+
+fn dist_env_enabled() -> bool {
+    match std::env::var("ENKAI_ENABLE_DIST") {
+        Ok(value) => {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        }
+        Err(_) => false,
+    }
 }
 
 fn hash_config(config: &TrainConfig) -> u64 {
@@ -1797,5 +1814,51 @@ mod tests {
         )
         .expect("write meta");
         eval(&config_path).expect("legacy checkpoint eval");
+    }
+
+    #[test]
+    fn distributed_parse_requires_explicit_env_gate() {
+        let _env_guard = crate::env_guard();
+        let prev = std::env::var("ENKAI_ENABLE_DIST").ok();
+        std::env::remove_var("ENKAI_ENABLE_DIST");
+
+        let dir = tempdir().expect("tempdir");
+        let data = dir.path().join("dist_data.txt");
+        fs::write(&data, "alpha beta gamma\ndelta epsilon").expect("write data");
+        let ckpt = dir.path().join("dist_ckpt");
+        let config_path = dir.path().join("dist_config.enk");
+        let config = serde_json::json!({
+            "config_version": 1,
+            "backend": "native",
+            "vocab_size": 8,
+            "hidden_size": 4,
+            "seq_len": 4,
+            "batch_size": 2,
+            "lr": 0.1,
+            "dataset_path": data.to_string_lossy(),
+            "checkpoint_dir": ckpt.to_string_lossy(),
+            "max_steps": 1,
+            "save_every": 1,
+            "log_every": 1,
+            "drop_remainder": false,
+            "world_size": 2,
+            "rank": 0,
+            "tokenizer_train": { "path": data.to_string_lossy(), "vocab_size": 8 }
+        });
+        write_config(&config_path, &config).expect("write config");
+        let value = load_config_value(&config_path).expect("load config value");
+        let err = parse_train_config(&value).expect_err("missing dist gate must fail");
+        assert!(err.contains("ENKAI_ENABLE_DIST=1"));
+
+        std::env::set_var("ENKAI_ENABLE_DIST", "1");
+        let parsed = parse_train_config(&value).expect("dist gate enabled parse");
+        assert_eq!(parsed.world_size, 2);
+        assert_eq!(parsed.rank, 0);
+
+        if let Some(value) = prev {
+            std::env::set_var("ENKAI_ENABLE_DIST", value);
+        } else {
+            std::env::remove_var("ENKAI_ENABLE_DIST");
+        }
     }
 }

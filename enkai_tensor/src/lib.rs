@@ -278,7 +278,7 @@ pub unsafe extern "C" fn enkai_backend_current(
 }
 
 #[no_mangle]
-/// Configure distributed context (stub; no NCCL init yet).
+/// Configure distributed context for multi-rank runs.
 pub extern "C" fn enkai_dist_config(world_size: i64, rank: i64, device: i64, seed: i64) -> c_int {
     ffi_guard(1, || {
         clear_error();
@@ -286,6 +286,28 @@ pub extern "C" fn enkai_dist_config(world_size: i64, rank: i64, device: i64, see
         {
             if world_size <= 0 || rank < 0 || rank >= world_size {
                 set_error("invalid world_size or rank");
+                return 1;
+            }
+            if world_size > 1 && !env_flag_enabled("ENKAI_ENABLE_DIST") {
+                set_error(
+                    "distributed mode requires ENKAI_ENABLE_DIST=1 (explicit opt-in safeguard)",
+                );
+                return 1;
+            }
+            if world_size > 1 && !backend_is_torch() {
+                set_error("distributed mode requires torch backend");
+                return 1;
+            }
+            if world_size > 1 && !tch::Cuda::is_available() {
+                set_error("distributed mode requires CUDA; CUDA runtime is not available");
+                return 1;
+            }
+            let cuda_count = tch::Cuda::device_count();
+            if world_size > 1 && cuda_count < world_size {
+                set_error(format!(
+                    "distributed mode requires at least {} CUDA devices; found {}",
+                    world_size, cuda_count
+                ));
                 return 1;
             }
             DIST_WORLD.store(world_size, Ordering::SeqCst);
@@ -303,21 +325,39 @@ pub extern "C" fn enkai_dist_config(world_size: i64, rank: i64, device: i64, see
                     -1
                 }
             };
+            if world_size > 1 {
+                if dev_to_use < 0 {
+                    set_error("distributed mode requires CUDA device mapping");
+                    return 1;
+                }
+                if dev_to_use >= cuda_count {
+                    set_error(format!(
+                        "distributed mode device mapping out of range: cuda:{} (available={})",
+                        dev_to_use, cuda_count
+                    ));
+                    return 1;
+                }
+                if dev_to_use != rank {
+                    set_error(format!(
+                        "distributed mode rank/device mismatch: rank {} must map to cuda:{} (got cuda:{})",
+                        rank, rank, dev_to_use
+                    ));
+                    return 1;
+                }
+            }
             DIST_DEVICE.store(dev_to_use, Ordering::SeqCst);
             DIST_SEED.store(seed, Ordering::SeqCst);
             if world_size > 1 {
-                #[cfg(feature = "dist")]
-                {
-                    let rc = crate::dist::enkai_dist_init(world_size as i32, rank as i32);
-                    if rc != 0 {
-                        return 1;
-                    }
-                }
-                #[cfg(not(feature = "dist"))]
-                {
-                    set_error("distributed backend not enabled (dist feature missing)");
+                let rc = dist_init_dispatch(world_size as i32, rank as i32);
+                if rc != 0 {
+                    DIST_WORLD.store(1, Ordering::SeqCst);
+                    DIST_RANK.store(0, Ordering::SeqCst);
+                    DIST_DEVICE.store(-1, Ordering::SeqCst);
+                    DIST_SEED.store(0, Ordering::SeqCst);
                     return 1;
                 }
+            } else {
+                let _ = dist_shutdown_dispatch();
             }
             0
         }
@@ -334,7 +374,7 @@ pub extern "C" fn enkai_dist_config(world_size: i64, rank: i64, device: i64, see
 }
 
 #[no_mangle]
-/// Stub all-reduce (sum) that currently errors until NCCL is added.
+/// All-reduce sum entrypoint (averaging by world-size in multi-rank mode).
 pub extern "C" fn enkai_dist_allreduce_sum(_params_json: *const c_char) -> c_int {
     ffi_guard(1, || {
         clear_error();
@@ -342,15 +382,17 @@ pub extern "C" fn enkai_dist_allreduce_sum(_params_json: *const c_char) -> c_int
         {
             let world = DIST_WORLD.load(Ordering::SeqCst);
             if world > 1 {
-                #[cfg(feature = "dist")]
-                {
-                    return crate::dist::enkai_dist_allreduce_sum_multi(_params_json);
-                }
-                #[cfg(not(feature = "dist"))]
-                {
-                    set_error("multi-rank allreduce requires NCCL; dist feature missing");
+                if !env_flag_enabled("ENKAI_ENABLE_DIST") {
+                    set_error(
+                        "distributed allreduce blocked: set ENKAI_ENABLE_DIST=1 before multi-rank use",
+                    );
                     return 1;
                 }
+                let rc = dist_allreduce_dispatch(_params_json);
+                if rc != 0 {
+                    return 1;
+                }
+                return 0;
             }
             let params_json = match cstr_to_string(_params_json) {
                 Ok(v) => v,
@@ -385,6 +427,76 @@ pub extern "C" fn enkai_dist_allreduce_sum(_params_json: *const c_char) -> c_int
     })
 }
 
+#[cfg(feature = "torch")]
+#[cfg(all(feature = "torch", feature = "dist"))]
+fn dist_init_dispatch(world_size: i32, rank: i32) -> c_int {
+    crate::dist::enkai_dist_init(world_size, rank)
+}
+
+#[cfg(feature = "torch")]
+#[cfg(not(all(feature = "torch", feature = "dist")))]
+fn dist_init_dispatch(world_size: i32, rank: i32) -> c_int {
+    enkai_dist_init(world_size, rank)
+}
+
+#[cfg(feature = "torch")]
+#[cfg(all(feature = "torch", feature = "dist"))]
+fn dist_allreduce_dispatch(handles_json: *const c_char) -> c_int {
+    crate::dist::enkai_dist_allreduce_sum_multi(handles_json)
+}
+
+#[cfg(feature = "torch")]
+#[cfg(not(all(feature = "torch", feature = "dist")))]
+fn dist_allreduce_dispatch(handles_json: *const c_char) -> c_int {
+    enkai_dist_allreduce_sum_multi(handles_json)
+}
+
+#[cfg(feature = "torch")]
+#[cfg(all(feature = "torch", feature = "dist"))]
+fn dist_shutdown_dispatch() -> c_int {
+    crate::dist::enkai_dist_shutdown()
+}
+
+#[cfg(feature = "torch")]
+#[cfg(not(all(feature = "torch", feature = "dist")))]
+fn dist_shutdown_dispatch() -> c_int {
+    enkai_dist_shutdown()
+}
+
+#[cfg(not(all(feature = "torch", feature = "dist")))]
+#[no_mangle]
+pub extern "C" fn enkai_dist_init(world_size: i32, rank: i32) -> c_int {
+    ffi_guard(1, || {
+        clear_error();
+        let _ = world_size;
+        let _ = rank;
+        set_error("distributed backend requires enkai_tensor built with features \"torch,dist\"");
+        1
+    })
+}
+
+#[cfg(not(all(feature = "torch", feature = "dist")))]
+#[no_mangle]
+pub extern "C" fn enkai_dist_allreduce_sum_multi(handles_json: *const c_char) -> c_int {
+    ffi_guard(1, || {
+        clear_error();
+        let _ = handles_json;
+        set_error(
+            "distributed allreduce unavailable: build enkai_tensor with features \"torch,dist\"",
+        );
+        1
+    })
+}
+
+#[cfg(not(all(feature = "torch", feature = "dist")))]
+#[no_mangle]
+pub extern "C" fn enkai_dist_shutdown() -> c_int {
+    ffi_guard(1, || {
+        clear_error();
+        0
+    })
+}
+
 #[no_mangle]
 pub extern "C" fn enkai_tensor_last_error() -> *const c_char {
     ffi_guard(ptr::null(), || {
@@ -403,6 +515,19 @@ fn cstr_to_string(ptr: *const c_char) -> Result<String, String> {
     cstr.to_str()
         .map(|s| s.to_string())
         .map_err(|_| "Invalid UTF-8 string".to_string())
+}
+
+#[cfg(feature = "torch")]
+fn env_flag_enabled(key: &str) -> bool {
+    match std::env::var(key) {
+        Ok(value) => {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        }
+        Err(_) => false,
+    }
 }
 
 #[cfg(feature = "torch")]

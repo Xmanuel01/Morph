@@ -158,6 +158,7 @@ impl<'a> ProgramBuilder<'a> {
         let _ = self.ensure_global("chan");
         let _ = self.ensure_global("net");
         let _ = self.ensure_global("http");
+        let _ = self.ensure_global("tool");
         let _ = self.ensure_global("policy");
         let _ = self.ensure_global("json");
         let _ = self.ensure_global("bootstrap");
@@ -215,9 +216,19 @@ impl<'a> ProgramBuilder<'a> {
     fn compile_tool_stub(&mut self, module: &ModuleContext, name: &str, params: &[Param]) -> u16 {
         let mut chunk = Chunk::new();
         let line = 0;
-        let null_idx = chunk.add_constant(Constant::Null);
-        chunk.write(Instruction::Const(null_idx), line);
-        chunk.write(Instruction::TryUnwrap, line);
+        let tool_global = self.ensure_global("tool");
+        chunk.write(Instruction::LoadGlobal(tool_global), line);
+        let invoke_key = chunk.add_constant(Constant::String("invoke".to_string()));
+        chunk.write(Instruction::GetField(invoke_key), line);
+        let name_idx = chunk.add_constant(Constant::String(name.to_string()));
+        chunk.write(Instruction::Const(name_idx), line);
+        for (idx, param) in params.iter().enumerate() {
+            let key_idx = chunk.add_constant(Constant::String(param.name.clone()));
+            chunk.write(Instruction::Const(key_idx), line);
+            chunk.write(Instruction::LoadLocal(idx as u16), line);
+        }
+        chunk.write(Instruction::MakeRecord(params.len() as u16), line);
+        chunk.write(Instruction::Call(2), line);
         chunk.write(Instruction::Return, line);
         let func = ByteFunction {
             name: Some(name.to_string()),
@@ -238,7 +249,8 @@ impl<'a> ProgramBuilder<'a> {
         let module_prefix = module_prefix(&info.id);
         let module_record_name = module_record_name(&info.id);
         let module_record_global = self.ensure_global(&module_record_name);
-        let exports = info.exports.iter().cloned().collect::<Vec<_>>();
+        let mut exports = info.exports.iter().cloned().collect::<Vec<_>>();
+        exports.sort();
         let mut import_exports = HashMap::new();
         if let Some(package) = package {
             for (alias, module_id) in &info.import_aliases {
@@ -1140,7 +1152,13 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
     }
 
     fn emit_imports(&mut self) -> Result<(), CompileError> {
-        for (alias, module_id) in &self.module.import_aliases {
+        let mut imports = self
+            .module
+            .import_aliases
+            .iter()
+            .collect::<Vec<(&String, &ModuleId)>>();
+        imports.sort_by(|a, b| a.0.cmp(b.0));
+        for (alias, module_id) in imports {
             let module_record = module_record_name(module_id);
             let record_idx = self.enclosing.ensure_global(&module_record);
             let alias_name = mangle_symbol(&self.module.prefix, alias);
