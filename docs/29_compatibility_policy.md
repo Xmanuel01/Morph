@@ -1,4 +1,4 @@
-# Compatibility And Deprecation Policy (v1.9.3)
+# Compatibility And Deprecation Policy (v1.9.4)
 
 ## Scope
 
@@ -13,7 +13,7 @@ This policy defines compatibility guarantees for:
 - Grammar remains frozen at the v0.9.3 baseline for v1.x.
 - `config_version: 1` is the stable train/eval schema for v1.x.
 - Checkpoints with `format_version: 1` are the stable checkpoint format for v1.x.
-- Checkpoints missing `format_version` are treated as legacy v0 metadata and remain loadable in v1.9.3.
+- Checkpoints missing `format_version` are treated as legacy v0 metadata and remain loadable in v1.9.4.
 - Generated frontend SDK/backend route contract must preserve:
   - `/api/<version>` prefix
   - `x-enkai-api-version` request header.
@@ -45,6 +45,11 @@ Release candidates must pass:
 
 ## Migration Guidance
 
+Tooling support:
+- `enkai migrate config-v1 <in> <out>` converts/ejects canonical v1 train/eval config.
+- `enkai migrate checkpoint-meta-v1 <checkpoint_dir> [--dry-run] [--verify]` upgrades or verifies checkpoint metadata.
+- `enkai doctor [path]` reports v2.0 readiness blockers for config/checkpoint contracts.
+
 ### Legacy config -> v1 config
 
 Minimum migration:
@@ -66,4 +71,4 @@ Recommended metadata fields in `meta.json`:
 - `dtype`
 - `device`.
 
-When resaving from v1.9.3 train/eval flows, metadata is written in v1 format.
+When resaving from v1.9.4 train/eval flows, metadata is written in v1 format.

@@ -18,6 +18,7 @@ use enkai_runtime::{Value, VM};
 
 mod bootstrap;
 mod frontend;
+mod migrate;
 mod train;
 
 pub(crate) fn env_guard() -> std::sync::MutexGuard<'static, ()> {
@@ -98,6 +99,8 @@ fn main() {
         "test" => test_command(&args[2..]),
         "train" => train_command(&args[2..]),
         "eval" => eval_command(&args[2..]),
+        "migrate" => migrate::migrate_command(&args[2..]),
+        "doctor" => migrate::doctor_command(&args[2..]),
         _ => {
             print_usage();
             1
@@ -862,6 +865,7 @@ fn print_usage() {
     eprintln!("  enkai test [dir]");
     eprintln!("  enkai train <config.enk>");
     eprintln!("  enkai eval <config.enk>");
+    migrate::print_usage();
 }
 
 fn print_version() {

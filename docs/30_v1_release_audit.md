@@ -1,20 +1,20 @@
-# Enkai v1.0.0-v1.9.3 Delivery And Production-Grade Audit
+# Enkai v1.0.0-v1.9.4 Delivery And Production-Grade Audit
 
 ## Purpose
 
-This document records what shipped from `v1.0.0` through `v1.9.3` and the current production-readiness status.
+This document records what shipped from `v1.0.0` through `v1.9.4` and the current production-readiness status.
 
 ## Source of truth used for this record
 
-- Git tags: `v1.0.0` through `v1.9.3`.
+- Git tags: `v1.0.0` through `v1.9.4`.
 - `CHANGELOG.md`.
 - `docs/Enkai.spec` compatibility and runtime sections.
 - `VALIDATION.md`.
 - `docs/RELEASE_CHECKLIST.md`.
-- Release pipeline run on `2026-03-04 10:01:53 +03:00`:
+- Release pipeline run on `2026-03-05`:
   - `powershell -ExecutionPolicy Bypass -File scripts/v1_9_release_pipeline.ps1`
 
-## Release ledger (v1.0.0-v1.9.3)
+## Release ledger (v1.0.0-v1.9.4)
 
 ### v1.0.0 - Production core freeze
 
@@ -132,38 +132,51 @@ This document records what shipped from `v1.0.0` through `v1.9.3` and the curren
 - Hardened tool command/process error mapping for config, spawn, timeout, wait, IO, payload, and output-format failures.
 - Expanded integration coverage for coded failure behavior:
   - tool timeout and spawn failure codes
-  - deterministic policy denial code coverage for tool/http/process/db/fs paths.
+  - deterministic policy denial code coverage for tool/http/process/db/fs paths
 - Declared bytecode VM as normative production runtime contract and legacy interpreter as compatibility/reference only.
+
+### v1.9.4 - Contract migration and readiness tooling
+
+- Added migration CLI:
+  - `enkai migrate config-v1 <in_config.enk> <out_config.enk|out.json>`
+  - `enkai migrate checkpoint-meta-v1 <checkpoint_dir> [--dry-run] [--verify]`
+- Added readiness scanner:
+  - `enkai doctor [path]`
+- Added checkpoint metadata contract validation and cross-tree consistency checks for:
+  - `config_hash`
+  - `model_sig`
+  - `dtype`
+  - `device`
+- Added fixture-backed migration/doctor regression tests.
+- Updated spec/policy/readme/docs to v1.9.4 and documented migration workflow.
 
 ## Production-grade audit status
 
 ### Automated gates (executed)
 
-Run executed on `2026-03-04`:
+Run executed on `2026-03-05`:
 
-- `cargo fmt --all --check` -> PASS
+- `cargo fmt --all -- --check` -> PASS
 - `cargo clippy --workspace --all-targets -- -D warnings` -> PASS
 - `cargo test --workspace` -> PASS
-- `cargo run -p enkai -- litec selfhost-ci enkai/tools/bootstrap/selfhost_corpus` -> PASS
-- `cargo run -p enkai -- litec replace-check enkai/tools/bootstrap/selfhost_corpus --no-compare-stage0` -> PASS
-- Consolidated pipeline script `scripts/v1_9_release_pipeline.ps1` -> PASS
+- `powershell -ExecutionPolicy Bypass -File scripts/v1_9_release_pipeline.ps1` -> PASS
 
 ### Coverage conclusion
 
 - Language/runtime/core CLI: production-grade under automated CPU gates.
 - Backend/serve/frontend scaffolds: production-grade under automated integration tests.
-- Bootstrap-lite/core/self-host CI lanes: production-grade under current deterministic parity/fixed-point gates.
-- Compatibility controls (legacy config/checkpoint): production-grade under automated migration tests.
+- Bootstrap-lite/core/self-host CI lanes: production-grade under deterministic parity/fixed-point gates.
+- Compatibility controls (legacy config/checkpoint): production-grade under migration + doctor tests.
 
 ### Remaining operator-required evidence (not auto-proven in repo state)
 
 - CUDA single-GPU soak evidence.
 - 2-GPU distributed correctness evidence.
 - 4-GPU soak reliability evidence.
-- Optional GPU evidence verification script run against collected logs.
+- GPU evidence verification script run against collected logs.
 
 ## Final readiness verdict
 
-- `v1.0.0` through `v1.9.3` are fully documented and implementation-backed in this repository.
+- `v1.0.0` through `v1.9.4` are documented and implementation-backed in this repository.
 - Current state is production-grade for CPU/non-GPU and self-host replacement-readiness gates.
-- Final "all-target hardware production-grade" sign-off remains blocked only by operator GPU soak evidence listed above.
+- Final all-target hardware production sign-off remains blocked only by operator GPU evidence.

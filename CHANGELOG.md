@@ -11,6 +11,27 @@
 ### Breaking changes
 - None.
 
+## v1.9.4
+
+### Highlights
+- Added migration + readiness CLI tooling:
+  - `enkai migrate config-v1 <in> <out>`
+  - `enkai migrate checkpoint-meta-v1 <checkpoint_dir> [--dry-run] [--verify]`
+  - `enkai doctor [path]`
+- Added checkpoint metadata verifier with required-key checks and cross-tree consistency checks for:
+  - `config_hash`
+  - `model_sig`
+  - `dtype`
+  - `device`
+- Added canonical config-v1 emission path for migration output.
+
+### Fixes
+- Added fixture-backed migration/doctor tests and checkpoint metadata migration tests.
+- Aligned docs/spec/readme references and command lists for `v1.9.4`.
+
+### Breaking changes
+- None.
+
 ## v1.9.3
 
 ### Highlights

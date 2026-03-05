@@ -2,9 +2,9 @@
 
 ## Versioning policy
 
-- Current production release line: `v1.9.3`.
-- `docs/Enkai.spec` is the normative language reference for `v1.9.3`.
-- Known limits and partial features are tracked inside `docs/Enkai.spec` under `Known Limits in v1.9.3`.
+- Current production release line: `v1.9.4`.
+- `docs/Enkai.spec` is the normative language reference for `v1.9.4`.
+- Known limits and partial features are tracked inside `docs/Enkai.spec` under `Known Limits in v1.9.4`.
 - VM bytecode runtime behavior is the production contract; the legacy tree-walk interpreter is non-production/reference only.
 - Spec updates are implementation-first (update docs after code + tests land).
 - Historical implementation snapshots remain in `docs/v0.1-status.md`, `docs/v0.2-status.md`, and `docs/v0.3-plan.md`.

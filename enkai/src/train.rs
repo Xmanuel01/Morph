@@ -830,6 +830,22 @@ pub fn eval(config_path: &Path) -> Result<(), String> {
     }
 }
 
+pub(crate) fn load_config_json(path: &Path) -> Result<serde_json::Value, String> {
+    let value = load_config_value(path)?;
+    value_to_json(&value)
+}
+
+pub(crate) fn validate_train_config(path: &Path, enforce_dist_env: bool) -> Result<(), String> {
+    let value = load_config_value(path)?;
+    parse_train_config_inner(&value, enforce_dist_env).map(|_| ())
+}
+
+pub(crate) fn migrate_config_v1_json(path: &Path) -> Result<serde_json::Value, String> {
+    let value = load_config_value(path)?;
+    let config = parse_train_config_inner(&value, false)?;
+    Ok(train_config_to_json(&config))
+}
+
 fn build_tokenizer(config: &TrainConfig) -> Result<Tokenizer, String> {
     match &config.tokenizer {
         TokenizerConfig::Load(path) => Tokenizer::load(Path::new(path)),
@@ -870,6 +886,10 @@ fn load_config_value(path: &Path) -> Result<Value, String> {
 }
 
 fn parse_train_config(value: &Value) -> Result<TrainConfig, String> {
+    parse_train_config_inner(value, true)
+}
+
+fn parse_train_config_inner(value: &Value, enforce_dist_env: bool) -> Result<TrainConfig, String> {
     let map_ref = value_as_record(value)?;
     let map = &*map_ref;
     let (config_version, legacy_config) = match map.get("config_version") {
@@ -940,7 +960,7 @@ fn parse_train_config(value: &Value) -> Result<TrainConfig, String> {
     if rank >= world_size {
         return Err("rank must be < world_size".to_string());
     }
-    if world_size > 1 && !dist_env_enabled() {
+    if world_size > 1 && enforce_dist_env && !dist_env_enabled() {
         return Err(
             "world_size > 1 requires ENKAI_ENABLE_DIST=1 (explicit distributed opt-in)".to_string(),
         );
@@ -1023,6 +1043,156 @@ fn parse_train_config(value: &Value) -> Result<TrainConfig, String> {
         grad_accum_steps,
         grad_clip_norm,
         legacy_config,
+    })
+}
+
+fn train_config_to_json(config: &TrainConfig) -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+    map.insert("config_version".to_string(), serde_json::json!(1));
+    map.insert("backend".to_string(), serde_json::json!(config.backend));
+    map.insert(
+        "vocab_size".to_string(),
+        serde_json::json!(config.vocab_size),
+    );
+    map.insert(
+        "hidden_size".to_string(),
+        serde_json::json!(config.hidden_size),
+    );
+    map.insert("seq_len".to_string(), serde_json::json!(config.seq_len));
+    map.insert(
+        "batch_size".to_string(),
+        serde_json::json!(config.batch_size),
+    );
+    map.insert("lr".to_string(), serde_json::json!(config.lr));
+    map.insert(
+        "dataset_path".to_string(),
+        serde_json::json!(config.dataset_path),
+    );
+    map.insert(
+        "checkpoint_dir".to_string(),
+        serde_json::json!(config.checkpoint_dir),
+    );
+    map.insert("max_steps".to_string(), serde_json::json!(config.max_steps));
+    map.insert(
+        "save_every".to_string(),
+        serde_json::json!(config.save_every),
+    );
+    map.insert("log_every".to_string(), serde_json::json!(config.log_every));
+    map.insert(
+        "eval_steps".to_string(),
+        serde_json::json!(config.eval_steps),
+    );
+    map.insert(
+        "drop_remainder".to_string(),
+        serde_json::json!(config.drop_remainder),
+    );
+    map.insert("add_eos".to_string(), serde_json::json!(config.add_eos));
+    map.insert("pad_id".to_string(), serde_json::json!(config.pad_id));
+    map.insert("keep_last".to_string(), serde_json::json!(config.keep_last));
+    map.insert("shuffle".to_string(), serde_json::json!(config.shuffle));
+    map.insert(
+        "prefetch_batches".to_string(),
+        serde_json::json!(config.prefetch_batches),
+    );
+    map.insert(
+        "world_size".to_string(),
+        serde_json::json!(config.world_size),
+    );
+    map.insert("rank".to_string(), serde_json::json!(config.rank));
+    map.insert(
+        "grad_accum_steps".to_string(),
+        serde_json::json!(config.grad_accum_steps),
+    );
+    if let Some(norm) = config.grad_clip_norm {
+        map.insert("grad_clip_norm".to_string(), serde_json::json!(norm));
+    }
+    if let Some(seed) = config.seed {
+        map.insert("seed".to_string(), serde_json::json!(seed));
+    }
+    if let Some(path) = &config.eval_dataset_path {
+        map.insert("eval_dataset_path".to_string(), serde_json::json!(path));
+    }
+    map.insert(
+        "model".to_string(),
+        serde_json::json!({
+            "d_model": config.model.d_model,
+            "n_layers": config.model.n_layers,
+            "n_heads": config.model.n_heads,
+            "device": config.model.device,
+            "dtype": config.model.dtype,
+        }),
+    );
+    map.insert(
+        "optim".to_string(),
+        serde_json::json!({
+            "lr": config.optim.lr,
+            "beta1": config.optim.beta1,
+            "beta2": config.optim.beta2,
+            "eps": config.optim.eps,
+            "weight_decay": config.optim.weight_decay,
+        }),
+    );
+    map.insert(
+        "amp".to_string(),
+        serde_json::json!({
+            "enabled": config.amp.enabled,
+            "dtype": config.amp.dtype,
+            "init_scale": config.amp.init_scale,
+            "growth_factor": config.amp.growth_factor,
+            "backoff_factor": config.amp.backoff_factor,
+            "growth_interval": config.amp.growth_interval,
+        }),
+    );
+    match &config.tokenizer {
+        TokenizerConfig::Load(path) => {
+            map.insert("tokenizer_path".to_string(), serde_json::json!(path));
+        }
+        TokenizerConfig::Train {
+            path,
+            vocab_size,
+            save_path,
+        } => {
+            let mut train_map = serde_json::Map::new();
+            train_map.insert("path".to_string(), serde_json::json!(path));
+            train_map.insert("vocab_size".to_string(), serde_json::json!(vocab_size));
+            if let Some(save_path) = save_path {
+                train_map.insert("save_path".to_string(), serde_json::json!(save_path));
+            }
+            map.insert(
+                "tokenizer_train".to_string(),
+                serde_json::Value::Object(train_map),
+            );
+        }
+    }
+    serde_json::Value::Object(map)
+}
+
+fn value_to_json(value: &Value) -> Result<serde_json::Value, String> {
+    Ok(match value {
+        Value::Int(v) => serde_json::json!(v),
+        Value::Float(v) => serde_json::json!(v),
+        Value::Bool(v) => serde_json::json!(v),
+        Value::Null => serde_json::Value::Null,
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::String(v) => serde_json::json!(v),
+            Obj::Buffer(v) => serde_json::json!(v),
+            Obj::Json(v) => v.clone(),
+            Obj::List(items) => {
+                let mut out = Vec::with_capacity(items.borrow().len());
+                for item in items.borrow().iter() {
+                    out.push(value_to_json(item)?);
+                }
+                serde_json::Value::Array(out)
+            }
+            Obj::Record(map) => {
+                let mut out = serde_json::Map::new();
+                for (k, v) in map.borrow().iter() {
+                    out.insert(k.clone(), value_to_json(v)?);
+                }
+                serde_json::Value::Object(out)
+            }
+            _ => return Err("config values must be JSON-compatible".to_string()),
+        },
     })
 }
 
