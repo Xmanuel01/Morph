@@ -1,6 +1,7 @@
-# Tensor API (v0.9)
+# Tensor API (v1.9.1)
 
-`std::tensor` is backed by the `enkai_tensor` native library. This doc reflects the current surface, safety improvements, and backend behavior.
+`std::tensor` is backed by the `enkai_tensor` native library. This doc reflects the
+v1.9.1 surface, safety improvements, and backend behavior.
 
 ## Quick start
 ```
@@ -46,7 +47,7 @@ fn main() ::
 - Helpers: `enkai_amp_scale_loss`, `enkai_amp_unscale_grads`, `enkai_amp_scaler_update`.
 - Convenience: `enkai_amp_step(params, grads, scaler, loss, step_fn)` performs scale -> backward -> unscale -> update for torch backends.
 
-## Distributed support (partial)
+## Distributed support (environment-gated)
 - `enkai_dist_config(world_size, rank, device, seed)`:
   - validates `world_size/rank`,
   - requires explicit opt-in (`ENKAI_ENABLE_DIST=1`) for `world_size > 1`,
@@ -57,14 +58,19 @@ fn main() ::
   - validates distributed context and tensor handles,
   - enforces CUDA-device affinity per rank,
   - runs sum-allreduce and normalizes by `world_size`.
-- Device-per-rank selection and explicit guardrails are covered by CUDA-gated tests (`backend_rank_device.rs`, `dist_guards.rs`).
+- Device-per-rank selection and explicit guardrails are covered by CUDA-gated tests
+  (`backend_rank_device.rs`, `dist_guards.rs`).
+- `enkai_dist_init` and `enkai_dist_allreduce_sum_multi` require
+  `enkai_tensor` built with features `torch,dist`; otherwise they return explicit
+  feature-missing errors.
 
 ## Checkpointing
 - Single-rank saves parameters/optimizer state with SHA-256 integrity files; load verifies hashes before returning handles.
 - Ranked saves: `enkai_checkpoint_save_ranked(dir, rank, world_size, params, opt, meta)` writes `params_rank{n}.bin` and `meta_rank{n}.json` (and optimizer shard if provided) with per-file hashes. `enkai_checkpoint_load_ranked` loads the shard for the given rank. Manifest/barrier coordination remains manual (one call per rank).
 
 ## Known gaps / roadmap
-- Multi-rank execution remains environment-gated and launcher-dependent; operators must provide rank orchestration and GPU soak evidence for release sign-off.
+- Multi-rank execution remains environment-gated and launcher-dependent; operators
+  must provide rank orchestration and GPU soak evidence for release sign-off.
 - CPU backend still depends on libtorch; a pure CPU kernel set would remove that dependency.
 - Mixed-precision support exists only for torch backends.
 - Safety depends on callers honoring documented preconditions; invalid pointers or JSON can still cause undefined behavior.

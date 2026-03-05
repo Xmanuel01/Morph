@@ -1,6 +1,6 @@
-# v1.0 Validation Checklist
+# Release Validation Matrix (v1.9.x)
 
-This file is the strict verification checklist for v1.0 completion.
+This file is the strict verification matrix for the v1.9.x release line.
 
 ## Current Gate State
 
@@ -106,7 +106,7 @@ Operator run required:
 Expected result:
 - all commands exit `0`.
 
-## 6) v1.9 compatibility + self-host gates
+## 6) v1.9.x compatibility + self-host gates
 
 - [x] Legacy config compatibility test:
   - `legacy_config_without_config_version_still_trains`

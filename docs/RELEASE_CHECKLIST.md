@@ -14,6 +14,8 @@ Use this checklist for production releases.
 - [ ] `cargo fmt`
 - [ ] `cargo clippy -- -D warnings`
 - [ ] `cargo test`
+- [ ] `python3 scripts/check_docs_consistency.py` (Linux/macOS)
+- [ ] `powershell -ExecutionPolicy Bypass -File scripts/check_docs_consistency.ps1` (Windows)
 - [ ] v1.9 consolidated pipeline:
   - `powershell -ExecutionPolicy Bypass -File scripts/v1_9_release_pipeline.ps1`
   - or `sh scripts/v1_9_release_pipeline.sh`

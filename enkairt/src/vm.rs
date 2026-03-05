@@ -5844,10 +5844,21 @@ fn parse_tool_command_spec(spec: &str) -> Result<Vec<String>, RuntimeError> {
             ))
         });
     }
-    Ok(trimmed
-        .split_whitespace()
-        .map(|item| item.to_string())
-        .collect())
+    if matches!(
+        std::env::var("ENKAI_TOOL_ALLOW_LEGACY_SPLIT")
+            .ok()
+            .as_deref()
+            .map(|value| value.trim().to_ascii_lowercase()),
+        Some(value) if matches!(value.as_str(), "1" | "true" | "yes" | "on")
+    ) {
+        return Ok(trimmed
+            .split_whitespace()
+            .map(|item| item.to_string())
+            .collect());
+    }
+    Err(RuntimeError::new(
+        "Tool command must be a JSON array (set ENKAI_TOOL_ALLOW_LEGACY_SPLIT=1 for legacy split mode)",
+    ))
 }
 
 fn tool_timeout_ms() -> u64 {

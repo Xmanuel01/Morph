@@ -14,6 +14,9 @@ cargo clippy --workspace --all-targets -- -D warnings
 Write-Host "[v1.9] Running test gate..."
 cargo test --workspace
 
+Write-Host "[v1.9] Running docs contract consistency gate..."
+powershell -ExecutionPolicy Bypass -File scripts/check_docs_consistency.ps1
+
 Write-Host "[v1.9] Running self-host corpus gate..."
 cargo run -p enkai -- litec selfhost-ci enkai/tools/bootstrap/selfhost_corpus
 

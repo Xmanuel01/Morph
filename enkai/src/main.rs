@@ -20,8 +20,6 @@ mod bootstrap;
 mod frontend;
 mod train;
 
-const LANG_VERSION: &str = "1.9.0";
-
 pub(crate) fn env_guard() -> std::sync::MutexGuard<'static, ()> {
     static ENV_GUARD: OnceLock<Mutex<()>> = OnceLock::new();
     ENV_GUARD
@@ -867,11 +865,19 @@ fn print_usage() {
 }
 
 fn print_version() {
-    println!(
-        "Enkai v{} (cli {})",
-        LANG_VERSION,
-        env!("CARGO_PKG_VERSION")
-    );
+    println!("{}", format_version_string());
+}
+
+fn language_version() -> &'static str {
+    env!("ENKAI_LANG_VERSION")
+}
+
+fn cli_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
+fn format_version_string() -> String {
+    format!("Enkai v{} (cli {})", language_version(), cli_version())
 }
 
 const BUILD_CACHE_VERSION: u32 = 1;
@@ -903,7 +909,7 @@ fn load_build_cache(root: &Path) -> Result<Option<BuildCacheMeta>, String> {
 
 fn is_cache_valid(meta: &BuildCacheMeta, entry: &str, hash: &str) -> bool {
     meta.cache_version == BUILD_CACHE_VERSION
-        && meta.lang_version == LANG_VERSION
+        && meta.lang_version == language_version()
         && meta.entry == entry
         && meta.hash == hash
 }
@@ -924,7 +930,7 @@ fn write_build_cache(
         .map_err(|err| format!("Failed to write {}: {}", program_path.display(), err))?;
     let meta = BuildCacheMeta {
         cache_version: BUILD_CACHE_VERSION,
-        lang_version: LANG_VERSION.to_string(),
+        lang_version: language_version().to_string(),
         entry: entry.to_string(),
         hash: hash.to_string(),
         program: "program.bin".to_string(),
@@ -1388,6 +1394,16 @@ mod tests {
         assert!(selected
             .checkpoint_path
             .ends_with(std::path::Path::new("chat").join("v1.10.0")));
+    }
+
+    #[test]
+    fn version_output_matches_language_and_cli_versions() {
+        let expected = format!(
+            "Enkai v{} (cli {})",
+            language_version(),
+            env!("CARGO_PKG_VERSION")
+        );
+        assert_eq!(format_version_string(), expected);
     }
 
     #[test]

@@ -54,7 +54,7 @@ Compatibility baseline:
   (`use`/`type`/`enum`/`impl` + non-capturing lambda), and self-host CI lane coverage.
 - v1.8: compatibility/deprecation policy, legacy config/checkpoint compatibility
   gates, and documented self-host daily workflow + fallback process.
-- v1.9: stage1 execution command (`enkai litec run`), unified master pipeline
+- v1.9-v1.9.1: stage1 execution command (`enkai litec run`), unified master pipeline
   smoke test, and GPU evidence verification scripts for operator-run soak gates.
 
 Compatibility policy:
@@ -213,8 +213,13 @@ Policy/tool/AI declarations:
 - `prompt`, `model`, `agent`, `memory` parse and are part of the language surface.
 
 Runtime semantics (v1.1):
-- `tool` declarations compile to stub functions. Calling them raises a runtime error
-  unless replaced by host integration.
+- `tool` declarations compile to host-invoked functions via `tool.invoke(name, args)`.
+  Execution requires explicit host configuration:
+  - `ENKAI_TOOL_<PATH>` set to a command JSON array
+  - or `ENKAI_TOOL_RUNNER` set to a command JSON array (tool path appended as the final arg).
+- Legacy whitespace-split command specs remain available only with
+  `ENKAI_TOOL_ALLOW_LEGACY_SPLIT=1`.
+- Tool calls are policy-checked through `tool.invoke` capability mapping.
 - `prompt` compiles to a record:
   `{ __kind: "prompt", name, template, inputs }`.
 - `model` compiles to a record:

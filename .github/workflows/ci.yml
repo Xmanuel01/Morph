@@ -7,6 +7,13 @@ on:
     branches: [main]
 
 jobs:
+  workflow-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: actionlint
+        uses: rhysd/actionlint@v1
+
   build:
     runs-on: ubuntu-latest
     steps:
@@ -23,6 +30,8 @@ jobs:
         run: |
           cargo build -p enkai_native
           cargo test --workspace
+      - name: Docs contract consistency
+        run: python3 scripts/check_docs_consistency.py
   v1-9-pipeline:
     runs-on: ubuntu-latest
     steps:
@@ -65,7 +74,7 @@ jobs:
           cargo build -p enkai_native --release
       - name: Package and verify
         run: |
-          VERSION="0.0.0"
+          VERSION="$(grep '^version = ' enkai/Cargo.toml | head -1 | cut -d'"' -f2)"
           BIN="target/release/enkai"
           LEGACY_BIN="target/release/enkai"
           NATIVE="target/release/libenkai_native.so"
@@ -91,9 +100,9 @@ jobs:
           tar -tzf "$OUT" | grep -q "^README.txt$"
           tar -tzf "$OUT" | grep -q "^std/"
           tar -tzf "$OUT" | grep -q "^examples/hello/main.enk$"
-          if tar -tzf "$OUT" | grep -q "^libenkai_native.so$"; then
-            true
-          tar -tzf "$OUT" | grep -q "^libenkai_native.so$"
+          if [ -f "$NATIVE" ]; then
+            tar -tzf "$OUT" | grep -q "^libenkai_native.so$"
+          fi
           EXTRACT="dist/extract"
           rm -rf "$EXTRACT"
           mkdir -p "$EXTRACT"

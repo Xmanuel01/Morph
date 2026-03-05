@@ -16,8 +16,8 @@ Status (v1.9.1)
 - Frontend stack: React/TypeScript scaffolds + typed SDK generation
 - Bootstrap-lite/core toolchain path with `litec` stage0/stage1 bytecode equivalence checks, phase staging (`litec stage`), and self-host CI corpus validation (`litec selfhost-ci`)
 - Self-host replacement-readiness gate with Stage1/Stage2 fixed-point checks (`litec replace-check`)
-- Compatibility/deprecation governance and self-host fallback workflow docs for v1.9 release readiness
-- Master release pipeline and GPU evidence verification scripts for v1.9 operational sign-off
+- Compatibility/deprecation governance and self-host fallback workflow docs for v1.9.1 release readiness
+- Master release pipeline and GPU evidence verification scripts for v1.9.1 operational sign-off
 
 Workspace structure
 - enkaic: compiler front-end (lexer/parser/AST/type-check stubs)
@@ -70,7 +70,9 @@ Tensor/FFI features (current)
 - Panic guard on every extern "C" entry; errors reported via thread-local `enkai_tensor_last_error`.
 - AMP support: GradScaler handles, autocast enter/exit, and `enkai_amp_step` convenience.
 - Ranked checkpoint save/load with SHA-256 integrity files (per-rank shards).
-- Distributed stubs: device-per-rank selection; all-reduce requires NCCL and is not implemented yet.
+- Distributed runtime is environment-gated for multi-rank mode (`ENKAI_ENABLE_DIST=1`).
+- Multi-rank init/allreduce paths are implemented for `enkai_tensor` builds with `torch,dist`.
+- Operator-run GPU soak evidence is still required for final hardware sign-off.
 - Multi-rank distributed mode is explicitly gated: set `ENKAI_ENABLE_DIST=1`.
 - See `docs/tensor_api.md` for the full surface and safety contracts.
 

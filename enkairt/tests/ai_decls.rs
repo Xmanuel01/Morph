@@ -74,6 +74,28 @@ fn tool_decl_invokes_host_runner() {
 }
 
 #[test]
+fn tool_decl_rejects_legacy_split_runner_without_opt_in() {
+    let _guard = tool_test_guard();
+    std::env::remove_var("ENKAI_TOOL_ALLOW_LEGACY_SPLIT");
+    #[cfg(windows)]
+    std::env::set_var(
+        "ENKAI_TOOL_RUNNER",
+        r#"powershell -NoProfile -Command "Write-Output '{}'"#,
+    );
+    #[cfg(not(windows))]
+    std::env::set_var("ENKAI_TOOL_RUNNER", "sh -c 'printf {}'");
+    let result = run_result(
+        "policy default ::\n    allow tool\n::\n\
+         tool tools.echo(a: Int) -> Any\n\
+         tools.echo(1)\n",
+    );
+    std::env::remove_var("ENKAI_TOOL_RUNNER");
+    assert!(result.is_err());
+    let message = result.err().unwrap().to_string();
+    assert!(message.contains("Tool command must be a JSON array"));
+}
+
+#[test]
 fn prompt_decl_creates_record() {
     let value = run_value(
         "prompt Greeting ::\n\

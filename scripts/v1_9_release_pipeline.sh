@@ -13,6 +13,9 @@ cargo clippy --workspace --all-targets -- -D warnings
 echo "[v1.9] Running test gate..."
 cargo test --workspace
 
+echo "[v1.9] Running docs contract consistency gate..."
+python3 scripts/check_docs_consistency.py
+
 echo "[v1.9] Running self-host corpus gate..."
 cargo run -p enkai -- litec selfhost-ci enkai/tools/bootstrap/selfhost_corpus
 

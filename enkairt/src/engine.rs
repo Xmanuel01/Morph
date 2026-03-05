@@ -218,7 +218,7 @@ impl Engine {
     }
 }
 
-/// Initialise the training engine (stub – no GPU work yet).
+/// Initialise the training engine and backend state for the configured rank/device.
 pub fn init(cfg: TrainConfig) -> Result<Engine, RuntimeError> {
     let mut e = Engine::new(cfg)?;
     if e.cfg.rank >= e.cfg.world_size {
@@ -248,7 +248,7 @@ pub fn init(cfg: TrainConfig) -> Result<Engine, RuntimeError> {
     Ok(e)
 }
 
-/// Perform one training step. Currently returns placeholder metrics.
+/// Perform one training step and emit runtime metrics for logging/checkpoint policy.
 pub fn train_step(engine: &mut Engine, batch: &Batch) -> Result<Metrics, RuntimeError> {
     engine.ensure_logger()?;
     let target_accum = engine.cfg.grad_accum_steps.max(1);
