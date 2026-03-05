@@ -11,6 +11,43 @@
 ### Breaking changes
 - None.
 
+## v1.9.3
+
+### Highlights
+- Hardened runtime/tool failure contracts with stable machine-parseable error codes:
+  - `E_POLICY_DENIED`, `E_POLICY_UNKNOWN`
+  - `E_TOOL_CONFIG`, `E_TOOL_SPAWN`, `E_TOOL_TIMEOUT`, `E_TOOL_WAIT`
+  - `E_TOOL_IO`, `E_TOOL_PAYLOAD`, `E_TOOL_EXIT`, `E_TOOL_OUTPUT_FORMAT`
+- Added explicit runtime contract documentation that bytecode VM behavior is production-normative and the legacy tree-walk interpreter is compatibility/reference only.
+- Expanded policy/tool safety test coverage:
+  - tool spawn/timeout/policy-denial regression tests
+  - policy denial tests for `std::process`, `std::db`, and HTTP without policy capability.
+
+### Fixes
+- Ensured tool payload/output conversion failures are surfaced with deterministic coded errors.
+- Added stable error-code assertions in AI declaration and policy integration tests.
+- Aligned docs and release references to `v1.9.3`.
+
+### Breaking changes
+- None.
+
+## v1.9.2
+
+### Highlights
+- Added version single-sourcing for language version reporting via build-time env wiring.
+- Fixed CI package-check workflow flow control and added workflow linting.
+- Added docs contract consistency gate scripts:
+  - `scripts/check_docs_consistency.py`
+  - `scripts/check_docs_consistency.ps1`
+- Aligned top-level docs/spec/readme references for v1.9 release-line consistency.
+
+### Fixes
+- Removed stale “stub/placeholder” runtime wording from production paths where behavior is implemented.
+- Added CI/docs checks to prevent release/version contract drift.
+
+### Breaking changes
+- None.
+
 ## v1.9.1
 
 ### Highlights

@@ -92,7 +92,76 @@ fn tool_decl_rejects_legacy_split_runner_without_opt_in() {
     std::env::remove_var("ENKAI_TOOL_RUNNER");
     assert!(result.is_err());
     let message = result.err().unwrap().to_string();
+    assert!(message.contains("[E_TOOL_CONFIG]"));
     assert!(message.contains("Tool command must be a JSON array"));
+}
+
+#[test]
+fn tool_decl_spawn_failure_has_stable_error_code() {
+    let _guard = tool_test_guard();
+    std::env::remove_var("ENKAI_TOOL_ALLOW_LEGACY_SPLIT");
+    std::env::set_var("ENKAI_TOOL_RUNNER", r#"["__enkai_missing_tool_runner__"]"#);
+    let result = run_result(
+        "policy default ::\n    allow tool\n::\n\
+         tool tools.echo(a: Int) -> Any\n\
+         tools.echo(1)\n",
+    );
+    std::env::remove_var("ENKAI_TOOL_RUNNER");
+    assert!(result.is_err());
+    let message = result.err().unwrap().to_string();
+    assert!(message.contains("[E_TOOL_SPAWN]"));
+}
+
+#[test]
+fn tool_decl_timeout_has_stable_error_code() {
+    let _guard = tool_test_guard();
+    let old_runner = std::env::var("ENKAI_TOOL_RUNNER").ok();
+    let old_timeout = std::env::var("ENKAI_TOOL_TIMEOUT_MS").ok();
+    #[cfg(windows)]
+    std::env::set_var(
+        "ENKAI_TOOL_RUNNER",
+        r#"["powershell","-NoProfile","-Command","$null=[Console]::In.ReadToEnd(); Start-Sleep -Milliseconds 200; Write-Output '{\"ok\":true}'"]"#,
+    );
+    #[cfg(not(windows))]
+    std::env::set_var(
+        "ENKAI_TOOL_RUNNER",
+        r#"["sh","-c","cat >/dev/null; sleep 1; printf '{\"ok\":true}'"]"#,
+    );
+    std::env::set_var("ENKAI_TOOL_TIMEOUT_MS", "10");
+    let result = run_result(
+        "policy default ::\n    allow tool\n::\n\
+         tool tools.echo(a: Int) -> Any\n\
+         tools.echo(1)\n",
+    );
+    if let Some(value) = old_runner {
+        std::env::set_var("ENKAI_TOOL_RUNNER", value);
+    } else {
+        std::env::remove_var("ENKAI_TOOL_RUNNER");
+    }
+    if let Some(value) = old_timeout {
+        std::env::set_var("ENKAI_TOOL_TIMEOUT_MS", value);
+    } else {
+        std::env::remove_var("ENKAI_TOOL_TIMEOUT_MS");
+    }
+    assert!(result.is_err());
+    let message = result.err().unwrap().to_string();
+    assert!(message.contains("[E_TOOL_TIMEOUT]"));
+}
+
+#[test]
+fn tool_decl_policy_denial_has_stable_error_code() {
+    let _guard = tool_test_guard();
+    let key = "ENKAI_TOOL_TOOL_TOOLS_ECHO";
+    #[cfg(windows)]
+    let command = r#"["powershell","-NoProfile","-Command","$null=[Console]::In.ReadToEnd(); Write-Output '{\"ok\":true}'"]"#;
+    #[cfg(not(windows))]
+    let command = r#"["sh","-c","cat >/dev/null; printf '{\"ok\":true}'"]"#;
+    std::env::set_var(key, command);
+    let result = run_result("tool tools.echo(a: Int) -> Any\ntools.echo(1)\n");
+    std::env::remove_var(key);
+    assert!(result.is_err());
+    let message = result.err().unwrap().to_string();
+    assert!(message.contains("[E_POLICY_DENIED]"));
 }
 
 #[test]

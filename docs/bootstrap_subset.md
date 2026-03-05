@@ -1,8 +1,8 @@
-# Enkai Bootstrap Subset (v1.9.1)
+# Enkai Bootstrap Subset (v1.9.3)
 
 ## Purpose
 
-This document defines the stable subset used for bootstrap-lite tooling in v1.9.1.
+This document defines the stable subset used for bootstrap-lite tooling in v1.9.3.
 The goal is deterministic tool output and safe migration toward deeper self-hosting.
 
 ## Scope
@@ -24,7 +24,7 @@ The subset is intentionally constrained to language/runtime features already pro
 
 ## Out of Subset
 
-The following are intentionally excluded from bootstrap-lite scripts in v1.9.1:
+The following are intentionally excluded from bootstrap-lite scripts in v1.9.3:
 
 - `for` loops.
 - `try/catch`.

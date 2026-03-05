@@ -262,7 +262,45 @@ fn policy_blocks_fs_without_allow() {
     let result = run_package_raw(temp.path(), "main.enk", &source);
     assert!(result.is_err());
     let message = result.err().unwrap().to_string();
+    assert!(message.contains("[E_POLICY_DENIED]"));
     assert!(message.contains("Policy denied"));
+}
+
+#[test]
+fn policy_blocks_process_without_allow() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    copy_std_modules(temp.path());
+    let (cmd, args) = if cfg!(windows) {
+        ("cmd", "[\"/C\",\"echo\",\"hello\"]")
+    } else {
+        ("sh", "[\"-c\",\"echo hello\"]")
+    };
+    let source = format!(
+        "import std::process\n\
+        process.run(\"{}\", {}, none)\n",
+        cmd, args
+    );
+    let result = run_package_raw(temp.path(), "main.enk", &source);
+    assert!(result.is_err());
+    let message = result.err().unwrap().to_string();
+    assert!(message.contains("[E_POLICY_DENIED]"));
+}
+
+#[test]
+fn policy_blocks_db_without_allow() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    copy_std_modules(temp.path());
+    let db_path = temp.path().join("state.db");
+    let db_path = db_path.to_string_lossy().replace('\\', "/");
+    let source = format!(
+        "import std::db\n\
+        db.sqlite_open(\"{}\")\n",
+        db_path
+    );
+    let result = run_package_raw(temp.path(), "main.enk", &source);
+    assert!(result.is_err());
+    let message = result.err().unwrap().to_string();
+    assert!(message.contains("[E_POLICY_DENIED]"));
 }
 
 #[test]

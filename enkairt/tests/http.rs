@@ -4,6 +4,7 @@ use std::sync::{Mutex, OnceLock};
 
 use enkaic::compiler::compile_module;
 use enkaic::parser::parse_module;
+use enkairt::error::RuntimeError;
 use enkairt::{Value, VM};
 
 const POLICY_ALLOW_NET: &str = "policy default ::\n    allow net\n::\n\n";
@@ -59,6 +60,13 @@ fn run_value(source: &str) -> Value {
     let program = compile_module(&module).expect("compile");
     let mut vm = VM::new(false, false, false, false);
     vm.run(&program).expect("run")
+}
+
+fn run_result_raw(source: &str) -> Result<Value, RuntimeError> {
+    let module = parse_module(source).expect("parse");
+    let program = compile_module(&module).expect("compile");
+    let mut vm = VM::new(false, false, false, false);
+    vm.run(&program)
 }
 
 fn http_test_guard() -> std::sync::MutexGuard<'static, ()> {
@@ -388,6 +396,14 @@ fn http_rate_limit_middleware_enforces_capacity() {
     let second_body = response_body(&items[1]).expect("second body");
     let second_body = String::from_utf8_lossy(&second_body);
     assert!(second_body.contains("\"code\":\"rate_limited\""));
+}
+
+#[test]
+fn http_requires_policy_capability() {
+    let result = run_result_raw("http.get(\"http://127.0.0.1:1/\")\n");
+    assert!(result.is_err());
+    let message = result.err().unwrap().to_string();
+    assert!(message.contains("[E_POLICY_DENIED]"));
 }
 
 #[test]

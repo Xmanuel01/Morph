@@ -1,3 +1,10 @@
+//! Legacy tree-walk interpreter.
+//!
+//! Production runtime behavior is defined by the bytecode VM (`enkairt::VM`).
+//! This module is kept for compatibility/debugging and is not feature-parity
+//! with the VM (for example, it does not implement full async/task semantics).
+//! New runtime contracts should be implemented and validated in `vm.rs`.
+
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -91,6 +98,7 @@ struct CallFrame {
 #[derive(Debug, Clone)]
 pub struct RuntimeError {
     pub message: String,
+    pub code: Option<String>,
     stack: Vec<CallFrame>,
 }
 
@@ -98,6 +106,15 @@ impl RuntimeError {
     fn new(message: &str) -> Self {
         Self {
             message: message.to_string(),
+            code: None,
+            stack: Vec::new(),
+        }
+    }
+
+    fn with_code(code: &str, message: &str) -> Self {
+        Self {
+            message: message.to_string(),
+            code: Some(code.to_string()),
             stack: Vec::new(),
         }
     }
@@ -109,7 +126,11 @@ impl RuntimeError {
 
 impl fmt::Display for RuntimeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.message)?;
+        if let Some(code) = &self.code {
+            write!(f, "[{}] {}", code, self.message)?;
+        } else {
+            write!(f, "{}", self.message)?;
+        }
         if !self.stack.is_empty() {
             writeln!(f)?;
             writeln!(f, "Stack trace:")?;
@@ -538,19 +559,24 @@ impl Interpreter {
         context: Option<&CapabilityContext>,
     ) -> Result<(), RuntimeError> {
         let policy_name = self.active_policy.clone().ok_or_else(|| {
-            RuntimeError::new(&format!("Policy denied: {}", capability.join(".")))
+            RuntimeError::with_code(
+                "E_POLICY_DENIED",
+                &format!("Policy denied: {}", capability.join(".")),
+            )
         })?;
-        let policy = self
-            .policies
-            .get(&policy_name)
-            .ok_or_else(|| RuntimeError::new(&format!("Unknown policy: {}", policy_name)))?;
+        let policy = self.policies.get(&policy_name).ok_or_else(|| {
+            RuntimeError::with_code(
+                "E_POLICY_UNKNOWN",
+                &format!("Unknown policy: {}", policy_name),
+            )
+        })?;
         if policy.is_allowed(capability, context) {
             Ok(())
         } else {
-            Err(RuntimeError::new(&format!(
-                "Policy denied: {}",
-                capability.join(".")
-            )))
+            Err(RuntimeError::with_code(
+                "E_POLICY_DENIED",
+                &format!("Policy denied: {}", capability.join(".")),
+            ))
         }
     }
 
@@ -872,7 +898,10 @@ impl Interpreter {
                     "args": serde_json::Value::Object(arg_map),
                 });
                 let bytes = serde_json::to_vec(&payload).map_err(|err| {
-                    RuntimeError::new(&format!("tool payload encode failed: {}", err))
+                    RuntimeError::with_code(
+                        "E_TOOL_PAYLOAD",
+                        &format!("tool payload encode failed: {}", err),
+                    )
                 })?;
                 let command = runtime_resolve_tool_command(&tool_key)?;
                 let timeout_ms = runtime_tool_timeout_ms();
@@ -880,22 +909,29 @@ impl Interpreter {
                     runtime_run_tool_process(&command, &bytes, timeout_ms)?;
                 if code.unwrap_or(1) != 0 {
                     let detail = String::from_utf8_lossy(&stderr).trim().to_string();
-                    return Err(RuntimeError::new(&format!(
-                        "Tool invocation failed for {} (exit={}): {}",
-                        tool_key,
-                        code.unwrap_or(-1),
-                        if detail.is_empty() {
-                            "tool process failed without stderr output"
-                        } else {
-                            detail.as_str()
-                        }
-                    )));
+                    return Err(RuntimeError::with_code(
+                        "E_TOOL_EXIT",
+                        &format!(
+                            "Tool invocation failed for {} (exit={}): {}",
+                            tool_key,
+                            code.unwrap_or(-1),
+                            if detail.is_empty() {
+                                "tool process failed without stderr output"
+                            } else {
+                                detail.as_str()
+                            }
+                        ),
+                    ));
                 }
                 if stdout.is_empty() {
                     return Ok(Value::None);
                 }
-                let text = String::from_utf8(stdout)
-                    .map_err(|_| RuntimeError::new("tool output is not valid UTF-8"))?;
+                let text = String::from_utf8(stdout).map_err(|_| {
+                    RuntimeError::with_code(
+                        "E_TOOL_OUTPUT_FORMAT",
+                        "tool output is not valid UTF-8",
+                    )
+                })?;
                 let trimmed = text.trim();
                 if trimmed.is_empty() {
                     return Ok(Value::None);
@@ -1842,7 +1878,9 @@ fn runtime_value_to_json(value: &Value) -> Result<serde_json::Value, RuntimeErro
         Value::Int(v) => Ok(serde_json::Value::Number((*v).into())),
         Value::Float(v) => serde_json::Number::from_f64(*v)
             .map(serde_json::Value::Number)
-            .ok_or_else(|| RuntimeError::new("non-finite float is not JSON encodable")),
+            .ok_or_else(|| {
+                RuntimeError::with_code("E_TOOL_PAYLOAD", "non-finite float is not JSON encodable")
+            }),
         Value::Bool(v) => Ok(serde_json::Value::Bool(*v)),
         Value::String(v) => Ok(serde_json::Value::String(v.clone())),
         Value::None => Ok(serde_json::Value::Null),
@@ -1860,9 +1898,9 @@ fn runtime_value_to_json(value: &Value) -> Result<serde_json::Value, RuntimeErro
             }
             Ok(serde_json::Value::Object(out))
         }
-        Value::Function(_) | Value::NativeFunction(_) | Value::Stub(_) => {
-            Err(RuntimeError::new("tool args must be JSON-encodable values"))
-        }
+        Value::Function(_) | Value::NativeFunction(_) | Value::Stub(_) => Err(
+            RuntimeError::with_code("E_TOOL_PAYLOAD", "tool args must be JSON-encodable values"),
+        ),
     }
 }
 
@@ -1876,7 +1914,10 @@ fn runtime_json_to_value(value: serde_json::Value) -> Result<Value, RuntimeError
             } else if let Some(f) = v.as_f64() {
                 Value::Float(f)
             } else {
-                return Err(RuntimeError::new("unsupported JSON number"));
+                return Err(RuntimeError::with_code(
+                    "E_TOOL_OUTPUT_FORMAT",
+                    "unsupported JSON number",
+                ));
             }
         }
         serde_json::Value::String(v) => Value::String(v),
@@ -1914,22 +1955,31 @@ fn runtime_resolve_tool_command(tool_path: &str) -> Result<Vec<String>, RuntimeE
     if let Ok(spec) = std::env::var(&env_key) {
         let command = runtime_parse_tool_command_spec(&spec)?;
         if command.is_empty() {
-            return Err(RuntimeError::new(&format!("{} is set but empty", env_key)));
+            return Err(RuntimeError::with_code(
+                "E_TOOL_CONFIG",
+                &format!("{} is set but empty", env_key),
+            ));
         }
         return Ok(command);
     }
     if let Ok(spec) = std::env::var("ENKAI_TOOL_RUNNER") {
         let mut command = runtime_parse_tool_command_spec(&spec)?;
         if command.is_empty() {
-            return Err(RuntimeError::new("ENKAI_TOOL_RUNNER is set but empty"));
+            return Err(RuntimeError::with_code(
+                "E_TOOL_CONFIG",
+                "ENKAI_TOOL_RUNNER is set but empty",
+            ));
         }
         command.push(tool_path.to_string());
         return Ok(command);
     }
-    Err(RuntimeError::new(&format!(
-        "Tool {} is not configured. Set {} or ENKAI_TOOL_RUNNER",
-        tool_path, env_key
-    )))
+    Err(RuntimeError::with_code(
+        "E_TOOL_CONFIG",
+        &format!(
+            "Tool {} is not configured. Set {} or ENKAI_TOOL_RUNNER",
+            tool_path, env_key
+        ),
+    ))
 }
 
 fn runtime_parse_tool_command_spec(spec: &str) -> Result<Vec<String>, RuntimeError> {
@@ -1939,10 +1989,10 @@ fn runtime_parse_tool_command_spec(spec: &str) -> Result<Vec<String>, RuntimeErr
     }
     if trimmed.starts_with('[') {
         return serde_json::from_str::<Vec<String>>(trimmed).map_err(|err| {
-            RuntimeError::new(&format!(
-                "Invalid tool command JSON array {}: {}",
-                trimmed, err
-            ))
+            RuntimeError::with_code(
+                "E_TOOL_CONFIG",
+                &format!("Invalid tool command JSON array {}: {}", trimmed, err),
+            )
         });
     }
     if matches!(
@@ -1957,7 +2007,8 @@ fn runtime_parse_tool_command_spec(spec: &str) -> Result<Vec<String>, RuntimeErr
             .map(|value| value.to_string())
             .collect());
     }
-    Err(RuntimeError::new(
+    Err(RuntimeError::with_code(
+        "E_TOOL_CONFIG",
         "Tool command must be a JSON array (set ENKAI_TOOL_ALLOW_LEGACY_SPLIT=1 for legacy split mode)",
     ))
 }
@@ -1975,7 +2026,10 @@ fn runtime_run_tool_process(
     timeout_ms: u64,
 ) -> Result<ToolProcessOutput, RuntimeError> {
     if command.is_empty() {
-        return Err(RuntimeError::new("tool command cannot be empty"));
+        return Err(RuntimeError::with_code(
+            "E_TOOL_CONFIG",
+            "tool command cannot be empty",
+        ));
     }
     let stdout_path = runtime_tool_temp_path("stdout");
     let stderr_path = runtime_tool_temp_path("stderr");
@@ -1984,13 +2038,17 @@ fn runtime_run_tool_process(
         .truncate(true)
         .write(true)
         .open(&stdout_path)
-        .map_err(|err| RuntimeError::new(&format!("tool stdout open failed: {}", err)))?;
+        .map_err(|err| {
+            RuntimeError::with_code("E_TOOL_IO", &format!("tool stdout open failed: {}", err))
+        })?;
     let stderr_file = OpenOptions::new()
         .create(true)
         .truncate(true)
         .write(true)
         .open(&stderr_path)
-        .map_err(|err| RuntimeError::new(&format!("tool stderr open failed: {}", err)))?;
+        .map_err(|err| {
+            RuntimeError::with_code("E_TOOL_IO", &format!("tool stderr open failed: {}", err))
+        })?;
 
     let mut child = Command::new(&command[0])
         .args(&command[1..])
@@ -1998,12 +2056,14 @@ fn runtime_run_tool_process(
         .stdout(Stdio::from(stdout_file))
         .stderr(Stdio::from(stderr_file))
         .spawn()
-        .map_err(|err| RuntimeError::new(&format!("tool spawn failed: {}", err)))?;
+        .map_err(|err| {
+            RuntimeError::with_code("E_TOOL_SPAWN", &format!("tool spawn failed: {}", err))
+        })?;
 
     if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(payload)
-            .map_err(|err| RuntimeError::new(&format!("tool stdin write failed: {}", err)))?;
+        stdin.write_all(payload).map_err(|err| {
+            RuntimeError::with_code("E_TOOL_IO", &format!("tool stdin write failed: {}", err))
+        })?;
     }
 
     let deadline = Instant::now() + Duration::from_millis(timeout_ms.max(1));
@@ -2016,25 +2076,30 @@ fn runtime_run_tool_process(
                     let _ = child.wait();
                     let _ = std::fs::remove_file(&stdout_path);
                     let _ = std::fs::remove_file(&stderr_path);
-                    return Err(RuntimeError::new(&format!(
-                        "tool timed out after {}ms",
-                        timeout_ms
-                    )));
+                    return Err(RuntimeError::with_code(
+                        "E_TOOL_TIMEOUT",
+                        &format!("tool timed out after {}ms", timeout_ms),
+                    ));
                 }
                 std::thread::sleep(Duration::from_millis(5));
             }
             Err(err) => {
                 let _ = std::fs::remove_file(&stdout_path);
                 let _ = std::fs::remove_file(&stderr_path);
-                return Err(RuntimeError::new(&format!("tool wait failed: {}", err)));
+                return Err(RuntimeError::with_code(
+                    "E_TOOL_WAIT",
+                    &format!("tool wait failed: {}", err),
+                ));
             }
         }
     };
 
-    let stdout = std::fs::read(&stdout_path)
-        .map_err(|err| RuntimeError::new(&format!("tool stdout read failed: {}", err)))?;
-    let stderr = std::fs::read(&stderr_path)
-        .map_err(|err| RuntimeError::new(&format!("tool stderr read failed: {}", err)))?;
+    let stdout = std::fs::read(&stdout_path).map_err(|err| {
+        RuntimeError::with_code("E_TOOL_IO", &format!("tool stdout read failed: {}", err))
+    })?;
+    let stderr = std::fs::read(&stderr_path).map_err(|err| {
+        RuntimeError::with_code("E_TOOL_IO", &format!("tool stderr read failed: {}", err))
+    })?;
     let _ = std::fs::remove_file(&stdout_path);
     let _ = std::fs::remove_file(&stderr_path);
     Ok((stdout, stderr, status.code()))

@@ -10,6 +10,7 @@ pub struct RuntimeFrame {
 #[derive(Debug, Clone)]
 pub struct RuntimeError {
     pub message: String,
+    pub code: Option<String>,
     pub frames: Vec<RuntimeFrame>,
 }
 
@@ -17,8 +18,21 @@ impl RuntimeError {
     pub fn new(msg: &str) -> Self {
         Self {
             message: msg.to_string(),
+            code: None,
             frames: Vec::new(),
         }
+    }
+
+    pub fn with_code(code: &str, msg: &str) -> Self {
+        Self {
+            message: msg.to_string(),
+            code: Some(code.to_string()),
+            frames: Vec::new(),
+        }
+    }
+
+    pub fn code(&self) -> Option<&str> {
+        self.code.as_deref()
     }
 
     pub fn with_frames(mut self, frames: Vec<RuntimeFrame>) -> Self {
@@ -33,7 +47,11 @@ impl RuntimeError {
 
 impl fmt::Display for RuntimeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "{}", self.message)?;
+        if let Some(code) = &self.code {
+            writeln!(f, "[{}] {}", code, self.message)?;
+        } else {
+            writeln!(f, "{}", self.message)?;
+        }
         for frame in &self.frames {
             let func = frame.function.as_deref().unwrap_or("<anonymous>");
             match (&frame.source, frame.line) {

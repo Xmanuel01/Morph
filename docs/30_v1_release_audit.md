@@ -1,12 +1,12 @@
-# Enkai v1.0.0-v1.9.1 Delivery And Production-Grade Audit
+# Enkai v1.0.0-v1.9.3 Delivery And Production-Grade Audit
 
 ## Purpose
 
-This document records what shipped from `v1.0.0` through `v1.9.1` and the current production-readiness status.
+This document records what shipped from `v1.0.0` through `v1.9.3` and the current production-readiness status.
 
 ## Source of truth used for this record
 
-- Git tags: `v1.0.0` through `v1.9.1`.
+- Git tags: `v1.0.0` through `v1.9.3`.
 - `CHANGELOG.md`.
 - `docs/Enkai.spec` compatibility and runtime sections.
 - `VALIDATION.md`.
@@ -14,7 +14,7 @@ This document records what shipped from `v1.0.0` through `v1.9.1` and the curren
 - Release pipeline run on `2026-03-04 10:01:53 +03:00`:
   - `powershell -ExecutionPolicy Bypass -File scripts/v1_9_release_pipeline.ps1`
 
-## Release ledger (v1.0.0-v1.9.1)
+## Release ledger (v1.0.0-v1.9.3)
 
 ### v1.0.0 - Production core freeze
 
@@ -119,16 +119,21 @@ This document records what shipped from `v1.0.0` through `v1.9.1` and the curren
 - Added explicit distributed opt-in guard:
   - `ENKAI_ENABLE_DIST=1`
 
-### v1.9.1 - Runtime hardening and contract alignment
+### v1.9.2 - Contract integrity and release hygiene
 
-- Added Linux harness parity script:
-  - `scripts/soak_4gpu.sh`
-- Added distributed guard tests:
-  - `enkai_tensor/tests/dist_guards.rs`
-- Added server-side WebSocket receive API coverage:
-  - `http.ws_recv(ws, timeout_ms)` runtime + integration test.
-- Added host tool invocation behavior for tool declarations through `tool.invoke`.
-- Added parser support for `async fn` in module/public/impl contexts.
+- Added build-time language version source wiring for CLI/version consistency.
+- Fixed CI workflow correctness for package validation and added workflow linting.
+- Added docs consistency checks to release/CI gates.
+- Aligned spec/README/validation docs for v1.9 contract consistency.
+
+### v1.9.3 - Runtime semantics and safety hardening
+
+- Added stable machine-parseable runtime error codes for policy/tool failures.
+- Hardened tool command/process error mapping for config, spawn, timeout, wait, IO, payload, and output-format failures.
+- Expanded integration coverage for coded failure behavior:
+  - tool timeout and spawn failure codes
+  - deterministic policy denial code coverage for tool/http/process/db/fs paths.
+- Declared bytecode VM as normative production runtime contract and legacy interpreter as compatibility/reference only.
 
 ## Production-grade audit status
 
@@ -159,6 +164,6 @@ Run executed on `2026-03-04`:
 
 ## Final readiness verdict
 
-- `v1.0.0` through `v1.9.1` are fully documented and implementation-backed in this repository.
+- `v1.0.0` through `v1.9.3` are fully documented and implementation-backed in this repository.
 - Current state is production-grade for CPU/non-GPU and self-host replacement-readiness gates.
 - Final "all-target hardware production-grade" sign-off remains blocked only by operator GPU soak evidence listed above.
