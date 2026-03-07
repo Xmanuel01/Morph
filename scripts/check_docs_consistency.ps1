@@ -75,6 +75,17 @@ if (-not $releaseChecklist.Contains("scripts/collect_release_evidence.py")) {
     $failures.Add("docs/RELEASE_CHECKLIST.md missing scripts/collect_release_evidence.py")
 }
 
+$versionToken = $version -replace '\.', '_'
+$requiredWrappers = @(
+    "scripts/v${versionToken}_rc_pipeline.ps1",
+    "scripts/v${versionToken}_rc_pipeline.sh"
+)
+foreach ($wrapper in $requiredWrappers) {
+    if (-not (Test-Path (Join-Path $root $wrapper))) {
+        $failures.Add("missing RC wrapper for current version: $wrapper")
+    }
+}
+
 $frontendDocs = Read-Text "docs/27_frontend_stack.md"
 if (-not $frontendDocs.Contains("backend_api.snapshot.json")) {
     $failures.Add("docs/27_frontend_stack.md missing backend snapshot reference")

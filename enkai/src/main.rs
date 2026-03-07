@@ -738,12 +738,19 @@ fn build_command(args: &[String]) -> i32 {
 }
 
 fn train_command(args: &[String]) -> i32 {
-    if args.is_empty() {
-        eprintln!("enkai train requires a config file");
-        return 1;
-    }
-    let path = PathBuf::from(&args[0]);
-    match train::train(&path) {
+    let (path, strict_contracts) = match parse_train_eval_args("train", args) {
+        Ok(v) => v,
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    };
+    let result = if strict_contracts {
+        train::train_with_contract_mode(&path, true)
+    } else {
+        train::train(&path)
+    };
+    match result {
         Ok(_) => 0,
         Err(err) => {
             eprintln!("Train error: {}", err);
@@ -753,17 +760,67 @@ fn train_command(args: &[String]) -> i32 {
 }
 
 fn eval_command(args: &[String]) -> i32 {
-    if args.is_empty() {
-        eprintln!("enkai eval requires a config file");
-        return 1;
-    }
-    let path = PathBuf::from(&args[0]);
-    match train::eval(&path) {
+    let (path, strict_contracts) = match parse_train_eval_args("eval", args) {
+        Ok(v) => v,
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    };
+    let result = if strict_contracts {
+        train::eval_with_contract_mode(&path, true)
+    } else {
+        train::eval(&path)
+    };
+    match result {
         Ok(_) => 0,
         Err(err) => {
             eprintln!("Eval error: {}", err);
             1
         }
+    }
+}
+
+fn parse_train_eval_args(command: &str, args: &[String]) -> Result<(PathBuf, bool), String> {
+    let mut path: Option<PathBuf> = None;
+    let mut strict_contracts = strict_contracts_from_env();
+    for arg in args {
+        match arg.as_str() {
+            "--strict-contracts" => strict_contracts = true,
+            "--lenient-contracts" => strict_contracts = false,
+            _ if arg.starts_with('-') => {
+                return Err(format!(
+                    "Unknown {} option: {} (supported: --strict-contracts, --lenient-contracts)",
+                    command, arg
+                ))
+            }
+            _ => {
+                if path.is_some() {
+                    return Err(format!(
+                        "enkai {} accepts exactly one config path (plus optional flags)",
+                        command
+                    ));
+                }
+                path = Some(PathBuf::from(arg));
+            }
+        }
+    }
+    let Some(path) = path else {
+        return Err(format!(
+            "enkai {} requires a config file (usage: enkai {} <config> [--strict-contracts])",
+            command, command
+        ));
+    };
+    Ok((path, strict_contracts))
+}
+
+fn strict_contracts_from_env() -> bool {
+    match env::var("ENKAI_STRICT_CONTRACTS") {
+        Ok(value) => {
+            let normalized = value.trim().to_ascii_lowercase();
+            matches!(normalized.as_str(), "1" | "true" | "yes" | "on")
+        }
+        Err(_) => false,
     }
 }
 
@@ -863,8 +920,8 @@ fn print_usage() {
     eprintln!("  enkai fmt [--check] <file|dir>");
     eprintln!("  enkai build [dir]");
     eprintln!("  enkai test [dir]");
-    eprintln!("  enkai train <config.enk>");
-    eprintln!("  enkai eval <config.enk>");
+    eprintln!("  enkai train <config.enk> [--strict-contracts]");
+    eprintln!("  enkai eval <config.enk> [--strict-contracts]");
     migrate::print_usage();
 }
 
@@ -1408,6 +1465,31 @@ mod tests {
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(format_version_string(), expected);
+    }
+
+    #[test]
+    fn parse_train_eval_args_accepts_strict_flag() {
+        let (path, strict) = parse_train_eval_args(
+            "train",
+            &["cfg.enk".to_string(), "--strict-contracts".to_string()],
+        )
+        .expect("parse");
+        assert_eq!(path, PathBuf::from("cfg.enk"));
+        assert!(strict);
+    }
+
+    #[test]
+    fn parse_train_eval_args_reads_env_default() {
+        let _guard = env_guard();
+        let prev = env::var("ENKAI_STRICT_CONTRACTS").ok();
+        env::set_var("ENKAI_STRICT_CONTRACTS", "1");
+        let parsed = parse_train_eval_args("eval", &["cfg.enk".to_string()]).expect("parse");
+        if let Some(value) = prev {
+            env::set_var("ENKAI_STRICT_CONTRACTS", value);
+        } else {
+            env::remove_var("ENKAI_STRICT_CONTRACTS");
+        }
+        assert!(parsed.1);
     }
 
     #[test]

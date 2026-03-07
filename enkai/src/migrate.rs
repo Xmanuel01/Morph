@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::train;
@@ -9,6 +10,19 @@ use crate::train;
 const EXIT_OK: i32 = 0;
 const EXIT_ERROR: i32 = 1;
 const EXIT_BLOCKED: i32 = 2;
+
+#[derive(Debug)]
+struct DoctorOptions {
+    root: PathBuf,
+    json: bool,
+    strict_contracts: bool,
+}
+
+#[derive(Debug, Default, Clone, Serialize)]
+struct DoctorReport {
+    blockers: Vec<String>,
+    warnings: Vec<String>,
+}
 
 pub fn migrate_command(args: &[String]) -> i32 {
     if args.is_empty() {
@@ -27,17 +41,88 @@ pub fn migrate_command(args: &[String]) -> i32 {
 }
 
 pub fn doctor_command(args: &[String]) -> i32 {
-    let root = if args.is_empty() {
-        PathBuf::from(".")
-    } else if args.len() == 1 {
-        PathBuf::from(&args[0])
-    } else {
-        eprintln!("Usage: enkai doctor [path]");
-        return EXIT_ERROR;
+    let options = match parse_doctor_options(args) {
+        Ok(v) => v,
+        Err(err) => {
+            eprintln!("{}", err);
+            eprintln!("Usage: enkai doctor [path] [--json] [--strict-contracts|--lenient]");
+            return EXIT_ERROR;
+        }
     };
+    let report = run_doctor(&options.root, options.strict_contracts);
+    let blocked = !report.blockers.is_empty();
+    if options.json {
+        let payload = serde_json::json!({
+            "status": if blocked { "blocked" } else { "ok" },
+            "path": options.root.display().to_string(),
+            "strict_contracts": options.strict_contracts,
+            "blockers": report.blockers,
+            "warnings": report.warnings,
+        });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string())
+        );
+    } else if !blocked {
+        println!("doctor: ready for v2.0 strict config/checkpoint contracts");
+        if !report.warnings.is_empty() {
+            for warning in &report.warnings {
+                println!("warning: {}", warning);
+            }
+        }
+    } else {
+        eprintln!("doctor: v2.0 readiness blockers found:");
+        for issue in &report.blockers {
+            eprintln!("- {}", issue);
+        }
+        for warning in &report.warnings {
+            eprintln!("warning: {}", warning);
+        }
+    }
+    if blocked {
+        EXIT_BLOCKED
+    } else {
+        EXIT_OK
+    }
+}
+
+pub fn print_usage() {
+    eprintln!("  enkai migrate config-v1 <in_config.enk> <out_config.enk|out.json>");
+    eprintln!(
+        "  enkai migrate checkpoint-meta-v1 <checkpoint_dir> [--dry-run] [--verify] [--strict-contracts]"
+    );
+    eprintln!("  enkai doctor [path] [--json] [--strict-contracts|--lenient]");
+}
+
+fn parse_doctor_options(args: &[String]) -> Result<DoctorOptions, String> {
+    let mut root: Option<PathBuf> = None;
+    let mut json = false;
+    let mut strict_contracts = true;
+    for arg in args {
+        match arg.as_str() {
+            "--json" => json = true,
+            "--strict-contracts" => strict_contracts = true,
+            "--lenient" => strict_contracts = false,
+            _ if arg.starts_with('-') => return Err(format!("Unknown option: {}", arg)),
+            _ => {
+                if root.is_some() {
+                    return Err("enkai doctor accepts at most one path".to_string());
+                }
+                root = Some(PathBuf::from(arg));
+            }
+        }
+    }
+    Ok(DoctorOptions {
+        root: root.unwrap_or_else(|| PathBuf::from(".")),
+        json,
+        strict_contracts,
+    })
+}
+
+fn run_doctor(root: &Path, strict_contracts: bool) -> DoctorReport {
     let mut blockers = Vec::new();
     let mut warnings = Vec::new();
-    let config_files = collect_candidate_config_files(&root);
+    let config_files = collect_candidate_config_files(root);
     for config in config_files {
         match train::load_config_json(&config) {
             Ok(json) => {
@@ -61,7 +146,12 @@ pub fn doctor_command(args: &[String]) -> i32 {
                         config.display()
                     ));
                 }
-                if let Err(err) = train::validate_train_config(&config, false) {
+                let validation = if strict_contracts {
+                    train::validate_train_config_with_mode(&config, false, true)
+                } else {
+                    train::validate_train_config(&config, false)
+                };
+                if let Err(err) = validation {
                     blockers.push(format!(
                         "{}: invalid train config: {}",
                         config.display(),
@@ -79,13 +169,13 @@ pub fn doctor_command(args: &[String]) -> i32 {
         }
     }
 
-    let checkpoint_roots = collect_checkpoint_roots(&root);
+    let checkpoint_roots = collect_checkpoint_roots(root);
     let mut seen = HashSet::new();
     for checkpoint_dir in checkpoint_roots {
         if !seen.insert(checkpoint_dir.clone()) {
             continue;
         }
-        match verify_checkpoint_tree(&checkpoint_dir) {
+        match verify_checkpoint_tree(&checkpoint_dir, strict_contracts) {
             Ok(report) => {
                 if report.meta_files == 0 {
                     continue;
@@ -100,31 +190,7 @@ pub fn doctor_command(args: &[String]) -> i32 {
             Err(err) => blockers.push(format!("{}: {}", checkpoint_dir.display(), err)),
         }
     }
-
-    if blockers.is_empty() {
-        println!("doctor: ready for v2.0 strict config/checkpoint contracts");
-        if !warnings.is_empty() {
-            for warning in warnings {
-                println!("warning: {}", warning);
-            }
-        }
-        EXIT_OK
-    } else {
-        eprintln!("doctor: v2.0 readiness blockers found:");
-        for issue in blockers {
-            eprintln!("- {}", issue);
-        }
-        for warning in warnings {
-            eprintln!("warning: {}", warning);
-        }
-        EXIT_BLOCKED
-    }
-}
-
-pub fn print_usage() {
-    eprintln!("  enkai migrate config-v1 <in_config.enk> <out_config.enk|out.json>");
-    eprintln!("  enkai migrate checkpoint-meta-v1 <checkpoint_dir> [--dry-run] [--verify]");
-    eprintln!("  enkai doctor [path]");
+    DoctorReport { blockers, warnings }
 }
 
 fn migrate_config_v1(args: &[String]) -> i32 {
@@ -156,29 +222,30 @@ fn migrate_config_v1(args: &[String]) -> i32 {
 fn migrate_checkpoint_meta_v1(args: &[String]) -> i32 {
     if args.is_empty() {
         eprintln!(
-            "Usage: enkai migrate checkpoint-meta-v1 <checkpoint_dir> [--dry-run] [--verify]"
+            "Usage: enkai migrate checkpoint-meta-v1 <checkpoint_dir> [--dry-run] [--verify] [--strict-contracts]"
         );
         return EXIT_ERROR;
     }
     let checkpoint_dir = PathBuf::from(&args[0]);
     let dry_run = args.iter().any(|a| a == "--dry-run");
     let verify_only = args.iter().any(|a| a == "--verify");
+    let strict_contracts = args.iter().any(|a| a == "--strict-contracts");
     let mut unexpected = Vec::new();
     for arg in &args[1..] {
-        if arg != "--dry-run" && arg != "--verify" {
+        if arg != "--dry-run" && arg != "--verify" && arg != "--strict-contracts" {
             unexpected.push(arg.clone());
         }
     }
     if !unexpected.is_empty() {
         eprintln!("Unknown options: {}", unexpected.join(", "));
         eprintln!(
-            "Usage: enkai migrate checkpoint-meta-v1 <checkpoint_dir> [--dry-run] [--verify]"
+            "Usage: enkai migrate checkpoint-meta-v1 <checkpoint_dir> [--dry-run] [--verify] [--strict-contracts]"
         );
         return EXIT_ERROR;
     }
 
     let report = if verify_only {
-        match verify_checkpoint_tree(&checkpoint_dir) {
+        match verify_checkpoint_tree(&checkpoint_dir, strict_contracts) {
             Ok(r) => r,
             Err(err) => {
                 eprintln!("checkpoint verify failed: {}", err);
@@ -207,8 +274,8 @@ fn migrate_checkpoint_meta_v1(args: &[String]) -> i32 {
     }
     if verify_only {
         println!(
-            "checkpoint verify ok: {} meta files checked (legacy_missing={})",
-            report.meta_files, report.legacy_missing
+            "checkpoint verify ok: {} meta files checked (legacy_missing={}, strict_contracts={})",
+            report.meta_files, report.legacy_missing, strict_contracts
         );
     } else if dry_run {
         println!(
@@ -255,18 +322,19 @@ struct CheckpointReport {
     warnings: Vec<String>,
 }
 
-fn verify_checkpoint_tree(root: &Path) -> Result<CheckpointReport, String> {
-    analyze_checkpoint_tree(root, false, true)
+fn verify_checkpoint_tree(root: &Path, strict_contracts: bool) -> Result<CheckpointReport, String> {
+    analyze_checkpoint_tree(root, false, true, strict_contracts)
 }
 
 fn upgrade_checkpoint_tree(root: &Path, dry_run: bool) -> Result<CheckpointReport, String> {
-    analyze_checkpoint_tree(root, dry_run, false)
+    analyze_checkpoint_tree(root, dry_run, false, false)
 }
 
 fn analyze_checkpoint_tree(
     root: &Path,
     dry_run: bool,
     verify_only: bool,
+    strict_contracts: bool,
 ) -> Result<CheckpointReport, String> {
     let meta_files = collect_checkpoint_meta_files(root)?;
     if meta_files.is_empty() {
@@ -323,10 +391,15 @@ fn analyze_checkpoint_tree(
 
         if verify_only {
             if changed {
-                report.warnings.push(format!(
+                let issue = format!(
                     "{} missing v1 metadata keys (run checkpoint-meta-v1 migration)",
                     meta_path.display()
-                ));
+                );
+                if strict_contracts {
+                    report.blockers.push(issue);
+                } else {
+                    report.warnings.push(issue);
+                }
             }
             continue;
         }
@@ -658,5 +731,56 @@ mod tests {
         fs::write(step.join("meta.json"), r#"{"step":1}"#).expect("write meta");
         let code = doctor_command(&[dir.path().to_string_lossy().to_string()]);
         assert_eq!(code, EXIT_BLOCKED);
+    }
+
+    #[test]
+    fn strict_checkpoint_verify_blocks_missing_v1_fields() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let step = dir.path().join("step_00000001");
+        fs::create_dir_all(&step).expect("mkdir step");
+        fs::write(step.join("meta.json"), r#"{"step":1}"#).expect("write meta");
+        let code = migrate_command(&[
+            "checkpoint-meta-v1".to_string(),
+            dir.path().to_string_lossy().to_string(),
+            "--verify".to_string(),
+            "--strict-contracts".to_string(),
+        ]);
+        assert_eq!(code, EXIT_BLOCKED);
+    }
+
+    #[test]
+    fn lenient_doctor_allows_missing_checkpoint_fields_as_warning() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let config = dir.path().join("train_config.enk");
+        let json = serde_json::json!({
+            "config_version":1,
+            "backend":"cpu",
+            "vocab_size":8,
+            "hidden_size":4,
+            "seq_len":4,
+            "batch_size":2,
+            "lr":0.1,
+            "dataset_path":"data.txt",
+            "checkpoint_dir":"checkpoints",
+            "max_steps":2,
+            "tokenizer_train":{"path":"data.txt","vocab_size":8}
+        })
+        .to_string();
+        let escaped = json.replace('\\', "\\\\").replace('\"', "\\\"");
+        fs::write(
+            &config,
+            format!("fn main() ::\n    return json.parse(\"{}\")\n::\n", escaped),
+        )
+        .expect("config");
+        let step = dir.path().join("checkpoints").join("step_00000001");
+        fs::create_dir_all(&step).expect("mkdir step");
+        fs::write(step.join("meta.json"), r#"{"step":1}"#).expect("write meta");
+        let strict = doctor_command(&[dir.path().to_string_lossy().to_string()]);
+        assert_eq!(strict, EXIT_BLOCKED);
+        let lenient = doctor_command(&[
+            dir.path().to_string_lossy().to_string(),
+            "--lenient".to_string(),
+        ]);
+        assert_eq!(lenient, EXIT_OK);
     }
 }

@@ -70,6 +70,14 @@ def main() -> int:
     if "scripts/collect_release_evidence.py" not in release_checklist:
         failures.append("docs/RELEASE_CHECKLIST.md missing scripts/collect_release_evidence.py")
 
+    version_token = version.replace(".", "_")
+    for wrapper in (
+        ROOT / f"scripts/v{version_token}_rc_pipeline.ps1",
+        ROOT / f"scripts/v{version_token}_rc_pipeline.sh",
+    ):
+        if not wrapper.is_file():
+            failures.append(f"missing RC wrapper for current version: {wrapper.relative_to(ROOT)}")
+
     frontend_docs = read("docs/27_frontend_stack.md")
     if "backend_api.snapshot.json" not in frontend_docs:
         failures.append("docs/27_frontend_stack.md missing backend snapshot reference")

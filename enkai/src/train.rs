@@ -62,6 +62,7 @@ struct TrainConfig {
     grad_accum_steps: usize,
     grad_clip_norm: Option<f32>,
     legacy_config: bool,
+    strict_contracts: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -412,8 +413,12 @@ Set config_version = 1 to stay on the stable contract. Legacy parsing is planned
 }
 
 pub fn train(config_path: &Path) -> Result<(), String> {
+    train_with_contract_mode(config_path, false)
+}
+
+pub fn train_with_contract_mode(config_path: &Path, strict_contracts: bool) -> Result<(), String> {
     let config_value = load_config_value(config_path)?;
-    let config = parse_train_config(&config_value)?;
+    let config = parse_train_config_with_mode(&config_value, strict_contracts)?;
     if config.legacy_config {
         emit_legacy_config_warning(config_path);
     }
@@ -553,9 +558,7 @@ pub fn train(config_path: &Path) -> Result<(), String> {
             latest_checkpoint(Path::new(&config.checkpoint_dir)).map_err(|err| err.to_string())?
         {
             let state = load_checkpoint(&latest).map_err(|err| err.to_string())?;
-            if state.meta.format_version > 1 {
-                return Err("unsupported checkpoint format version".to_string());
-            }
+            validate_vm_checkpoint_meta(&state.meta, &config)?;
             let expected_hash = hash_config_hex(&config);
             if !state.meta.config_hash.is_empty() && state.meta.config_hash != expected_hash {
                 return Err("checkpoint config hash mismatch".to_string());
@@ -722,8 +725,12 @@ pub fn train(config_path: &Path) -> Result<(), String> {
 }
 
 pub fn eval(config_path: &Path) -> Result<(), String> {
+    eval_with_contract_mode(config_path, false)
+}
+
+pub fn eval_with_contract_mode(config_path: &Path, strict_contracts: bool) -> Result<(), String> {
     let config_value = load_config_value(config_path)?;
-    let config = parse_train_config(&config_value)?;
+    let config = parse_train_config_with_mode(&config_value, strict_contracts)?;
     if config.legacy_config {
         emit_legacy_config_warning(config_path);
     }
@@ -772,9 +779,7 @@ pub fn eval(config_path: &Path) -> Result<(), String> {
             .map_err(|err| err.to_string())?
             .ok_or_else(|| "No checkpoint found".to_string())?;
         let state = load_checkpoint(&latest).map_err(|err| err.to_string())?;
-        if state.meta.format_version > 1 {
-            return Err("unsupported checkpoint format version".to_string());
-        }
+        validate_vm_checkpoint_meta(&state.meta, &config)?;
         let expected_hash = hash_config_hex(&config);
         if !state.meta.config_hash.is_empty() && state.meta.config_hash != expected_hash {
             return Err("checkpoint config hash mismatch".to_string());
@@ -836,13 +841,21 @@ pub(crate) fn load_config_json(path: &Path) -> Result<serde_json::Value, String>
 }
 
 pub(crate) fn validate_train_config(path: &Path, enforce_dist_env: bool) -> Result<(), String> {
+    validate_train_config_with_mode(path, enforce_dist_env, false)
+}
+
+pub(crate) fn validate_train_config_with_mode(
+    path: &Path,
+    enforce_dist_env: bool,
+    strict_contracts: bool,
+) -> Result<(), String> {
     let value = load_config_value(path)?;
-    parse_train_config_inner(&value, enforce_dist_env).map(|_| ())
+    parse_train_config_inner(&value, enforce_dist_env, strict_contracts).map(|_| ())
 }
 
 pub(crate) fn migrate_config_v1_json(path: &Path) -> Result<serde_json::Value, String> {
     let value = load_config_value(path)?;
-    let config = parse_train_config_inner(&value, false)?;
+    let config = parse_train_config_inner(&value, false, false)?;
     Ok(train_config_to_json(&config))
 }
 
@@ -885,16 +898,34 @@ fn load_config_value(path: &Path) -> Result<Value, String> {
     Ok(value)
 }
 
+#[cfg(test)]
 fn parse_train_config(value: &Value) -> Result<TrainConfig, String> {
-    parse_train_config_inner(value, true)
+    parse_train_config_with_mode(value, false)
 }
 
-fn parse_train_config_inner(value: &Value, enforce_dist_env: bool) -> Result<TrainConfig, String> {
+fn parse_train_config_with_mode(
+    value: &Value,
+    strict_contracts: bool,
+) -> Result<TrainConfig, String> {
+    parse_train_config_inner(value, true, strict_contracts)
+}
+
+fn parse_train_config_inner(
+    value: &Value,
+    enforce_dist_env: bool,
+    strict_contracts: bool,
+) -> Result<TrainConfig, String> {
     let map_ref = value_as_record(value)?;
     let map = &*map_ref;
     let (config_version, legacy_config) = match map.get("config_version") {
         Some(Value::Int(i)) if *i >= 1 => (*i as u32, false),
         Some(_) => return Err("config_version must be Int >= 1".to_string()),
+        None if strict_contracts => {
+            return Err(
+                "strict contracts enabled: config_version is required (run: enkai migrate config-v1 <in> <out>)"
+                    .to_string(),
+            )
+        }
         None => (1, true),
     };
     if !legacy_config && config_version != 1 {
@@ -1043,6 +1074,7 @@ fn parse_train_config_inner(value: &Value, enforce_dist_env: bool) -> Result<Tra
         grad_accum_steps,
         grad_clip_norm,
         legacy_config,
+        strict_contracts,
     })
 }
 
@@ -1624,6 +1656,57 @@ fn native_checkpoint_meta(
     serde_json::to_string(&meta).map_err(|err| err.to_string())
 }
 
+fn validate_vm_checkpoint_meta(meta: &CheckpointMeta, config: &TrainConfig) -> Result<(), String> {
+    if meta.format_version > 1 {
+        return Err("unsupported checkpoint format version".to_string());
+    }
+    if config.strict_contracts {
+        if meta.format_version != 1 {
+            return Err(
+                "strict contracts enabled: checkpoint format_version must be 1 (run: enkai migrate checkpoint-meta-v1 <checkpoint_dir>)"
+                    .to_string(),
+            );
+        }
+        require_meta_string("config_hash", &meta.config_hash)?;
+        require_meta_string("model_sig", &meta.model_sig)?;
+        require_meta_string("dtype", &meta.dtype)?;
+        require_meta_string("device", &meta.device)?;
+    }
+    Ok(())
+}
+
+fn validate_native_checkpoint_meta(
+    meta: &NativeCheckpointMeta,
+    config: &TrainConfig,
+) -> Result<(), String> {
+    if meta.format_version > 1 {
+        return Err("unsupported checkpoint format version".to_string());
+    }
+    if config.strict_contracts {
+        if meta.format_version != 1 {
+            return Err(
+                "strict contracts enabled: checkpoint format_version must be 1 (run: enkai migrate checkpoint-meta-v1 <checkpoint_dir>)"
+                    .to_string(),
+            );
+        }
+        require_meta_string("config_hash", &meta.config_hash)?;
+        require_meta_string("model_sig", &meta.model_sig)?;
+        require_meta_string("dtype", &meta.dtype)?;
+        require_meta_string("device", &meta.device)?;
+    }
+    Ok(())
+}
+
+fn require_meta_string(name: &str, value: &str) -> Result<(), String> {
+    if value.trim().is_empty() {
+        return Err(format!(
+            "strict contracts enabled: checkpoint {} is missing/empty",
+            name
+        ));
+    }
+    Ok(())
+}
+
 fn rt_config_from(config: &TrainConfig) -> RtTrainConfig {
     RtTrainConfig {
         data: RtDataConfig {
@@ -1679,9 +1762,7 @@ fn try_load_native_checkpoint(
     let meta_json = rt_checkpoint_load(engine, dir).map_err(|err| err.to_string())?;
     let meta: NativeCheckpointMeta =
         serde_json::from_str(&meta_json).map_err(|err| err.to_string())?;
-    if meta.format_version > 1 {
-        return Err("unsupported checkpoint format version".to_string());
-    }
+    validate_native_checkpoint_meta(&meta, config)?;
     let expected_hash = hash_config_hex(config);
     if !meta.config_hash.is_empty() && meta.config_hash != expected_hash {
         return Err("checkpoint config hash mismatch".to_string());
@@ -1984,6 +2065,82 @@ mod tests {
         )
         .expect("write meta");
         eval(&config_path).expect("legacy checkpoint eval");
+    }
+
+    #[test]
+    fn strict_contracts_require_config_version() {
+        let dir = tempdir().expect("tempdir");
+        let data = dir.path().join("strict_data.txt");
+        fs::write(&data, "alpha beta gamma\ndelta epsilon").expect("write data");
+        let ckpt = dir.path().join("strict_ckpt");
+        let config_path = dir.path().join("strict_config.enk");
+        let config = serde_json::json!({
+            "backend": "cpu",
+            "vocab_size": 8,
+            "hidden_size": 4,
+            "seq_len": 4,
+            "batch_size": 2,
+            "lr": 0.1,
+            "dataset_path": data.to_string_lossy(),
+            "checkpoint_dir": ckpt.to_string_lossy(),
+            "max_steps": 1,
+            "save_every": 1,
+            "log_every": 1,
+            "drop_remainder": false,
+            "tokenizer_train": { "path": data.to_string_lossy(), "vocab_size": 8 }
+        });
+        write_config(&config_path, &config).expect("write config");
+        let err =
+            train_with_contract_mode(&config_path, true).expect_err("strict config must fail");
+        assert!(err.contains("config_version is required"));
+    }
+
+    #[test]
+    fn strict_contracts_reject_legacy_checkpoint_meta() {
+        let dir = tempdir().expect("tempdir");
+        let data = dir.path().join("strict_meta_data.txt");
+        fs::write(&data, "alpha beta gamma\ndelta epsilon").expect("write data");
+        let ckpt = dir.path().join("strict_meta_ckpt");
+        let config_path = dir.path().join("strict_meta_config.enk");
+        let config = serde_json::json!({
+            "config_version": 1,
+            "backend": "cpu",
+            "vocab_size": 8,
+            "hidden_size": 4,
+            "seq_len": 4,
+            "batch_size": 2,
+            "lr": 0.1,
+            "dataset_path": data.to_string_lossy(),
+            "checkpoint_dir": ckpt.to_string_lossy(),
+            "max_steps": 1,
+            "save_every": 1,
+            "log_every": 1,
+            "eval_steps": 1,
+            "drop_remainder": false,
+            "tokenizer_train": { "path": data.to_string_lossy(), "vocab_size": 8 }
+        });
+        write_config(&config_path, &config).expect("write config");
+        train(&config_path).expect("train");
+        let latest = latest_checkpoint(&ckpt)
+            .expect("latest lookup")
+            .expect("checkpoint path");
+        let meta_path = latest.join("meta.json");
+        let meta_text = fs::read_to_string(&meta_path).expect("read meta");
+        let mut meta_json: serde_json::Value = serde_json::from_str(&meta_text).expect("meta json");
+        let obj = meta_json.as_object_mut().expect("meta object");
+        obj.remove("format_version");
+        obj.insert(
+            "config_hash".to_string(),
+            serde_json::Value::String(String::new()),
+        );
+        fs::write(
+            &meta_path,
+            serde_json::to_string_pretty(&meta_json).expect("serialize meta"),
+        )
+        .expect("write meta");
+        let err = eval_with_contract_mode(&config_path, true)
+            .expect_err("strict eval should reject legacy checkpoint");
+        assert!(err.contains("format_version must be 1") || err.contains("config_hash"));
     }
 
     #[test]

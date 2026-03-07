@@ -1,7 +1,7 @@
-﻿# Tensor API (v1.9.8)
+﻿# Tensor API (v1.9.9)
 
 `std::tensor` is backed by the `enkai_tensor` native library. This doc reflects the
-v1.9.8 production surface plus v1.9.8 hardening updates, safety improvements, and backend behavior.
+v1.9.9 production surface plus v1.9.9 hardening updates, safety improvements, and backend behavior.
 
 ## Quick start
 ```

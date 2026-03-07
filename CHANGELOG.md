@@ -11,6 +11,30 @@
 ### Breaking changes
 - None.
 
+## v1.9.9
+
+### Highlights
+- Added strict-contract preflight execution modes:
+  - `enkai train <config> [--strict-contracts|--lenient-contracts]`
+  - `enkai eval <config> [--strict-contracts|--lenient-contracts]`
+  - env default: `ENKAI_STRICT_CONTRACTS=1`
+- Added strict checkpoint-meta verification mode:
+  - `enkai migrate checkpoint-meta-v1 <checkpoint_dir> --verify --strict-contracts`
+- Hardened doctor workflow:
+  - strict-by-default scan for v2.0 blockers
+  - machine-readable output via `enkai doctor --json`
+  - transition mode via `enkai doctor --lenient`
+- Added release-line RC wrappers:
+  - `scripts/v1_9_9_rc_pipeline.ps1`
+  - `scripts/v1_9_9_rc_pipeline.sh`
+
+### Fixes
+- Added regression tests for strict contract behavior in train/eval and migration checks.
+- Aligned docs/spec/readme/release metadata to `v1.9.9`.
+
+### Breaking changes
+- None.
+
 ## v1.9.8
 
 ### Highlights

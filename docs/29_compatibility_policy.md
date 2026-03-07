@@ -1,4 +1,4 @@
-﻿# Compatibility And Deprecation Policy (v1.9.8)
+﻿# Compatibility And Deprecation Policy (v1.9.9)
 
 ## Scope
 
@@ -13,7 +13,11 @@ This policy defines compatibility guarantees for:
 - Grammar remains frozen at the v0.9.3 baseline for v1.x.
 - `config_version: 1` is the stable train/eval schema for v1.x.
 - Checkpoints with `format_version: 1` are the stable checkpoint format for v1.x.
-- Checkpoints missing `format_version` are treated as legacy v0 metadata and remain loadable in v1.9.8.
+- Checkpoints missing `format_version` are treated as legacy v0 metadata and remain loadable in v1.9.9.
+- Strict preflight mode is available in v1.9.9 to simulate v2.0 behavior:
+  - `enkai train|eval --strict-contracts`
+  - `enkai doctor` (strict-by-default) / `enkai doctor --lenient`
+  - `enkai migrate checkpoint-meta-v1 --verify --strict-contracts`
 - Generated frontend SDK/backend route contract must preserve:
   - `/api/<version>` prefix
   - `x-enkai-api-version` request header.
@@ -47,8 +51,8 @@ Release candidates must pass:
 
 Tooling support:
 - `enkai migrate config-v1 <in> <out>` converts/ejects canonical v1 train/eval config.
-- `enkai migrate checkpoint-meta-v1 <checkpoint_dir> [--dry-run] [--verify]` upgrades or verifies checkpoint metadata.
-- `enkai doctor [path]` reports v2.0 readiness blockers for config/checkpoint contracts.
+- `enkai migrate checkpoint-meta-v1 <checkpoint_dir> [--dry-run] [--verify] [--strict-contracts]` upgrades or verifies checkpoint metadata.
+- `enkai doctor [path] [--json] [--strict-contracts|--lenient]` reports v2.0 readiness blockers for config/checkpoint contracts.
 
 ### Legacy config -> v1 config
 
@@ -71,7 +75,7 @@ Recommended metadata fields in `meta.json`:
 - `dtype`
 - `device`.
 
-When resaving from v1.9.8 train/eval flows, metadata is written in v1 format.
+When resaving from v1.9.9 train/eval flows, metadata is written in v1 format.
 
 
 

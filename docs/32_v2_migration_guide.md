@@ -1,4 +1,4 @@
-# Enkai v2.0.0 Migration Guide (From v1.9.8 RC)
+# Enkai v2.0.0 Migration Guide (From v1.9.9 RC)
 
 ## Why migration is required
 
@@ -8,7 +8,7 @@ Legacy implicit acceptance paths from v1.9.x are removed from the runtime accept
 ## Pre-migration checklist
 
 1. Backup your project configuration and checkpoint directories.
-2. Ensure you are on `v1.9.8`.
+2. Ensure you are on `v1.9.9`.
 3. Run baseline validation:
    - `cargo test --workspace`
    - `powershell -ExecutionPolicy Bypass -File scripts/release_pipeline.ps1`

@@ -1,8 +1,8 @@
-# Enkai v1.9.8 RC Notes (v2.0.0 Stabilization Freeze)
+# Enkai v1.9.9 RC Notes (v2.0.0 Stabilization Freeze)
 
 ## Scope
 
-`v1.9.8` is the release-candidate freeze before `v2.0.0`.
+`v1.9.9` is the release-candidate freeze before `v2.0.0`.
 
 - No new language syntax.
 - No bootstrap feature expansion.
@@ -45,5 +45,5 @@ Use migration tooling before v2.0.0 cut:
 
 Rollback path during RC:
 
-- Keep running `v1.9.8` binaries.
+- Keep running `v1.9.9` binaries.
 - Keep a backup copy of pre-migration config/checkpoint trees before migration.
