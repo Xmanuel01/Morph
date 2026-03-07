@@ -2,8 +2,23 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v1.9.7.
+- Current production release line is v1.9.8.
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v1.9.8 (done)
+- Added RC pipeline gates with GPU evidence requirement by default:
+  - `scripts/rc_pipeline.ps1`
+  - `scripts/rc_pipeline.sh`
+  - wrappers: `scripts/v1_9_8_rc_pipeline.ps1/.sh`
+- Added release evidence archival tooling:
+  - `scripts/collect_release_evidence.py` (writes `artifacts/release/v<version>/manifest.json`)
+- Published v2.0 RC notes and migration guide:
+  - `docs/31_v2_rc_notes.md`
+  - `docs/32_v2_migration_guide.md`
+- Locked RC freeze discipline:
+  - no syntax expansion
+  - bootstrap maintenance-only
+  - migration + reliability only in RC cycle.
 
 v1.9.7 (done)
 - Added deterministic, script-driven release packaging:

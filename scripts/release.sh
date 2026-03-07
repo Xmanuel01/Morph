@@ -7,9 +7,9 @@ Usage:
   scripts/release.sh vX.Y.Z [--skip-tests] [--push] [--allow-dirty]
 
 Examples:
-  scripts/release.sh v1.9.7
-  scripts/release.sh v1.9.7 --skip-tests
-  scripts/release.sh v1.9.7 --push
+  scripts/release.sh v1.9.8
+  scripts/release.sh v1.9.8 --skip-tests
+  scripts/release.sh v1.9.8 --push
 
 Notes:
   - Requires clean git status unless --allow-dirty is set.

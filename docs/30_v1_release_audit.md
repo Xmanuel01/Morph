@@ -1,12 +1,12 @@
-# Enkai v1.0.0-v1.9.7 Delivery And Production-Grade Audit
+# Enkai v1.0.0-v1.9.8 Delivery And Production-Grade Audit
 
 ## Purpose
 
-This document records what shipped from `v1.0.0` through `v1.9.7` and the current production-readiness status.
+This document records what shipped from `v1.0.0` through `v1.9.8` and the current production-readiness status.
 
 ## Source of truth used for this record
 
-- Git tags: `v1.0.0` through `v1.9.7`.
+- Git tags: `v1.0.0` through `v1.9.8`.
 - `CHANGELOG.md`.
 - `docs/Enkai.spec` compatibility and runtime sections.
 - `VALIDATION.md`.
@@ -14,7 +14,7 @@ This document records what shipped from `v1.0.0` through `v1.9.7` and the curren
 - Release pipeline run on `2026-03-07`:
   - `powershell -ExecutionPolicy Bypass -File scripts/release_pipeline.ps1`
 
-## Release ledger (v1.0.0-v1.9.7)
+## Release ledger (v1.0.0-v1.9.8)
 
 ### v1.0.0 - Production core freeze
 
@@ -211,6 +211,20 @@ This document records what shipped from `v1.0.0` through `v1.9.7` and the curren
   - deterministic archive checks (`--check-deterministic`)
   - SBOM artifact generation.
 
+### v1.9.8 - RC freeze + evidence archive readiness
+
+- Added RC pipeline scripts:
+  - `scripts/rc_pipeline.ps1`
+  - `scripts/rc_pipeline.sh`
+  - wrappers: `scripts/v1_9_8_rc_pipeline.ps1/.sh`
+- Added release evidence archive tooling:
+  - `scripts/collect_release_evidence.py`
+  - output manifest: `artifacts/release/v<version>/manifest.json`
+- Published RC and migration docs for v2.0 strict compatibility enforcement:
+  - `docs/31_v2_rc_notes.md`
+  - `docs/32_v2_migration_guide.md`
+- Updated validation/checklist/doc consistency gates to include RC and evidence archive flow.
+
 ## Production-grade audit status
 
 ### Automated gates (executed)
@@ -221,6 +235,7 @@ Run executed on `2026-03-07`:
 - `cargo clippy --workspace --all-targets -- -D warnings` -> PASS
 - `cargo test --workspace` -> PASS
 - `powershell -ExecutionPolicy Bypass -File scripts/release_pipeline.ps1` -> PASS
+- `powershell -ExecutionPolicy Bypass -File scripts/rc_pipeline.ps1 -AllowMissingGpuEvidence` -> PASS (dry-run, no mandatory GPU evidence)
 
 ### Coverage conclusion
 
@@ -238,6 +253,6 @@ Run executed on `2026-03-07`:
 
 ## Final readiness verdict
 
-- `v1.0.0` through `v1.9.7` are documented and implementation-backed in this repository.
+- `v1.0.0` through `v1.9.8` are documented and implementation-backed in this repository.
 - Current state is production-grade for CPU/non-GPU and self-host replacement-readiness gates.
 - Final all-target hardware production sign-off remains blocked only by operator GPU evidence.

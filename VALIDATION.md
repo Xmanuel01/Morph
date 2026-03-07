@@ -133,6 +133,11 @@ Expected result:
 - [x] Consolidated pipeline scripts:
   - `powershell -ExecutionPolicy Bypass -File scripts/release_pipeline.ps1`
   - `sh scripts/release_pipeline.sh`
+- [x] RC pipeline scripts (GPU evidence mandatory by default):
+  - `powershell -ExecutionPolicy Bypass -File scripts/rc_pipeline.ps1`
+  - `sh scripts/rc_pipeline.sh`
+- [x] RC evidence archive tooling:
+  - `python3 scripts/collect_release_evidence.py --gpu-log-dir artifacts/gpu --require-gpu`
 - [ ] Optional GPU evidence verification (after operator runs):
   - `powershell -ExecutionPolicy Bypass -File scripts/verify_gpu_gates.ps1 -LogDir artifacts/gpu`
   - `sh scripts/verify_gpu_gates.sh artifacts/gpu`

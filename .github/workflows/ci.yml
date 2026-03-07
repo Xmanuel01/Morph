@@ -52,6 +52,27 @@ jobs:
           SKIP_PACKAGE_CHECK: "1"
         run: sh scripts/release_pipeline.sh
 
+  rc-pipeline-dry-run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run RC pipeline dry-run (no mandatory GPU evidence)
+        env:
+          ALLOW_MISSING_GPU_EVIDENCE: "1"
+          SKIP_PACKAGE_CHECK: "1"
+        run: sh scripts/rc_pipeline.sh
+      - name: Upload RC dry-run evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc-dry-run-evidence
+          path: artifacts/release/**
+          if-no-files-found: error
+
   security-audit:
     runs-on: ubuntu-latest
     steps:

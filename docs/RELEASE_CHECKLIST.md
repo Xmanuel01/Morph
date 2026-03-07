@@ -2,6 +2,10 @@
 
 Use this checklist for production releases.
 
+Note:
+- Release pipeline scripts default `CARGO_BUILD_JOBS=1` and `CARGO_INCREMENTAL=0` when unset to reduce memory pressure.
+- Optional: set `ENKAI_PIPELINE_STRIP_DEBUG=1` to run test gate with `-C debuginfo=0` on constrained Windows hosts.
+
 ## 1) Prep
 
 - [ ] Pull latest `main`
@@ -21,6 +25,9 @@ Use this checklist for production releases.
 - [ ] Version-neutral release pipeline:
   - `powershell -ExecutionPolicy Bypass -File scripts/release_pipeline.ps1`
   - or `sh scripts/release_pipeline.sh`
+- [ ] RC pipeline (GPU evidence required by default):
+  - `powershell -ExecutionPolicy Bypass -File scripts/rc_pipeline.ps1`
+  - or `sh scripts/rc_pipeline.sh`
 - [ ] If GPU soak runs were executed, verify artifacts:
   - `powershell -ExecutionPolicy Bypass -File scripts/verify_gpu_gates.ps1 -LogDir artifacts/gpu`
   - or `sh scripts/verify_gpu_gates.sh artifacts/gpu`
@@ -35,6 +42,9 @@ Use this checklist for production releases.
 - [ ] Provenance/security gates:
   - `python3 scripts/license_audit.py`
   - `python3 scripts/generate_sbom.py --output dist/sbom-<version>-linux-x86_64.json`
+- [ ] Archive release evidence package:
+  - `python3 scripts/collect_release_evidence.py --gpu-log-dir artifacts/gpu --require-gpu`
+  - expected output: `artifacts/release/v<version>/manifest.json`
 
 ## 3) Tag
 
@@ -61,4 +71,3 @@ Use this checklist for production releases.
 - [ ] Smoke test:
   - `enkai --version`
   - `enkai run examples/...`
-

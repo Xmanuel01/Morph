@@ -4,6 +4,11 @@ set -eu
 verify_gpu="${VERIFY_GPU_EVIDENCE:-0}"
 gpu_log_dir="${GPU_LOG_DIR:-artifacts/gpu}"
 skip_package="${SKIP_PACKAGE_CHECK:-0}"
+strip_debug="${ENKAI_PIPELINE_STRIP_DEBUG:-0}"
+
+# Default to serialized rustc jobs in release gates for deterministic memory usage.
+export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-1}"
+export CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}"
 
 echo "[release] Running format gate..."
 cargo fmt --all --check
@@ -12,7 +17,11 @@ echo "[release] Running clippy gate..."
 cargo clippy --workspace --all-targets -- -D warnings
 
 echo "[release] Running test gate..."
-cargo test --workspace
+if [ "$strip_debug" = "1" ]; then
+  RUSTFLAGS="${RUSTFLAGS:-} -C debuginfo=0" cargo test --workspace -j 1
+else
+  cargo test --workspace -j 1
+fi
 
 echo "[release] Running docs contract consistency gate..."
 python3 scripts/check_docs_consistency.py

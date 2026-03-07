@@ -1,6 +1,6 @@
-# Frontend Developer Stack (v1.9.7 contract freeze)
+﻿# Frontend Developer Stack (v1.9.8 contract freeze)
 
-Enkai v1.9.7 keeps frontend scaffolding and typed SDK generation compatibility-frozen with explicit contract snapshots.
+Enkai v1.9.8 keeps frontend scaffolding and typed SDK generation compatibility-frozen with explicit contract snapshots.
 
 ## Commands
 
@@ -47,3 +47,4 @@ The Enkai CLI test suite validates:
 - Fullstack contract flow boots generated backend + frontend artifacts and validates streaming responses.
 - Conversation ID continuity across stream/chat calls remains stable under API version mismatch checks.
 - Snapshot freeze tests enforce compatibility of backend/API contract and generated SDK contract in CI.
+

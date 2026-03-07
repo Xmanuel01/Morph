@@ -11,6 +11,31 @@
 ### Breaking changes
 - None.
 
+## v1.9.8
+
+### Highlights
+- Added RC freeze pipeline and wrappers:
+  - `scripts/rc_pipeline.ps1`
+  - `scripts/rc_pipeline.sh`
+  - `scripts/v1_9_8_rc_pipeline.ps1`
+  - `scripts/v1_9_8_rc_pipeline.sh`
+- Added release evidence archive tool:
+  - `scripts/collect_release_evidence.py`
+  - writes `artifacts/release/v<version>/manifest.json`
+- Published `v2.0.0` RC policy and migration docs:
+  - `docs/31_v2_rc_notes.md`
+  - `docs/32_v2_migration_guide.md`
+
+### Fixes
+- Extended docs consistency checks to enforce RC docs and checklist references for:
+  - RC pipeline scripts
+  - release evidence archive tooling
+  - v2 migration command references
+- Updated CI with RC dry-run lane and release metadata/docs alignment for `v1.9.8`.
+
+### Breaking changes
+- None.
+
 ## v1.9.7
 
 ### Highlights

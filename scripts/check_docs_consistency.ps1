@@ -65,6 +65,15 @@ if (-not $releaseChecklist.Contains("scripts/verify_release_artifact.py")) {
 if ($releaseChecklist.Contains("v1.9 consolidated pipeline")) {
     $failures.Add("docs/RELEASE_CHECKLIST.md still references v1.9-specific pipeline wording")
 }
+if (-not $releaseChecklist.Contains("scripts/rc_pipeline.ps1")) {
+    $failures.Add("docs/RELEASE_CHECKLIST.md missing scripts/rc_pipeline.ps1")
+}
+if (-not $releaseChecklist.Contains("scripts/rc_pipeline.sh")) {
+    $failures.Add("docs/RELEASE_CHECKLIST.md missing scripts/rc_pipeline.sh")
+}
+if (-not $releaseChecklist.Contains("scripts/collect_release_evidence.py")) {
+    $failures.Add("docs/RELEASE_CHECKLIST.md missing scripts/collect_release_evidence.py")
+}
 
 $frontendDocs = Read-Text "docs/27_frontend_stack.md"
 if (-not $frontendDocs.Contains("backend_api.snapshot.json")) {
@@ -82,6 +91,35 @@ $snapshotFiles = @(
 foreach ($snapshot in $snapshotFiles) {
     if (-not (Test-Path (Join-Path $root $snapshot))) {
         $failures.Add("missing contract snapshot file: $snapshot")
+    }
+}
+
+$rcNotesPath = Join-Path $root "docs/31_v2_rc_notes.md"
+if (-not (Test-Path $rcNotesPath)) {
+    $failures.Add("missing docs/31_v2_rc_notes.md")
+} else {
+    $rcNotes = Get-Content -Raw -Encoding UTF8 $rcNotesPath
+    if (-not $rcNotes.Contains("v2.0.0")) {
+        $failures.Add("docs/31_v2_rc_notes.md missing v2.0.0 references")
+    }
+    if (-not $rcNotes.ToLower().Contains("strict compatibility")) {
+        $failures.Add("docs/31_v2_rc_notes.md missing strict compatibility language")
+    }
+}
+
+$migrationPath = Join-Path $root "docs/32_v2_migration_guide.md"
+if (-not (Test-Path $migrationPath)) {
+    $failures.Add("missing docs/32_v2_migration_guide.md")
+} else {
+    $migration = Get-Content -Raw -Encoding UTF8 $migrationPath
+    foreach ($token in @(
+        "enkai migrate config-v1",
+        "enkai migrate checkpoint-meta-v1",
+        "enkai doctor"
+    )) {
+        if (-not $migration.Contains($token)) {
+            $failures.Add("docs/32_v2_migration_guide.md missing required command reference: $token")
+        }
     }
 }
 

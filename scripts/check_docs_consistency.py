@@ -63,6 +63,12 @@ def main() -> int:
         failures.append("docs/RELEASE_CHECKLIST.md missing scripts/verify_release_artifact.py")
     if "v1.9 consolidated pipeline" in release_checklist:
         failures.append("docs/RELEASE_CHECKLIST.md still references v1.9-specific pipeline wording")
+    if "scripts/rc_pipeline.ps1" not in release_checklist:
+        failures.append("docs/RELEASE_CHECKLIST.md missing scripts/rc_pipeline.ps1")
+    if "scripts/rc_pipeline.sh" not in release_checklist:
+        failures.append("docs/RELEASE_CHECKLIST.md missing scripts/rc_pipeline.sh")
+    if "scripts/collect_release_evidence.py" not in release_checklist:
+        failures.append("docs/RELEASE_CHECKLIST.md missing scripts/collect_release_evidence.py")
 
     frontend_docs = read("docs/27_frontend_stack.md")
     if "backend_api.snapshot.json" not in frontend_docs:
@@ -78,6 +84,31 @@ def main() -> int:
     for snapshot in required_snapshots:
         if not snapshot.is_file():
             failures.append(f"missing contract snapshot file: {snapshot.relative_to(ROOT)}")
+
+    rc_notes = ROOT / "docs/31_v2_rc_notes.md"
+    if not rc_notes.is_file():
+        failures.append("missing docs/31_v2_rc_notes.md")
+    else:
+        rc_text = rc_notes.read_text(encoding="utf-8")
+        if "v2.0.0" not in rc_text:
+            failures.append("docs/31_v2_rc_notes.md missing v2.0.0 references")
+        if "strict compatibility" not in rc_text.lower():
+            failures.append("docs/31_v2_rc_notes.md missing strict compatibility language")
+
+    migration_guide = ROOT / "docs/32_v2_migration_guide.md"
+    if not migration_guide.is_file():
+        failures.append("missing docs/32_v2_migration_guide.md")
+    else:
+        migration_text = migration_guide.read_text(encoding="utf-8")
+        for token in (
+            "enkai migrate config-v1",
+            "enkai migrate checkpoint-meta-v1",
+            "enkai doctor",
+        ):
+            if token not in migration_text:
+                failures.append(
+                    f"docs/32_v2_migration_guide.md missing required command reference: {token}"
+                )
 
     if failures:
         print("docs consistency check failed:")

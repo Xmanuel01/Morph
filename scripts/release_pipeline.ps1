@@ -6,6 +6,18 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+if ([string]::IsNullOrWhiteSpace($env:CARGO_BUILD_JOBS)) {
+    # Default to serialized rustc jobs in release gates for deterministic memory usage.
+    $env:CARGO_BUILD_JOBS = "1"
+}
+if ([string]::IsNullOrWhiteSpace($env:CARGO_INCREMENTAL)) {
+    $env:CARGO_INCREMENTAL = "0"
+}
+$stripDebug = $env:ENKAI_PIPELINE_STRIP_DEBUG
+if ([string]::IsNullOrWhiteSpace($stripDebug)) {
+    $stripDebug = "0"
+}
+
 function Invoke-Gate {
     param(
         [Parameter(Mandatory = $true)]
@@ -65,7 +77,21 @@ Write-Host "[release] Running clippy gate..."
 Invoke-Gate -Name "clippy" -Command { cargo clippy --workspace --all-targets -- -D warnings }
 
 Write-Host "[release] Running test gate..."
-Invoke-Gate -Name "tests" -Command { cargo test --workspace }
+Invoke-Gate -Name "tests" -Command {
+    $previousRustflags = $env:RUSTFLAGS
+    if ($stripDebug -eq "1") {
+        if ([string]::IsNullOrWhiteSpace($previousRustflags)) {
+            $env:RUSTFLAGS = "-C debuginfo=0"
+        } else {
+            $env:RUSTFLAGS = "$previousRustflags -C debuginfo=0"
+        }
+    }
+    try {
+        cargo test --workspace -j 1
+    } finally {
+        $env:RUSTFLAGS = $previousRustflags
+    }
+}
 
 Write-Host "[release] Running docs contract consistency gate..."
 Invoke-Gate -Name "docs-consistency" -Command {
