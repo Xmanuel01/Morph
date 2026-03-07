@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use tch::Device;
 
 use crate::{
-    clear_error, cstr_to_string, env_flag_enabled, get_tensor, parse_handle_list, set_error,
+    clear_error, cstr_to_string, env_flag_enabled, get_tensor, parse_handle_list, set_error_code,
     update_tensor, DIST_DEVICE, DIST_SEED,
 };
 use std::sync::atomic::Ordering;
@@ -26,31 +26,43 @@ pub extern "C" fn enkai_dist_init(world_size: i32, rank: i32) -> c_int {
             return set_state(None);
         }
         if rank < 0 || rank >= world_size {
-            set_error(format!(
-                "invalid distributed init args: world_size={}, rank={}",
-                world_size, rank
-            ));
+            set_error_code(
+                "E_DIST_INVALID_ARGS",
+                format!(
+                    "invalid distributed init args: world_size={}, rank={}",
+                    world_size, rank
+                ),
+            );
             return 1;
         }
         if !env_flag_enabled("ENKAI_ENABLE_DIST") {
-            set_error("distributed init blocked: set ENKAI_ENABLE_DIST=1");
+            set_error_code(
+                "E_DIST_ENV_GATE",
+                "distributed init blocked: set ENKAI_ENABLE_DIST=1",
+            );
             return 1;
         }
         if !tch::Cuda::is_available() {
-            set_error("distributed init requires CUDA; CUDA runtime is not available");
+            set_error_code(
+                "E_DIST_CUDA_UNAVAILABLE",
+                "distributed init requires CUDA; CUDA runtime is not available",
+            );
             return 1;
         }
         let cuda_count = tch::Cuda::device_count() as i32;
         if cuda_count < world_size {
-            set_error(format!(
-                "distributed init requires at least {} CUDA devices; found {}",
-                world_size, cuda_count
-            ));
+            set_error_code(
+                "E_DIST_CUDA_COUNT",
+                format!(
+                    "distributed init requires at least {} CUDA devices; found {}",
+                    world_size, cuda_count
+                ),
+            );
             return 1;
         }
 
         if let Err(err) = check_env_rank_world(world_size, rank) {
-            set_error(err);
+            set_error_code("E_DIST_ENV_MISMATCH", err);
             return 1;
         }
 
@@ -61,17 +73,23 @@ pub extern "C" fn enkai_dist_init(world_size: i32, rank: i32) -> c_int {
             rank
         };
         if device < 0 || device >= cuda_count {
-            set_error(format!(
+            set_error_code(
+                "E_DIST_DEVICE_MAPPING",
+                format!(
                 "distributed init invalid device mapping: device={} (available CUDA devices={})",
                 device, cuda_count
-            ));
+                ),
+            );
             return 1;
         }
         if device != rank {
-            set_error(format!(
+            set_error_code(
+                "E_DIST_DEVICE_MAPPING",
+                format!(
                 "distributed init rank/device mismatch: rank={} must map to cuda:{} (got cuda:{})",
                 rank, rank, device
-            ));
+                ),
+            );
             return 1;
         }
 
@@ -83,7 +101,7 @@ pub extern "C" fn enkai_dist_init(world_size: i32, rank: i32) -> c_int {
         let mut guard = match DIST_STATE.lock() {
             Ok(guard) => guard,
             Err(_) => {
-                set_error("distributed state lock poisoned");
+                set_error_code("E_DIST_STATE", "distributed state lock poisoned");
                 return 1;
             }
         };
@@ -91,10 +109,13 @@ pub extern "C" fn enkai_dist_init(world_size: i32, rank: i32) -> c_int {
             if existing == &target {
                 return 0;
             }
-            set_error(format!(
+            set_error_code(
+                "E_DIST_ALREADY_INITIALIZED",
+                format!(
                 "distributed context already initialized (existing world_size={}, rank={}, device=cuda:{}); call enkai_dist_shutdown before reconfiguring",
                 existing.world_size, existing.rank, existing.device
-            ));
+                ),
+            );
             return 1;
         }
         *guard = Some(target);
@@ -111,25 +132,28 @@ pub extern "C" fn enkai_dist_allreduce_sum_multi(handles_json: *const libc::c_ch
         let ctx = match current_ctx() {
             Ok(ctx) => ctx,
             Err(err) => {
-                set_error(err);
+                set_error_code("E_DIST_NOT_INITIALIZED", err);
                 return 1;
             }
         };
         if !env_flag_enabled("ENKAI_ENABLE_DIST") {
-            set_error("distributed allreduce blocked: set ENKAI_ENABLE_DIST=1");
+            set_error_code(
+                "E_DIST_ENV_GATE",
+                "distributed allreduce blocked: set ENKAI_ENABLE_DIST=1",
+            );
             return 1;
         }
         let handles_json = match cstr_to_string(handles_json) {
             Ok(v) => v,
             Err(err) => {
-                set_error(err);
+                set_error_code("E_DIST_PAYLOAD", err);
                 return 1;
             }
         };
         let handles = match parse_handle_list(&handles_json) {
             Ok(list) => list,
             Err(err) => {
-                set_error(err);
+                set_error_code("E_DIST_PAYLOAD", err);
                 return 1;
             }
         };
@@ -144,27 +168,36 @@ pub extern "C" fn enkai_dist_allreduce_sum_multi(handles_json: *const libc::c_ch
             let tensor = match get_tensor(handle) {
                 Ok(tensor) => tensor,
                 Err(err) => {
-                    set_error(format!(
-                        "distributed allreduce invalid tensor handle at index {}: {}",
-                        idx, err
-                    ));
+                    set_error_code(
+                        "E_DIST_HANDLE_INVALID",
+                        format!(
+                            "distributed allreduce invalid tensor handle at index {}: {}",
+                            idx, err
+                        ),
+                    );
                     return 1;
                 }
             };
             match tensor.device() {
                 Device::Cuda(dev) if dev as i32 == ctx.device => {}
                 Device::Cuda(dev) => {
-                    set_error(format!(
+                    set_error_code(
+                        "E_DIST_DEVICE_MISMATCH",
+                        format!(
                         "distributed allreduce rank/device mismatch for handle {}: rank {} expected cuda:{}, got cuda:{}",
                         handle, ctx.rank, ctx.device, dev
-                    ));
+                        ),
+                    );
                     return 1;
                 }
                 other => {
-                    set_error(format!(
+                    set_error_code(
+                        "E_DIST_TENSOR_DEVICE",
+                        format!(
                         "distributed allreduce requires CUDA tensors in multi-rank mode (handle {} on {:?})",
                         handle, other
-                    ));
+                        ),
+                    );
                     return 1;
                 }
             }
@@ -187,7 +220,7 @@ fn set_state(next: Option<DistCtx>) -> c_int {
     let mut guard = match DIST_STATE.lock() {
         Ok(guard) => guard,
         Err(_) => {
-            set_error("distributed state lock poisoned");
+            set_error_code("E_DIST_STATE", "distributed state lock poisoned");
             return 1;
         }
     };

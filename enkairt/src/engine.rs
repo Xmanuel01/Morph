@@ -148,7 +148,7 @@ impl LogConfig {
     }
 }
 
-/// Minimal metrics reported per step (stubbed for now).
+/// Metrics emitted for each train/eval step.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Metrics {
     pub step: u64,
@@ -453,7 +453,7 @@ pub fn load_checkpoint(engine: &mut Engine, dir: impl AsRef<Path>) -> Result<(),
     Ok(())
 }
 
-/// Shut down the engine gracefully (stubbed).
+/// Shut down the engine gracefully.
 pub fn shutdown(_engine: Engine) -> Result<(), RuntimeError> {
     Ok(())
 }

@@ -192,6 +192,10 @@ $checkpointDir = if ($env:ENKAI_CHECKPOINT_DIR) {
     if ($cfgCheckpoint) { $cfgCheckpoint } else { "checkpoints/enkai_50m" }
 }
 New-Item -ItemType Directory -Force -Path $checkpointDir | Out-Null
+$artifactDir = if ($env:ENKAI_GPU_ARTIFACT_DIR) { $env:ENKAI_GPU_ARTIFACT_DIR } else { "artifacts/gpu" }
+New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+$singleLogPath = Join-Path $artifactDir "single_gpu.log"
+$singleEvidencePath = Join-Path $artifactDir "single_gpu_evidence.json"
 $logPath = Join-Path $checkpointDir "train_log.jsonl"
 $integrityScript = Join-Path $PSScriptRoot "check_ckpt_integrity.ps1"
 $stdoutPath = Join-Path $checkpointDir "soak_train_stdout.log"
@@ -300,5 +304,36 @@ if (-not [string]::IsNullOrEmpty($failureReason)) {
 }
 Write-Host "================================"
 
+$summaryLines = @(
+    ("timestamp_utc: {0}" -f ([DateTime]::UtcNow.ToString("o"))),
+    ("status: {0}" -f $status),
+    ("last_step: {0}" -f (Get-Latest-StepFromLog $logPath)),
+    ("last_loss: {0}" -f $lastLoss),
+    ("resumed_from_step: {0}" -f $resumedFrom),
+    ("nan_or_inf: {0}" -f $nanDetected),
+    ("checkpoint_verified: {0}" -f $ckptOk),
+    ("checkpoint_path: {0}" -f $latestCkpt),
+    ("evidence_json: {0}" -f $singleEvidencePath)
+)
+if (-not [string]::IsNullOrEmpty($failureReason)) {
+    $summaryLines += ("failure_reason: {0}" -f $failureReason)
+}
+Set-Content -Path $singleLogPath -Value $summaryLines
+
+$evidence = [ordered]@{
+    schema_version    = 1
+    gate              = "single_gpu_soak"
+    timestamp_utc     = [DateTime]::UtcNow.ToString("o")
+    status            = $status
+    last_step         = (Get-Latest-StepFromLog $logPath)
+    last_loss         = $lastLoss
+    resumed_from_step = $resumedFrom
+    nan_or_inf        = $nanDetected
+    checkpoint_verified = $ckptOk
+    checkpoint_path   = $latestCkpt
+    failure_reason    = if ([string]::IsNullOrEmpty($failureReason)) { $null } else { $failureReason }
+}
+$evidence | ConvertTo-Json -Depth 5 | Set-Content -Path $singleEvidencePath
+
+if ($status -eq "PASS") { Write-Host "Soak test OK" }
 if ($status -ne "PASS") { exit 1 }
-Write-Host "Soak test OK"

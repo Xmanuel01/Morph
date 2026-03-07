@@ -1,7 +1,7 @@
-# Tensor API (v1.9.4)
+# Tensor API (v1.9.5)
 
 `std::tensor` is backed by the `enkai_tensor` native library. This doc reflects the
-v1.9.4 surface, safety improvements, and backend behavior.
+v1.9.5 production surface plus v1.9.5 hardening updates, safety improvements, and backend behavior.
 
 ## Quick start
 ```
@@ -58,19 +58,24 @@ fn main() ::
   - validates distributed context and tensor handles,
   - enforces CUDA-device affinity per rank,
   - runs sum-allreduce and normalizes by `world_size`.
+- Distributed failures are machine-parseable with `E_DIST_*` prefixes
+  (`E_DIST_ENV_GATE`, `E_DIST_FEATURE_MISSING`, `E_DIST_DEVICE_MAPPING`, etc.).
 - Device-per-rank selection and explicit guardrails are covered by CUDA-gated tests
   (`backend_rank_device.rs`, `dist_guards.rs`).
 - `enkai_dist_init` and `enkai_dist_allreduce_sum_multi` require
   `enkai_tensor` built with features `torch,dist`; otherwise they return explicit
-  feature-missing errors.
+  feature-missing errors with rebuild guidance (`E_DIST_FEATURE_MISSING`).
 
 ## Checkpointing
 - Single-rank saves parameters/optimizer state with SHA-256 integrity files; load verifies hashes before returning handles.
 - Ranked saves: `enkai_checkpoint_save_ranked(dir, rank, world_size, params, opt, meta)` writes `params_rank{n}.bin` and `meta_rank{n}.json` (and optimizer shard if provided) with per-file hashes. `enkai_checkpoint_load_ranked` loads the shard for the given rank. Manifest/barrier coordination remains manual (one call per rank).
 
 ## Known gaps / roadmap
-- Multi-rank execution remains environment-gated and launcher-dependent; operators
-  must provide rank orchestration and GPU soak evidence for release sign-off.
+- Multi-rank execution remains environment-gated. First-party harness wrappers now
+  exist for Windows/Linux (`scripts/multi_gpu_harness.ps1/.sh`, `scripts/soak_4gpu.ps1/.sh`)
+  and emit structured evidence under `artifacts/gpu`, but operator-run GPU soak
+  evidence is still required for release sign-off.
 - CPU backend still depends on libtorch; a pure CPU kernel set would remove that dependency.
 - Mixed-precision support exists only for torch backends.
 - Safety depends on callers honoring documented preconditions; invalid pointers or JSON can still cause undefined behavior.
+

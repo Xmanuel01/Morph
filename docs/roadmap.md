@@ -2,7 +2,7 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v1.9.4.
+- Current production release line is v1.9.5.
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
 
 v1.9 (done)
@@ -132,5 +132,6 @@ v0.3 (done)
 - Local path dependencies in Enkai.toml
 - Expand stdlib: strings + fs (policy-gated)
 - Keep AI primitives as stubs unless testable
+
 
 

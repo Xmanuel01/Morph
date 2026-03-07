@@ -1,5 +1,15 @@
 #![cfg(feature = "torch")]
 
+fn last_error() -> String {
+    let ptr = enkai_tensor::enkai_tensor_last_error();
+    if ptr.is_null() {
+        return String::new();
+    }
+    unsafe { std::ffi::CStr::from_ptr(ptr) }
+        .to_string_lossy()
+        .into_owned()
+}
+
 #[test]
 fn multi_gpu_harness_gate_smoke() {
     if std::env::var("ENKAI_RUN_MULTI_GPU_TESTS").ok().as_deref() != Some("1") {
@@ -23,6 +33,7 @@ fn multi_gpu_harness_gate_smoke() {
     {
         let rc = enkai_tensor::enkai_dist_config(2, 0, -1, 42);
         assert_ne!(rc, 0, "dist feature must be enabled for multi-rank smoke");
+        assert!(last_error().contains("E_DIST_FEATURE_MISSING"));
         return;
     }
 

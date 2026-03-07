@@ -29,6 +29,7 @@ fn dist_init_requires_explicit_opt_in() {
 
     let rc = enkai_tensor::enkai_dist_init(2, 0);
     assert_ne!(rc, 0);
+    assert!(last_error().contains("E_DIST_ENV_GATE"));
     assert!(last_error().contains("ENKAI_ENABLE_DIST=1"));
 
     if let Some(value) = prev {
@@ -47,6 +48,7 @@ fn dist_init_reports_missing_dist_feature() {
 
     let rc = enkai_tensor::enkai_dist_init(2, 0);
     assert_ne!(rc, 0);
+    assert!(last_error().contains("E_DIST_FEATURE_MISSING"));
     assert!(last_error().contains("features \"torch,dist\""));
 
     if let Some(value) = prev {
@@ -67,6 +69,7 @@ fn dist_allreduce_requires_initialized_context() {
     let payload = CString::new("[1]").expect("json");
     let rc = enkai_tensor::enkai_dist_allreduce_sum_multi(payload.as_ptr());
     assert_ne!(rc, 0);
+    assert!(last_error().contains("E_DIST_NOT_INITIALIZED"));
     assert!(last_error().contains("dist not initialized"));
 
     if let Some(value) = prev {

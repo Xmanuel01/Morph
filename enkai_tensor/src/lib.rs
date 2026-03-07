@@ -136,6 +136,11 @@ fn set_error(message: impl Into<String>) {
     });
 }
 
+pub(crate) fn set_error_code(code: &str, message: impl Into<String>) {
+    let msg = message.into();
+    set_error(format!("{code}: {msg}"));
+}
+
 fn clear_error() {
     LAST_ERROR.with(|cell| {
         *cell.borrow_mut() = None;
@@ -285,29 +290,36 @@ pub extern "C" fn enkai_dist_config(world_size: i64, rank: i64, device: i64, see
         #[cfg(feature = "torch")]
         {
             if world_size <= 0 || rank < 0 || rank >= world_size {
-                set_error("invalid world_size or rank");
+                set_error_code("E_DIST_INVALID_ARGS", "invalid world_size or rank");
                 return 1;
             }
             if world_size > 1 && !env_flag_enabled("ENKAI_ENABLE_DIST") {
-                set_error(
+                set_error_code(
+                    "E_DIST_ENV_GATE",
                     "distributed mode requires ENKAI_ENABLE_DIST=1 (explicit opt-in safeguard)",
                 );
                 return 1;
             }
             if world_size > 1 && !backend_is_torch() {
-                set_error("distributed mode requires torch backend");
+                set_error_code("E_DIST_BACKEND", "distributed mode requires torch backend");
                 return 1;
             }
             if world_size > 1 && !tch::Cuda::is_available() {
-                set_error("distributed mode requires CUDA; CUDA runtime is not available");
+                set_error_code(
+                    "E_DIST_CUDA_UNAVAILABLE",
+                    "distributed mode requires CUDA; CUDA runtime is not available",
+                );
                 return 1;
             }
             let cuda_count = tch::Cuda::device_count();
             if world_size > 1 && cuda_count < world_size {
-                set_error(format!(
-                    "distributed mode requires at least {} CUDA devices; found {}",
-                    world_size, cuda_count
-                ));
+                set_error_code(
+                    "E_DIST_CUDA_COUNT",
+                    format!(
+                        "distributed mode requires at least {} CUDA devices; found {}",
+                        world_size, cuda_count
+                    ),
+                );
                 return 1;
             }
             DIST_WORLD.store(world_size, Ordering::SeqCst);
@@ -327,21 +339,30 @@ pub extern "C" fn enkai_dist_config(world_size: i64, rank: i64, device: i64, see
             };
             if world_size > 1 {
                 if dev_to_use < 0 {
-                    set_error("distributed mode requires CUDA device mapping");
+                    set_error_code(
+                        "E_DIST_DEVICE_MAPPING",
+                        "distributed mode requires CUDA device mapping",
+                    );
                     return 1;
                 }
                 if dev_to_use >= cuda_count {
-                    set_error(format!(
-                        "distributed mode device mapping out of range: cuda:{} (available={})",
-                        dev_to_use, cuda_count
-                    ));
+                    set_error_code(
+                        "E_DIST_DEVICE_MAPPING",
+                        format!(
+                            "distributed mode device mapping out of range: cuda:{} (available={})",
+                            dev_to_use, cuda_count
+                        ),
+                    );
                     return 1;
                 }
                 if dev_to_use != rank {
-                    set_error(format!(
+                    set_error_code(
+                        "E_DIST_DEVICE_MAPPING",
+                        format!(
                         "distributed mode rank/device mismatch: rank {} must map to cuda:{} (got cuda:{})",
                         rank, rank, dev_to_use
-                    ));
+                        ),
+                    );
                     return 1;
                 }
             }
@@ -367,7 +388,7 @@ pub extern "C" fn enkai_dist_config(world_size: i64, rank: i64, device: i64, see
             let _ = rank;
             let _ = device;
             let _ = seed;
-            set_error("torch backend not enabled");
+            set_error_code("E_DIST_BACKEND", "torch backend not enabled");
             1
         }
     })
@@ -383,7 +404,8 @@ pub extern "C" fn enkai_dist_allreduce_sum(_params_json: *const c_char) -> c_int
             let world = DIST_WORLD.load(Ordering::SeqCst);
             if world > 1 {
                 if !env_flag_enabled("ENKAI_ENABLE_DIST") {
-                    set_error(
+                    set_error_code(
+                        "E_DIST_ENV_GATE",
                         "distributed allreduce blocked: set ENKAI_ENABLE_DIST=1 before multi-rank use",
                     );
                     return 1;
@@ -397,14 +419,14 @@ pub extern "C" fn enkai_dist_allreduce_sum(_params_json: *const c_char) -> c_int
             let params_json = match cstr_to_string(_params_json) {
                 Ok(v) => v,
                 Err(err) => {
-                    set_error(err);
+                    set_error_code("E_DIST_PAYLOAD", err);
                     return 1;
                 }
             };
             let handles = match parse_handle_list(&params_json) {
                 Ok(list) => list,
                 Err(err) => {
-                    set_error(err);
+                    set_error_code("E_DIST_PAYLOAD", err);
                     return 1;
                 }
             };
@@ -413,7 +435,10 @@ pub extern "C" fn enkai_dist_allreduce_sum(_params_json: *const c_char) -> c_int
                     continue;
                 }
                 if get_tensor(h).is_err() {
-                    set_error("Invalid tensor handle in allreduce");
+                    set_error_code(
+                        "E_DIST_HANDLE_INVALID",
+                        "Invalid tensor handle in allreduce",
+                    );
                     return 1;
                 }
             }
@@ -421,7 +446,7 @@ pub extern "C" fn enkai_dist_allreduce_sum(_params_json: *const c_char) -> c_int
         }
         #[cfg(not(feature = "torch"))]
         {
-            set_error("torch backend not enabled");
+            set_error_code("E_DIST_BACKEND", "torch backend not enabled");
             1
         }
     })
@@ -470,7 +495,10 @@ pub extern "C" fn enkai_dist_init(world_size: i32, rank: i32) -> c_int {
         clear_error();
         let _ = world_size;
         let _ = rank;
-        set_error("distributed backend requires enkai_tensor built with features \"torch,dist\"");
+        set_error_code(
+            "E_DIST_FEATURE_MISSING",
+            "distributed backend requires enkai_tensor built with features \"torch,dist\"; rebuild the library and set ENKAI_TENSOR_PATH",
+        );
         1
     })
 }
@@ -481,8 +509,9 @@ pub extern "C" fn enkai_dist_allreduce_sum_multi(handles_json: *const c_char) ->
     ffi_guard(1, || {
         clear_error();
         let _ = handles_json;
-        set_error(
-            "distributed allreduce unavailable: build enkai_tensor with features \"torch,dist\"",
+        set_error_code(
+            "E_DIST_FEATURE_MISSING",
+            "distributed allreduce unavailable: build enkai_tensor with features \"torch,dist\"; rebuild the library and set ENKAI_TENSOR_PATH",
         );
         1
     })

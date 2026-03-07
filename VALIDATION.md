@@ -41,12 +41,16 @@ This file is the strict verification matrix for the v1.9.x release line.
 
 - [x] Soak script with automated kill+resume:
   - `scripts/soak_single_gpu.ps1`
+  - `scripts/soak_single_gpu.sh`
   - Uses `ENKAI_KILL_STEP` and `ENKAI_POST_RESUME_STEPS`.
 - [x] Final PASS/FAIL summary printed:
   - Output fields include `status`, `last_step`, `last_loss`, `resumed_from_step`, `nan_or_inf`, `checkpoint_verified`.
 - [x] Integrity checker added and wired:
   - `scripts/check_ckpt_integrity.ps1`
   - Called from `scripts/soak_single_gpu.ps1`.
+- [x] Structured evidence output emitted:
+  - `artifacts/gpu/single_gpu.log`
+  - `artifacts/gpu/single_gpu_evidence.json`
 
 Operator run required:
 - Command:
@@ -63,11 +67,16 @@ Operator run required:
   - `scripts/multi_gpu_harness.ps1`
   - `scripts/multi_gpu_harness.sh`
   - Skips unless `ENKAI_RUN_MULTI_GPU_TESTS=1`.
+- [x] Harness uses first-party launcher flow on both Windows/Linux (no required ad-hoc launcher env command).
 - [x] Harness includes deterministic setup and checks:
   - fixed deterministic dataset generation
   - loss comparison against 1-GPU baseline (tolerance)
   - grad equality comparison post-allreduce artifacts (tolerance)
 - [x] Harness prints `PASS`/`FAIL`/`SKIPPED`.
+- [x] Structured evidence output emitted:
+  - `artifacts/gpu/multi_gpu.log`
+  - `artifacts/gpu/multi_gpu_evidence.json`
+  - parity artifacts (`baseline.jsonl`, `rank0.jsonl`, `rank1.jsonl`, `rank0_grads.json`, `rank1_grads.json`)
 
 Operator run required:
 - Command:
@@ -82,7 +91,10 @@ Operator run required:
   - `scripts/soak_4gpu.ps1`
   - `scripts/soak_4gpu.sh`
 - [x] Script prints `PASS`/`FAIL`/`SKIPPED`.
-- [x] Script outputs NCCL timeout guidance (`NCCL_ASYNC_ERROR_HANDLING`, `NCCL_TIMEOUT`).
+- [x] Script supports first-party launcher flow and optional custom launcher override (`ENKAI_4GPU_LAUNCH_CMD`).
+- [x] Structured evidence output emitted:
+  - `artifacts/gpu/soak_4gpu.log`
+  - `artifacts/gpu/soak_4gpu_evidence.json`
 
 Operator run required:
 - Command:

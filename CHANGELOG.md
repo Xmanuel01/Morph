@@ -11,6 +11,25 @@
 ### Breaking changes
 - None.
 
+## v1.9.5
+
+### Highlights
+- Added v1.9.5 distributed reliability tooling:
+  - first-party multi-GPU launcher flow via `scripts/gpu_harness.py` used by both PowerShell and shell harness scripts
+  - structured GPU evidence outputs in `artifacts/gpu`:
+    - `single_gpu_evidence.json`
+    - `multi_gpu_evidence.json`
+    - `soak_4gpu_evidence.json`
+- Added deterministic parity report generation for 2-GPU harness runs (loss parity + grad parity checks).
+
+### Fixes
+- Hardened distributed runtime failures with machine-parseable error codes (`E_DIST_*`) and clearer remediation guidance for missing `torch,dist` builds.
+- Updated GPU evidence verifier scripts to support both legacy log format and structured JSON evidence format.
+- Updated GPU harness scripts to first-party wrappers on Windows/Linux without requiring ad-hoc launcher composition for the 2-GPU path.
+
+### Breaking changes
+- None.
+
 ## v1.9.4
 
 ### Highlights

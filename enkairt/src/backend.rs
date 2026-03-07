@@ -726,7 +726,7 @@ impl Backend {
         }
         let Some(dist_init) = self.symbols.dist_init else {
             return Err(RuntimeError::new(
-                "distributed backend symbols unavailable: enkai_dist_init missing",
+                "distributed backend symbols unavailable: enkai_dist_init missing; rebuild enkai_tensor with features \"torch,dist\" and set ENKAI_TENSOR_PATH",
             ));
         };
         let rc = unsafe { dist_init(world_size, rank) };
@@ -743,7 +743,7 @@ impl Backend {
         }
         let Some(dist_allreduce) = self.symbols.dist_allreduce else {
             return Err(RuntimeError::new(
-                "distributed backend symbols unavailable: enkai_dist_allreduce_sum_multi missing",
+                "distributed backend symbols unavailable: enkai_dist_allreduce_sum_multi missing; rebuild enkai_tensor with features \"torch,dist\" and set ENKAI_TENSOR_PATH",
             ));
         };
         let json = serde_json::to_string(grads).map_err(|e| RuntimeError::new(&e.to_string()))?;
@@ -765,6 +765,16 @@ impl Backend {
     }
 
     pub fn configure_dist(&mut self, world_size: i32, rank: i32) -> Result<(), RuntimeError> {
+        if world_size < 1 {
+            return Err(RuntimeError::new(
+                "distributed configuration invalid: world_size must be >= 1",
+            ));
+        }
+        if rank < 0 || rank >= world_size {
+            return Err(RuntimeError::new(
+                "distributed configuration invalid: rank must satisfy 0 <= rank < world_size",
+            ));
+        }
         self.world_size = world_size;
         self.rank = rank;
         if world_size > 1 {

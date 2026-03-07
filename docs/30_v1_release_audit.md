@@ -1,12 +1,12 @@
-# Enkai v1.0.0-v1.9.4 Delivery And Production-Grade Audit
+# Enkai v1.0.0-v1.9.5 Delivery And Production-Grade Audit
 
 ## Purpose
 
-This document records what shipped from `v1.0.0` through `v1.9.4` and the current production-readiness status.
+This document records what shipped from `v1.0.0` through `v1.9.5` and the current production-readiness status.
 
 ## Source of truth used for this record
 
-- Git tags: `v1.0.0` through `v1.9.4`.
+- Git tags: `v1.0.0` through `v1.9.5`.
 - `CHANGELOG.md`.
 - `docs/Enkai.spec` compatibility and runtime sections.
 - `VALIDATION.md`.
@@ -14,7 +14,7 @@ This document records what shipped from `v1.0.0` through `v1.9.4` and the curren
 - Release pipeline run on `2026-03-05`:
   - `powershell -ExecutionPolicy Bypass -File scripts/v1_9_release_pipeline.ps1`
 
-## Release ledger (v1.0.0-v1.9.4)
+## Release ledger (v1.0.0-v1.9.5)
 
 ### v1.0.0 - Production core freeze
 
@@ -150,6 +150,31 @@ This document records what shipped from `v1.0.0` through `v1.9.4` and the curren
 - Added fixture-backed migration/doctor regression tests.
 - Updated spec/policy/readme/docs to v1.9.4 and documented migration workflow.
 
+### v1.9.5 - Distributed reliability productization
+
+- Added first-party multi-rank harness runner:
+  - `scripts/gpu_harness.py` with `multi` and `soak4` modes.
+- Updated Windows/Linux wrappers to use first-party harness flow:
+  - `scripts/multi_gpu_harness.ps1/.sh`
+  - `scripts/soak_4gpu.ps1/.sh`
+- Added structured single-GPU evidence output:
+  - `artifacts/gpu/single_gpu_evidence.json`
+  - `artifacts/gpu/single_gpu.log`
+- Added structured 2-GPU/4-GPU evidence outputs:
+  - `artifacts/gpu/multi_gpu_evidence.json`
+  - `artifacts/gpu/soak_4gpu_evidence.json`
+- Hardened distributed error contracts with stable machine-parseable codes:
+  - `E_DIST_ENV_GATE`, `E_DIST_FEATURE_MISSING`, `E_DIST_ENV_MISMATCH`,
+    `E_DIST_DEVICE_MAPPING`, `E_DIST_CUDA_COUNT`, `E_DIST_CUDA_UNAVAILABLE`,
+    `E_DIST_NOT_INITIALIZED`, and related runtime guards.
+- Updated GPU evidence verification scripts for JSON evidence compatibility while
+  preserving legacy log parsing:
+  - `scripts/verify_gpu_gates.ps1`
+  - `scripts/verify_gpu_gates.sh`
+- Expanded distributed guard/harness regression coverage in:
+  - `enkai_tensor/tests/dist_guards.rs`
+  - `enkai_tensor/tests/multi_gpu_harness.rs`
+
 ## Production-grade audit status
 
 ### Automated gates (executed)
@@ -177,6 +202,6 @@ Run executed on `2026-03-05`:
 
 ## Final readiness verdict
 
-- `v1.0.0` through `v1.9.4` are documented and implementation-backed in this repository.
+- `v1.0.0` through `v1.9.5` are documented and implementation-backed in this repository.
 - Current state is production-grade for CPU/non-GPU and self-host replacement-readiness gates.
 - Final all-target hardware production sign-off remains blocked only by operator GPU evidence.
