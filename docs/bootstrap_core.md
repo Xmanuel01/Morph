@@ -1,8 +1,8 @@
-# Enkai Bootstrap Core (v1.9.5)
+# Enkai Bootstrap Core (v1.9.6)
 
 ## Purpose
 
-`v1.9.5` stabilizes bootstrap-core primitives for a deterministic Stage0/Stage1 path.
+`v1.9.6` stabilizes bootstrap-core primitives for a deterministic Stage0/Stage1 path.
 The objective is to validate that Enkai-scripted compiler orchestration produces the
 same bytecode as direct Rust Stage0 compilation for the supported subset.
 
@@ -86,4 +86,5 @@ The subset intentionally rejects:
 - release script shortcut:
   - `powershell -ExecutionPolicy Bypass -File scripts/v1_9_release_pipeline.ps1`
   - `sh scripts/v1_9_release_pipeline.sh`
+
 

@@ -1,0 +1,64 @@
+{
+  "snapshot_version": 1,
+  "api_version": "v1",
+  "base_path": "/api/v1",
+  "required_headers": [
+    "x-enkai-api-version"
+  ],
+  "optional_headers": [
+    "authorization"
+  ],
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/api/v1/health"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/chat"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/chat/stream"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/chat/ws"
+    }
+  ],
+  "streaming": {
+    "sse": {
+      "content_type": "text/event-stream",
+      "events": [
+        "token",
+        "done"
+      ]
+    },
+    "websocket": {
+      "encoding": "json-text",
+      "events": [
+        "token",
+        "done"
+      ]
+    }
+  },
+  "middlewares": [
+    "auth",
+    "rate_limit",
+    "jsonl_log",
+    "default"
+  ],
+  "error_codes": [
+    "missing_api_version_header",
+    "api_version_mismatch",
+    "missing_prompt",
+    "not_found"
+  ],
+  "persistence": {
+    "file": "conversation_state.json",
+    "schema_version": 1,
+    "migration_paths": [
+      "v0_to_v1"
+    ]
+  }
+}

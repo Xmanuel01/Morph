@@ -300,11 +300,8 @@ fn http_stream_sends_chunks() {
     });
 
     std::thread::sleep(std::time::Duration::from_millis(50));
-    let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
     let request = b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
-    stream.write_all(request).expect("write");
-    let mut buf = Vec::new();
-    stream.read_to_end(&mut buf).expect("read");
+    let buf = send_raw_request(port, request);
     let body = String::from_utf8_lossy(&buf);
     assert!(body.contains("data: one"));
     assert!(body.contains("data: two"));

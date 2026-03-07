@@ -16,6 +16,9 @@ cargo test --workspace
 echo "[v1.9] Running docs contract consistency gate..."
 python3 scripts/check_docs_consistency.py
 
+echo "[v1.9] Running serve/frontend contract snapshot gate..."
+cargo test -p enkai --bin enkai frontend::tests::contract_snapshots_match_reference_files
+
 echo "[v1.9] Running self-host corpus gate..."
 cargo run -p enkai -- litec selfhost-ci enkai/tools/bootstrap/selfhost_corpus
 

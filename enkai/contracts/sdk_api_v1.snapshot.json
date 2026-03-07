@@ -1,0 +1,36 @@
+{
+  "snapshot_version": 1,
+  "api_version": "v1",
+  "required_headers": [
+    "x-enkai-api-version"
+  ],
+  "optional_headers": [
+    "authorization"
+  ],
+  "methods": [
+    "health",
+    "chat",
+    "streamChat",
+    "streamChatWs"
+  ],
+  "endpoints": [
+    "/api/v1/health",
+    "/api/v1/chat",
+    "/api/v1/chat/stream",
+    "/api/v1/chat/ws"
+  ],
+  "streaming": {
+    "sse": {
+      "events": [
+        "token",
+        "done"
+      ]
+    },
+    "websocket": {
+      "events": [
+        "token",
+        "done"
+      ]
+    }
+  }
+}

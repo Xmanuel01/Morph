@@ -49,6 +49,25 @@ if (-not $validation.Contains("Validation Matrix")) {
     $failures.Add("VALIDATION.md title should use release-line validation matrix wording")
 }
 
+$frontendDocs = Read-Text "docs/27_frontend_stack.md"
+if (-not $frontendDocs.Contains("backend_api.snapshot.json")) {
+    $failures.Add("docs/27_frontend_stack.md missing backend snapshot reference")
+}
+if (-not $frontendDocs.Contains("sdk_api.snapshot.json")) {
+    $failures.Add("docs/27_frontend_stack.md missing SDK snapshot reference")
+}
+
+$snapshotFiles = @(
+    "enkai/contracts/backend_api_v1.snapshot.json",
+    "enkai/contracts/sdk_api_v1.snapshot.json",
+    "enkai/contracts/conversation_state_v1.schema.json"
+)
+foreach ($snapshot in $snapshotFiles) {
+    if (-not (Test-Path (Join-Path $root $snapshot))) {
+        $failures.Add("missing contract snapshot file: $snapshot")
+    }
+}
+
 if ($failures.Count -gt 0) {
     Write-Host "docs consistency check failed:"
     foreach ($failure in $failures) {

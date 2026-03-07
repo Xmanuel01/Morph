@@ -220,6 +220,16 @@ fn scaffold_backend_project(root: &Path, api_version: &str) -> Result<(), String
     )?;
     write_text_file(&root.join(".gitignore"), "logs/\n")?;
     write_text_file(
+        &root.join("contracts").join("backend_api.snapshot.json"),
+        &render_backend_contract_snapshot(api_version),
+    )?;
+    write_text_file(
+        &root
+            .join("contracts")
+            .join("conversation_state.schema.json"),
+        &render_conversation_schema_json(),
+    )?;
+    write_text_file(
         &root.join("src").join("main.enk"),
         &render_backend_main(api_version),
     )?;
@@ -256,6 +266,10 @@ fn scaffold_frontend_project(
     write_text_file(
         &root.join("src").join("App.tsx"),
         &render_frontend_app_tsx(api_version),
+    )?;
+    write_text_file(
+        &root.join("contracts").join("sdk_api.snapshot.json"),
+        &render_sdk_contract_snapshot(api_version),
     )?;
     write_text_file(
         &root.join("src").join("sdk").join("enkaiClient.ts"),
@@ -307,9 +321,27 @@ fn render_backend_manifest(root: &Path) -> String {
 fn render_backend_readme(root: &Path, api_version: &str) -> String {
     let name = sanitize_name(root);
     format!(
-        "# {}\n\nEnkai backend scaffold (`v1.4.0` frontend contract).\n\n## API Contract\n\n- Base path: `/api/{}`\n- Header required by SDK: `x-enkai-api-version: {}`\n- Routes:\n  - `GET /api/{}/health`\n  - `POST /api/{}/chat`\n  - `GET /api/{}/chat/stream`\n\n## Persistence\n\n- Latest conversation state is persisted to `conversation_state.json`.\n- Override target directory with `ENKAI_CONVERSATION_DIR`.\n\n## Run\n\n- `enkai serve --host 0.0.0.0 --port 8080 .`\n",
-        name, api_version, api_version, api_version, api_version, api_version
+        "# {}\n\nEnkai backend scaffold (`v1.9.6` contract freeze).\n\n## API Contract\n\n- Base path: `/api/{}`\n- Header required by SDK: `x-enkai-api-version: {}`\n- Routes:\n  - `GET /api/{}/health`\n  - `POST /api/{}/chat`\n  - `GET /api/{}/chat/stream`\n  - `GET /api/{}/chat/ws`\n\n## Contract Snapshots\n\n- Backend contract snapshot: `contracts/backend_api.snapshot.json`\n- Conversation schema: `contracts/conversation_state.schema.json`\n\n## Persistence\n\n- Latest conversation state is persisted to `conversation_state.json`.\n- Schema version is enforced (`schema_version: 1`) with startup migration for legacy files.\n- Override target directory with `ENKAI_CONVERSATION_DIR`.\n\n## Run\n\n- `enkai serve --host 0.0.0.0 --port 8080 .`\n",
+        name, api_version, api_version, api_version, api_version, api_version, api_version
     )
+}
+
+fn render_backend_contract_snapshot(api_version: &str) -> String {
+    format!(
+        "{{\n  \"snapshot_version\": 1,\n  \"api_version\": \"{}\",\n  \"base_path\": \"/api/{}\",\n  \"required_headers\": [\n    \"x-enkai-api-version\"\n  ],\n  \"optional_headers\": [\n    \"authorization\"\n  ],\n  \"routes\": [\n    {{\n      \"method\": \"GET\",\n      \"path\": \"/api/{}/health\"\n    }},\n    {{\n      \"method\": \"POST\",\n      \"path\": \"/api/{}/chat\"\n    }},\n    {{\n      \"method\": \"GET\",\n      \"path\": \"/api/{}/chat/stream\"\n    }},\n    {{\n      \"method\": \"GET\",\n      \"path\": \"/api/{}/chat/ws\"\n    }}\n  ],\n  \"streaming\": {{\n    \"sse\": {{\n      \"content_type\": \"text/event-stream\",\n      \"events\": [\n        \"token\",\n        \"done\"\n      ]\n    }},\n    \"websocket\": {{\n      \"encoding\": \"json-text\",\n      \"events\": [\n        \"token\",\n        \"done\"\n      ]\n    }}\n  }},\n  \"middlewares\": [\n    \"auth\",\n    \"rate_limit\",\n    \"jsonl_log\",\n    \"default\"\n  ],\n  \"error_codes\": [\n    \"missing_api_version_header\",\n    \"api_version_mismatch\",\n    \"missing_prompt\",\n    \"not_found\"\n  ],\n  \"persistence\": {{\n    \"file\": \"conversation_state.json\",\n    \"schema_version\": 1,\n    \"migration_paths\": [\n      \"v0_to_v1\"\n    ]\n  }}\n}}\n",
+        api_version, api_version, api_version, api_version, api_version, api_version
+    )
+}
+
+fn render_sdk_contract_snapshot(api_version: &str) -> String {
+    format!(
+        "{{\n  \"snapshot_version\": 1,\n  \"api_version\": \"{}\",\n  \"required_headers\": [\n    \"x-enkai-api-version\"\n  ],\n  \"optional_headers\": [\n    \"authorization\"\n  ],\n  \"methods\": [\n    \"health\",\n    \"chat\",\n    \"streamChat\",\n    \"streamChatWs\"\n  ],\n  \"endpoints\": [\n    \"/api/{}/health\",\n    \"/api/{}/chat\",\n    \"/api/{}/chat/stream\",\n    \"/api/{}/chat/ws\"\n  ],\n  \"streaming\": {{\n    \"sse\": {{\n      \"events\": [\n        \"token\",\n        \"done\"\n      ]\n    }},\n    \"websocket\": {{\n      \"events\": [\n        \"token\",\n        \"done\"\n      ]\n    }}\n  }}\n}}\n",
+        api_version, api_version, api_version, api_version, api_version
+    )
+}
+
+fn render_conversation_schema_json() -> String {
+    "{\n  \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n  \"title\": \"EnkaiConversationStateV1\",\n  \"type\": \"object\",\n  \"required\": [\n    \"schema_version\",\n    \"id\",\n    \"source\",\n    \"updated_ms\"\n  ],\n  \"properties\": {\n    \"schema_version\": {\n      \"const\": 1\n    },\n    \"id\": {\n      \"type\": \"string\",\n      \"minLength\": 1\n    },\n    \"messages\": {\n      \"type\": \"array\",\n      \"minItems\": 1,\n      \"items\": {\n        \"type\": \"object\",\n        \"required\": [\n          \"role\",\n          \"content\"\n        ],\n        \"properties\": {\n          \"role\": {\n            \"type\": \"string\",\n            \"enum\": [\n              \"user\",\n              \"assistant\"\n            ]\n          },\n          \"content\": {\n            \"type\": \"string\"\n          }\n        },\n        \"additionalProperties\": true\n      }\n    },\n    \"source\": {\n      \"type\": \"string\"\n    },\n    \"updated_ms\": {\n      \"type\": \"integer\"\n    },\n    \"user_text\": {\n      \"type\": \"string\"\n    },\n    \"reply\": {\n      \"type\": \"string\"\n    }\n  },\n  \"additionalProperties\": true\n}\n".to_string()
 }
 
 fn render_backend_main(api_version: &str) -> String {
@@ -317,6 +349,7 @@ fn render_backend_main(api_version: &str) -> String {
     let health = format!("{}/health", base);
     let chat = format!("{}/chat", base);
     let stream = format!("{}/chat/stream", base);
+    let ws = format!("{}/chat/ws", base);
     format!(
         "import std::http\n\
 import std::io\n\
@@ -335,8 +368,40 @@ fn conversation_dir() -> String ::\n\
     ::\n\
     return dir?\n\
 ::\n\n\
-fn conversation_path(id: String) -> String ::\n\
+fn conversation_path() -> String ::\n\
     return path.join(conversation_dir(), \"conversation_state.json\")\n\
+::\n\n\
+fn contract_error(code: String, message: String) -> Response ::\n\
+    let out := json.parse(\"{{}}\")\n\
+    let err := json.parse(\"{{}}\")\n\
+    err.code := code\n\
+    err.message := message\n\
+    err.api_version := \"{}\"\n\
+    out.error := err\n\
+    return http.bad_request(json.stringify(out))\n\
+::\n\n\
+fn require_contract_header(req: Request) -> Response? ::\n\
+    let value := http.header(req, \"x-enkai-api-version\")\n\
+    if value == none ::\n\
+        return contract_error(\"missing_api_version_header\", \"missing x-enkai-api-version header\")\n\
+    ::\n\
+    if value? != \"{}\" ::\n\
+        return contract_error(\"api_version_mismatch\", \"x-enkai-api-version mismatch\")\n\
+    ::\n\
+    return none\n\
+::\n\n\
+fn require_ws_contract(req: Request) -> Response? ::\n\
+    let value := http.header(req, \"x-enkai-api-version\")\n\
+    if value == none ::\n\
+        value := http.query(req, \"api_version\")\n\
+    ::\n\
+    if value == none ::\n\
+        return contract_error(\"missing_api_version_header\", \"missing x-enkai-api-version header\")\n\
+    ::\n\
+    if value? != \"{}\" ::\n\
+        return contract_error(\"api_version_mismatch\", \"x-enkai-api-version mismatch\")\n\
+    ::\n\
+    return none\n\
 ::\n\n\
 fn next_conversation_id(value: String?) -> String ::\n\
     if value != none ::\n\
@@ -344,14 +409,31 @@ fn next_conversation_id(value: String?) -> String ::\n\
     ::\n\
     return json.stringify(time.now_ms())\n\
 ::\n\n\
+fn migrate_conversation_state_file() ::\n\
+    let raw := io.read_text(conversation_path())\n\
+    if raw == none ::\n\
+        return\n\
+    ::\n\
+    let parsed := json.parse(raw?)\n\
+    parsed.schema_version := 1\n\
+    io.write_text(conversation_path(), json.stringify(parsed))\n\
+::\n\n\
 fn save_conversation(id: String, user_text: String, reply: String, source: String) ::\n\
+    let user_msg := json.parse(\"{{}}\")\n\
+    user_msg.role := \"user\"\n\
+    user_msg.content := user_text\n\
+    let assistant_msg := json.parse(\"{{}}\")\n\
+    assistant_msg.role := \"assistant\"\n\
+    assistant_msg.content := reply\n\
     let state := json.parse(\"{{}}\")\n\
+    state.schema_version := 1\n\
     state.id := id\n\
+    state.messages := [user_msg, assistant_msg]\n\
     state.user_text := user_text\n\
     state.reply := reply\n\
     state.source := source\n\
     state.updated_ms := time.now_ms()\n\
-    io.write_text(conversation_path(id), json.stringify(state))\n\
+    io.write_text(conversation_path(), json.stringify(state))\n\
 ::\n\n\
 fn chat_payload(id: String, reply: String) -> String ::\n\
     let body := json.parse(\"{{}}\")\n\
@@ -360,25 +442,37 @@ fn chat_payload(id: String, reply: String) -> String ::\n\
     return json.stringify(body)\n\
 ::\n\n\
 fn health(req: Request) -> Response ::\n\
+    let header_error := require_contract_header(req)\n\
+    if header_error != none ::\n\
+        return header_error?\n\
+    ::\n\
     return http.ok(\"{{\\\"status\\\":\\\"ok\\\",\\\"api_version\\\":\\\"{}\\\"}}\")\n\
 ::\n\n\
 fn chat(req: Request) -> Response ::\n\
-    let user_text := \"hello\"\n\
-    let prompt_query := http.query(req, \"prompt\")\n\
-    if prompt_query != none ::\n\
-        user_text := prompt_query?\n\
+    let header_error := require_contract_header(req)\n\
+    if header_error != none ::\n\
+        return header_error?\n\
     ::\n\
+    let prompt_query := http.query(req, \"prompt\")\n\
+    if prompt_query == none ::\n\
+        return contract_error(\"missing_prompt\", \"prompt query parameter is required\")\n\
+    ::\n\
+    let user_text := prompt_query?\n\
     let conversation_id := next_conversation_id(http.query(req, \"conversation_id\"))\n\
     let reply := \"hello from enkai backend\"\n\
     save_conversation(conversation_id, user_text, reply, \"chat\")\n\
     return http.ok(chat_payload(conversation_id, reply))\n\
 ::\n\n\
 fn stream(req: Request) -> Response ::\n\
-    let user_text := \"hello\"\n\
-    let prompt_query := http.query(req, \"prompt\")\n\
-    if prompt_query != none ::\n\
-        user_text := prompt_query?\n\
+    let header_error := require_contract_header(req)\n\
+    if header_error != none ::\n\
+        return header_error?\n\
     ::\n\
+    let prompt_query := http.query(req, \"prompt\")\n\
+    if prompt_query == none ::\n\
+        return contract_error(\"missing_prompt\", \"prompt query parameter is required\")\n\
+    ::\n\
+    let user_text := prompt_query?\n\
     let conversation_id := next_conversation_id(http.query(req, \"conversation_id\"))\n\
     let s := http.sse_open()\n\
     let token0 := json.parse(\"{{}}\")\n\
@@ -401,14 +495,54 @@ fn stream(req: Request) -> Response ::\n\
     save_conversation(conversation_id, user_text, \"hello from enkai\", \"stream\")\n\
     return http.ok(\"\")\n\
 ::\n\n\
+fn chat_ws(req: Request) -> Response ::\n\
+    let header_error := require_ws_contract(req)\n\
+    if header_error != none ::\n\
+        return header_error?\n\
+    ::\n\
+    let prompt_query := http.query(req, \"prompt\")\n\
+    if prompt_query == none ::\n\
+        return contract_error(\"missing_prompt\", \"prompt query parameter is required\")\n\
+    ::\n\
+    let user_text := prompt_query?\n\
+    let conversation_id := next_conversation_id(http.query(req, \"conversation_id\"))\n\
+    let ws := http.ws_open(req)\n\
+    let token0 := json.parse(\"{{}}\")\n\
+    token0.event := \"token\"\n\
+    token0.value := \"hello\"\n\
+    http.ws_send(ws, json.stringify(token0))\n\
+    let token1 := json.parse(\"{{}}\")\n\
+    token1.event := \"token\"\n\
+    token1.value := \" from\"\n\
+    http.ws_send(ws, json.stringify(token1))\n\
+    let token2 := json.parse(\"{{}}\")\n\
+    token2.event := \"token\"\n\
+    token2.value := \" enkai\"\n\
+    http.ws_send(ws, json.stringify(token2))\n\
+    let done := json.parse(\"{{}}\")\n\
+    done.event := \"done\"\n\
+    done.conversation_id := conversation_id\n\
+    http.ws_send(ws, json.stringify(done))\n\
+    http.ws_close(ws)\n\
+    save_conversation(conversation_id, user_text, \"hello from enkai\", \"ws\")\n\
+    return none\n\
+::\n\n\
 fn not_found(req: Request) -> Response ::\n\
-    return http.not_found(\"{{\\\"error\\\":{{\\\"code\\\":\\\"not_found\\\",\\\"message\\\":\\\"route not found\\\"}}}}\")\n\
+    let out := json.parse(\"{{}}\")\n\
+    let err := json.parse(\"{{}}\")\n\
+    err.code := \"not_found\"\n\
+    err.message := \"route not found\"\n\
+    err.api_version := \"{}\"\n\
+    out.error := err\n\
+    return http.not_found(json.stringify(out))\n\
 ::\n\n\
 fn main() ::\n\
+    migrate_conversation_state_file()\n\
     let routes := [\n\
         http.route(\"GET\", \"{}\", health),\n\
         http.route(\"POST\", \"{}\", chat),\n\
-        http.route(\"GET\", \"{}\", stream)\n\
+        http.route(\"GET\", \"{}\", stream),\n\
+        http.route(\"GET\", \"{}\", chat_ws)\n\
     ]\n\
     let auth_cfg := json.parse(\"{{\\\"allow_anonymous\\\":true,\\\"tokens\\\":[{{\\\"token\\\":\\\"dev-token\\\",\\\"tenant\\\":\\\"local\\\"}}]}}\")\n\
     let rate_cfg := json.parse(\"{{\\\"capacity\\\":120,\\\"refill_per_sec\\\":60,\\\"key\\\":\\\"ip\\\"}}\")\n\
@@ -444,7 +578,7 @@ fn main() ::\n\
 ::\n\
 \n\
 main()\n",
-        api_version, health, chat, stream
+        api_version, api_version, api_version, api_version, api_version, health, chat, stream, ws
     )
 }
 
@@ -465,7 +599,7 @@ fn render_frontend_env_example(api_version: &str, backend_url: &str) -> String {
 
 fn render_frontend_readme(api_version: &str, backend_url: &str) -> String {
     format!(
-        "# Frontend Chat Scaffold\n\nTyped frontend scaffold for Enkai serving APIs.\n\n## Contract\n\n- Base URL: `{}` (override via `.env.local`)\n- API version: `{}`\n- Header pinning: `x-enkai-api-version: {}`\n\n## Run\n\n1. `npm install`\n2. `npm run dev`\n\n## SDK\n\nGenerated client: `src/sdk/enkaiClient.ts`\n",
+        "# Frontend Chat Scaffold\n\nTyped frontend scaffold for Enkai serving APIs.\n\n## Contract\n\n- Base URL: `{}` (override via `.env.local`)\n- API version: `{}`\n- Header pinning: `x-enkai-api-version: {}`\n- Streaming transports: SSE (`/chat/stream`) and WebSocket (`/chat/ws`)\n\n## Run\n\n1. `npm install`\n2. `npm run dev`\n\n## SDK + Snapshot\n\n- Generated client: `src/sdk/enkaiClient.ts`\n- Contract snapshot: `contracts/sdk_api.snapshot.json`\n",
         backend_url, api_version, api_version
     )
 }
@@ -543,7 +677,7 @@ export default function App() {{\n\
   return (\n\
     <div className=\"app-shell\">\n\
       <header className=\"hero\">\n\
-        <p className=\"eyebrow\">Enkai v1.4 frontend stack</p>\n\
+        <p className=\"eyebrow\">Enkai v1.9.6 frontend contract freeze</p>\n\
         <h1>Streaming Chat UI Kit</h1>\n\
         <p className=\"subtitle\">Typed SDK, version-pinned API contract, and resilient error UX.</p>\n\
         <p className=\"subtitle\">{{conversationId ? `Conversation: ${{conversationId}}` : \"Conversation: new\"}}</p>\n\
@@ -617,6 +751,14 @@ export interface StreamEvent {{\n\
   conversation_id?: string;\n\
 }}\n\
 \n\
+export interface ApiErrorBody {{\n\
+  error?: {{\n\
+    code?: string;\n\
+    message?: string;\n\
+    api_version?: string;\n\
+  }};\n\
+}}\n\
+\n\
 export interface StreamOptions {{\n\
   conversationId?: string;\n\
   signal?: AbortSignal;\n\
@@ -683,7 +825,7 @@ export class EnkaiClient {{\n\
       signal: options.signal,\n\
     }});\n\
     if (!response.ok) {{\n\
-      throw new Error(`stream request failed: ${{response.status}}`);\n\
+      throw new Error(await this.readErrorDetail(response));\n\
     }}\n\
     if (!response.body) {{\n\
       throw new Error(\"streaming is unavailable: response body missing\");\n\
@@ -722,6 +864,30 @@ export class EnkaiClient {{\n\
     }}\n\
   }}\n\
 \n\
+  streamChatWs(\n\
+    prompt: string,\n\
+    onEvent: (event: StreamEvent) => void,\n\
+    options: StreamOptions = {{}},\n\
+  ): () => void {{\n\
+    const url = new URL(this.endpoint(\"/chat/ws\"));\n\
+    url.searchParams.set(\"prompt\", prompt);\n\
+    if (options.conversationId) {{\n\
+      url.searchParams.set(\"conversation_id\", options.conversationId);\n\
+    }}\n\
+    url.searchParams.set(\"api_version\", this.config.apiVersion);\n\
+    url.protocol = url.protocol === \"https:\" ? \"wss:\" : \"ws:\";\n\
+    const socket = new WebSocket(url.toString());\n\
+    socket.onmessage = (event) => {{\n\
+      try {{\n\
+        const payload = JSON.parse(String(event.data)) as StreamEvent;\n\
+        onEvent(payload);\n\
+      }} catch (_err) {{\n\
+        // Ignore malformed messages from non-contract servers.\n\
+      }}\n\
+    }};\n\
+    return () => socket.close();\n\
+  }}\n\
+\n\
   private endpoint(path: string): string {{\n\
     return `${{this.config.baseUrl}}/api/${{this.config.apiVersion}}${{path}}`;\n\
   }}\n\
@@ -739,9 +905,33 @@ export class EnkaiClient {{\n\
 \n\
   private async readJson<T>(response: Response): Promise<T> {{\n\
     if (!response.ok) {{\n\
-      throw new Error(`request failed: ${{response.status}}`);\n\
+      throw new Error(await this.readErrorDetail(response));\n\
     }}\n\
     return (await response.json()) as T;\n\
+  }}\n\
+\n\
+  private async readErrorDetail(response: Response): Promise<string> {{\n\
+    let bodyText = \"\";\n\
+    try {{\n\
+      bodyText = await response.text();\n\
+    }} catch (_err) {{\n\
+      return `request failed: ${{response.status}}`;\n\
+    }}\n\
+    if (!bodyText) {{\n\
+      return `request failed: ${{response.status}}`;\n\
+    }}\n\
+    try {{\n\
+      const payload = JSON.parse(bodyText) as ApiErrorBody;\n\
+      if (payload.error?.code && payload.error?.message) {{\n\
+        return `request failed: ${{response.status}} (${{payload.error.code}}) ${{payload.error.message}}`;\n\
+      }}\n\
+      if (payload.error?.message) {{\n\
+        return `request failed: ${{response.status}} ${{payload.error.message}}`;\n\
+      }}\n\
+    }} catch (_err) {{\n\
+      // Fall through to generic output with raw body.\n\
+    }}\n\
+    return `request failed: ${{response.status}} ${{bodyText}}`;\n\
   }}\n\
 }}\n\
 \n\
@@ -754,7 +944,7 @@ function trimSlash(value: string): string {{\n\
 
 fn render_fullstack_readme(api_version: &str, backend_url: &str) -> String {
     format!(
-        "# Fullstack Chat Scaffold\n\nThis scaffold contains:\n\n- `backend/` Enkai serving project\n- `frontend/` React + TypeScript client app\n\n## API Contract\n\n- URL: `{}`\n- API version: `{}`\n- Pinned header: `x-enkai-api-version`\n\n## Start\n\n1. Backend: `cd backend && enkai serve --host 0.0.0.0 --port 8080 .`\n2. Frontend: `cd frontend && npm install && npm run dev`\n",
+        "# Fullstack Chat Scaffold\n\nThis scaffold contains:\n\n- `backend/` Enkai serving project\n- `frontend/` React + TypeScript client app\n\n## API Contract\n\n- URL: `{}`\n- API version: `{}`\n- Pinned header: `x-enkai-api-version`\n- Streaming transports: SSE + WebSocket\n\n## Snapshots\n\n- `backend/contracts/backend_api.snapshot.json`\n- `backend/contracts/conversation_state.schema.json`\n- `frontend/contracts/sdk_api.snapshot.json`\n\n## Start\n\n1. Backend: `cd backend && enkai serve --host 0.0.0.0 --port 8080 .`\n2. Frontend: `cd frontend && npm install && npm run dev`\n",
         backend_url, api_version
     )
 }
@@ -807,6 +997,7 @@ mod tests {
     use enkai_compiler::compiler::compile_package;
     use enkai_compiler::modules::load_package;
     use enkai_runtime::VM;
+    use serde_json::Value as JsonValue;
 
     use tempfile::tempdir;
 
@@ -865,6 +1056,10 @@ mod tests {
         assert!(sdk.contains("conversation_id"));
         assert!(sdk.contains("conversationId"));
         assert!(sdk.contains("apiVersion ?? \"v9\""));
+        assert!(sdk.contains("streamChatWs("));
+        assert!(sdk.contains("this.endpoint(\"/chat/ws\")"));
+        assert!(sdk.contains("readErrorDetail"));
+        assert!(sdk.contains("api_version"));
     }
 
     #[test]
@@ -873,10 +1068,31 @@ mod tests {
         assert!(text.contains("/api/v4/health"));
         assert!(text.contains("/api/v4/chat"));
         assert!(text.contains("/api/v4/chat/stream"));
+        assert!(text.contains("/api/v4/chat/ws"));
         assert!(text.contains("http.middleware(\"auth\""));
         assert!(text.contains("http.middleware(\"rate_limit\""));
         assert!(text.contains("save_conversation"));
         assert!(text.contains("ENKAI_CONTRACT_TEST_MODE"));
+        assert!(text.contains("require_contract_header"));
+        assert!(text.contains("require_ws_contract"));
+        assert!(text.contains("schema_version := 1"));
+        assert!(text.contains("migrate_conversation_state_file"));
+    }
+
+    #[test]
+    fn contract_snapshots_match_reference_files() {
+        assert_eq!(
+            render_backend_contract_snapshot("v1"),
+            include_str!("../contracts/backend_api_v1.snapshot.json")
+        );
+        assert_eq!(
+            render_sdk_contract_snapshot("v1"),
+            include_str!("../contracts/sdk_api_v1.snapshot.json")
+        );
+        assert_eq!(
+            render_conversation_schema_json(),
+            include_str!("../contracts/conversation_state_v1.schema.json")
+        );
     }
 
     #[test]
@@ -954,16 +1170,58 @@ mod tests {
 
         let backend_entry = root.join("backend").join("src").join("main.enk");
         assert!(backend_entry.is_file());
+        let backend_snapshot = root
+            .join("backend")
+            .join("contracts")
+            .join("backend_api.snapshot.json");
+        assert!(backend_snapshot.is_file());
+        assert_eq!(
+            fs::read_to_string(&backend_snapshot).expect("backend snapshot"),
+            render_backend_contract_snapshot("v1")
+        );
+        let conversation_schema = root
+            .join("backend")
+            .join("contracts")
+            .join("conversation_state.schema.json");
+        assert!(conversation_schema.is_file());
+        assert_eq!(
+            fs::read_to_string(&conversation_schema).expect("conversation schema"),
+            render_conversation_schema_json()
+        );
         let frontend_sdk = root
             .join("frontend")
             .join("src")
             .join("sdk")
             .join("enkaiClient.ts");
         assert!(frontend_sdk.is_file());
+        let sdk_snapshot = root
+            .join("frontend")
+            .join("contracts")
+            .join("sdk_api.snapshot.json");
+        assert!(sdk_snapshot.is_file());
+        assert_eq!(
+            fs::read_to_string(&sdk_snapshot).expect("sdk snapshot"),
+            render_sdk_contract_snapshot("v1")
+        );
 
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let port = listener.local_addr().expect("addr").port();
         drop(listener);
+
+        let conversation_dir = root.join("backend").join("state");
+        fs::create_dir_all(&conversation_dir).expect("conversation dir");
+        let legacy_state = serde_json::json!({
+            "id": "legacy-1",
+            "user_text": "legacy user",
+            "reply": "legacy reply",
+            "source": "legacy",
+            "updated_ms": 1
+        });
+        fs::write(
+            conversation_dir.join("conversation_state.json"),
+            serde_json::to_string(&legacy_state).expect("legacy json"),
+        )
+        .expect("write legacy state");
 
         let std_root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -973,6 +1231,10 @@ mod tests {
         std::env::set_var("ENKAI_SERVE_PORT", port.to_string());
         std::env::set_var("ENKAI_CONTRACT_TEST_MODE", "1");
         std::env::set_var("ENKAI_STD", std_root.to_string_lossy().to_string());
+        std::env::set_var(
+            "ENKAI_CONVERSATION_DIR",
+            conversation_dir.to_string_lossy().to_string(),
+        );
 
         let package = load_package(&backend_entry).expect("load backend");
         let program = compile_package(&package).expect("compile backend");
@@ -1027,10 +1289,36 @@ mod tests {
         let mismatch_resp = send_http_request("127.0.0.1", port, &mismatch_request);
         assert_eq!(response_status(&mismatch_resp), 404);
 
+        let missing_header_request =
+            "POST /api/v1/chat?prompt=hello HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
+                .to_string();
+        let missing_header_resp = send_http_request("127.0.0.1", port, &missing_header_request);
+        assert_eq!(response_status(&missing_header_resp), 400);
+        let missing_header_body = response_body(&missing_header_resp);
+        assert!(missing_header_body.contains("missing_api_version_header"));
+
+        let upgraded_state_text =
+            fs::read_to_string(conversation_dir.join("conversation_state.json"))
+                .expect("upgraded conversation state");
+        let upgraded_state: JsonValue =
+            serde_json::from_str(&upgraded_state_text).expect("valid upgraded json");
+        assert_eq!(
+            upgraded_state
+                .get("schema_version")
+                .and_then(|v| v.as_u64()),
+            Some(1)
+        );
+        assert!(upgraded_state
+            .get("messages")
+            .and_then(|v| v.as_array())
+            .is_some());
+        assert!(upgraded_state.get("id").and_then(|v| v.as_str()).is_some());
+
         backend.join().expect("backend join");
         std::env::remove_var("ENKAI_SERVE_HOST");
         std::env::remove_var("ENKAI_SERVE_PORT");
         std::env::remove_var("ENKAI_CONTRACT_TEST_MODE");
         std::env::remove_var("ENKAI_STD");
+        std::env::remove_var("ENKAI_CONVERSATION_DIR");
     }
 }

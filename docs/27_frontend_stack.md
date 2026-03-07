@@ -1,6 +1,6 @@
-# Frontend Developer Stack (v1.4)
+# Frontend Developer Stack (v1.9.6 contract freeze)
 
-Enkai v1.4 adds first-class frontend scaffolding and typed SDK generation.
+Enkai v1.9.6 keeps frontend scaffolding and typed SDK generation compatibility-frozen with explicit contract snapshots.
 
 ## Commands
 
@@ -24,13 +24,16 @@ Expected backend routes:
 - `GET /api/<api_version>/health`
 - `POST /api/<api_version>/chat`
 - `GET /api/<api_version>/chat/stream`
+- `GET /api/<api_version>/chat/ws`
 
 ## Scaffold Outputs
 
 - `backend`:
   - Enkai serving project with routed HTTP middleware baseline and conversation state persistence (`conversation_state.json`).
+  - Contract snapshots in `contracts/backend_api.snapshot.json` and `contracts/conversation_state.schema.json`.
 - `frontend-chat`:
   - React + TypeScript app with streaming chat UI and typed SDK.
+  - SDK contract snapshot in `contracts/sdk_api.snapshot.json`.
 - `fullstack-chat`:
   - Combined `backend/` + `frontend/` layout with shared API contract defaults.
 
@@ -43,3 +46,4 @@ The Enkai CLI test suite validates:
 - Scaffolding commands emit required project files and env contract defaults.
 - Fullstack contract flow boots generated backend + frontend artifacts and validates streaming responses.
 - Conversation ID continuity across stream/chat calls remains stable under API version mismatch checks.
+- Snapshot freeze tests enforce compatibility of backend/API contract and generated SDK contract in CI.

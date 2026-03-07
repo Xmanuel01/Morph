@@ -1,8 +1,8 @@
-# Enkai Language Specification (v0.1 -> v1.9.5)
+# Enkai Language Specification (v0.1 -> v1.9.6)
 
 Status: stable.
 Grammar and CLI contracts are frozen at the v0.9.3 baseline for the v1.x line.
-This document is the normative language and runtime surface for Enkai v1.9.5,
+This document is the normative language and runtime surface for Enkai v1.9.6,
 including compatibility constraints carried from v0.1 onward.
 
 -------------------------------------------------------------------------------
@@ -13,7 +13,7 @@ This specification covers:
 - Core syntax and block rules.
 - Module/import semantics.
 - Type and expression forms supported by parser, checker, compiler, and VM.
-- Built-in runtime modules shipped in v1.9.5.
+- Built-in runtime modules shipped in v1.9.6.
 - CLI entrypoints used in production.
 
 This specification does not claim features that are still stubbed or not yet implemented.
@@ -54,8 +54,9 @@ Compatibility baseline:
   (`use`/`type`/`enum`/`impl` + non-capturing lambda), and self-host CI lane coverage.
 - v1.8: compatibility/deprecation policy, legacy config/checkpoint compatibility
   gates, and documented self-host daily workflow + fallback process.
-- v1.9-v1.9.5: stage1 execution command (`enkai litec run`), unified master pipeline
-  smoke test, and GPU evidence verification scripts for operator-run soak gates.
+- v1.9-v1.9.6: stage1 execution command (`enkai litec run`), unified master pipeline
+  smoke test, GPU evidence verification scripts for operator-run soak gates, and
+  frontend/serve contract snapshot freeze with persisted conversation schema v1.
 
 Compatibility policy:
 - `.enk` and `.en` are primary source extensions.
@@ -63,7 +64,7 @@ Compatibility policy:
   primary contract unless listed explicitly.
 
 -------------------------------------------------------------------------------
-1.2 Validation Gate Status (v1.9.5)
+1.2 Validation Gate Status (v1.9.6)
 -------------------------------------------------------------------------------
 
 Current verification status:
@@ -277,7 +278,7 @@ Assignment form:
 8. Types
 -------------------------------------------------------------------------------
 
-Core types used in v1.9.5:
+Core types used in v1.9.6:
 - `Int`, `Float`, `Bool`, `String`, `Void`
 - Optional: `T?`
 - Function: `fn(T1, T2) -> R`
@@ -306,7 +307,7 @@ Formatting and tests:
 - Project test runner (`enkai test`) compiles and executes test files.
 
 -------------------------------------------------------------------------------
-10. Built-in Runtime Modules (v1.9.5)
+10. Built-in Runtime Modules (v1.9.6)
 -------------------------------------------------------------------------------
 
 Concurrency:
@@ -399,7 +400,7 @@ Native-backed std modules:
 - `std::tls` (TLS peer certificate fingerprint helper)
 - `std::model_registry` (serve-time env contract helpers)
 
-Tensor backend (`std::tensor`, v1.9.5 surface):
+Tensor backend (`std::tensor`, v1.9.6 surface):
 - device/tensor creation, math ops, shape/dtype/device transforms
 - autograd and optimizer helper APIs
 - AMP scaler/autocast APIs
@@ -416,7 +417,7 @@ Tensor C ABI checkpoint/distributed hooks:
 For full tensor C ABI contracts and safety preconditions, see `docs/tensor_api.md` and `docs/gpu_backend.md`.
 
 -------------------------------------------------------------------------------
-11. CLI Contract (v1.9.5)
+11. CLI Contract (v1.9.6)
 -------------------------------------------------------------------------------
 
 Commands:
@@ -461,12 +462,19 @@ Frontend scaffolding + SDK contract:
   - `GET /api/<version>/health`
   - `POST /api/<version>/chat`
   - `GET /api/<version>/chat/stream`
+  - `GET /api/<version>/chat/ws`
+  - backend contract snapshots:
+    - `contracts/backend_api.snapshot.json`
+    - `contracts/conversation_state.schema.json`
 - `enkai new frontend-chat` creates React/TypeScript UI scaffolding with:
   - typed SDK (`src/sdk/enkaiClient.ts`)
+  - SDK contract snapshot (`contracts/sdk_api.snapshot.json`)
   - env contract (`VITE_ENKAI_API_BASE_URL`, `VITE_ENKAI_API_VERSION`, `VITE_ENKAI_API_TOKEN`)
-  - streaming chat UI and error handling conventions.
+  - streaming chat UI and error handling conventions (SSE + WebSocket SDK support).
 - `enkai new fullstack-chat` emits both backend and frontend scaffolds with aligned API version defaults.
 - Generated SDK pins `x-enkai-api-version` and path prefix `/api/<version>`.
+- Backend scaffold persistence contract is schema-versioned (`schema_version: 1`) and includes
+  startup migration of legacy `conversation_state.json` data without `schema_version`.
 
 Project entry resolution:
 - Running with a directory resolves project root and `src/main.enk`.
@@ -494,7 +502,7 @@ Checkpoint format:
   - `enkai doctor` scans configs/checkpoints for v2.0 strict-contract blockers.
 
 -------------------------------------------------------------------------------
-12. Known Limits in v1.9.5
+12. Known Limits in v1.9.6
 -------------------------------------------------------------------------------
 
 The following are intentionally not fully implemented yet:
@@ -532,7 +540,7 @@ The following are intentionally not fully implemented yet:
 - `enkai litec replace-check` validates stage0/stage1/stage2 corpus compilation/runtime
   equivalence and reports compiler fixed-point status for the bootstrap subset; it is not
   yet a full replacement for Rust Stage0 compiler releases.
-- v1.9.5 validation note:
+- v1.9.6 validation note:
   - CPU-mode single-device soak requires operator-run evidence on production hardware.
   - CUDA single-GPU long-soak and distributed (2-GPU/4-GPU) reliability remain
     operator-run requirements and are not auto-proven by repository state alone.
@@ -545,7 +553,7 @@ These limits are part of the current stable contract and should be treated as pr
 13. Change Control
 -------------------------------------------------------------------------------
 
-For any language/runtime surface change after v1.9.5:
+For any language/runtime surface change after v1.9.6:
 1) Implement the change and add/adjust compiler/runtime tests.
 2) Update this specification to match the shipped behavior.
 3) Update changelog and targeted docs (`docs/xx_*.md`, `docs/tensor_api.md`, etc.).

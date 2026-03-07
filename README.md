@@ -4,9 +4,9 @@ ENKAI PROGRAMMING LANGUAGE
 Overview
 Enkai is a programming language with block structure defined by :: tokens, a clean
 assignment operator (:=), and an AI-native roadmap (tools, agents, memory, policy).
-This repository contains the v1.9.5 implementation in Rust.
+This repository contains the v1.9.6 implementation in Rust.
 
-Status (v1.9.5)
+Status (v1.9.6)
 - Bytecode VM + globals + type-checking
 - Module system with public/private exports
 - CLI: run/serve/new/sdk/check/fmt/fmt-lite/lint-lite/tokenizer-lite/dataset-lite/litec/build/test/train/eval/migrate/doctor
@@ -14,10 +14,12 @@ Status (v1.9.5)
 - Tokenizer + dataset streaming + checkpoints
 - Backend serving stack: routing, middleware/auth/rate-limit, SSE/WebSocket streaming, TLS/SQLite/Postgres helpers
 - Frontend stack: React/TypeScript scaffolds + typed SDK generation
+- Serve/frontend contract snapshots and compatibility freeze gates for generated backend + SDK
+- Schema-versioned conversation persistence (`schema_version: 1`) with startup migration hook for legacy scaffold state
 - Bootstrap-lite/core toolchain path with `litec` stage0/stage1 bytecode equivalence checks, phase staging (`litec stage`), and self-host CI corpus validation (`litec selfhost-ci`)
 - Self-host replacement-readiness gate with Stage1/Stage2 fixed-point checks (`litec replace-check`)
-- Compatibility/deprecation governance and self-host fallback workflow docs for v1.9.5 release readiness
-- Master release pipeline and GPU evidence verification scripts for v1.9.5 operational sign-off
+- Compatibility/deprecation governance and self-host fallback workflow docs for v1.9.6 release readiness
+- Master release pipeline and GPU evidence verification scripts for v1.9.6 operational sign-off
 
 Workspace structure
 - enkaic: compiler front-end (lexer/parser/AST/type-check stubs)

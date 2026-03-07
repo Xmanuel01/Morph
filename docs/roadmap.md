@@ -2,8 +2,22 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v1.9.5.
+- Current production release line is v1.9.6.
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v1.9.6 (done)
+- Froze serve/frontend compatibility with explicit contract snapshots:
+  - `backend/contracts/backend_api.snapshot.json`
+  - `backend/contracts/conversation_state.schema.json`
+  - `frontend/contracts/sdk_api.snapshot.json`
+- Added CI/release pipeline contract snapshot gate:
+  - `frontend::tests::contract_snapshots_match_reference_files`
+- Hardened generated backend persistence contract:
+  - `conversation_state.json` now schema-versioned (`schema_version: 1`)
+  - startup migration hook for legacy v0-style conversation state.
+- Expanded generated backend/SDK contract for WebSocket streaming route:
+  - `GET /api/<version>/chat/ws`
+  - SDK `streamChatWs(...)` helper.
 
 v1.9 (done)
 - Added stage1 execution command:

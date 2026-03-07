@@ -11,6 +11,28 @@
 ### Breaking changes
 - None.
 
+## v1.9.6
+
+### Highlights
+- Frozen serve/frontend compatibility contract with explicit snapshot artifacts:
+  - `backend/contracts/backend_api.snapshot.json`
+  - `backend/contracts/conversation_state.schema.json`
+  - `frontend/contracts/sdk_api.snapshot.json`
+- Added CI/release gate for contract snapshots:
+  - `frontend::tests::contract_snapshots_match_reference_files`
+- Expanded generated backend contract with WebSocket route:
+  - `GET /api/<version>/chat/ws`
+- Expanded generated SDK contract with `streamChatWs(...)` helper and improved structured error-detail parsing.
+
+### Fixes
+- Hardened scaffold persistence contract:
+  - `conversation_state.json` now writes `schema_version: 1` and structured `messages` payload.
+  - Legacy scaffold state files (without `schema_version`) are migrated at backend startup.
+- Added fullstack contract assertions for scaffolded snapshot files and persistence schema upgrade behavior.
+
+### Breaking changes
+- None.
+
 ## v1.9.5
 
 ### Highlights

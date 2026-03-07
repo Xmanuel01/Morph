@@ -52,6 +52,21 @@ def main() -> int:
     if "Validation Matrix" not in validation:
         failures.append("VALIDATION.md title should use release-line validation matrix wording")
 
+    frontend_docs = read("docs/27_frontend_stack.md")
+    if "backend_api.snapshot.json" not in frontend_docs:
+        failures.append("docs/27_frontend_stack.md missing backend snapshot reference")
+    if "sdk_api.snapshot.json" not in frontend_docs:
+        failures.append("docs/27_frontend_stack.md missing SDK snapshot reference")
+
+    required_snapshots = [
+        ROOT / "enkai/contracts/backend_api_v1.snapshot.json",
+        ROOT / "enkai/contracts/sdk_api_v1.snapshot.json",
+        ROOT / "enkai/contracts/conversation_state_v1.schema.json",
+    ]
+    for snapshot in required_snapshots:
+        if not snapshot.is_file():
+            failures.append(f"missing contract snapshot file: {snapshot.relative_to(ROOT)}")
+
     if failures:
         print("docs consistency check failed:")
         for failure in failures:

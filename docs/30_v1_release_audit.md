@@ -1,12 +1,12 @@
-# Enkai v1.0.0-v1.9.5 Delivery And Production-Grade Audit
+# Enkai v1.0.0-v1.9.6 Delivery And Production-Grade Audit
 
 ## Purpose
 
-This document records what shipped from `v1.0.0` through `v1.9.5` and the current production-readiness status.
+This document records what shipped from `v1.0.0` through `v1.9.6` and the current production-readiness status.
 
 ## Source of truth used for this record
 
-- Git tags: `v1.0.0` through `v1.9.5`.
+- Git tags: `v1.0.0` through `v1.9.6`.
 - `CHANGELOG.md`.
 - `docs/Enkai.spec` compatibility and runtime sections.
 - `VALIDATION.md`.
@@ -14,7 +14,7 @@ This document records what shipped from `v1.0.0` through `v1.9.5` and the curren
 - Release pipeline run on `2026-03-05`:
   - `powershell -ExecutionPolicy Bypass -File scripts/v1_9_release_pipeline.ps1`
 
-## Release ledger (v1.0.0-v1.9.5)
+## Release ledger (v1.0.0-v1.9.6)
 
 ### v1.0.0 - Production core freeze
 
@@ -175,6 +175,23 @@ This document records what shipped from `v1.0.0` through `v1.9.5` and the curren
   - `enkai_tensor/tests/dist_guards.rs`
   - `enkai_tensor/tests/multi_gpu_harness.rs`
 
+### v1.9.6 - Serve/frontend contract freeze
+
+- Added explicit scaffolded contract snapshots:
+  - `backend/contracts/backend_api.snapshot.json`
+  - `backend/contracts/conversation_state.schema.json`
+  - `frontend/contracts/sdk_api.snapshot.json`
+- Added CI/release gate for snapshot freeze:
+  - `frontend::tests::contract_snapshots_match_reference_files`
+- Expanded scaffolded backend API contract with WebSocket route:
+  - `GET /api/<version>/chat/ws`
+- Hardened generated SDK contract:
+  - deterministic error-detail parsing
+  - explicit WebSocket streaming helper (`streamChatWs`)
+- Versioned scaffold persistence contract:
+  - `conversation_state.json` includes `schema_version: 1`
+  - startup migration hook upgrades legacy v0-style persisted state.
+
 ## Production-grade audit status
 
 ### Automated gates (executed)
@@ -202,6 +219,6 @@ Run executed on `2026-03-05`:
 
 ## Final readiness verdict
 
-- `v1.0.0` through `v1.9.5` are documented and implementation-backed in this repository.
+- `v1.0.0` through `v1.9.6` are documented and implementation-backed in this repository.
 - Current state is production-grade for CPU/non-GPU and self-host replacement-readiness gates.
 - Final all-target hardware production sign-off remains blocked only by operator GPU evidence.
