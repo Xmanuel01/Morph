@@ -18,6 +18,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -34,14 +37,36 @@ jobs:
         run: python3 scripts/check_docs_consistency.py
       - name: Frontend/Serve contract snapshots
         run: cargo test -p enkai --bin enkai frontend::tests::contract_snapshots_match_reference_files
-  v1-9-pipeline:
+
+  release-pipeline:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Run v1.9 release pipeline
-        run: sh scripts/v1_9_release_pipeline.sh
+      - name: Run release pipeline (package gate handled by matrix package-check job)
+        env:
+          SKIP_PACKAGE_CHECK: "1"
+        run: sh scripts/release_pipeline.sh
+
+  security-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: RustSec advisory audit
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: License metadata audit
+        run: python3 scripts/license_audit.py
+
   bootstrap-parity:
     runs-on: ubuntu-latest
     steps:
@@ -64,53 +89,84 @@ jobs:
         run: |
           cargo test -p enkai --bin enkai bootstrap::tests::litec_selfhost_
           cargo run -p enkai -- litec selfhost-ci enkai/tools/bootstrap/selfhost_corpus
+
   package-check:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target_os: linux
+            arch: x86_64
+            bin_path: target/release/enkai
+            native_path: target/release/libenkai_native.so
+            archive_ext: tar.gz
+          - os: windows-latest
+            target_os: windows
+            arch: x86_64
+            bin_path: target/release/enkai.exe
+            native_path: target/release/enkai_native.dll
+            archive_ext: zip
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build release binaries
         run: |
           cargo build -p enkai --release
           cargo build -p enkai_native --release
-      - name: Package and verify
+      - name: Deterministic package + checksum + smoke (Linux)
+        if: matrix.target_os == 'linux'
+        shell: bash
         run: |
-          VERSION="$(grep '^version = ' enkai/Cargo.toml | head -1 | cut -d'"' -f2)"
-          BIN="target/release/enkai"
-          LEGACY_BIN="target/release/enkai"
-          NATIVE="target/release/libenkai_native.so"
-          OUT="dist/enkai-${VERSION}-linux-x86_64.tar.gz"
-          STAGE="dist/stage"
-          rm -rf "$STAGE"
-          mkdir -p "$STAGE/examples"
-          cp "$BIN" "$STAGE/enkai"
-          chmod +x "$STAGE/enkai"
-          if [ -f "$LEGACY_BIN" ]; then
-            cp "$LEGACY_BIN" "$STAGE/enkai"
-            chmod +x "$STAGE/enkai"
-          fi
-          cp -R std "$STAGE/std"
-          cp -R examples/hello "$STAGE/examples/hello"
-          cp install/README.txt "$STAGE/README.txt"
-          if [ -f "$NATIVE" ]; then
-            cp "$NATIVE" "$STAGE/"
-          fi
-          mkdir -p dist
-          tar -czf "$OUT" -C "$STAGE" .
-          tar -tzf "$OUT" | grep -q "^enkai$"
-          tar -tzf "$OUT" | grep -q "^README.txt$"
-          tar -tzf "$OUT" | grep -q "^std/"
-          tar -tzf "$OUT" | grep -q "^examples/hello/main.enk$"
-          if [ -f "$NATIVE" ]; then
-            tar -tzf "$OUT" | grep -q "^libenkai_native.so$"
-          fi
-          EXTRACT="dist/extract"
-          rm -rf "$EXTRACT"
-          mkdir -p "$EXTRACT"
-          tar -xzf "$OUT" -C "$EXTRACT"
-          (cd "$EXTRACT" && ./enkai --version)
-          (cd "$EXTRACT" && ./enkai run examples/hello/main.enk)
+          VERSION="$(python3 scripts/current_version.py)"
+          python3 scripts/package_release.py \
+            --version "$VERSION" \
+            --target-os "${{ matrix.target_os }}" \
+            --arch "${{ matrix.arch }}" \
+            --bin "${{ matrix.bin_path }}" \
+            --native "${{ matrix.native_path }}" \
+            --check-deterministic
+          ARCHIVE="dist/enkai-${VERSION}-${{ matrix.target_os }}-${{ matrix.arch }}.${{ matrix.archive_ext }}"
+          python3 scripts/verify_release_artifact.py \
+            --archive "$ARCHIVE" \
+            --target-os "${{ matrix.target_os }}" \
+            --smoke
+          python3 scripts/generate_sbom.py --output "dist/sbom-${VERSION}-${{ matrix.target_os }}-${{ matrix.arch }}.json"
+      - name: Deterministic package + checksum + smoke (Windows)
+        if: matrix.target_os == 'windows'
+        shell: pwsh
+        run: |
+          $version = python scripts/current_version.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $version = $version.Trim()
+          python scripts/package_release.py `
+            --version $version `
+            --target-os "${{ matrix.target_os }}" `
+            --arch "${{ matrix.arch }}" `
+            --bin "${{ matrix.bin_path }}" `
+            --native "${{ matrix.native_path }}" `
+            --check-deterministic
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $archive = "dist/enkai-$version-${{ matrix.target_os }}-${{ matrix.arch }}.${{ matrix.archive_ext }}"
+          python scripts/verify_release_artifact.py `
+            --archive $archive `
+            --target-os "${{ matrix.target_os }}" `
+            --smoke
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/generate_sbom.py --output "dist/sbom-$version-${{ matrix.target_os }}-${{ matrix.arch }}.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload package-check artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-check-${{ matrix.target_os }}-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
   torch:
     runs-on: ubuntu-latest
     steps:

@@ -7,9 +7,9 @@ Usage:
   scripts/release.sh vX.Y.Z [--skip-tests] [--push] [--allow-dirty]
 
 Examples:
-  scripts/release.sh v0.8.0
-  scripts/release.sh v0.8.0 --skip-tests
-  scripts/release.sh v0.8.0 --push
+  scripts/release.sh v1.9.7
+  scripts/release.sh v1.9.7 --skip-tests
+  scripts/release.sh v1.9.7 --push
 
 Notes:
   - Requires clean git status unless --allow-dirty is set.
@@ -59,10 +59,8 @@ if [ "$ALLOW_DIRTY" -ne 1 ]; then
 fi
 
 if [ "$SKIP_TESTS" -ne 1 ]; then
-  echo "Running format + clippy + tests..."
-  cargo fmt
-  cargo clippy -- -D warnings
-  cargo test
+  echo "Running release pipeline gates..."
+  sh scripts/release_pipeline.sh
 fi
 
 TAG_MSG="Release ${VERSION}"

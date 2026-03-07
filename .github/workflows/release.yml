@@ -45,6 +45,9 @@ jobs:
             ext: zip
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -100,55 +103,47 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           BIN="target/${{ matrix.target }}/release/enkai"
-          LEGACY_BIN="target/${{ matrix.target }}/release/enkai"
           if [ "$RUNNER_OS" = "macOS" ]; then
             NATIVE_ALT="target/${{ matrix.target }}/release/libenkai_native.dylib"
           else
             NATIVE_ALT="target/${{ matrix.target }}/release/libenkai_native.so"
           fi
-          OUT="dist/enkai-${VERSION}-${{ matrix.asset_os }}-${{ matrix.arch }}.tar.gz"
-          STAGE="dist/stage"
-          rm -rf "$STAGE"
-          mkdir -p "$STAGE/examples"
-          chmod +x "$BIN"
-          cp "$BIN" "$STAGE/enkai"
-          if [ -f "$LEGACY_BIN" ]; then
-            cp "$LEGACY_BIN" "$STAGE/enkai"
-          fi
-          cp -R std "$STAGE/std"
-          cp -R examples/hello "$STAGE/examples/hello"
-          cp install/README.txt "$STAGE/README.txt"
-          if [ -f "$NATIVE_ALT" ]; then
-            cp "$NATIVE_ALT" "$STAGE/"
-          fi
-          mkdir -p dist
-          tar -czf "$OUT" -C "$STAGE" .
-          (cd dist && shasum -a 256 "$(basename "$OUT")" > "$(basename "$OUT").sha256")
+          python3 scripts/package_release.py \
+            --version "$VERSION" \
+            --target-os "${{ matrix.asset_os }}" \
+            --arch "${{ matrix.arch }}" \
+            --archive-format "${{ matrix.ext }}" \
+            --bin "$BIN" \
+            --native "$NATIVE_ALT" \
+            --check-deterministic
+          OUT="dist/enkai-${VERSION}-${{ matrix.asset_os }}-${{ matrix.arch }}.${{ matrix.ext }}"
+          python3 scripts/verify_release_artifact.py \
+            --archive "$OUT" \
+            --target-os "${{ matrix.asset_os }}"
+          python3 scripts/generate_sbom.py --output "dist/sbom-${VERSION}-${{ matrix.asset_os }}-${{ matrix.arch }}.json"
       - name: Package (windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $version = $env:GITHUB_REF_NAME.TrimStart('v')
           $bin = "target\\${{ matrix.target }}\\release\\enkai.exe"
-          $legacy = "target\\${{ matrix.target }}\\release\\enkai.exe"
           $native = "target\\${{ matrix.target }}\\release\\enkai_native.dll"
-          $nativeAlt = "target\\${{ matrix.target }}\\release\\enkai_native.dll"
-          $out = "dist\\enkai-$version-${{ matrix.asset_os }}-${{ matrix.arch }}.zip"
-          $stage = "dist\\stage"
-          if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
-          New-Item -ItemType Directory -Force -Path $stage | Out-Null
-          New-Item -ItemType Directory -Force -Path (Join-Path $stage "examples") | Out-Null
-          Copy-Item -Path $bin -Destination (Join-Path $stage "enkai.exe") -Force
-          if (Test-Path $legacy) { Copy-Item -Path $legacy -Destination (Join-Path $stage "enkai.exe") -Force }
-          if (Test-Path $nativeAlt) { Copy-Item -Path $nativeAlt -Destination $stage -Force }
-          if (Test-Path $native) { Copy-Item -Path $native -Destination $stage -Force }
-          Copy-Item -Recurse -Path "std" -Destination (Join-Path $stage "std") -Force
-          Copy-Item -Recurse -Path "examples\\hello" -Destination (Join-Path $stage "examples\\hello") -Force
-          Copy-Item -Path "install\\README.txt" -Destination (Join-Path $stage "README.txt") -Force
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $out -Force
-          $hash = (Get-FileHash -Algorithm SHA256 $out).Hash.ToLower()
-          "$hash  $(Split-Path -Leaf $out)" | Out-File -Encoding ascii "$out.sha256"
+          python scripts/package_release.py `
+            --version $version `
+            --target-os "${{ matrix.asset_os }}" `
+            --arch "${{ matrix.arch }}" `
+            --archive-format "${{ matrix.ext }}" `
+            --bin $bin `
+            --native $native `
+            --check-deterministic
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $out = "dist\\enkai-$version-${{ matrix.asset_os }}-${{ matrix.arch }}.${{ matrix.ext }}"
+          python scripts/verify_release_artifact.py `
+            --archive $out `
+            --target-os "${{ matrix.asset_os }}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/generate_sbom.py --output "dist\\sbom-$version-${{ matrix.asset_os }}-${{ matrix.arch }}.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:

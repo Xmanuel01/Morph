@@ -18,15 +18,23 @@ Use this checklist for production releases.
 - [ ] `powershell -ExecutionPolicy Bypass -File scripts/check_docs_consistency.ps1` (Windows)
 - [ ] Frontend/serve contract snapshot test:
   - `cargo test -p enkai --bin enkai frontend::tests::contract_snapshots_match_reference_files`
-- [ ] v1.9 consolidated pipeline:
-  - `powershell -ExecutionPolicy Bypass -File scripts/v1_9_release_pipeline.ps1`
-  - or `sh scripts/v1_9_release_pipeline.sh`
+- [ ] Version-neutral release pipeline:
+  - `powershell -ExecutionPolicy Bypass -File scripts/release_pipeline.ps1`
+  - or `sh scripts/release_pipeline.sh`
 - [ ] If GPU soak runs were executed, verify artifacts:
   - `powershell -ExecutionPolicy Bypass -File scripts/verify_gpu_gates.ps1 -LogDir artifacts/gpu`
   - or `sh scripts/verify_gpu_gates.sh artifacts/gpu`
 - [ ] Complete `VALIDATION.md` gates for the target release
 - [ ] Self-host replacement-readiness gate:
   - `enkai litec replace-check enkai/tools/bootstrap/selfhost_corpus --no-compare-stage0`
+- [ ] Packaging reproducibility + checksum verification:
+  - `python3 scripts/package_release.py --target-os linux --arch x86_64 --bin target/release/enkai --native target/release/libenkai_native.so --check-deterministic`
+  - `python3 scripts/verify_release_artifact.py --archive dist/enkai-<version>-linux-x86_64.tar.gz --target-os linux --smoke`
+  - Windows equivalent:
+    `python scripts/package_release.py --target-os windows --arch x86_64 --bin target/release/enkai.exe --native target/release/enkai_native.dll --check-deterministic`
+- [ ] Provenance/security gates:
+  - `python3 scripts/license_audit.py`
+  - `python3 scripts/generate_sbom.py --output dist/sbom-<version>-linux-x86_64.json`
 
 ## 3) Tag
 

@@ -131,8 +131,8 @@ Expected result:
 - [x] Master pipeline smoke:
   - `master_pipeline_cpu_smoke`
 - [x] Consolidated pipeline scripts:
-  - `powershell -ExecutionPolicy Bypass -File scripts/v1_9_release_pipeline.ps1`
-  - `sh scripts/v1_9_release_pipeline.sh`
+  - `powershell -ExecutionPolicy Bypass -File scripts/release_pipeline.ps1`
+  - `sh scripts/release_pipeline.sh`
 - [ ] Optional GPU evidence verification (after operator runs):
   - `powershell -ExecutionPolicy Bypass -File scripts/verify_gpu_gates.ps1 -LogDir artifacts/gpu`
   - `sh scripts/verify_gpu_gates.sh artifacts/gpu`

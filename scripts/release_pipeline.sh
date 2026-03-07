@@ -1,0 +1,64 @@
+#!/usr/bin/env sh
+set -eu
+
+verify_gpu="${VERIFY_GPU_EVIDENCE:-0}"
+gpu_log_dir="${GPU_LOG_DIR:-artifacts/gpu}"
+skip_package="${SKIP_PACKAGE_CHECK:-0}"
+
+echo "[release] Running format gate..."
+cargo fmt --all --check
+
+echo "[release] Running clippy gate..."
+cargo clippy --workspace --all-targets -- -D warnings
+
+echo "[release] Running test gate..."
+cargo test --workspace
+
+echo "[release] Running docs contract consistency gate..."
+python3 scripts/check_docs_consistency.py
+
+echo "[release] Running serve/frontend contract snapshot gate..."
+cargo test -p enkai --bin enkai frontend::tests::contract_snapshots_match_reference_files
+
+echo "[release] Running self-host corpus gate..."
+cargo run -p enkai -- litec selfhost-ci enkai/tools/bootstrap/selfhost_corpus
+
+echo "[release] Running self-host replacement fixed-point gate..."
+cargo run -p enkai -- litec replace-check enkai/tools/bootstrap/selfhost_corpus --no-compare-stage0
+
+echo "[release] Running dependency license audit gate..."
+python3 scripts/license_audit.py
+
+if [ "$skip_package" = "0" ]; then
+  version="$(python3 scripts/current_version.py)"
+
+  echo "[release] Building release binaries for package gate..."
+  cargo build -p enkai --release
+  cargo build -p enkai_native --release
+
+  echo "[release] Building deterministic package and checksum..."
+  python3 scripts/package_release.py \
+    --version "$version" \
+    --target-os linux \
+    --arch x86_64 \
+    --bin target/release/enkai \
+    --native target/release/libenkai_native.so \
+    --check-deterministic
+
+  archive="dist/enkai-${version}-linux-x86_64.tar.gz"
+  echo "[release] Verifying package checksum/layout/smoke..."
+  python3 scripts/verify_release_artifact.py \
+    --archive "$archive" \
+    --target-os linux \
+    --smoke
+
+  echo "[release] Generating SBOM artifact..."
+  python3 scripts/generate_sbom.py --output "dist/sbom-${version}-linux-x86_64.json"
+fi
+
+if [ "$verify_gpu" = "1" ]; then
+  echo "[release] Verifying GPU gate evidence..."
+  sh scripts/verify_gpu_gates.sh "$gpu_log_dir"
+fi
+
+echo "[release] Release pipeline gates passed."

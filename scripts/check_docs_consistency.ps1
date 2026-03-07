@@ -49,6 +49,23 @@ if (-not $validation.Contains("Validation Matrix")) {
     $failures.Add("VALIDATION.md title should use release-line validation matrix wording")
 }
 
+$releaseChecklist = Read-Text "docs/RELEASE_CHECKLIST.md"
+if (-not $releaseChecklist.Contains("scripts/release_pipeline.ps1")) {
+    $failures.Add("docs/RELEASE_CHECKLIST.md missing scripts/release_pipeline.ps1")
+}
+if (-not $releaseChecklist.Contains("scripts/release_pipeline.sh")) {
+    $failures.Add("docs/RELEASE_CHECKLIST.md missing scripts/release_pipeline.sh")
+}
+if (-not $releaseChecklist.Contains("scripts/package_release.py")) {
+    $failures.Add("docs/RELEASE_CHECKLIST.md missing scripts/package_release.py")
+}
+if (-not $releaseChecklist.Contains("scripts/verify_release_artifact.py")) {
+    $failures.Add("docs/RELEASE_CHECKLIST.md missing scripts/verify_release_artifact.py")
+}
+if ($releaseChecklist.Contains("v1.9 consolidated pipeline")) {
+    $failures.Add("docs/RELEASE_CHECKLIST.md still references v1.9-specific pipeline wording")
+}
+
 $frontendDocs = Read-Text "docs/27_frontend_stack.md"
 if (-not $frontendDocs.Contains("backend_api.snapshot.json")) {
     $failures.Add("docs/27_frontend_stack.md missing backend snapshot reference")

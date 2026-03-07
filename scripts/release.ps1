@@ -10,9 +10,9 @@ function Usage {
     Write-Host "  scripts\\release.ps1 -Version vX.Y.Z [-SkipTests] [-Push] [-AllowDirty]"
     Write-Host ""
     Write-Host "Examples:"
-    Write-Host "  scripts\\release.ps1 -Version v0.8.0"
-    Write-Host "  scripts\\release.ps1 -Version v0.8.0 -SkipTests"
-    Write-Host "  scripts\\release.ps1 -Version v0.8.0 -Push"
+    Write-Host "  scripts\\release.ps1 -Version v1.9.7"
+    Write-Host "  scripts\\release.ps1 -Version v1.9.7 -SkipTests"
+    Write-Host "  scripts\\release.ps1 -Version v1.9.7 -Push"
 }
 
 if ($Version -notmatch '^v\d+\.\d+\.\d+$') {
@@ -35,10 +35,11 @@ if (-not $AllowDirty) {
 }
 
 if (-not $SkipTests) {
-    Write-Host "Running format + clippy + tests..."
-    cargo fmt
-    cargo clippy -- -D warnings
-    cargo test
+    Write-Host "Running release pipeline gates..."
+    powershell -ExecutionPolicy Bypass -File scripts/release_pipeline.ps1
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
 }
 
 git rev-parse $Version | Out-Null 2>$null

@@ -1,6 +1,1 @@
-import std::string
-
-fn main() ::
-    let msg := "hi"
-    print(string.len(msg))
-::
+let x := 1 + 2

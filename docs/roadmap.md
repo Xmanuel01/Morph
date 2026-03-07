@@ -2,8 +2,23 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v1.9.6.
+- Current production release line is v1.9.7.
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v1.9.7 (done)
+- Added deterministic, script-driven release packaging:
+  - `scripts/package_release.py`
+  - `scripts/verify_release_artifact.py`
+- Added version-neutral release pipeline scripts:
+  - `scripts/release_pipeline.ps1`
+  - `scripts/release_pipeline.sh`
+- Kept backward-compatible wrappers:
+  - `scripts/v1_9_release_pipeline.ps1`
+  - `scripts/v1_9_release_pipeline.sh`
+- Added provenance/security tooling:
+  - `scripts/license_audit.py`
+  - `scripts/generate_sbom.py`
+- Updated CI/release workflows for cross-platform package checksum verification and SBOM artifacts.
 
 v1.9.6 (done)
 - Froze serve/frontend compatibility with explicit contract snapshots:

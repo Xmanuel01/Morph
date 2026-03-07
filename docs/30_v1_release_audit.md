@@ -1,20 +1,20 @@
-# Enkai v1.0.0-v1.9.6 Delivery And Production-Grade Audit
+# Enkai v1.0.0-v1.9.7 Delivery And Production-Grade Audit
 
 ## Purpose
 
-This document records what shipped from `v1.0.0` through `v1.9.6` and the current production-readiness status.
+This document records what shipped from `v1.0.0` through `v1.9.7` and the current production-readiness status.
 
 ## Source of truth used for this record
 
-- Git tags: `v1.0.0` through `v1.9.6`.
+- Git tags: `v1.0.0` through `v1.9.7`.
 - `CHANGELOG.md`.
 - `docs/Enkai.spec` compatibility and runtime sections.
 - `VALIDATION.md`.
 - `docs/RELEASE_CHECKLIST.md`.
-- Release pipeline run on `2026-03-05`:
-  - `powershell -ExecutionPolicy Bypass -File scripts/v1_9_release_pipeline.ps1`
+- Release pipeline run on `2026-03-07`:
+  - `powershell -ExecutionPolicy Bypass -File scripts/release_pipeline.ps1`
 
-## Release ledger (v1.0.0-v1.9.6)
+## Release ledger (v1.0.0-v1.9.7)
 
 ### v1.0.0 - Production core freeze
 
@@ -192,16 +192,35 @@ This document records what shipped from `v1.0.0` through `v1.9.6` and the curren
   - `conversation_state.json` includes `schema_version: 1`
   - startup migration hook upgrades legacy v0-style persisted state.
 
+### v1.9.7 - Packaging reproducibility + provenance hardening
+
+- Added deterministic release packaging and checksum tooling:
+  - `scripts/package_release.py`
+  - `scripts/verify_release_artifact.py`
+- Added version-neutral release pipeline scripts:
+  - `scripts/release_pipeline.ps1`
+  - `scripts/release_pipeline.sh`
+- Kept backward-compatible v1.9 pipeline wrappers:
+  - `scripts/v1_9_release_pipeline.ps1`
+  - `scripts/v1_9_release_pipeline.sh`
+- Added provenance/security gates:
+  - `scripts/license_audit.py`
+  - `scripts/generate_sbom.py`
+- Updated CI and release workflows for:
+  - cross-platform package checksum validation (Linux + Windows)
+  - deterministic archive checks (`--check-deterministic`)
+  - SBOM artifact generation.
+
 ## Production-grade audit status
 
 ### Automated gates (executed)
 
-Run executed on `2026-03-05`:
+Run executed on `2026-03-07`:
 
 - `cargo fmt --all -- --check` -> PASS
 - `cargo clippy --workspace --all-targets -- -D warnings` -> PASS
 - `cargo test --workspace` -> PASS
-- `powershell -ExecutionPolicy Bypass -File scripts/v1_9_release_pipeline.ps1` -> PASS
+- `powershell -ExecutionPolicy Bypass -File scripts/release_pipeline.ps1` -> PASS
 
 ### Coverage conclusion
 
@@ -219,6 +238,6 @@ Run executed on `2026-03-05`:
 
 ## Final readiness verdict
 
-- `v1.0.0` through `v1.9.6` are documented and implementation-backed in this repository.
+- `v1.0.0` through `v1.9.7` are documented and implementation-backed in this repository.
 - Current state is production-grade for CPU/non-GPU and self-host replacement-readiness gates.
 - Final all-target hardware production sign-off remains blocked only by operator GPU evidence.

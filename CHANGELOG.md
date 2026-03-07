@@ -11,6 +11,28 @@
 ### Breaking changes
 - None.
 
+## v1.9.7
+
+### Highlights
+- Added deterministic packaging + verification tooling:
+  - `scripts/package_release.py`
+  - `scripts/verify_release_artifact.py`
+- Added version-neutral release pipelines:
+  - `scripts/release_pipeline.ps1`
+  - `scripts/release_pipeline.sh`
+- Added provenance/security tooling:
+  - `scripts/license_audit.py`
+  - `scripts/generate_sbom.py`
+- Updated CI package checks to run on Linux + Windows with deterministic archive checks, checksum verification, smoke execution, and SBOM artifact output.
+
+### Fixes
+- Hardened PowerShell pipeline gate handling so native-command failures propagate deterministically.
+- Stabilized HTTP stream test behavior under connection-reset races (`enkairt/tests/http.rs`).
+- Updated release docs/checklists/spec references for `v1.9.7` and version-neutral release scripts.
+
+### Breaking changes
+- None.
+
 ## v1.9.6
 
 ### Highlights

@@ -52,6 +52,18 @@ def main() -> int:
     if "Validation Matrix" not in validation:
         failures.append("VALIDATION.md title should use release-line validation matrix wording")
 
+    release_checklist = read("docs/RELEASE_CHECKLIST.md")
+    if "scripts/release_pipeline.ps1" not in release_checklist:
+        failures.append("docs/RELEASE_CHECKLIST.md missing scripts/release_pipeline.ps1")
+    if "scripts/release_pipeline.sh" not in release_checklist:
+        failures.append("docs/RELEASE_CHECKLIST.md missing scripts/release_pipeline.sh")
+    if "scripts/package_release.py" not in release_checklist:
+        failures.append("docs/RELEASE_CHECKLIST.md missing scripts/package_release.py")
+    if "scripts/verify_release_artifact.py" not in release_checklist:
+        failures.append("docs/RELEASE_CHECKLIST.md missing scripts/verify_release_artifact.py")
+    if "v1.9 consolidated pipeline" in release_checklist:
+        failures.append("docs/RELEASE_CHECKLIST.md still references v1.9-specific pipeline wording")
+
     frontend_docs = read("docs/27_frontend_stack.md")
     if "backend_api.snapshot.json" not in frontend_docs:
         failures.append("docs/27_frontend_stack.md missing backend snapshot reference")
