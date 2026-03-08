@@ -4,6 +4,7 @@ Enkai v0.8 adds:
 
 ```
 Enkai train config.enk
+Enkai pretrain config.enk
 Enkai eval config.enk
 ```
 
@@ -33,6 +34,22 @@ Runtime safety controls (additive):
 - `divergence_factor` (default `4.0`)
 - `divergence_patience` (default `3`)
 - `divergence_warmup_steps` (default `25`)
+
+Pretraining run metadata (additive):
+- `run_id` (String, optional)
+- `parent_run_id` (String, optional)
+- `run_name` (String, optional)
+- `checkpoint_policy` (record, optional):
+  - `validate_on_save` (Bool, default `true`)
+  - `validate_on_resume` (Bool, default `true`)
+  - `retention_recent` (Int > 0, default `keep_last`)
+  - `retention_milestone_every` (Int > 0, default `save_every * 10`)
+  - `retention_milestone_keep` (Int > 0, default `8`)
+
+Runtime outputs for train/pretrain:
+- `run_state.json` in `checkpoint_dir` with run status/identity/lineage.
+- `runs/index.jsonl` append-only event log (`start|resume|checkpoint|completed|failed`).
+- `checkpoint_lifecycle.json` with checkpoint integrity digests and retention metadata.
 
 ## Evaluation
 

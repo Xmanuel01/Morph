@@ -1,7 +1,7 @@
-# Tensor API (v2.1.1)
+# Tensor API (v2.1.2)
 
 `std::tensor` is backed by the `enkai_tensor` native library. This doc reflects the
-v2.1.1 production surface plus v2.1.1 hardening updates, safety improvements, and backend behavior.
+v2.1.2 production surface plus v2.1.2 hardening updates, safety improvements, and backend behavior.
 
 ## Quick start
 ```
@@ -82,6 +82,7 @@ fn main() ::
 - CPU backend still depends on libtorch; a pure CPU kernel set would remove that dependency.
 - Mixed-precision support exists only for torch backends.
 - Safety depends on callers honoring documented preconditions; invalid pointers or JSON can still cause undefined behavior.
+
 
 
 

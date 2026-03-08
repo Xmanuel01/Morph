@@ -11,6 +11,32 @@
 ### Breaking changes
 - None.
 
+## v2.1.2
+
+### Highlights
+- Added additive pretraining command:
+  - `enkai pretrain <config.enk> [--strict-contracts|--lenient-contracts]`
+- Added run identity + lineage metadata support in train/pretrain configs:
+  - `run_id`, `parent_run_id`, `run_name`
+- Added run lifecycle artifacts under `checkpoint_dir`:
+  - `run_state.json`
+  - `runs/index.jsonl`
+  - `checkpoint_lifecycle.json`
+- Added checkpoint lifecycle policy controls:
+  - `checkpoint_policy.validate_on_save`
+  - `checkpoint_policy.validate_on_resume`
+  - `checkpoint_policy.retention_recent`
+  - `checkpoint_policy.retention_milestone_every`
+  - `checkpoint_policy.retention_milestone_keep`
+
+### Fixes
+- Added checkpoint integrity validation on save/resume against lifecycle metadata.
+- Added retention pruning logic that preserves milestone checkpoints by policy.
+- Added regression coverage for pretraining metadata output and lifecycle integrity failures.
+
+### Breaking changes
+- None.
+
 ## v2.1.1
 
 ### Highlights

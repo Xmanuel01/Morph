@@ -1,13 +1,14 @@
-use std::collections::hash_map::DefaultHasher;
+use std::collections::{hash_map::DefaultHasher, HashSet};
 use std::fs::{self, OpenOptions};
 use std::hash::{Hash, Hasher};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use enkai_compiler::bytecode::{ByteFunction, Chunk, Constant, Instruction, Program};
 use enkai_compiler::compiler::{compile_package, CompileError};
@@ -65,6 +66,14 @@ struct TrainConfig {
     divergence_factor: f32,
     divergence_patience: usize,
     divergence_warmup_steps: usize,
+    run_id: Option<String>,
+    parent_run_id: Option<String>,
+    run_name: Option<String>,
+    validate_checkpoint_on_save: bool,
+    validate_checkpoint_on_resume: bool,
+    retention_recent: usize,
+    retention_milestone_every: usize,
+    retention_milestone_keep: usize,
     legacy_config: bool,
     strict_contracts: bool,
 }
@@ -416,6 +425,324 @@ struct LogEvent {
     divergence_streak: Option<usize>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TrainMode {
+    Train,
+    Pretrain,
+}
+
+impl TrainMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            TrainMode::Train => "train",
+            TrainMode::Pretrain => "pretrain",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RunState {
+    schema_version: u32,
+    mode: String,
+    run_id: String,
+    parent_run_id: Option<String>,
+    run_name: Option<String>,
+    status: String,
+    started_at_ms: u64,
+    updated_at_ms: u64,
+    step: usize,
+    tokens: u64,
+    checkpoint_path: Option<String>,
+    config_hash: String,
+    code_hash: String,
+    dataset_hash: String,
+    seed: Option<u64>,
+    backend: String,
+    dtype: String,
+    device: String,
+    world_size: usize,
+    rank: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct RunIndexEvent {
+    schema_version: u32,
+    event: String,
+    timestamp_ms: u64,
+    mode: String,
+    run_id: String,
+    parent_run_id: Option<String>,
+    run_name: Option<String>,
+    status: String,
+    step: usize,
+    tokens: u64,
+    checkpoint_path: Option<String>,
+    config_hash: String,
+    code_hash: String,
+    dataset_hash: String,
+    seed: Option<u64>,
+    backend: String,
+    dtype: String,
+    device: String,
+    device_map: String,
+    note: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CheckpointLifecycleManifest {
+    format_version: u32,
+    entries: Vec<CheckpointLifecycleEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CheckpointLifecycleEntry {
+    step: u64,
+    tokens: u64,
+    loss: f64,
+    checkpoint_path: String,
+    tier: String,
+    integrity_hash: String,
+    updated_at_ms: u64,
+}
+
+#[derive(Debug)]
+struct RunContext {
+    state: RunState,
+    state_path: PathBuf,
+    index_path: PathBuf,
+}
+
+impl RunContext {
+    fn open(
+        config: &TrainConfig,
+        config_path: &Path,
+        mode: TrainMode,
+        dataset_hash: String,
+    ) -> Result<Self, String> {
+        let checkpoint_root = Path::new(&config.checkpoint_dir);
+        fs::create_dir_all(checkpoint_root).map_err(|err| {
+            format!(
+                "Failed to create checkpoint dir {}: {}",
+                checkpoint_root.display(),
+                err
+            )
+        })?;
+        let state_path = checkpoint_root.join("run_state.json");
+        let index_path = checkpoint_root.join("runs").join("index.jsonl");
+        if let Some(parent) = index_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|err| format!("Failed to create {}: {}", parent.display(), err))?;
+        }
+
+        let now_ms = now_unix_ms();
+        let config_hash = hash_config_hex(config);
+        let code_hash = resolve_code_hash(config_path)?;
+        let requested_run_id = config
+            .run_id
+            .as_ref()
+            .map(|id| id.trim())
+            .filter(|id| !id.is_empty())
+            .map(|id| id.to_string());
+        let requested_parent = config
+            .parent_run_id
+            .as_ref()
+            .map(|id| id.trim())
+            .filter(|id| !id.is_empty())
+            .map(|id| id.to_string());
+        let requested_name = config
+            .run_name
+            .as_ref()
+            .map(|name| name.trim())
+            .filter(|name| !name.is_empty())
+            .map(|name| name.to_string());
+
+        let mut resumed = false;
+        let mut state = if state_path.is_file() {
+            let text = fs::read_to_string(&state_path)
+                .map_err(|err| format!("Failed to read {}: {}", state_path.display(), err))?;
+            let mut loaded: RunState = serde_json::from_str(&text)
+                .map_err(|err| format!("Invalid run_state.json: {}", err))?;
+            if loaded.mode != mode.as_str() {
+                return Err(format!(
+                    "run_state mode mismatch: found {}, expected {}",
+                    loaded.mode,
+                    mode.as_str()
+                ));
+            }
+            if let Some(run_id) = requested_run_id.as_ref() {
+                if &loaded.run_id != run_id {
+                    return Err(format!(
+                        "run_id mismatch with existing run_state ({} != {})",
+                        loaded.run_id, run_id
+                    ));
+                }
+            }
+            if let Some(parent) = requested_parent.as_ref() {
+                if loaded.parent_run_id.as_deref() != Some(parent.as_str()) {
+                    return Err("parent_run_id mismatch with existing run_state".to_string());
+                }
+            }
+            if !loaded.config_hash.is_empty() && loaded.config_hash != config_hash {
+                return Err("run_state config hash mismatch".to_string());
+            }
+            loaded.status = "running".to_string();
+            loaded.updated_at_ms = now_ms;
+            loaded.code_hash = code_hash.clone();
+            loaded.dataset_hash = dataset_hash.clone();
+            loaded.seed = config.seed;
+            loaded.backend = config.backend.clone();
+            loaded.dtype = config.model.dtype.clone();
+            loaded.device = config.model.device.clone();
+            loaded.world_size = config.world_size;
+            loaded.rank = config.rank;
+            resumed = loaded.step > 0 || loaded.tokens > 0;
+            loaded
+        } else {
+            let run_id = requested_run_id.unwrap_or_else(|| {
+                format!(
+                    "{}-{}-{}",
+                    mode.as_str(),
+                    now_ms,
+                    &config_hash[..config_hash.len().min(8)]
+                )
+            });
+            RunState {
+                schema_version: 1,
+                mode: mode.as_str().to_string(),
+                run_id,
+                parent_run_id: requested_parent,
+                run_name: requested_name,
+                status: "running".to_string(),
+                started_at_ms: now_ms,
+                updated_at_ms: now_ms,
+                step: 0,
+                tokens: 0,
+                checkpoint_path: None,
+                config_hash: config_hash.clone(),
+                code_hash: code_hash.clone(),
+                dataset_hash: dataset_hash.clone(),
+                seed: config.seed,
+                backend: config.backend.clone(),
+                dtype: config.model.dtype.clone(),
+                device: config.model.device.clone(),
+                world_size: config.world_size,
+                rank: config.rank,
+            }
+        };
+
+        state.config_hash = config_hash;
+        state.updated_at_ms = now_ms;
+        let ctx = Self {
+            state,
+            state_path,
+            index_path,
+        };
+        ctx.persist_state()?;
+        let note = if resumed {
+            Some("resume".to_string())
+        } else {
+            Some("start".to_string())
+        };
+        ctx.append_event(if resumed { "resume" } else { "start" }, note, None)?;
+        Ok(ctx)
+    }
+
+    fn record_checkpoint(
+        &mut self,
+        step: usize,
+        tokens: u64,
+        checkpoint_path: &Path,
+        loss: f64,
+    ) -> Result<(), String> {
+        self.state.step = step;
+        self.state.tokens = tokens;
+        self.state.updated_at_ms = now_unix_ms();
+        self.state.checkpoint_path = Some(checkpoint_path.to_string_lossy().to_string());
+        self.persist_state()?;
+        let note = Some(format!("loss={:.6}", loss));
+        self.append_event("checkpoint", note, Some(checkpoint_path))
+    }
+
+    fn update_progress(&mut self, step: usize, tokens: u64) -> Result<(), String> {
+        self.state.step = step;
+        self.state.tokens = tokens;
+        self.state.updated_at_ms = now_unix_ms();
+        self.persist_state()
+    }
+
+    fn mark_completed(&mut self, step: usize, tokens: u64) -> Result<(), String> {
+        self.state.status = "completed".to_string();
+        self.state.step = step;
+        self.state.tokens = tokens;
+        self.state.updated_at_ms = now_unix_ms();
+        self.persist_state()?;
+        self.append_event(
+            "completed",
+            None,
+            self.state.checkpoint_path.as_deref().map(Path::new),
+        )
+    }
+
+    fn mark_failed(&mut self, step: usize, tokens: u64, err: &str) -> Result<(), String> {
+        self.state.status = "failed".to_string();
+        self.state.step = step;
+        self.state.tokens = tokens;
+        self.state.updated_at_ms = now_unix_ms();
+        self.persist_state()?;
+        self.append_event(
+            "failed",
+            Some(err.to_string()),
+            self.state.checkpoint_path.as_deref().map(Path::new),
+        )
+    }
+
+    fn persist_state(&self) -> Result<(), String> {
+        let text = serde_json::to_string_pretty(&self.state).map_err(|err| err.to_string())?;
+        fs::write(&self.state_path, text)
+            .map_err(|err| format!("Failed to write {}: {}", self.state_path.display(), err))
+    }
+
+    fn append_event(
+        &self,
+        event: &str,
+        note: Option<String>,
+        checkpoint_path: Option<&Path>,
+    ) -> Result<(), String> {
+        let entry = RunIndexEvent {
+            schema_version: 1,
+            event: event.to_string(),
+            timestamp_ms: now_unix_ms(),
+            mode: self.state.mode.clone(),
+            run_id: self.state.run_id.clone(),
+            parent_run_id: self.state.parent_run_id.clone(),
+            run_name: self.state.run_name.clone(),
+            status: self.state.status.clone(),
+            step: self.state.step,
+            tokens: self.state.tokens,
+            checkpoint_path: checkpoint_path.map(|p| p.to_string_lossy().to_string()),
+            config_hash: self.state.config_hash.clone(),
+            code_hash: self.state.code_hash.clone(),
+            dataset_hash: self.state.dataset_hash.clone(),
+            seed: self.state.seed,
+            backend: self.state.backend.clone(),
+            dtype: self.state.dtype.clone(),
+            device: self.state.device.clone(),
+            device_map: format!(
+                "world_size={},rank={},device={}",
+                self.state.world_size, self.state.rank, self.state.device
+            ),
+            note,
+        };
+        let line = serde_json::to_string(&entry).map_err(|err| err.to_string())?;
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.index_path)
+            .map_err(|err| format!("Failed to open {}: {}", self.index_path.display(), err))?;
+        writeln!(file, "{}", line).map_err(|err| err.to_string())
+    }
+}
+
 #[derive(Debug, Clone)]
 struct DivergenceGuard {
     ema_loss: Option<f32>,
@@ -478,14 +805,35 @@ pub fn train(config_path: &Path) -> Result<(), String> {
 }
 
 pub fn train_with_contract_mode(config_path: &Path, strict_contracts: bool) -> Result<(), String> {
+    train_with_contract_mode_for(config_path, strict_contracts, TrainMode::Train)
+}
+
+pub fn pretrain(config_path: &Path) -> Result<(), String> {
+    pretrain_with_contract_mode(config_path, true)
+}
+
+pub fn pretrain_with_contract_mode(
+    config_path: &Path,
+    strict_contracts: bool,
+) -> Result<(), String> {
+    train_with_contract_mode_for(config_path, strict_contracts, TrainMode::Pretrain)
+}
+
+fn train_with_contract_mode_for(
+    config_path: &Path,
+    strict_contracts: bool,
+    mode: TrainMode,
+) -> Result<(), String> {
     let config_value = load_config_value(config_path)?;
     let config = parse_train_config_with_mode(&config_value, strict_contracts)?;
     if config.legacy_config {
         emit_legacy_config_warning(config_path);
     }
     let tokenizer = build_tokenizer(&config)?;
-    let mut dataset_paths = resolve_dataset_paths(&config.dataset_path)?;
-    dataset_paths = shard_paths(dataset_paths, config.world_size, config.rank);
+    let dataset_paths_full = resolve_dataset_paths(&config.dataset_path)?;
+    let dataset_hash = dataset_fingerprint(&dataset_paths_full)?;
+    let mut run_context = RunContext::open(&config, config_path, mode, dataset_hash)?;
+    let dataset_paths = shard_paths(dataset_paths_full, config.world_size, config.rank);
     let mut data_cfg = DatasetConfig::new(config.seq_len, config.batch_size);
     data_cfg.add_eos = config.add_eos;
     data_cfg.drop_remainder = config.drop_remainder;
@@ -504,13 +852,21 @@ pub fn train_with_contract_mode(config_path: &Path, strict_contracts: bool) -> R
         .open(Path::new(&config.checkpoint_dir).join("train_log.jsonl"))
         .map_err(|err| format!("Failed to open log file: {}", err))?;
     let start = Instant::now();
-    if config.backend == "native" {
+    let run_result: Result<(), String> = if config.backend == "native" {
         let mut engine = init(rt_config_from(&config)).map_err(|e| e.to_string())?;
         if let Some(meta) =
             try_load_native_checkpoint(&mut engine, &config, &config.checkpoint_dir)?
         {
+            if config.validate_checkpoint_on_resume {
+                validate_checkpoint_integrity(
+                    &config,
+                    meta.step,
+                    &Path::new(&config.checkpoint_dir).join("latest"),
+                )?;
+            }
             step = meta.step as usize;
             tokens = meta.tokens;
+            run_context.update_progress(step, tokens)?;
         }
         let mut last_saved_step = step;
         let mut packing_sum = 0.0f32;
@@ -588,6 +944,23 @@ pub fn train_with_contract_mode(config_path: &Path, strict_contracts: bool) -> R
                 let meta = native_checkpoint_meta(&config, step as u64, tokens, metrics.loss)?;
                 rt_checkpoint_save(&engine, &config.checkpoint_dir, &meta)
                     .map_err(|err| err.to_string())?;
+                let latest_dir = Path::new(&config.checkpoint_dir).join("latest");
+                if config.validate_checkpoint_on_save {
+                    validate_native_saved_checkpoint(
+                        &config,
+                        &mut engine,
+                        step as u64,
+                        &latest_dir,
+                    )?;
+                }
+                register_checkpoint_lifecycle(
+                    &config,
+                    step as u64,
+                    tokens,
+                    metrics.loss as f64,
+                    &latest_dir,
+                )?;
+                run_context.record_checkpoint(step, tokens, &latest_dir, metrics.loss as f64)?;
                 if step < last_saved_step {
                     return Err("checkpoint step went backwards".to_string());
                 }
@@ -618,6 +991,7 @@ pub fn train_with_contract_mode(config_path: &Path, strict_contracts: bool) -> R
             packing_sum = 0.0;
             packing_count = 0;
         }
+        Ok(())
     } else {
         let seed = config_seed(&config);
         let mut model = TinyModel::new(config.vocab_size, config.hidden_size, seed);
@@ -667,8 +1041,12 @@ pub fn train_with_contract_mode(config_path: &Path, strict_contracts: bool) -> R
             }
             model.set_params(&state.weights)?;
             opt.load_state(&state.optimizer)?;
+            if config.validate_checkpoint_on_resume {
+                validate_checkpoint_integrity(&config, state.meta.step, &latest)?;
+            }
             step = state.meta.step as usize;
             tokens = state.meta.tokens;
+            run_context.update_progress(step, tokens)?;
         }
         let accum_steps = config.grad_accum_steps.max(1);
         let mut packing_sum = 0.0f32;
@@ -769,7 +1147,18 @@ pub fn train_with_contract_mode(config_path: &Path, strict_contracts: bool) -> R
                 };
                 let path = save_checkpoint(Path::new(&config.checkpoint_dir), &state)
                     .map_err(|err| err.to_string())?;
-                rotate_checkpoints(Path::new(&config.checkpoint_dir), config.keep_last)
+                if config.validate_checkpoint_on_save {
+                    validate_vm_saved_checkpoint(&config, &path, step as u64)?;
+                }
+                register_checkpoint_lifecycle(
+                    &config,
+                    step as u64,
+                    tokens,
+                    avg_loss as f64,
+                    &path,
+                )?;
+                run_context.record_checkpoint(step, tokens, &path, avg_loss as f64)?;
+                apply_checkpoint_retention(&config, Path::new(&config.checkpoint_dir))
                     .map_err(|err| err.to_string())?;
                 let event = LogEvent {
                     step,
@@ -797,8 +1186,19 @@ pub fn train_with_contract_mode(config_path: &Path, strict_contracts: bool) -> R
             packing_sum = 0.0;
             packing_count = 0;
         }
+        Ok(())
+    };
+
+    match run_result {
+        Ok(()) => {
+            run_context.mark_completed(step, tokens)?;
+            Ok(())
+        }
+        Err(err) => {
+            let _ = run_context.mark_failed(step, tokens, &err);
+            Err(err)
+        }
     }
-    Ok(())
 }
 
 pub fn eval(config_path: &Path) -> Result<(), String> {
@@ -1124,6 +1524,20 @@ fn parse_train_config_inner(
         return Err("divergence_patience must be >= 1".to_string());
     }
     let divergence_warmup_steps = record_usize_default(map, "divergence_warmup_steps", 25);
+    let run_id = record_optional_string(map, "run_id")?;
+    let parent_run_id = record_optional_string(map, "parent_run_id")?;
+    let run_name = record_optional_string(map, "run_name")?;
+    let checkpoint_policy = map.get("checkpoint_policy").and_then(|v| as_record(v).ok());
+    let policy_ref = checkpoint_policy.as_deref().unwrap_or(map);
+    let validate_checkpoint_on_save = record_bool_default(policy_ref, "validate_on_save", true);
+    let validate_checkpoint_on_resume = record_bool_default(policy_ref, "validate_on_resume", true);
+    let retention_recent = record_usize_default(policy_ref, "retention_recent", keep_last.max(1));
+    let retention_milestone_every = record_usize_default(
+        policy_ref,
+        "retention_milestone_every",
+        save_every.saturating_mul(10).max(save_every),
+    );
+    let retention_milestone_keep = record_usize_default(policy_ref, "retention_milestone_keep", 8);
     let amp = parse_amp_config(map, &backend, &device)?;
     let tokenizer = if let Some(value) = map.get("tokenizer_path") {
         TokenizerConfig::Load(as_string(value)?)
@@ -1193,6 +1607,14 @@ fn parse_train_config_inner(
         divergence_factor,
         divergence_patience,
         divergence_warmup_steps,
+        run_id,
+        parent_run_id,
+        run_name,
+        validate_checkpoint_on_save,
+        validate_checkpoint_on_resume,
+        retention_recent,
+        retention_milestone_every,
+        retention_milestone_keep,
         legacy_config,
         strict_contracts,
     })
@@ -1268,11 +1690,33 @@ fn train_config_to_json(config: &TrainConfig) -> serde_json::Value {
         "divergence_warmup_steps".to_string(),
         serde_json::json!(config.divergence_warmup_steps),
     );
+    map.insert(
+        "checkpoint_policy".to_string(),
+        serde_json::json!({
+            "validate_on_save": config.validate_checkpoint_on_save,
+            "validate_on_resume": config.validate_checkpoint_on_resume,
+            "retention_recent": config.retention_recent,
+            "retention_milestone_every": config.retention_milestone_every,
+            "retention_milestone_keep": config.retention_milestone_keep,
+        }),
+    );
     if let Some(norm) = config.grad_clip_norm {
         map.insert("grad_clip_norm".to_string(), serde_json::json!(norm));
     }
     if let Some(seed) = config.seed {
         map.insert("seed".to_string(), serde_json::json!(seed));
+    }
+    if let Some(run_id) = &config.run_id {
+        map.insert("run_id".to_string(), serde_json::json!(run_id));
+    }
+    if let Some(parent_run_id) = &config.parent_run_id {
+        map.insert(
+            "parent_run_id".to_string(),
+            serde_json::json!(parent_run_id),
+        );
+    }
+    if let Some(run_name) = &config.run_name {
+        map.insert("run_name".to_string(), serde_json::json!(run_name));
     }
     if let Some(path) = &config.eval_dataset_path {
         map.insert("eval_dataset_path".to_string(), serde_json::json!(path));
@@ -1425,6 +1869,21 @@ fn record_string(
         .get(key)
         .ok_or_else(|| format!("Config missing {}", key))?;
     as_string(value)
+}
+
+fn record_optional_string(
+    map: &std::collections::HashMap<String, Value>,
+    key: &str,
+) -> Result<Option<String>, String> {
+    let Some(value) = map.get(key) else {
+        return Ok(None);
+    };
+    let text = as_string(value)?;
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(trimmed.to_string()))
 }
 
 fn record_usize(
@@ -1711,6 +2170,257 @@ fn dist_env_enabled() -> bool {
         }
         Err(_) => false,
     }
+}
+
+fn now_unix_ms() -> u64 {
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_millis() as u64,
+        Err(_) => 0,
+    }
+}
+
+fn resolve_code_hash(_config_path: &Path) -> Result<String, String> {
+    if let Ok(value) = std::env::var("ENKAI_CODE_HASH") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_string());
+        }
+    }
+    let exe = std::env::current_exe().map_err(|err| format!("current_exe failed: {}", err))?;
+    let bytes =
+        fs::read(&exe).map_err(|err| format!("Failed to read {}: {}", exe.display(), err))?;
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn dataset_fingerprint(paths: &[PathBuf]) -> Result<String, String> {
+    let mut normalized = Vec::with_capacity(paths.len());
+    for path in paths {
+        let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let meta = fs::metadata(&canonical)
+            .map_err(|err| format!("Failed to stat {}: {}", canonical.display(), err))?;
+        let modified = meta
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        normalized.push((
+            canonical.to_string_lossy().to_string(),
+            meta.len(),
+            modified,
+        ));
+    }
+    normalized.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut hasher = Sha256::new();
+    for (path, size, modified) in normalized {
+        hasher.update(path.as_bytes());
+        hasher.update(size.to_le_bytes());
+        hasher.update(modified.to_le_bytes());
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn checkpoint_lifecycle_path(root: &Path) -> PathBuf {
+    root.join("checkpoint_lifecycle.json")
+}
+
+fn load_checkpoint_lifecycle(root: &Path) -> Result<CheckpointLifecycleManifest, String> {
+    let path = checkpoint_lifecycle_path(root);
+    if !path.is_file() {
+        return Ok(CheckpointLifecycleManifest {
+            format_version: 1,
+            entries: Vec::new(),
+        });
+    }
+    let text = fs::read_to_string(&path)
+        .map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
+    let manifest: CheckpointLifecycleManifest = serde_json::from_str(&text)
+        .map_err(|err| format!("Invalid {}: {}", path.display(), err))?;
+    Ok(manifest)
+}
+
+fn save_checkpoint_lifecycle(
+    root: &Path,
+    manifest: &CheckpointLifecycleManifest,
+) -> Result<(), String> {
+    let path = checkpoint_lifecycle_path(root);
+    let text = serde_json::to_string_pretty(manifest).map_err(|err| err.to_string())?;
+    fs::write(&path, text).map_err(|err| format!("Failed to write {}: {}", path.display(), err))
+}
+
+fn checkpoint_integrity_digest(checkpoint_path: &Path) -> Result<String, String> {
+    let files = [
+        "meta.json",
+        "weights.bin",
+        "optimizer.bin",
+        "params.bin",
+        "integrity.json",
+        "optim_meta.json",
+    ];
+    let mut hasher = Sha256::new();
+    hasher.update(checkpoint_path.to_string_lossy().as_bytes());
+    for name in files {
+        let path = checkpoint_path.join(name);
+        if !path.is_file() {
+            continue;
+        }
+        let meta = fs::metadata(&path)
+            .map_err(|err| format!("Failed to stat {}: {}", path.display(), err))?;
+        hasher.update(name.as_bytes());
+        hasher.update(meta.len().to_le_bytes());
+        if name.ends_with(".json") {
+            let text = fs::read(&path)
+                .map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
+            hasher.update(&text);
+        }
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn checkpoint_tier(config: &TrainConfig, step: u64) -> &'static str {
+    if config.retention_milestone_every > 0
+        && step > 0
+        && step.is_multiple_of(config.retention_milestone_every as u64)
+    {
+        "milestone"
+    } else {
+        "recent"
+    }
+}
+
+fn register_checkpoint_lifecycle(
+    config: &TrainConfig,
+    step: u64,
+    tokens: u64,
+    loss: f64,
+    checkpoint_path: &Path,
+) -> Result<(), String> {
+    let root = Path::new(&config.checkpoint_dir);
+    let mut manifest = load_checkpoint_lifecycle(root)?;
+    let entry = CheckpointLifecycleEntry {
+        step,
+        tokens,
+        loss,
+        checkpoint_path: checkpoint_path.to_string_lossy().to_string(),
+        tier: checkpoint_tier(config, step).to_string(),
+        integrity_hash: checkpoint_integrity_digest(checkpoint_path)?,
+        updated_at_ms: now_unix_ms(),
+    };
+    if let Some(existing) = manifest.entries.iter_mut().find(|item| item.step == step) {
+        *existing = entry;
+    } else {
+        manifest.entries.push(entry);
+    }
+    manifest.entries.sort_by_key(|entry| entry.step);
+    save_checkpoint_lifecycle(root, &manifest)
+}
+
+fn apply_checkpoint_retention(config: &TrainConfig, root: &Path) -> Result<(), String> {
+    let mut manifest = load_checkpoint_lifecycle(root)?;
+    if manifest.entries.is_empty() {
+        rotate_checkpoints(root, config.keep_last).map_err(|err| err.to_string())?;
+        return Ok(());
+    }
+    manifest.entries.sort_by(|a, b| b.step.cmp(&a.step));
+    let mut keep_steps = HashSet::new();
+    for entry in manifest.entries.iter().take(config.retention_recent.max(1)) {
+        keep_steps.insert(entry.step);
+    }
+    let mut milestones = 0usize;
+    for entry in manifest.entries.iter() {
+        if entry.tier == "milestone" && milestones < config.retention_milestone_keep {
+            keep_steps.insert(entry.step);
+            milestones += 1;
+        }
+    }
+    if let Some(latest) = manifest.entries.first() {
+        keep_steps.insert(latest.step);
+    }
+    let removed: Vec<CheckpointLifecycleEntry> = manifest
+        .entries
+        .iter()
+        .filter(|entry| !keep_steps.contains(&entry.step))
+        .cloned()
+        .collect();
+    manifest
+        .entries
+        .retain(|entry| keep_steps.contains(&entry.step));
+    manifest.entries.sort_by_key(|entry| entry.step);
+    for entry in removed {
+        let path = PathBuf::from(&entry.checkpoint_path);
+        let in_root = path.starts_with(root);
+        let is_step_dir = path
+            .file_name()
+            .map(|name| name.to_string_lossy().starts_with("step_"))
+            .unwrap_or(false);
+        if in_root && is_step_dir && path.is_dir() {
+            let _ = fs::remove_dir_all(&path);
+        }
+    }
+    save_checkpoint_lifecycle(root, &manifest)
+}
+
+fn validate_checkpoint_integrity(
+    config: &TrainConfig,
+    step: u64,
+    checkpoint_path: &Path,
+) -> Result<(), String> {
+    let manifest = load_checkpoint_lifecycle(Path::new(&config.checkpoint_dir))?;
+    if manifest.entries.is_empty() {
+        return Ok(());
+    }
+    let Some(entry) = manifest.entries.iter().find(|entry| entry.step == step) else {
+        return Err(format!(
+            "checkpoint lifecycle missing step {} (run `enkai doctor` / migrate workflows)",
+            step
+        ));
+    };
+    let actual = checkpoint_integrity_digest(checkpoint_path)?;
+    if actual != entry.integrity_hash {
+        return Err(format!(
+            "checkpoint integrity mismatch for step {} (expected {}, got {})",
+            step, entry.integrity_hash, actual
+        ));
+    }
+    Ok(())
+}
+
+fn validate_vm_saved_checkpoint(
+    config: &TrainConfig,
+    path: &Path,
+    expected_step: u64,
+) -> Result<(), String> {
+    let state = load_checkpoint(path).map_err(|err| err.to_string())?;
+    if state.meta.step != expected_step {
+        return Err(format!(
+            "checkpoint validation failed: step mismatch (expected {}, got {})",
+            expected_step, state.meta.step
+        ));
+    }
+    validate_vm_checkpoint_meta(&state.meta, config)?;
+    Ok(())
+}
+
+fn validate_native_saved_checkpoint(
+    config: &TrainConfig,
+    engine: &mut enkai_runtime::engine::Engine,
+    expected_step: u64,
+    _latest_dir: &Path,
+) -> Result<(), String> {
+    let meta_json =
+        rt_checkpoint_load(engine, &config.checkpoint_dir).map_err(|err| err.to_string())?;
+    let meta: NativeCheckpointMeta =
+        serde_json::from_str(&meta_json).map_err(|err| err.to_string())?;
+    validate_native_checkpoint_meta(&meta, config)?;
+    if meta.step != expected_step {
+        return Err(format!(
+            "checkpoint validation failed: step mismatch (expected {}, got {})",
+            expected_step, meta.step
+        ));
+    }
+    Ok(())
 }
 
 fn hash_config(config: &TrainConfig) -> u64 {
@@ -2418,6 +3128,118 @@ mod tests {
     }
 
     #[test]
+    fn pretrain_writes_run_state_and_index() {
+        let dir = tempdir().expect("tempdir");
+        let data = dir.path().join("pretrain_data.txt");
+        fs::write(&data, "alpha beta gamma\ndelta epsilon").expect("write data");
+        let ckpt = dir.path().join("pretrain_ckpt");
+        let config_path = dir.path().join("pretrain_config.enk");
+        let config = serde_json::json!({
+            "config_version": 1,
+            "backend": "cpu",
+            "vocab_size": 16,
+            "hidden_size": 8,
+            "seq_len": 4,
+            "batch_size": 2,
+            "lr": 0.1,
+            "dataset_path": data.to_string_lossy(),
+            "checkpoint_dir": ckpt.to_string_lossy(),
+            "max_steps": 1,
+            "save_every": 1,
+            "log_every": 1,
+            "drop_remainder": false,
+            "run_id": "run-pretrain-1",
+            "parent_run_id": "bootstrap-0",
+            "run_name": "tiny-pretrain",
+            "checkpoint_policy": {
+                "validate_on_save": true,
+                "validate_on_resume": true,
+                "retention_recent": 2,
+                "retention_milestone_every": 5,
+                "retention_milestone_keep": 1
+            },
+            "tokenizer_train": { "path": data.to_string_lossy(), "vocab_size": 16 }
+        });
+        write_config(&config_path, &config).expect("write config");
+        pretrain(&config_path).expect("pretrain");
+
+        let state_path = ckpt.join("run_state.json");
+        assert!(state_path.is_file());
+        let state_text = fs::read_to_string(&state_path).expect("state");
+        let state_json: serde_json::Value = serde_json::from_str(&state_text).expect("state json");
+        assert_eq!(state_json["mode"], "pretrain");
+        assert_eq!(state_json["run_id"], "run-pretrain-1");
+        assert_eq!(state_json["status"], "completed");
+
+        let index_path = ckpt.join("runs").join("index.jsonl");
+        let index_text = fs::read_to_string(index_path).expect("index");
+        assert!(
+            index_text.contains("\"event\":\"start\"")
+                || index_text.contains("\"event\":\"resume\"")
+        );
+        assert!(index_text.contains("\"event\":\"checkpoint\""));
+        assert!(index_text.contains("\"event\":\"completed\""));
+    }
+
+    #[test]
+    fn train_resume_rejects_lifecycle_integrity_mismatch() {
+        let dir = tempdir().expect("tempdir");
+        let data = dir.path().join("integrity_data.txt");
+        fs::write(&data, "alpha beta gamma\ndelta epsilon").expect("write data");
+        let ckpt = dir.path().join("integrity_ckpt");
+        let config_path = dir.path().join("integrity_config.enk");
+        let config = serde_json::json!({
+            "config_version": 1,
+            "backend": "cpu",
+            "vocab_size": 8,
+            "hidden_size": 4,
+            "seq_len": 4,
+            "batch_size": 2,
+            "lr": 0.1,
+            "dataset_path": data.to_string_lossy(),
+            "checkpoint_dir": ckpt.to_string_lossy(),
+            "max_steps": 1,
+            "save_every": 1,
+            "log_every": 1,
+            "drop_remainder": false,
+            "tokenizer_train": { "path": data.to_string_lossy(), "vocab_size": 8 }
+        });
+        write_config(&config_path, &config).expect("write config");
+        train(&config_path).expect("train");
+
+        let lifecycle_path = ckpt.join("checkpoint_lifecycle.json");
+        let lifecycle_text = fs::read_to_string(&lifecycle_path).expect("lifecycle");
+        let mut lifecycle_json: serde_json::Value =
+            serde_json::from_str(&lifecycle_text).expect("lifecycle json");
+        lifecycle_json["entries"][0]["integrity_hash"] = serde_json::json!("bad-hash");
+        fs::write(
+            &lifecycle_path,
+            serde_json::to_string_pretty(&lifecycle_json).expect("serialize"),
+        )
+        .expect("write lifecycle");
+
+        let resume = serde_json::json!({
+            "config_version": 1,
+            "backend": "cpu",
+            "vocab_size": 8,
+            "hidden_size": 4,
+            "seq_len": 4,
+            "batch_size": 2,
+            "lr": 0.1,
+            "dataset_path": data.to_string_lossy(),
+            "checkpoint_dir": ckpt.to_string_lossy(),
+            "max_steps": 2,
+            "save_every": 1,
+            "log_every": 1,
+            "drop_remainder": false,
+            "tokenizer_train": { "path": data.to_string_lossy(), "vocab_size": 8 }
+        });
+        write_config(&config_path, &resume).expect("write config");
+        let err = train(&config_path).expect_err("must fail on integrity mismatch");
+        assert!(err.contains("checkpoint integrity mismatch"));
+    }
+
+    #[test]
     fn parse_model_architecture_fields() {
         let _env_guard = crate::env_guard();
         let dir = tempdir().expect("tempdir");
@@ -2483,6 +3305,47 @@ mod tests {
         let value = load_config_value(&config_path).expect("load config");
         let err = parse_train_config(&value).expect_err("invalid activation must fail");
         assert!(err.contains("activation must be one of"));
+    }
+
+    #[test]
+    fn parse_checkpoint_policy_and_run_metadata_fields() {
+        let _env_guard = crate::env_guard();
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("policy_config.enk");
+        let config = serde_json::json!({
+            "config_version": 1,
+            "backend": "cpu",
+            "vocab_size": 128,
+            "hidden_size": 64,
+            "seq_len": 8,
+            "batch_size": 2,
+            "lr": 0.001,
+            "dataset_path": "data.txt",
+            "checkpoint_dir": "ckpt",
+            "max_steps": 2,
+            "run_id": "run-42",
+            "parent_run_id": "run-41",
+            "run_name": "policy-check",
+            "checkpoint_policy": {
+                "validate_on_save": false,
+                "validate_on_resume": false,
+                "retention_recent": 5,
+                "retention_milestone_every": 20,
+                "retention_milestone_keep": 3
+            },
+            "tokenizer_train": {"path": "data.txt", "vocab_size": 128}
+        });
+        write_config(&config_path, &config).expect("write config");
+        let value = load_config_value(&config_path).expect("load config");
+        let parsed = parse_train_config(&value).expect("parse");
+        assert_eq!(parsed.run_id.as_deref(), Some("run-42"));
+        assert_eq!(parsed.parent_run_id.as_deref(), Some("run-41"));
+        assert_eq!(parsed.run_name.as_deref(), Some("policy-check"));
+        assert!(!parsed.validate_checkpoint_on_save);
+        assert!(!parsed.validate_checkpoint_on_resume);
+        assert_eq!(parsed.retention_recent, 5);
+        assert_eq!(parsed.retention_milestone_every, 20);
+        assert_eq!(parsed.retention_milestone_keep, 3);
     }
 
     #[test]

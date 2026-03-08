@@ -102,6 +102,7 @@ fn main() {
         "build" => build_command(&args[2..]),
         "test" => test_command(&args[2..]),
         "train" => train_command(&args[2..]),
+        "pretrain" => pretrain_command(&args[2..]),
         "eval" => eval_command(&args[2..]),
         "migrate" => migrate::migrate_command(&args[2..]),
         "doctor" => migrate::doctor_command(&args[2..]),
@@ -776,6 +777,28 @@ fn train_command(args: &[String]) -> i32 {
     }
 }
 
+fn pretrain_command(args: &[String]) -> i32 {
+    let (path, strict_contracts) = match parse_train_eval_args("pretrain", args) {
+        Ok(v) => v,
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    };
+    let result = if strict_contracts {
+        train::pretrain(&path)
+    } else {
+        train::pretrain_with_contract_mode(&path, false)
+    };
+    match result {
+        Ok(_) => 0,
+        Err(err) => {
+            eprintln!("Pretrain error: {}", err);
+            1
+        }
+    }
+}
+
 fn eval_command(args: &[String]) -> i32 {
     let (path, strict_contracts) = match parse_train_eval_args("eval", args) {
         Ok(v) => v,
@@ -950,6 +973,7 @@ fn print_usage() {
     eprintln!("  enkai build [dir]");
     eprintln!("  enkai test [dir]");
     eprintln!("  enkai train <config.enk> [--strict-contracts|--lenient-contracts]");
+    eprintln!("  enkai pretrain <config.enk> [--strict-contracts|--lenient-contracts]");
     eprintln!("  enkai eval <config.enk> [--strict-contracts|--lenient-contracts]");
     migrate::print_usage();
 }
@@ -1560,6 +1584,13 @@ mod tests {
     #[test]
     fn parse_train_eval_args_defaults_to_strict() {
         let parsed = parse_train_eval_args("eval", &["cfg.enk".to_string()]).expect("parse");
+        assert!(parsed.1);
+    }
+
+    #[test]
+    fn parse_train_eval_args_supports_pretrain_command_name() {
+        let parsed = parse_train_eval_args("pretrain", &["cfg.enk".to_string()]).expect("parse");
+        assert_eq!(parsed.0, PathBuf::from("cfg.enk"));
         assert!(parsed.1);
     }
 
