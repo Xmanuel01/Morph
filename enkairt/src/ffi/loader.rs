@@ -119,11 +119,6 @@ fn library_candidates(name: &str) -> Vec<PathBuf> {
     names.retain(|entry| unique_names.insert(entry.clone()));
     let mut dirs = Vec::new();
     let mut dir_set = HashSet::new();
-    if let Ok(cwd) = std::env::current_dir() {
-        if dir_set.insert(cwd.clone()) {
-            dirs.push(cwd);
-        }
-    }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             let dir_path = dir.to_path_buf();
@@ -138,17 +133,25 @@ fn library_candidates(name: &str) -> Vec<PathBuf> {
             }
         }
     }
+    if let Ok(cwd) = std::env::current_dir() {
+        if dir_set.insert(cwd.clone()) {
+            dirs.push(cwd);
+        }
+    }
     let mut out = Vec::new();
     let mut out_set = HashSet::new();
-    let root = PathBuf::from(name);
-    out_set.insert(root.clone());
-    out.push(root);
     for dir in dirs {
         for name in &names {
             let candidate = dir.join(name);
             if out_set.insert(candidate.clone()) {
                 out.push(candidate);
             }
+        }
+    }
+    for fallback in names {
+        let candidate = PathBuf::from(fallback);
+        if out_set.insert(candidate.clone()) {
+            out.push(candidate);
         }
     }
     out

@@ -1,8 +1,8 @@
-# Enkai Language Specification (v0.1 -> v2.1.4)
+# Enkai Language Specification (v0.1 -> v2.1.5)
 
 Status: stable.
 Grammar and CLI contracts are frozen at the v0.9.3 baseline for the v1.x/v2.x line.
-This document is the normative language and runtime surface for Enkai v2.1.4,
+This document is the normative language and runtime surface for Enkai v2.1.5,
 including compatibility constraints carried from v0.1 onward.
 
 -------------------------------------------------------------------------------
@@ -13,7 +13,7 @@ This specification covers:
 - Core syntax and block rules.
 - Module/import semantics.
 - Type and expression forms supported by parser, checker, compiler, and VM.
-- Built-in runtime modules shipped in v2.1.4.
+- Built-in runtime modules shipped in v2.1.5.
 - CLI entrypoints used in production.
 
 This specification does not claim features that are still stubbed or not yet implemented.
@@ -54,7 +54,7 @@ Compatibility baseline:
   (`use`/`type`/`enum`/`impl` + non-capturing lambda), and self-host CI lane coverage.
 - v1.8: compatibility/deprecation policy, legacy config/checkpoint compatibility
   gates, and documented self-host daily workflow + fallback process.
-- v1.9-v2.1.4: stage1 execution command (`enkai litec run`), unified master pipeline smoke test, GPU evidence verification scripts for operator-run soak gates, frontend/serve contract snapshot freeze with persisted conversation schema v1, deterministic packaging/checksum/SBOM release gates, and RC evidence-archive tooling.
+- v1.9-v2.1.5: stage1 execution command (`enkai litec run`), unified master pipeline smoke test, GPU evidence verification scripts for operator-run soak gates, frontend/serve contract snapshot freeze with persisted conversation schema v1, deterministic packaging/checksum/SBOM release gates, and RC evidence-archive tooling.
 
 Compatibility policy:
 - `.enk` and `.en` are primary source extensions.
@@ -62,7 +62,7 @@ Compatibility policy:
   primary contract unless listed explicitly.
 
 -------------------------------------------------------------------------------
-1.2 Validation Gate Status (v2.1.4)
+1.2 Validation Gate Status (v2.1.5)
 -------------------------------------------------------------------------------
 
 Current verification status:
@@ -276,7 +276,7 @@ Assignment form:
 8. Types
 -------------------------------------------------------------------------------
 
-Core types used in v2.1.4:
+Core types used in v2.1.5:
 - `Int`, `Float`, `Bool`, `String`, `Void`
 - Optional: `T?`
 - Function: `fn(T1, T2) -> R`
@@ -305,7 +305,7 @@ Formatting and tests:
 - Project test runner (`enkai test`) compiles and executes test files.
 
 -------------------------------------------------------------------------------
-10. Built-in Runtime Modules (v2.1.4)
+10. Built-in Runtime Modules (v2.1.5)
 -------------------------------------------------------------------------------
 
 Concurrency:
@@ -406,9 +406,9 @@ Native-backed std modules:
 - `std::tls` (TLS peer certificate fingerprint helper)
 - `std::model_registry` (serve-time env contract helpers)
 - `std::analysis` (CSV/JSONL ingest, typed schema inference/validation, filter/project/join/group aggregates, describe/histogram/quantiles/rolling stats, deterministic pipeline manifests)
-- `std::algo` (sorting/searching/path + ML metric helpers)
+- `std::algo` (sorting/searching/path, priority/merge/stream helpers, ML metric/eval/scheduler helpers)
 
-`std::analysis` additive APIs (v2.1.4):
+`std::analysis` additive APIs (v2.1.5):
 - `read_csv(path, delimiter, has_header)`
 - `read_jsonl(path)`
 - `infer_schema(rows)`
@@ -425,7 +425,28 @@ Native-backed std modules:
 - `rolling_mean(values, window)`
 - `run_pipeline(rows, pipeline)` -> `{ rows, manifest }` with deterministic stage stats + hashes
 
-Tensor backend (`std::tensor`, v2.1.4 surface):
+`std::algo` additive APIs (v2.1.5):
+- software/algorithm primitives:
+  - `sort_ints(values)`
+  - `binary_search_ints(values, target)`
+  - `top_k_ints(values, k)`
+  - `merge_sorted_ints(left, right)`
+  - `shortest_path(edges, start, goal)`
+  - `count_frequencies(values)`
+  - `merge_count_maps(left, right)`
+  - `window_sum(values, window)`
+  - `cumulative_sum(values)`
+  - `window_mean(values, window)`
+- ML utility primitives:
+  - `accuracy(pred, target)`
+  - `mse(pred, target)`
+  - `mae(pred, target)`
+  - `rmse(pred, target)`
+  - `precision_recall_f1(pred, target, positive_label)`
+  - `split_indices(total, test_ratio, seed, shuffle)`
+  - `scheduler_linear_warmup(step, total_steps, warmup_steps, base_lr, min_lr)`
+
+Tensor backend (`std::tensor`, v2.1.5 surface):
 - device/tensor creation, math ops, shape/dtype/device transforms
 - autograd and optimizer helper APIs
 - AMP scaler/autocast APIs
@@ -442,7 +463,7 @@ Tensor C ABI checkpoint/distributed hooks:
 For full tensor C ABI contracts and safety preconditions, see `docs/tensor_api.md` and `docs/gpu_backend.md`.
 
 -------------------------------------------------------------------------------
-11. CLI Contract (v2.1.4)
+11. CLI Contract (v2.1.5)
 -------------------------------------------------------------------------------
 
 Commands:
@@ -480,7 +501,7 @@ Commands:
 - `enkai doctor [path] [--json] [--strict-contracts|--lenient]`
 
 Contract enforcement note:
-- In v2.1.4, train/eval run strict contracts by default.
+- In v2.1.5, train/eval run strict contracts by default.
 - `--lenient-contracts` requires `ENKAI_ALLOW_LEGACY_CONTRACTS=1`.
 
 Serve model-selection contract:
@@ -527,7 +548,7 @@ Build caching and lockfile:
 
 Benchmarking:
 - `enkai bench run` executes deterministic suites from `bench/suites/*.json`.
-- Official v2.1.4 bounded claim suite: `official_v2_1_0`.
+- Official v2.1.5 bounded claim suite: `official_v2_1_0`.
 - Baseline comparisons are bounded to pinned suite/machine profiles and emit structured JSON reports.
 - Official performance claim thresholds are represented by `--target-speedup` and `--target-memory`,
   with optional hard gating via `--enforce-target`.
@@ -554,7 +575,7 @@ Train/Eval config schema:
   - `run_state.json` (resumable run identity + status),
   - `runs/index.jsonl` (append-only run events),
   - `checkpoint_lifecycle.json` (integrity digests + tiered retention metadata).
-- v2.1.4 strict behavior rejects configs missing `config_version`.
+- v2.1.5 strict behavior rejects configs missing `config_version`.
 - Optional legacy recovery mode:
   - `--lenient-contracts` is accepted only when `ENKAI_ALLOW_LEGACY_CONTRACTS=1`.
 
@@ -569,7 +590,7 @@ Checkpoint format:
     with machine-readable output via `--json`.
 
 -------------------------------------------------------------------------------
-12. Known Limits in v2.1.4
+12. Known Limits in v2.1.5
 -------------------------------------------------------------------------------
 
 The following are intentionally not fully implemented yet:
@@ -590,7 +611,7 @@ The following are intentionally not fully implemented yet:
   through `enkai_native` using direct `NoTls` connections.
 - Model registry support is filesystem-based (`--registry` directory scanning). Remote registries and artifact pull/auth flows are out of scope in v2.x.
 - Model lifecycle control is local-filesystem scoped (`enkai model register|promote|retire|rollback`).
-  Remote registry replication and signed artifact exchange are out of scope in v2.1.4.
+  Remote registry replication and signed artifact exchange are out of scope in v2.1.5.
 - `std::analysis` provides deterministic ingest + aggregate primitives, but does not yet provide
   a full dataframe/columnar query planner.
 - `std::algo` provides foundational software/ML utility routines, but not exhaustive domain
@@ -615,7 +636,7 @@ The following are intentionally not fully implemented yet:
 - `enkai litec replace-check` validates stage0/stage1/stage2 corpus compilation/runtime
   equivalence and reports compiler fixed-point status for the bootstrap subset; it is not
   yet a full replacement for Rust Stage0 compiler releases.
-- v2.1.4 validation note:
+- v2.1.5 validation note:
   - CPU-mode single-device soak requires operator-run evidence on production hardware.
   - CUDA single-GPU long-soak and distributed (2-GPU/4-GPU) reliability remain
     operator-run requirements and are not auto-proven by repository state alone.
@@ -628,7 +649,7 @@ These limits are part of the current stable contract and should be treated as pr
 13. Change Control
 -------------------------------------------------------------------------------
 
-For any language/runtime surface change after v2.1.4:
+For any language/runtime surface change after v2.1.5:
 1) Implement the change and add/adjust compiler/runtime tests.
 2) Update this specification to match the shipped behavior.
 3) Update changelog and targeted docs (`docs/xx_*.md`, `docs/tensor_api.md`, etc.).

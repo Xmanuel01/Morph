@@ -11,27 +11,23 @@
 ### Breaking changes
 - None.
 
-## v2.1.4
+## v2.1.5
 
 ### Highlights
-- Completed additive `std::analysis` expansion for v2.1.4:
-  - typed schema inference: `analysis.infer_schema_typed(rows)`
-  - schema validation/casting report: `analysis.validate_schema(rows, schema)`
-  - tabular join primitive: `analysis.join(left, right, left_key, right_key, how)`
-  - generalized group aggregation: `analysis.group_agg(rows, key, field, agg)`
-  - quantile summaries: `analysis.quantiles(values, quantiles)`
-  - rolling statistics baseline: `analysis.rolling_mean(values, window)`
-  - deterministic pipeline execution with manifest output:
-    `analysis.run_pipeline(rows, pipeline)`
-- Native analysis runtime (`enkai_native`) now emits reproducibility metadata for pipeline runs:
-  - `schema_version`
-  - stage-level input/output row counts
-  - `pipeline_hash` + `output_hash`
+- Completed additive `std::algo` expansion for v2.1.5:
+  - software primitives: `top_k_ints`, `merge_sorted_ints`, `merge_count_maps`
+  - streaming transforms: `cumulative_sum`, `window_mean` (in addition to existing `window_sum`)
+  - ML utility metrics/eval: `mae`, `rmse`, `precision_recall_f1`
+  - deterministic split helper: `split_indices(total, test_ratio, seed, shuffle)`
+  - scheduler utility: `scheduler_linear_warmup(...)`
+- Added algorithm complexity/perf baseline suite:
+  - `bench/suites/algorithm_kernels.json`
+  - paired Enkai/Python kernels under `bench/enkai/` and `bench/python/`
 
 ### Fixes
-- Added deterministic ordering for group/join outputs via stable key ordering.
-- Added native and runtime integration coverage for schema validation, joins, pipeline manifests,
-  quantiles, and rolling means.
+- Added deterministic ordering and merge behavior for hash-map aggregation utilities.
+- Added native and runtime integration coverage for new algorithm + ML helper APIs.
+- Added golden-corpus regression assertions for algorithm outputs and deterministic split behavior.
 
 ### Breaking changes
 - None.

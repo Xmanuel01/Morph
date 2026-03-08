@@ -1,4 +1,4 @@
-# Enkai Benchmark Harness (v2.1.0)
+# Enkai Benchmark Harness (v2.1.5)
 
 This harness provides reproducible Enkai-vs-Python benchmarks with structured JSON output.
 
@@ -17,6 +17,7 @@ Official suite for v2.1.0:
 - `bench/suites/tokenizer_dataset.json`: tokenizer + dataset CLI throughput.
 - `bench/suites/http_serving.json`: serving request-loop throughput.
 - `bench/suites/db_ops.json`: SQLite throughput.
+- `bench/suites/algorithm_kernels.json`: algorithm + ML utility stack throughput.
 - `bench/suites/official_v2_1_0.json`: aggregate normative suite.
 
 ## Output Schema

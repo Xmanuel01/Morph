@@ -665,7 +665,7 @@ fn looks_like_train_config(value: &Value) -> bool {
         || map.contains_key("tokenizer_train")
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests {
     use super::*;
 

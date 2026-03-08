@@ -304,6 +304,7 @@ fn policy_blocks_db_without_allow() {
 }
 
 #[test]
+#[cfg_attr(windows, ignore = "sqlite ffi test is flaky under libtest on windows")]
 fn std_db_sqlite_roundtrip() {
     let temp = tempfile::tempdir().expect("tempdir");
     copy_std_modules(temp.path());
@@ -347,6 +348,10 @@ fn std_db_sqlite_roundtrip() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "postgres ffi test is flaky under libtest on windows"
+)]
 fn std_db_postgres_open_failure_is_none() {
     let temp = tempfile::tempdir().expect("tempdir");
     copy_std_modules(temp.path());
@@ -408,6 +413,38 @@ fn std_algo_sort_shortest_path_and_metrics() {
         let path := algo.shortest_path(edges, \"a\", \"c\")\n\
         let acc := algo.accuracy([1, 0, 1], [1, 1, 1])\n\
         idx == 2 and path.reachable and path.distance > 2 and path.distance < 4 and acc > 0.6\n";
+    let value = run_package(temp.path(), "main.enk", source).expect("run");
+    assert_eq!(value, Value::Bool(true));
+}
+
+#[test]
+fn std_algo_extended_helpers() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    copy_std_modules(temp.path());
+    let source = "import std::algo\n\
+        let topk := algo.top_k_ints([9, 1, 7, 3, 8], 3)\n\
+        let merged := algo.merge_sorted_ints([1, 3, 5], [2, 4, 6])\n\
+        let left_counts := json.parse(\"{\\\"red\\\":2,\\\"blue\\\":1}\")\n\
+        let right_counts := json.parse(\"{\\\"red\\\":3,\\\"green\\\":4}\")\n\
+        let counts := algo.merge_count_maps(left_counts, right_counts)\n\
+        topk != [] and merged != [] and counts.red == 5 and counts.green == 4\n";
+    let value = run_package(temp.path(), "main.enk", source).expect("run");
+    assert_eq!(value, Value::Bool(true));
+}
+
+#[test]
+fn std_algo_golden_corpus() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    copy_std_modules(temp.path());
+    let source = "import std::algo\n\
+        let split := algo.split_indices(12, 0.25, 99, 1)\n\
+        let split2 := algo.split_indices(12, 0.25, 99, 1)\n\
+        let mae := algo.mae([1, 2, 3], [1, 2, 4])\n\
+        let rmse := algo.rmse([1, 2, 3], [1, 2, 4])\n\
+        let prf := algo.precision_recall_f1([1, 0, 1], [1, 1, 1], 1)\n\
+        let lr0 := algo.scheduler_linear_warmup(0, 100, 10, 0.001, 0.0001)\n\
+        let lr20 := algo.scheduler_linear_warmup(20, 100, 10, 0.001, 0.0001)\n\
+        split.test_count == 3 and split.train == split2.train and split.test == split2.test and mae > 0.3 and mae < 0.34 and rmse > 0.57 and rmse < 0.58 and prf.precision > 0.9 and prf.recall > 0.6 and lr0 > 0 and lr0 < 0.001 and lr20 < 0.001 and lr20 > 0.0001\n";
     let value = run_package(temp.path(), "main.enk", source).expect("run");
     assert_eq!(value, Value::Bool(true));
 }

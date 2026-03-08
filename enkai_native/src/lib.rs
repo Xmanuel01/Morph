@@ -3,7 +3,7 @@ use postgres::{types::Type as PgType, Client as PgClient, NoTls};
 use rusqlite::types::ValueRef;
 use rusqlite::Connection;
 use sha2::{Digest, Sha256};
-use std::cmp::Ordering as CmpOrdering;
+use std::cmp::{Ordering as CmpOrdering, Reverse};
 use std::collections::{BTreeMap, BinaryHeap, HashMap};
 use std::fs;
 use std::net::{SocketAddr, TcpStream};
@@ -993,9 +993,39 @@ fn parse_json_i64(text: &str) -> Option<Vec<i64>> {
     Some(out)
 }
 
+fn parse_json_i64_map(text: &str) -> Option<BTreeMap<String, i64>> {
+    let value: serde_json::Value = serde_json::from_str(text).ok()?;
+    let obj = value.as_object()?;
+    let mut out = BTreeMap::new();
+    for (key, raw) in obj {
+        let num = if let Some(v) = raw.as_i64() {
+            v
+        } else if let Some(v) = raw.as_f64() {
+            if !v.is_finite() {
+                return None;
+            }
+            v as i64
+        } else {
+            return None;
+        };
+        out.insert(key.clone(), num);
+    }
+    Some(out)
+}
+
 fn parse_json_array(text: &str) -> Option<Vec<serde_json::Value>> {
     let value: serde_json::Value = serde_json::from_str(text).ok()?;
     Some(value.as_array()?.clone())
+}
+
+fn deterministic_order_key(seed: u64, index: usize) -> u64 {
+    let mut hasher = Sha256::new();
+    hasher.update(seed.to_le_bytes());
+    hasher.update((index as u64).to_le_bytes());
+    let digest = hasher.finalize();
+    let mut bytes = [0u8; 8];
+    bytes.copy_from_slice(&digest[..8]);
+    u64::from_le_bytes(bytes)
 }
 
 fn parse_json_records(text: &str) -> Option<Vec<serde_json::Map<String, serde_json::Value>>> {
@@ -2568,6 +2598,164 @@ pub extern "C" fn algo_window_sum_json(
 }
 
 #[no_mangle]
+pub extern "C" fn algo_top_k_ints(values_ptr: *const u8, values_len: usize, k: i64) -> FfiSlice {
+    let raw = match string_from_raw(values_ptr, values_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let values = match parse_json_i64(&raw) {
+        Some(values) => values,
+        None => return string_slice("[]".to_string()),
+    };
+    let k = k.max(0) as usize;
+    if values.is_empty() || k == 0 {
+        return string_slice("[]".to_string());
+    }
+    let mut heap: BinaryHeap<Reverse<i64>> = BinaryHeap::new();
+    for value in values {
+        if heap.len() < k {
+            heap.push(Reverse(value));
+            continue;
+        }
+        let min = heap.peek().copied().unwrap_or(Reverse(value)).0;
+        if value > min {
+            let _ = heap.pop();
+            heap.push(Reverse(value));
+        }
+    }
+    let mut out: Vec<i64> = heap.into_iter().map(|Reverse(value)| value).collect();
+    out.sort_unstable_by(|left, right| right.cmp(left));
+    json_string(serde_json::json!(out))
+}
+
+#[no_mangle]
+pub extern "C" fn algo_merge_sorted_ints(
+    left_ptr: *const u8,
+    left_len: usize,
+    right_ptr: *const u8,
+    right_len: usize,
+) -> FfiSlice {
+    let raw_left = match string_from_raw(left_ptr, left_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let raw_right = match string_from_raw(right_ptr, right_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let mut left = parse_json_i64(&raw_left).unwrap_or_default();
+    let mut right = parse_json_i64(&raw_right).unwrap_or_default();
+    left.sort_unstable();
+    right.sort_unstable();
+    let mut merged = Vec::with_capacity(left.len() + right.len());
+    let mut i = 0usize;
+    let mut j = 0usize;
+    while i < left.len() && j < right.len() {
+        if left[i] <= right[j] {
+            merged.push(left[i]);
+            i += 1;
+        } else {
+            merged.push(right[j]);
+            j += 1;
+        }
+    }
+    if i < left.len() {
+        merged.extend_from_slice(&left[i..]);
+    }
+    if j < right.len() {
+        merged.extend_from_slice(&right[j..]);
+    }
+    json_string(serde_json::json!(merged))
+}
+
+#[no_mangle]
+pub extern "C" fn algo_merge_count_maps_json(
+    left_ptr: *const u8,
+    left_len: usize,
+    right_ptr: *const u8,
+    right_len: usize,
+) -> FfiSlice {
+    let raw_left = match string_from_raw(left_ptr, left_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let raw_right = match string_from_raw(right_ptr, right_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let left = match parse_json_i64_map(&raw_left) {
+        Some(map) => map,
+        None => return string_slice("{}".to_string()),
+    };
+    let right = match parse_json_i64_map(&raw_right) {
+        Some(map) => map,
+        None => return string_slice("{}".to_string()),
+    };
+    let mut merged = BTreeMap::new();
+    for (key, value) in left {
+        let entry = merged.entry(key).or_insert(0);
+        *entry += value;
+    }
+    for (key, value) in right {
+        let entry = merged.entry(key).or_insert(0);
+        *entry += value;
+    }
+    let mut obj = serde_json::Map::new();
+    for (key, value) in merged {
+        obj.insert(key, serde_json::json!(value));
+    }
+    json_string(serde_json::Value::Object(obj))
+}
+
+#[no_mangle]
+pub extern "C" fn algo_cumulative_sum_json(values_ptr: *const u8, values_len: usize) -> FfiSlice {
+    let raw = match string_from_raw(values_ptr, values_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let values = match parse_json_numbers(&raw) {
+        Some(values) => values,
+        None => return string_slice("[]".to_string()),
+    };
+    let mut out = Vec::with_capacity(values.len());
+    let mut acc = 0.0;
+    for value in values {
+        acc += value;
+        out.push(acc);
+    }
+    json_string(serde_json::json!(out))
+}
+
+#[no_mangle]
+pub extern "C" fn algo_window_mean_json(
+    values_ptr: *const u8,
+    values_len: usize,
+    window: i64,
+) -> FfiSlice {
+    let raw = match string_from_raw(values_ptr, values_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let values = match parse_json_numbers(&raw) {
+        Some(values) => values,
+        None => return string_slice("[]".to_string()),
+    };
+    let window = window.max(1) as usize;
+    if values.is_empty() || window > values.len() {
+        return string_slice("[]".to_string());
+    }
+    let mut out = Vec::with_capacity(values.len() - window + 1);
+    let mut current: f64 = values.iter().take(window).sum();
+    out.push(current / window as f64);
+    for idx in window..values.len() {
+        current += values[idx];
+        current -= values[idx - window];
+        out.push(current / window as f64);
+    }
+    json_string(serde_json::json!(out))
+}
+
+#[no_mangle]
 pub extern "C" fn ml_metric_accuracy_json(
     pred_ptr: *const u8,
     pred_len: usize,
@@ -2600,6 +2788,198 @@ pub extern "C" fn ml_metric_accuracy_json(
         }
     }
     correct as f64 / pred.len() as f64
+}
+
+#[no_mangle]
+pub extern "C" fn ml_metric_mae_json(
+    pred_ptr: *const u8,
+    pred_len: usize,
+    target_ptr: *const u8,
+    target_len: usize,
+) -> f64 {
+    let raw_pred = match string_from_raw(pred_ptr, pred_len) {
+        Some(raw) => raw,
+        None => return f64::NAN,
+    };
+    let raw_target = match string_from_raw(target_ptr, target_len) {
+        Some(raw) => raw,
+        None => return f64::NAN,
+    };
+    let pred = match parse_json_numbers(&raw_pred) {
+        Some(values) => values,
+        None => return f64::NAN,
+    };
+    let target = match parse_json_numbers(&raw_target) {
+        Some(values) => values,
+        None => return f64::NAN,
+    };
+    if pred.is_empty() || pred.len() != target.len() {
+        return f64::NAN;
+    }
+    let mut mae = 0.0;
+    for (left, right) in pred.iter().zip(target.iter()) {
+        mae += (left - right).abs();
+    }
+    mae / pred.len() as f64
+}
+
+#[no_mangle]
+pub extern "C" fn ml_metric_rmse_json(
+    pred_ptr: *const u8,
+    pred_len: usize,
+    target_ptr: *const u8,
+    target_len: usize,
+) -> f64 {
+    let mse = ml_metric_mse_json(pred_ptr, pred_len, target_ptr, target_len);
+    if !mse.is_finite() {
+        return mse;
+    }
+    mse.sqrt()
+}
+
+#[no_mangle]
+pub extern "C" fn ml_metric_precision_recall_f1_json(
+    pred_ptr: *const u8,
+    pred_len: usize,
+    target_ptr: *const u8,
+    target_len: usize,
+    positive_label: i64,
+) -> FfiSlice {
+    let raw_pred = match string_from_raw(pred_ptr, pred_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let raw_target = match string_from_raw(target_ptr, target_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let pred = match parse_json_i64(&raw_pred) {
+        Some(values) => values,
+        None => return string_slice("{}".to_string()),
+    };
+    let target = match parse_json_i64(&raw_target) {
+        Some(values) => values,
+        None => return string_slice("{}".to_string()),
+    };
+    if pred.is_empty() || pred.len() != target.len() {
+        return json_string(serde_json::json!({
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "support": 0
+        }));
+    }
+    let mut tp = 0i64;
+    let mut fp = 0i64;
+    let mut fn_count = 0i64;
+    for (predicted, expected) in pred.iter().zip(target.iter()) {
+        if *predicted == positive_label && *expected == positive_label {
+            tp += 1;
+        } else if *predicted == positive_label && *expected != positive_label {
+            fp += 1;
+        } else if *predicted != positive_label && *expected == positive_label {
+            fn_count += 1;
+        }
+    }
+    let precision = if tp + fp > 0 {
+        tp as f64 / (tp + fp) as f64
+    } else {
+        0.0
+    };
+    let recall = if tp + fn_count > 0 {
+        tp as f64 / (tp + fn_count) as f64
+    } else {
+        0.0
+    };
+    let f1 = if precision + recall > 0.0 {
+        2.0 * precision * recall / (precision + recall)
+    } else {
+        0.0
+    };
+    json_string(serde_json::json!({
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "tp": tp,
+        "fp": fp,
+        "fn": fn_count,
+        "support": tp + fn_count
+    }))
+}
+
+#[no_mangle]
+pub extern "C" fn ml_split_indices_json(
+    total: i64,
+    test_ratio: f64,
+    seed: i64,
+    shuffle: i64,
+) -> FfiSlice {
+    if total <= 0 || !test_ratio.is_finite() {
+        return json_string(serde_json::json!({
+            "total": 0,
+            "train": [],
+            "test": [],
+            "test_count": 0,
+            "seed": seed,
+            "shuffle": shuffle != 0
+        }));
+    }
+    let total = total as usize;
+    let ratio = test_ratio.clamp(0.0, 1.0);
+    let mut indices: Vec<usize> = (0..total).collect();
+    if shuffle != 0 {
+        let seed = seed as u64;
+        indices.sort_by(|left, right| {
+            deterministic_order_key(seed, *left)
+                .cmp(&deterministic_order_key(seed, *right))
+                .then_with(|| left.cmp(right))
+        });
+    }
+    let test_count = ((total as f64) * ratio).round() as usize;
+    let test_count = test_count.min(total);
+    let train_count = total.saturating_sub(test_count);
+    let train: Vec<i64> = indices[..train_count].iter().map(|v| *v as i64).collect();
+    let test: Vec<i64> = indices[train_count..].iter().map(|v| *v as i64).collect();
+    json_string(serde_json::json!({
+        "total": total,
+        "train": train,
+        "test": test,
+        "test_count": test_count,
+        "seed": seed,
+        "shuffle": shuffle != 0
+    }))
+}
+
+#[no_mangle]
+pub extern "C" fn ml_scheduler_linear_warmup(
+    step: i64,
+    total_steps: i64,
+    warmup_steps: i64,
+    base_lr: f64,
+    min_lr: f64,
+) -> f64 {
+    if total_steps <= 0 || !base_lr.is_finite() || !min_lr.is_finite() {
+        return f64::NAN;
+    }
+    let total_steps = total_steps.max(1);
+    let step = step.clamp(0, total_steps - 1);
+    let warmup_steps = warmup_steps.clamp(0, total_steps);
+    let min_bound = min_lr.min(base_lr);
+    let max_bound = min_lr.max(base_lr);
+    if warmup_steps > 0 && step < warmup_steps {
+        let progress = (step + 1) as f64 / warmup_steps as f64;
+        return (base_lr * progress).clamp(min_bound, max_bound);
+    }
+    let decay_steps = (total_steps - warmup_steps).max(1);
+    let progress = if decay_steps <= 1 {
+        1.0
+    } else {
+        ((step - warmup_steps).max(0) as f64 / (decay_steps - 1) as f64).clamp(0.0, 1.0)
+    };
+    (base_lr + (min_lr - base_lr) * progress).clamp(min_bound, max_bound)
 }
 
 #[no_mangle]
@@ -2827,12 +3207,85 @@ mod tests {
         assert_eq!(sorted_text, "[1,2,3,5]");
         let idx = algo_binary_search_ints(sorted_text.as_ptr(), sorted_text.len(), 3);
         assert_eq!(idx, 2);
+        let topk = algo_top_k_ints(values.as_ptr(), values.len(), 2);
+        let topk_text =
+            unsafe { std::str::from_utf8(std::slice::from_raw_parts(topk.ptr, topk.len)) }.unwrap();
+        assert_eq!(topk_text, "[5,3]");
+        let merged = algo_merge_sorted_ints("[1,3,5]".as_ptr(), 7, "[2,4,6]".as_ptr(), 7);
+        let merged_text =
+            unsafe { std::str::from_utf8(std::slice::from_raw_parts(merged.ptr, merged.len)) }
+                .unwrap();
+        assert_eq!(merged_text, "[1,2,3,4,5,6]");
+        let merged_counts = algo_merge_count_maps_json(
+            "{\"a\":2,\"b\":1}".as_ptr(),
+            13,
+            "{\"a\":3,\"c\":4}".as_ptr(),
+            13,
+        );
+        let merged_counts_text = unsafe {
+            std::str::from_utf8(std::slice::from_raw_parts(
+                merged_counts.ptr,
+                merged_counts.len,
+            ))
+        }
+        .unwrap();
+        let merged_counts_json: serde_json::Value =
+            serde_json::from_str(merged_counts_text).unwrap();
+        assert_eq!(merged_counts_json["a"].as_i64(), Some(5));
+        assert_eq!(merged_counts_json["c"].as_i64(), Some(4));
+        let window_mean = algo_window_mean_json("[1,2,3,4]".as_ptr(), 9, 2);
+        let window_mean_text = unsafe {
+            std::str::from_utf8(std::slice::from_raw_parts(window_mean.ptr, window_mean.len))
+        }
+        .unwrap();
+        assert_eq!(window_mean_text, "[1.5,2.5,3.5]");
+        let cumulative = algo_cumulative_sum_json("[1,2,3]".as_ptr(), 7);
+        let cumulative_text = unsafe {
+            std::str::from_utf8(std::slice::from_raw_parts(cumulative.ptr, cumulative.len))
+        }
+        .unwrap();
+        assert_eq!(cumulative_text, "[1.0,3.0,6.0]");
         let accuracy = ml_metric_accuracy_json("[1,0,1]".as_ptr(), 7, "[1,1,1]".as_ptr(), 7);
         assert!((accuracy - (2.0 / 3.0)).abs() < 1e-6);
+        let prf =
+            ml_metric_precision_recall_f1_json("[1,0,1]".as_ptr(), 7, "[1,1,1]".as_ptr(), 7, 1);
+        let prf_text =
+            unsafe { std::str::from_utf8(std::slice::from_raw_parts(prf.ptr, prf.len)) }.unwrap();
+        let prf_json: serde_json::Value = serde_json::from_str(prf_text).unwrap();
+        assert!(prf_json["precision"].as_f64().unwrap() > 0.9);
+        assert!(prf_json["recall"].as_f64().unwrap() > 0.6);
         let mse = ml_metric_mse_json("[1,2,3]".as_ptr(), 7, "[1,2,4]".as_ptr(), 7);
         assert!((mse - (1.0 / 3.0)).abs() < 1e-6);
+        let mae = ml_metric_mae_json("[1,2,3]".as_ptr(), 7, "[1,2,4]".as_ptr(), 7);
+        assert!((mae - (1.0 / 3.0)).abs() < 1e-6);
+        let rmse = ml_metric_rmse_json("[1,2,3]".as_ptr(), 7, "[1,2,4]".as_ptr(), 7);
+        assert!((rmse - (1.0 / 3.0_f64).sqrt()).abs() < 1e-6);
+        let split = ml_split_indices_json(10, 0.2, 42, 1);
+        let split_text =
+            unsafe { std::str::from_utf8(std::slice::from_raw_parts(split.ptr, split.len)) }
+                .unwrap();
+        let split_json: serde_json::Value = serde_json::from_str(split_text).unwrap();
+        assert_eq!(split_json["test_count"].as_u64(), Some(2));
+        assert_eq!(split_json["train"].as_array().map(|v| v.len()), Some(8));
+        let split2 = ml_split_indices_json(10, 0.2, 42, 1);
+        let split2_text =
+            unsafe { std::str::from_utf8(std::slice::from_raw_parts(split2.ptr, split2.len)) }
+                .unwrap();
+        assert_eq!(split_text, split2_text);
+        let lr0 = ml_scheduler_linear_warmup(0, 100, 10, 0.001, 0.0001);
+        let lr20 = ml_scheduler_linear_warmup(20, 100, 10, 0.001, 0.0001);
+        assert!(lr0 > 0.0 && lr0 < 0.001);
+        assert!(lr20 < 0.001 && lr20 > 0.0001);
         unsafe {
             enkai_free(sorted.ptr, sorted.len);
+            enkai_free(topk.ptr, topk.len);
+            enkai_free(merged.ptr, merged.len);
+            enkai_free(merged_counts.ptr, merged_counts.len);
+            enkai_free(window_mean.ptr, window_mean.len);
+            enkai_free(cumulative.ptr, cumulative.len);
+            enkai_free(prf.ptr, prf.len);
+            enkai_free(split.ptr, split.len);
+            enkai_free(split2.ptr, split2.len);
         }
     }
 }

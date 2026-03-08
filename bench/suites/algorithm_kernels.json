@@ -1,0 +1,13 @@
+{
+  "suite": "algorithm_kernels",
+  "description": "Algorithm + ML utility baseline kernels for v2.1.5",
+  "cases": [
+    {
+      "id": "algo_stack_kernel",
+      "description": "Priority/select + merge + deterministic split + PRF utility throughput",
+      "enkai_command": ["${ENKAI_BIN}", "run", "bench/enkai/kernel_algo_suite.enk"],
+      "python_command": ["${PYTHON_EXE}", "bench/python/kernel_algo_suite.py"],
+      "timeout_sec": 120
+    }
+  ]
+}

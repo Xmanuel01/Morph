@@ -3,11 +3,21 @@
 native::import "enkai_native" ::
     fn algo_sort_ints(values_json: String) -> String
     fn algo_binary_search_ints(values_json: String, target: Int) -> Int
+    fn algo_top_k_ints(values_json: String, k: Int) -> String
+    fn algo_merge_sorted_ints(left_json: String, right_json: String) -> String
     fn algo_shortest_path_json(edges_json: String, start: String, goal: String) -> String
     fn algo_count_frequencies(values_json: String) -> String
+    fn algo_merge_count_maps_json(left_json: String, right_json: String) -> String
     fn algo_window_sum_json(values_json: String, window: Int) -> String
+    fn algo_cumulative_sum_json(values_json: String) -> String
+    fn algo_window_mean_json(values_json: String, window: Int) -> String
     fn ml_metric_accuracy_json(pred_json: String, target_json: String) -> Float
     fn ml_metric_mse_json(pred_json: String, target_json: String) -> Float
+    fn ml_metric_mae_json(pred_json: String, target_json: String) -> Float
+    fn ml_metric_rmse_json(pred_json: String, target_json: String) -> Float
+    fn ml_metric_precision_recall_f1_json(pred_json: String, target_json: String, positive_label: Int) -> String
+    fn ml_split_indices_json(total: Int, test_ratio: Float, seed: Int, shuffle: Int) -> String
+    fn ml_scheduler_linear_warmup(step: Int, total_steps: Int, warmup_steps: Int, base_lr: Float, min_lr: Float) -> Float
 ::
 
 pub fn sort_ints(values) ::
@@ -17,6 +27,16 @@ pub fn sort_ints(values) ::
 
 pub fn binary_search_ints(values, target: Int) -> Int ::
     return algo_binary_search_ints(json.stringify(values), target)
+::
+
+pub fn top_k_ints(values, k: Int) ::
+    let raw := algo_top_k_ints(json.stringify(values), k)
+    return json.parse(raw)
+::
+
+pub fn merge_sorted_ints(left, right) ::
+    let raw := algo_merge_sorted_ints(json.stringify(left), json.stringify(right))
+    return json.parse(raw)
 ::
 
 pub fn shortest_path(edges, start: String, goal: String) ::
@@ -29,8 +49,23 @@ pub fn count_frequencies(values) ::
     return json.parse(raw)
 ::
 
+pub fn merge_count_maps(left, right) ::
+    let raw := algo_merge_count_maps_json(json.stringify(left), json.stringify(right))
+    return json.parse(raw)
+::
+
 pub fn window_sum(values, window: Int) ::
     let raw := algo_window_sum_json(json.stringify(values), window)
+    return json.parse(raw)
+::
+
+pub fn cumulative_sum(values) ::
+    let raw := algo_cumulative_sum_json(json.stringify(values))
+    return json.parse(raw)
+::
+
+pub fn window_mean(values, window: Int) ::
+    let raw := algo_window_mean_json(json.stringify(values), window)
     return json.parse(raw)
 ::
 
@@ -40,4 +75,36 @@ pub fn accuracy(pred, target) -> Float ::
 
 pub fn mse(pred, target) -> Float ::
     return ml_metric_mse_json(json.stringify(pred), json.stringify(target))
+::
+
+pub fn mae(pred, target) -> Float ::
+    return ml_metric_mae_json(json.stringify(pred), json.stringify(target))
+::
+
+pub fn rmse(pred, target) -> Float ::
+    return ml_metric_rmse_json(json.stringify(pred), json.stringify(target))
+::
+
+pub fn precision_recall_f1(pred, target, positive_label: Int) ::
+    let raw := ml_metric_precision_recall_f1_json(
+        json.stringify(pred),
+        json.stringify(target),
+        positive_label
+    )
+    return json.parse(raw)
+::
+
+pub fn split_indices(total: Int, test_ratio: Float, seed: Int, shuffle: Int) ::
+    let raw := ml_split_indices_json(total, test_ratio, seed, shuffle)
+    return json.parse(raw)
+::
+
+pub fn scheduler_linear_warmup(
+    step: Int,
+    total_steps: Int,
+    warmup_steps: Int,
+    base_lr: Float,
+    min_lr: Float
+) -> Float ::
+    return ml_scheduler_linear_warmup(step, total_steps, warmup_steps, base_lr, min_lr)
 ::

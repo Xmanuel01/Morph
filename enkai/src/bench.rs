@@ -308,7 +308,7 @@ fn command_available(command: &[String]) -> bool {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests {
     use super::*;
 

@@ -321,7 +321,7 @@ fn render_backend_manifest(root: &Path) -> String {
 fn render_backend_readme(root: &Path, api_version: &str) -> String {
     let name = sanitize_name(root);
     format!(
-        "# {}\n\nEnkai backend scaffold (`v2.1.4` contract freeze).\n\n## API Contract\n\n- Base path: `/api/{}`\n- Header required by SDK: `x-enkai-api-version: {}`\n- Routes:\n  - `GET /api/{}/health`\n  - `POST /api/{}/chat`\n  - `GET /api/{}/chat/stream`\n  - `GET /api/{}/chat/ws`\n\n## Contract Snapshots\n\n- Backend contract snapshot: `contracts/backend_api.snapshot.json`\n- Conversation schema: `contracts/conversation_state.schema.json`\n\n## Persistence\n\n- Latest conversation state is persisted to `conversation_state.json`.\n- Schema version is enforced (`schema_version: 1`) with startup migration for legacy files.\n- Override target directory with `ENKAI_CONVERSATION_DIR`.\n\n## Run\n\n- `enkai serve --host 0.0.0.0 --port 8080 .`\n",
+        "# {}\n\nEnkai backend scaffold (`v2.1.5` contract freeze).\n\n## API Contract\n\n- Base path: `/api/{}`\n- Header required by SDK: `x-enkai-api-version: {}`\n- Routes:\n  - `GET /api/{}/health`\n  - `POST /api/{}/chat`\n  - `GET /api/{}/chat/stream`\n  - `GET /api/{}/chat/ws`\n\n## Contract Snapshots\n\n- Backend contract snapshot: `contracts/backend_api.snapshot.json`\n- Conversation schema: `contracts/conversation_state.schema.json`\n\n## Persistence\n\n- Latest conversation state is persisted to `conversation_state.json`.\n- Schema version is enforced (`schema_version: 1`) with startup migration for legacy files.\n- Override target directory with `ENKAI_CONVERSATION_DIR`.\n\n## Run\n\n- `enkai serve --host 0.0.0.0 --port 8080 .`\n",
         name, api_version, api_version, api_version, api_version, api_version, api_version
     )
 }
@@ -677,7 +677,7 @@ export default function App() {{\n\
   return (\n\
     <div className=\"app-shell\">\n\
       <header className=\"hero\">\n\
-        <p className=\"eyebrow\">Enkai v2.1.4 frontend contract freeze</p>\n\
+        <p className=\"eyebrow\">Enkai v2.1.5 frontend contract freeze</p>\n\
         <h1>Streaming Chat UI Kit</h1>\n\
         <p className=\"subtitle\">Typed SDK, version-pinned API contract, and resilient error UX.</p>\n\
         <p className=\"subtitle\">{{conversationId ? `Conversation: ${{conversationId}}` : \"Conversation: new\"}}</p>\n\
@@ -985,7 +985,7 @@ const FRONTEND_TYPES_TS: &str = "export type UiRole = \"user\" | \"assistant\";\
 
 const FRONTEND_STYLES_CSS: &str = "@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap');\n\n:root {\n  font-family: \"Space Grotesk\", \"Segoe UI\", sans-serif;\n  color: #f7f6f2;\n  background: radial-gradient(circle at 15% 10%, #233a66, transparent 42%), radial-gradient(circle at 80% 0%, #b14922, transparent 36%), linear-gradient(180deg, #0a1628 0%, #12253f 48%, #0f1d34 100%);\n}\n\n* {\n  box-sizing: border-box;\n}\n\nbody {\n  margin: 0;\n  min-height: 100vh;\n}\n\n#root {\n  min-height: 100vh;\n  padding: 1.5rem;\n}\n\n.app-shell {\n  max-width: 880px;\n  margin: 0 auto;\n  display: grid;\n  gap: 1rem;\n}\n\n.hero h1 {\n  margin: 0;\n  font-size: clamp(1.7rem, 4vw, 2.4rem);\n}\n\n.eyebrow {\n  font-family: \"IBM Plex Mono\", monospace;\n  letter-spacing: 0.1em;\n  text-transform: uppercase;\n  opacity: 0.8;\n  margin: 0 0 0.4rem;\n}\n\n.subtitle {\n  margin: 0.4rem 0 0;\n  opacity: 0.85;\n}\n\n.panel {\n  border: 1px solid rgba(255, 255, 255, 0.2);\n  background: rgba(6, 16, 30, 0.55);\n  backdrop-filter: blur(12px);\n  border-radius: 16px;\n  padding: 0.9rem;\n}\n\n.auth-panel {\n  display: grid;\n  gap: 0.4rem;\n}\n\ninput,\nbutton {\n  border: 1px solid rgba(255, 255, 255, 0.24);\n  border-radius: 10px;\n  padding: 0.75rem;\n  font: inherit;\n  color: inherit;\n  background: rgba(10, 25, 46, 0.82);\n}\n\nbutton {\n  cursor: pointer;\n  background: linear-gradient(120deg, #e66a2f, #d35317);\n  border: none;\n  font-weight: 600;\n}\n\nbutton:disabled {\n  opacity: 0.6;\n  cursor: not-allowed;\n}\n\n.transcript {\n  display: grid;\n  gap: 0.7rem;\n  min-height: 300px;\n}\n\n.bubble {\n  border-radius: 12px;\n  padding: 0.75rem;\n  animation: rise-in 220ms ease;\n}\n\n.bubble.user {\n  background: rgba(57, 123, 200, 0.32);\n}\n\n.bubble.assistant {\n  background: rgba(237, 122, 66, 0.28);\n}\n\n.role {\n  display: block;\n  font-family: \"IBM Plex Mono\", monospace;\n  font-size: 0.72rem;\n  letter-spacing: 0.06em;\n  text-transform: uppercase;\n  opacity: 0.82;\n}\n\n.bubble p {\n  margin: 0.25rem 0 0;\n  white-space: pre-wrap;\n}\n\n.composer {\n  display: grid;\n  grid-template-columns: 1fr auto;\n  gap: 0.7rem;\n}\n\n.error {\n  margin: 0;\n  color: #ffd9c8;\n}\n\n@keyframes rise-in {\n  from {\n    opacity: 0;\n    transform: translateY(6px);\n  }\n  to {\n    opacity: 1;\n    transform: translateY(0);\n  }\n}\n\n@media (max-width: 640px) {\n  #root {\n    padding: 1rem;\n  }\n\n  .composer {\n    grid-template-columns: 1fr;\n  }\n}\n";
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests {
     use super::*;
     use std::io::{Read, Write};

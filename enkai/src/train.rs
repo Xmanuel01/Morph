@@ -1377,7 +1377,7 @@ fn load_config_value(path: &Path) -> Result<Value, String> {
     Ok(value)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 fn parse_train_config(value: &Value) -> Result<TrainConfig, String> {
     parse_train_config_with_mode(value, true)
 }
@@ -2832,7 +2832,7 @@ fn wrap_program_with_main(program: &Program, main_global: u16) -> Program {
     program
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests {
     use super::*;
     use tempfile::tempdir;

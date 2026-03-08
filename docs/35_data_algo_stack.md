@@ -1,4 +1,4 @@
-# 35. Data + Algorithm Stack (v2.1.4)
+# 35. Data + Algorithm Stack (v2.1.5)
 
 Enkai ships additive std modules for data analysis and algorithm development.
 
@@ -35,10 +35,29 @@ Behavior notes:
 Primary APIs:
 - `sort_ints(values)`
 - `binary_search_ints(values, target)`
+- `top_k_ints(values, k)`
+- `merge_sorted_ints(left, right)`
 - `shortest_path(edges, start, goal)`
 - `count_frequencies(values)`
+- `merge_count_maps(left, right)`
 - `window_sum(values, window)`
+- `cumulative_sum(values)`
+- `window_mean(values, window)`
 - `accuracy(pred, target)`
 - `mse(pred, target)`
+- `mae(pred, target)`
+- `rmse(pred, target)`
+- `precision_recall_f1(pred, target, positive_label)`
+- `split_indices(total, test_ratio, seed, shuffle)`
+- `scheduler_linear_warmup(step, total_steps, warmup_steps, base_lr, min_lr)`
 
-These APIs are native-backed and intended as baseline building blocks for software and ML utility layers.
+Behavior notes:
+- `top_k_ints` uses deterministic priority-queue selection semantics.
+- `merge_count_maps` returns deterministically ordered keys.
+- `split_indices` is deterministic by `(seed, total, ratio, shuffle)` and returns `{train,test}` index sets.
+- metric helpers return deterministic numeric outputs and machine-readable objects for PR/F1.
+
+Validation and evidence:
+- Runtime integration coverage in `enkairt/tests/ffi_modules.rs` for both baseline and golden corpus scenarios.
+- Native correctness coverage in `enkai_native/src/lib.rs` unit tests.
+- Complexity/perf baseline suite: `bench/suites/algorithm_kernels.json`.

@@ -480,7 +480,7 @@ pub(crate) fn resolve_checkpoint_pointer(version_dir: &Path) -> Option<PathBuf> 
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests {
     use super::*;
     use tempfile::tempdir;

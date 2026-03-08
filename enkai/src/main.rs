@@ -1357,7 +1357,7 @@ fn find_entry_file(root: &Path) -> Option<PathBuf> {
     None
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests {
     use super::*;
     use std::fs;

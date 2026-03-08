@@ -2,17 +2,21 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.1.4.
+- Current production release line is v2.1.5.
 - v2.1.x is additive/integration work in progress (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
 
-v2.1.4 (done)
-- Completed additive data-analysis stack hardening:
-  - typed schema inference + validation/casting reports
-  - deterministic tabular joins and generalized group aggregations
-  - quantile and rolling-stat primitives for numeric analysis
-  - deterministic analysis pipeline execution with reproducibility manifest + hashes
-- Added native/runtime coverage for analysis schema/join/pipeline/summary paths.
+v2.1.5 (done)
+- Completed additive algorithm-development stack hardening:
+  - expanded `std::algo` software primitives (priority/top-k, sorted merge, hash-map merge)
+  - streaming transforms (`window_sum`, `window_mean`, `cumulative_sum`)
+  - ML utility metrics/eval helpers (`mae`, `rmse`, `precision_recall_f1`)
+  - deterministic split helper + linear warmup scheduler utility
+- Added correctness corpus coverage:
+  - native unit tests for new `std::algo` FFI functions
+  - runtime integration golden tests in `enkairt/tests/ffi_modules.rs`
+- Added complexity/perf baseline suite:
+  - `bench/suites/algorithm_kernels.json` with Enkai/Python parity kernels.
 
 v2.1.3 (done)
 - Hardened serving/runtime contract without syntax changes:

@@ -67,8 +67,17 @@ fn main() -> Int ::
     if output != none ::
         io.write_text(output?, summary_text)
     ::
-    io.stdout_write_text(summary_text)
-    io.stdout_write_text("\n")
+    let quiet := env.get("ENKAI_BOOTSTRAP_QUIET")
+    let should_print := true
+    if quiet != none ::
+        if quiet? == "1" ::
+            should_print := false
+        ::
+    ::
+    if should_print ::
+        io.stdout_write_text(summary_text)
+        io.stdout_write_text("\n")
+    ::
     return 0
 ::
 
