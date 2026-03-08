@@ -31,6 +31,13 @@ let middlewares := [http.middleware("auth", auth)]
 http.serve_with("127.0.0.1", 8080, routes, middlewares)
 ```
 
+Backpressure middleware:
+
+```
+let middlewares := [http.middleware("backpressure", json.parse("{\"max_inflight\":64}"))]
+http.serve_with("127.0.0.1", 8080, routes, middlewares)
+```
+
 ## Request/Response
 
 `Request` fields:
@@ -74,5 +81,30 @@ WebSocket helpers (server-side):
 - Unsupported return types from handler result in a 500 response.
 - Missing/invalid auth token returns 401 JSON error.
 - Rate-limit violations return 429 JSON error.
+- Backpressure limits return `503` with `error.code = "backpressure_overloaded"`.
+
+## Middleware notes
+
+- `rate_limit.key` supports:
+  - `ip` (default)
+  - `token`
+  - `tenant`
+  - `model`
+  - `tenant_model`
+- `backpressure` middleware uses `max_inflight` (`Int >= 0`), where `0` disables the cap.
+
+## Observability headers
+
+Every response includes `x-enkai-request-id`. When available, runtime also attaches:
+
+- `x-enkai-correlation-id`
+- `x-enkai-queue-ms`
+- `x-enkai-latency-ms`
+- `x-enkai-inflight`
+- `x-enkai-tenant`
+- `x-enkai-model-name`
+- `x-enkai-model-version`
+- `x-enkai-model-registry`
+- `x-enkai-error-code` (for deterministic machine parsing)
 
 

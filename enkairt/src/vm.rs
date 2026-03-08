@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Component, Path};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -94,6 +94,7 @@ struct ServerEvent {
     server_id: usize,
     request: HttpRequestData,
     stream: TcpStream,
+    accepted_at: Instant,
 }
 
 #[derive(Clone)]
@@ -119,6 +120,9 @@ struct RateLimitConfig {
 enum RateLimitKey {
     Ip,
     Token,
+    Tenant,
+    Model,
+    TenantModel,
 }
 
 struct RateLimitBucket {
@@ -139,6 +143,12 @@ struct HttpServer {
     rate_state: HashMap<String, RateLimitBucket>,
     logger: Option<ServerLogger>,
     policy: Option<String>,
+    inflight: Arc<AtomicUsize>,
+    max_inflight: usize,
+    require_model_version_header: bool,
+    model_name: Option<String>,
+    model_version: Option<String>,
+    model_registry: Option<String>,
     stop: mpsc::Sender<()>,
 }
 
@@ -156,10 +166,16 @@ struct HttpRequestMeta {
     id: u64,
     server_id: usize,
     start: Instant,
+    queue_ms: u64,
     method: String,
     path: String,
     remote_addr: String,
+    correlation_id: String,
     tenant: Option<String>,
+    model_name: Option<String>,
+    model_version: Option<String>,
+    model_registry: Option<String>,
+    inflight_at_start: usize,
     error_code: Option<String>,
 }
 
@@ -195,11 +211,14 @@ type HttpServerConfigParsed = (
     Option<ServerAuthConfig>,
     Option<RateLimitConfig>,
     Option<ServerLogger>,
+    usize,
+    bool,
 );
 type PreparedHttpRequest = (
     Option<Value>,
     HashMap<String, String>,
     Option<String>,
+    String,
     Option<HttpResponseData>,
     Option<String>,
 );
@@ -1142,6 +1161,16 @@ impl VM {
         } else if let Some(meta) = &http_meta {
             self.log_http_meta(meta, 0, true);
         }
+        if let Some(meta) = &http_meta {
+            if let Some(server) = self.servers.get(meta.server_id) {
+                let _ =
+                    server
+                        .inflight
+                        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                            Some(value.saturating_sub(1))
+                        });
+            }
+        }
     }
 
     fn all_tasks_finished(&self) -> bool {
@@ -1242,95 +1271,191 @@ impl VM {
     fn drain_server_events(&mut self, program: &Program) {
         while let Ok(event) = self.server_receiver.try_recv() {
             let stream = event.stream;
-            let (handler, params, tenant, error_resp, error_code) =
-                match self.prepare_http_request(event.server_id, &event.request) {
+            let request_id = self.next_request_id;
+            self.next_request_id = self.next_request_id.saturating_add(1);
+            let queue_ms = event.accepted_at.elapsed().as_millis() as u64;
+            let (handler, params, tenant, correlation_id, error_resp, error_code) =
+                match self.prepare_http_request(event.server_id, &event.request, request_id) {
                     Ok(value) => value,
                     Err(err) => {
                         self.write_http_error(stream, &err.to_string());
                         continue;
                     }
                 };
+            let (
+                model_name,
+                model_version,
+                model_registry,
+                inflight_counter,
+                inflight_now,
+                max_inflight,
+                server_policy,
+            ) = match self.servers.get(event.server_id) {
+                Some(server) => (
+                    server.model_name.clone(),
+                    server.model_version.clone(),
+                    server.model_registry.clone(),
+                    Arc::clone(&server.inflight),
+                    server.inflight.load(Ordering::Relaxed),
+                    server.max_inflight,
+                    server.policy.clone(),
+                ),
+                None => (None, None, None, Arc::new(AtomicUsize::new(0)), 0, 0, None),
+            };
             if let Some(mut resp) = error_resp {
-                let request_id = self.next_request_id;
-                self.next_request_id = self.next_request_id.saturating_add(1);
-                resp.headers
-                    .entry("x-enkai-request-id".to_string())
-                    .or_insert_with(|| request_id.to_string());
-                if let Some(code) = error_code.clone() {
-                    resp.headers
-                        .entry("x-enkai-error-code".to_string())
-                        .or_insert(code);
-                }
-                if let Some(tenant_id) = tenant.clone() {
-                    resp.headers
-                        .entry("x-enkai-tenant".to_string())
-                        .or_insert(tenant_id);
-                }
-                self.log_http_event(
-                    event.server_id,
-                    &event.request,
-                    tenant.clone(),
-                    resp.status,
-                    error_code.clone(),
-                    false,
-                );
+                let meta = HttpRequestMeta {
+                    id: request_id,
+                    server_id: event.server_id,
+                    start: Instant::now(),
+                    queue_ms,
+                    method: event.request.method.clone(),
+                    path: event.request.path.clone(),
+                    remote_addr: event.request.remote_addr.clone(),
+                    correlation_id: correlation_id.clone(),
+                    tenant: tenant.clone(),
+                    model_name: model_name.clone(),
+                    model_version: model_version.clone(),
+                    model_registry: model_registry.clone(),
+                    inflight_at_start: inflight_now,
+                    error_code: error_code.clone(),
+                };
+                self.attach_response_meta_headers(&mut resp, &meta);
+                self.log_http_meta(&meta, resp.status, false);
                 let _ = write_http_response(stream, resp);
                 continue;
             }
             let handler = match handler {
                 Some(h) => h,
                 None => {
-                    let request_id = self.next_request_id;
-                    self.next_request_id = self.next_request_id.saturating_add(1);
                     let mut resp = error_response(404, "not_found", "Not Found");
-                    resp.headers
-                        .entry("x-enkai-request-id".to_string())
-                        .or_insert_with(|| request_id.to_string());
-                    if let Some(tenant_id) = tenant.clone() {
-                        resp.headers
-                            .entry("x-enkai-tenant".to_string())
-                            .or_insert(tenant_id);
-                    }
-                    self.log_http_event(
-                        event.server_id,
-                        &event.request,
-                        tenant.clone(),
-                        resp.status,
-                        Some("not_found".to_string()),
-                        false,
-                    );
+                    let meta = HttpRequestMeta {
+                        id: request_id,
+                        server_id: event.server_id,
+                        start: Instant::now(),
+                        queue_ms,
+                        method: event.request.method.clone(),
+                        path: event.request.path.clone(),
+                        remote_addr: event.request.remote_addr.clone(),
+                        correlation_id: correlation_id.clone(),
+                        tenant: tenant.clone(),
+                        model_name: model_name.clone(),
+                        model_version: model_version.clone(),
+                        model_registry: model_registry.clone(),
+                        inflight_at_start: inflight_now,
+                        error_code: Some("not_found".to_string()),
+                    };
+                    self.attach_response_meta_headers(&mut resp, &meta);
+                    self.log_http_meta(&meta, resp.status, false);
                     let _ = write_http_response(stream, resp);
                     continue;
                 }
             };
+            if max_inflight > 0 && inflight_now >= max_inflight {
+                let mut resp = error_response(
+                    503,
+                    "backpressure_overloaded",
+                    "Server is overloaded; try again later",
+                );
+                let meta = HttpRequestMeta {
+                    id: request_id,
+                    server_id: event.server_id,
+                    start: Instant::now(),
+                    queue_ms,
+                    method: event.request.method.clone(),
+                    path: event.request.path.clone(),
+                    remote_addr: event.request.remote_addr.clone(),
+                    correlation_id: correlation_id.clone(),
+                    tenant,
+                    model_name: model_name.clone(),
+                    model_version: model_version.clone(),
+                    model_registry: model_registry.clone(),
+                    inflight_at_start: inflight_now,
+                    error_code: Some("backpressure_overloaded".to_string()),
+                };
+                self.attach_response_meta_headers(&mut resp, &meta);
+                self.log_http_meta(&meta, resp.status, false);
+                let _ = write_http_response(stream, resp);
+                continue;
+            }
             let mut meta = HttpRequestMeta {
-                id: self.next_request_id,
+                id: request_id,
                 server_id: event.server_id,
                 start: Instant::now(),
+                queue_ms,
                 method: event.request.method.clone(),
                 path: event.request.path.clone(),
                 remote_addr: event.request.remote_addr.clone(),
+                correlation_id,
                 tenant,
+                model_name,
+                model_version,
+                model_registry: model_registry.clone(),
+                inflight_at_start: inflight_now.saturating_add(1),
                 error_code: None,
             };
             if let Some(code) = error_code {
                 meta.error_code = Some(code);
             }
-            self.next_request_id = self.next_request_id.saturating_add(1);
-            let request = self.http_request_value_with_params(event.request, params);
-            let server_policy = self
-                .servers
-                .get(event.server_id)
-                .and_then(|server| server.policy.clone());
+            let mut request_data = event.request;
+            request_data
+                .headers
+                .entry("x-enkai-correlation-id".to_string())
+                .or_insert_with(|| meta.correlation_id.clone());
+            if let Some(tenant_id) = meta.tenant.as_ref() {
+                request_data
+                    .headers
+                    .entry("x-enkai-tenant".to_string())
+                    .or_insert_with(|| tenant_id.clone());
+            }
+            if let Some(model_name) = meta.model_name.as_ref() {
+                request_data
+                    .headers
+                    .entry("x-enkai-model-name".to_string())
+                    .or_insert_with(|| model_name.clone());
+            }
+            if let Some(model_version) = meta.model_version.as_ref() {
+                request_data
+                    .headers
+                    .entry("x-enkai-model-version".to_string())
+                    .or_insert_with(|| model_version.clone());
+            }
+            let request = self.http_request_value_with_params(request_data, params);
+            let stream_for_task = match stream.try_clone() {
+                Ok(clone) => clone,
+                Err(_) => {
+                    let mut resp = error_response(
+                        500,
+                        "stream_clone_failed",
+                        "failed to prepare request stream",
+                    );
+                    let mut fallback = meta;
+                    fallback.error_code = Some("stream_clone_failed".to_string());
+                    self.attach_response_meta_headers(&mut resp, &fallback);
+                    self.log_http_meta(&fallback, resp.status, false);
+                    let _ = write_http_response(stream, resp);
+                    continue;
+                }
+            };
             if let Ok(task_id) =
-                self.spawn_task_with_args(program, handler, vec![request], Some(stream))
+                self.spawn_task_with_args(program, handler, vec![request], Some(stream_for_task))
             {
+                let inflight_after = inflight_counter.fetch_add(1, Ordering::Relaxed) + 1;
+                meta.inflight_at_start = inflight_after;
                 if let Some(task) = self.tasks.get_mut(task_id).and_then(|t| t.as_mut()) {
                     task.http_meta = Some(meta);
                     if let Some(policy) = server_policy {
                         task.policy = Some(policy);
                     }
                 }
+            } else {
+                let mut resp =
+                    error_response(500, "task_spawn_failed", "failed to spawn request handler");
+                let mut fallback = meta;
+                fallback.error_code = Some("task_spawn_failed".to_string());
+                fallback.inflight_at_start = inflight_counter.load(Ordering::Relaxed);
+                self.attach_response_meta_headers(&mut resp, &fallback);
+                self.log_http_meta(&fallback, resp.status, false);
+                let _ = write_http_response(stream, resp);
             }
         }
     }
@@ -3397,6 +3522,18 @@ impl VM {
             ));
         }
         self.validate_http_handler(&handler)?;
+        let model_name = std::env::var("ENKAI_SERVE_MODEL_NAME")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let model_version = std::env::var("ENKAI_SERVE_MODEL_VERSION")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let model_registry = std::env::var("ENKAI_SERVE_MODEL_REGISTRY")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
         let server = HttpServer {
             handler,
             routes: Vec::new(),
@@ -3406,6 +3543,12 @@ impl VM {
             rate_state: HashMap::new(),
             logger: None,
             policy: self.active_policy.clone(),
+            inflight: Arc::new(AtomicUsize::new(0)),
+            max_inflight: parse_env_usize("ENKAI_HTTP_MAX_INFLIGHT").unwrap_or(0),
+            require_model_version_header: env_flag("ENKAI_REQUIRE_MODEL_VERSION_HEADER"),
+            model_name,
+            model_version,
+            model_registry,
             stop: mpsc::channel().0,
         };
         self.start_http_server(host, port, server)
@@ -3435,7 +3578,20 @@ impl VM {
             ));
         }
         let routes = self.parse_http_routes(routes)?;
-        let (default_handler, auth, rate_limit, logger) = self.parse_http_server_config(config)?;
+        let (default_handler, auth, rate_limit, logger, max_inflight, require_model_version_header) =
+            self.parse_http_server_config(config)?;
+        let model_name = std::env::var("ENKAI_SERVE_MODEL_NAME")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let model_version = std::env::var("ENKAI_SERVE_MODEL_VERSION")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let model_registry = std::env::var("ENKAI_SERVE_MODEL_REGISTRY")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
         let server = HttpServer {
             handler: Value::Null,
             routes,
@@ -3445,6 +3601,12 @@ impl VM {
             rate_state: HashMap::new(),
             logger,
             policy: self.active_policy.clone(),
+            inflight: Arc::new(AtomicUsize::new(0)),
+            max_inflight,
+            require_model_version_header,
+            model_name,
+            model_version,
+            model_registry,
             stop: mpsc::channel().0,
         };
         self.start_http_server(host, port, server)
@@ -3483,15 +3645,12 @@ impl VM {
                             server_id,
                             request: req,
                             stream,
+                            accepted_at: Instant::now(),
                         });
                     } else {
                         let _ = write_http_response(
                             stream,
-                            HttpResponseData {
-                                status: 400,
-                                headers: HashMap::new(),
-                                body: b"Bad Request".to_vec(),
-                            },
+                            error_response(400, "bad_request", "Bad Request"),
                         );
                     }
                 }
@@ -3528,12 +3687,10 @@ impl VM {
     fn http_middleware(&self, name: Value, config: Value) -> Result<Value, RuntimeError> {
         let name = value_as_string(&name)?.to_lowercase();
         match name.as_str() {
-            "auth" | "rate_limit" | "jsonl_log" | "default" => {}
-            _ => {
-                return Err(RuntimeError::new(
-                    "unsupported middleware; expected auth/rate_limit/jsonl_log/default",
-                ))
-            }
+            "auth" | "rate_limit" | "jsonl_log" | "backpressure" | "default" => {}
+            _ => return Err(RuntimeError::new(
+                "unsupported middleware; expected auth/rate_limit/jsonl_log/backpressure/default",
+            )),
         }
         let mut map = HashMap::new();
         map.insert("name".to_string(), string_value(&name));
@@ -3589,13 +3746,24 @@ impl VM {
         &self,
         config: Value,
     ) -> Result<HttpServerConfigParsed, RuntimeError> {
+        let default_max_inflight = parse_env_usize("ENKAI_HTTP_MAX_INFLIGHT").unwrap_or(0);
+        let default_require_model_version_header = env_flag("ENKAI_REQUIRE_MODEL_VERSION_HEADER");
         if matches!(config, Value::Null) {
-            return Ok((None, None, None, None));
+            return Ok((
+                None,
+                None,
+                None,
+                None,
+                default_max_inflight,
+                default_require_model_version_header,
+            ));
         }
         let mut default_handler = None;
         let mut auth = None;
         let mut rate_limit = None;
         let mut logger = None;
+        let mut max_inflight = default_max_inflight;
+        let mut require_model_version_header = default_require_model_version_header;
         let obj = match config {
             Value::Obj(obj) => obj,
             _ => {
@@ -3622,6 +3790,14 @@ impl VM {
                 } else if let Some(value) = map.get("logger") {
                     logger = self.parse_logger_config(value)?;
                 }
+                if let Some(value) = map.get("max_inflight_requests") {
+                    max_inflight =
+                        parse_non_negative_usize(value, "max_inflight_requests must be Int >= 0")?;
+                }
+                if let Some(value) = map.get("require_model_version_header") {
+                    require_model_version_header =
+                        parse_bool_value(value, "require_model_version_header must be Bool")?;
+                }
                 if let Some(value) = map.get("middlewares") {
                     self.apply_http_middlewares(
                         value,
@@ -3629,6 +3805,7 @@ impl VM {
                         &mut auth,
                         &mut rate_limit,
                         &mut logger,
+                        &mut max_inflight,
                     )?;
                 }
             }
@@ -3639,6 +3816,7 @@ impl VM {
                     &mut auth,
                     &mut rate_limit,
                     &mut logger,
+                    &mut max_inflight,
                 )?;
             }
             _ => {
@@ -3647,7 +3825,14 @@ impl VM {
                 ))
             }
         }
-        Ok((default_handler, auth, rate_limit, logger))
+        Ok((
+            default_handler,
+            auth,
+            rate_limit,
+            logger,
+            max_inflight,
+            require_model_version_header,
+        ))
     }
 
     fn parse_logger_config(&self, value: &Value) -> Result<Option<ServerLogger>, RuntimeError> {
@@ -3683,6 +3868,7 @@ impl VM {
         auth: &mut Option<ServerAuthConfig>,
         rate_limit: &mut Option<RateLimitConfig>,
         logger: &mut Option<ServerLogger>,
+        max_inflight: &mut usize,
     ) -> Result<(), RuntimeError> {
         let middlewares = value_as_list(value)?;
         for middleware in middlewares {
@@ -3705,6 +3891,9 @@ impl VM {
                 "auth" => *auth = self.parse_auth_config(&cfg)?,
                 "rate_limit" => *rate_limit = self.parse_rate_limit_config(&cfg)?,
                 "jsonl_log" => *logger = self.parse_logger_config(&cfg)?,
+                "backpressure" => {
+                    *max_inflight = self.parse_backpressure_config(&cfg)?;
+                }
                 "default" => {
                     if matches!(cfg, Value::Null) {
                         *default_handler = None;
@@ -3715,12 +3904,34 @@ impl VM {
                 }
                 _ => {
                     return Err(RuntimeError::new(
-                        "unsupported middleware; expected auth/rate_limit/jsonl_log/default",
+                        "unsupported middleware; expected auth/rate_limit/jsonl_log/backpressure/default",
                     ))
                 }
             }
         }
         Ok(())
+    }
+
+    fn parse_backpressure_config(&self, value: &Value) -> Result<usize, RuntimeError> {
+        match value {
+            Value::Null => Ok(0),
+            Value::Int(i) if *i >= 0 => Ok(*i as usize),
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::Record(map) => {
+                    let map = map.borrow();
+                    let Some(max) = map.get("max_inflight") else {
+                        return Err(RuntimeError::new("backpressure.max_inflight missing"));
+                    };
+                    parse_non_negative_usize(max, "backpressure.max_inflight must be Int >= 0")
+                }
+                _ => Err(RuntimeError::new(
+                    "backpressure config must be Int >= 0 or record",
+                )),
+            },
+            _ => Err(RuntimeError::new(
+                "backpressure config must be Int >= 0 or record",
+            )),
+        }
     }
 
     fn parse_auth_config(&self, value: &Value) -> Result<Option<ServerAuthConfig>, RuntimeError> {
@@ -3802,6 +4013,9 @@ impl VM {
                 let key = match map.get("key") {
                     Some(v) => match value_as_string(v)?.to_lowercase().as_str() {
                         "token" => RateLimitKey::Token,
+                        "tenant" => RateLimitKey::Tenant,
+                        "model" => RateLimitKey::Model,
+                        "tenant_model" => RateLimitKey::TenantModel,
                         _ => RateLimitKey::Ip,
                     },
                     None => RateLimitKey::Ip,
@@ -4157,6 +4371,7 @@ impl VM {
         &mut self,
         server_id: usize,
         req: &HttpRequestData,
+        request_id: u64,
     ) -> Result<PreparedHttpRequest, RuntimeError> {
         let server = match self.servers.get_mut(server_id) {
             Some(server) => server,
@@ -4165,11 +4380,13 @@ impl VM {
                     None,
                     HashMap::new(),
                     None,
+                    format!("req-{}", request_id),
                     Some(error_response(500, "server_missing", "Unknown server")),
                     Some("server_missing".to_string()),
                 ))
             }
         };
+        let correlation_id = resolve_correlation_id(req, request_id);
         let mut params = HashMap::new();
         let handler = if !server.routes.is_empty() {
             let mut selected = None;
@@ -4203,6 +4420,7 @@ impl VM {
                             None,
                             params,
                             None,
+                            correlation_id,
                             Some(error_response(401, "unauthorized", "Invalid API token")),
                             Some("unauthorized".to_string()),
                         ));
@@ -4214,6 +4432,7 @@ impl VM {
                             None,
                             params,
                             None,
+                            correlation_id,
                             Some(error_response(401, "unauthorized", "Missing API token")),
                             Some("unauthorized".to_string()),
                         ));
@@ -4221,50 +4440,79 @@ impl VM {
                 }
             }
         }
+        if server.require_model_version_header && !req.headers.contains_key("x-enkai-model-version")
+        {
+            return Ok((
+                None,
+                params,
+                tenant.clone(),
+                correlation_id,
+                Some(error_response(
+                    400,
+                    "missing_model_version",
+                    "Missing x-enkai-model-version header",
+                )),
+                Some("missing_model_version".to_string()),
+            ));
+        }
+        if let Some(expected) = server.model_version.as_deref() {
+            if let Some(actual) = req.headers.get("x-enkai-model-version") {
+                if actual.trim() != expected {
+                    return Ok((
+                        None,
+                        params,
+                        tenant.clone(),
+                        correlation_id,
+                        Some(error_response(
+                            409,
+                            "model_version_mismatch",
+                            "x-enkai-model-version mismatch",
+                        )),
+                        Some("model_version_mismatch".to_string()),
+                    ));
+                }
+            }
+        }
+        if let Some(expected) = server.model_name.as_deref() {
+            if let Some(actual) = req.headers.get("x-enkai-model-name") {
+                let trimmed = actual.trim();
+                if !trimmed.is_empty() && trimmed != expected {
+                    return Ok((
+                        None,
+                        params,
+                        tenant.clone(),
+                        correlation_id,
+                        Some(error_response(
+                            409,
+                            "model_name_mismatch",
+                            "x-enkai-model-name mismatch",
+                        )),
+                        Some("model_name_mismatch".to_string()),
+                    ));
+                }
+            }
+        }
         if let Some(rate) = &server.rate_limit {
-            let key = match rate.key {
-                RateLimitKey::Token => token_value
-                    .clone()
-                    .unwrap_or_else(|| remote_ip_only(&req.remote_addr)),
-                RateLimitKey::Ip => remote_ip_only(&req.remote_addr),
-            };
+            let key = rate_limit_key(
+                rate.key,
+                req,
+                token_value.as_deref(),
+                tenant.as_deref(),
+                server.model_name.as_deref(),
+                server.model_version.as_deref(),
+            );
             if !rate_limit_allow(&mut server.rate_state, &key, rate) {
                 return Ok((
                     None,
                     params,
                     tenant.clone(),
+                    correlation_id,
                     Some(error_response(429, "rate_limited", "Rate limit exceeded")),
                     Some("rate_limited".to_string()),
                 ));
             }
         }
-        Ok((handler, params, tenant, None, None))
-    }
-
-    fn log_http_event(
-        &self,
-        server_id: usize,
-        req: &HttpRequestData,
-        tenant: Option<String>,
-        status: u16,
-        error_code: Option<String>,
-        stream: bool,
-    ) {
-        let logger = match self.servers.get(server_id).and_then(|s| s.logger.as_ref()) {
-            Some(logger) => logger,
-            None => return,
-        };
-        let entry = serde_json::json!({
-            "ts_ms": unix_ms(),
-            "method": req.method.as_str(),
-            "path": req.path.as_str(),
-            "status": status,
-            "remote_addr": req.remote_addr.as_str(),
-            "tenant": tenant,
-            "error_code": error_code,
-            "stream": stream,
-        });
-        let _ = logger.append(&entry);
+        Ok((handler, params, tenant, correlation_id, None, None))
     }
 
     fn http_request_value_with_params(
@@ -4431,17 +4679,12 @@ impl VM {
         match result {
             Ok(value) => match self.response_from_value(value.clone()) {
                 Ok(resp) => resp,
-                Err(err) => HttpResponseData {
-                    status: 500,
-                    headers: HashMap::new(),
-                    body: err.message.into_bytes(),
-                },
+                Err(err) => error_response(500, "invalid_response", &err.message),
             },
-            Err(err) => HttpResponseData {
-                status: 500,
-                headers: HashMap::new(),
-                body: err.to_string().into_bytes(),
-            },
+            Err(err) => {
+                let code = err.code().unwrap_or("internal_error");
+                error_response(500, code, &err.message)
+            }
         }
     }
 
@@ -4458,12 +4701,18 @@ impl VM {
         let entry = serde_json::json!({
             "ts_ms": unix_ms(),
             "request_id": meta.id,
+            "correlation_id": meta.correlation_id.as_str(),
             "method": meta.method.as_str(),
             "path": meta.path.as_str(),
             "status": status,
+            "queue_ms": meta.queue_ms,
             "latency_ms": latency_ms,
+            "inflight": meta.inflight_at_start,
             "remote_addr": meta.remote_addr.as_str(),
             "tenant": meta.tenant.as_ref(),
+            "model_name": meta.model_name.as_ref(),
+            "model_version": meta.model_version.as_ref(),
+            "model_registry": meta.model_registry.as_ref(),
             "error_code": meta.error_code.as_ref(),
             "stream": stream,
         });
@@ -4475,12 +4724,36 @@ impl VM {
             .entry("x-enkai-request-id".to_string())
             .or_insert_with(|| meta.id.to_string());
         resp.headers
+            .entry("x-enkai-correlation-id".to_string())
+            .or_insert_with(|| meta.correlation_id.clone());
+        resp.headers
+            .entry("x-enkai-queue-ms".to_string())
+            .or_insert_with(|| meta.queue_ms.to_string());
+        resp.headers
             .entry("x-enkai-latency-ms".to_string())
             .or_insert_with(|| meta.start.elapsed().as_millis().to_string());
+        resp.headers
+            .entry("x-enkai-inflight".to_string())
+            .or_insert_with(|| meta.inflight_at_start.to_string());
         if let Some(tenant) = &meta.tenant {
             resp.headers
                 .entry("x-enkai-tenant".to_string())
                 .or_insert_with(|| tenant.clone());
+        }
+        if let Some(model_name) = &meta.model_name {
+            resp.headers
+                .entry("x-enkai-model-name".to_string())
+                .or_insert_with(|| model_name.clone());
+        }
+        if let Some(model_version) = &meta.model_version {
+            resp.headers
+                .entry("x-enkai-model-version".to_string())
+                .or_insert_with(|| model_version.clone());
+        }
+        if let Some(model_registry) = &meta.model_registry {
+            resp.headers
+                .entry("x-enkai-model-registry".to_string())
+                .or_insert_with(|| model_registry.clone());
         }
         if let Some(code) = &meta.error_code {
             resp.headers
@@ -4490,11 +4763,7 @@ impl VM {
     }
 
     fn write_http_error(&self, stream: TcpStream, message: &str) {
-        let response = HttpResponseData {
-            status: 500,
-            headers: HashMap::new(),
-            body: message.as_bytes().to_vec(),
-        };
+        let response = error_response(500, "server_error", message);
         std::thread::spawn(move || {
             let _ = write_http_response(stream, response);
         });
@@ -5751,6 +6020,52 @@ fn split_path(path: &str) -> Vec<&str> {
     trimmed.split('/').filter(|s| !s.is_empty()).collect()
 }
 
+fn env_flag(name: &str) -> bool {
+    match std::env::var(name) {
+        Ok(value) => matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        ),
+        Err(_) => false,
+    }
+}
+
+fn parse_env_usize(name: &str) -> Option<usize> {
+    let raw = std::env::var(name).ok()?;
+    raw.trim().parse::<usize>().ok()
+}
+
+fn parse_non_negative_usize(value: &Value, error: &str) -> Result<usize, RuntimeError> {
+    match value {
+        Value::Int(i) if *i >= 0 => Ok(*i as usize),
+        _ => Err(RuntimeError::new(error)),
+    }
+}
+
+fn parse_bool_value(value: &Value, error: &str) -> Result<bool, RuntimeError> {
+    match value {
+        Value::Bool(v) => Ok(*v),
+        _ => Err(RuntimeError::new(error)),
+    }
+}
+
+fn resolve_correlation_id(req: &HttpRequestData, request_id: u64) -> String {
+    let Some(raw) = req.headers.get("x-enkai-correlation-id") else {
+        return format!("req-{}", request_id);
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.len() > 128 {
+        return format!("req-{}", request_id);
+    }
+    if trimmed
+        .chars()
+        .any(|ch| ch.is_control() || !(ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.')))
+    {
+        return format!("req-{}", request_id);
+    }
+    trimmed.to_string()
+}
+
 fn extract_auth_token(req: &HttpRequestData, auth: &ServerAuthConfig) -> Option<String> {
     let header = auth.header.to_lowercase();
     let value = req.headers.get(&header)?;
@@ -5777,6 +6092,37 @@ fn remote_ip_only(remote_addr: &str) -> String {
         .rsplit_once(':')
         .map(|(host, _)| host.to_string())
         .unwrap_or_else(|| remote_addr.to_string())
+}
+
+fn rate_limit_key(
+    key_kind: RateLimitKey,
+    req: &HttpRequestData,
+    token_value: Option<&str>,
+    tenant: Option<&str>,
+    model_name: Option<&str>,
+    model_version: Option<&str>,
+) -> String {
+    let ip = remote_ip_only(&req.remote_addr);
+    let token_or_ip = token_value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| ip.clone());
+    let tenant_key = tenant
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "anonymous".to_string());
+    let model_key = format!(
+        "{}@{}",
+        model_name.unwrap_or("unknown-model"),
+        model_version.unwrap_or("unknown-version")
+    );
+    match key_kind {
+        RateLimitKey::Ip => ip,
+        RateLimitKey::Token => token_or_ip,
+        RateLimitKey::Tenant => tenant_key,
+        RateLimitKey::Model => model_key,
+        RateLimitKey::TenantModel => format!("{}|{}", tenant_key, model_key),
+    }
 }
 
 fn rate_limit_allow(

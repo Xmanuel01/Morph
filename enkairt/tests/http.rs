@@ -77,6 +77,30 @@ fn http_test_guard() -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(|err| err.into_inner())
 }
 
+struct EnvVarGuard {
+    key: String,
+    prev: Option<String>,
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        if let Some(value) = &self.prev {
+            std::env::set_var(&self.key, value);
+        } else {
+            std::env::remove_var(&self.key);
+        }
+    }
+}
+
+fn set_env_var_guard(key: &str, value: &str) -> EnvVarGuard {
+    let prev = std::env::var(key).ok();
+    std::env::set_var(key, value);
+    EnvVarGuard {
+        key: key.to_string(),
+        prev,
+    }
+}
+
 fn response_body(value: &Value) -> Option<Vec<u8>> {
     match value {
         Value::Obj(obj) => match obj.as_obj() {
@@ -146,6 +170,12 @@ fn response_status(buf: &[u8]) -> u16 {
         .next()
         .and_then(|value| value.parse::<u16>().ok())
         .unwrap_or(0)
+}
+
+fn response_header(buf: &[u8], key: &str) -> Option<String> {
+    let text = String::from_utf8_lossy(buf);
+    let split = text.find("\r\n\r\n")?;
+    websocket_header_value(&text[..split], key)
 }
 
 fn websocket_header_value(headers: &str, key: &str) -> Option<String> {
@@ -229,6 +259,36 @@ fn response_status_value(value: &Value) -> Option<i64> {
                     Some(Value::Int(status)) => Some(*status),
                     _ => None,
                 }
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn response_header_value(value: &Value, key: &str) -> Option<String> {
+    match value {
+        Value::Obj(obj) => match obj.as_obj() {
+            enkairt::object::Obj::Record(map) => {
+                let map = map.borrow();
+                let headers = match map.get("headers") {
+                    Some(Value::Obj(obj)) => match obj.as_obj() {
+                        enkairt::object::Obj::Record(headers) => headers.borrow(),
+                        _ => return None,
+                    },
+                    _ => return None,
+                };
+                for (name, value) in headers.iter() {
+                    if !name.eq_ignore_ascii_case(key) {
+                        continue;
+                    }
+                    if let Value::Obj(obj) = value {
+                        if let enkairt::object::Obj::String(text) = obj.as_obj() {
+                            return Some(text.clone());
+                        }
+                    }
+                }
+                None
             }
             _ => None,
         },
@@ -522,6 +582,248 @@ fn http_websocket_recv_and_echo() {
     };
     assert_eq!(opcode, 0x1);
     assert_eq!(payload, b"ping");
+
+    server.join().expect("server");
+}
+
+#[test]
+fn http_model_version_header_enforcement() {
+    let _guard = http_test_guard();
+    let _model_name = set_env_var_guard("ENKAI_SERVE_MODEL_NAME", "chat");
+    let _model_version = set_env_var_guard("ENKAI_SERVE_MODEL_VERSION", "v1.2.3");
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    drop(listener);
+
+    let source = format!(
+        "fn handler(req: Request) -> Response ::\n    return http.ok(\"ok\")\n::\n\
+         let routes := [http.route(\"GET\", \"/\", handler)]\n\
+         let cfg := json.parse(\"{{\\\"require_model_version_header\\\":true}}\")\n\
+         http.serve_with(\"127.0.0.1\", {port}, routes, cfg)\n\
+         let missing := http.get(\"http://127.0.0.1:{port}/\")\n\
+         let mismatch_cfg := json.parse(\"{{\\\"method\\\":\\\"GET\\\",\\\"url\\\":\\\"http://127.0.0.1:{port}/\\\",\\\"headers\\\":{{\\\"x-enkai-model-version\\\":\\\"v0.9.0\\\"}}}}\")\n\
+         let mismatch := http.request(mismatch_cfg)\n\
+         let name_mismatch_cfg := json.parse(\"{{\\\"method\\\":\\\"GET\\\",\\\"url\\\":\\\"http://127.0.0.1:{port}/\\\",\\\"headers\\\":{{\\\"x-enkai-model-version\\\":\\\"v1.2.3\\\",\\\"x-enkai-model-name\\\":\\\"other\\\"}}}}\")\n\
+         let name_mismatch := http.request(name_mismatch_cfg)\n\
+         let ok_cfg := json.parse(\"{{\\\"method\\\":\\\"GET\\\",\\\"url\\\":\\\"http://127.0.0.1:{port}/\\\",\\\"headers\\\":{{\\\"x-enkai-model-version\\\":\\\"v1.2.3\\\"}}}}\")\n\
+         let ok := http.request(ok_cfg)\n\
+         return [missing, mismatch, name_mismatch, ok]\n"
+    );
+    let result = run_value(&source);
+    let items = match result {
+        Value::Obj(obj) => match obj.as_obj() {
+            enkairt::object::Obj::List(items) => items.borrow().clone(),
+            _ => panic!("expected list"),
+        },
+        _ => panic!("expected list"),
+    };
+    assert_eq!(items.len(), 4);
+    assert_eq!(response_status_value(&items[0]), Some(400));
+    assert_eq!(response_status_value(&items[1]), Some(409));
+    assert_eq!(response_status_value(&items[2]), Some(409));
+    assert_eq!(response_status_value(&items[3]), Some(200));
+    let name_mismatch_body = response_body(&items[2]).expect("name mismatch body");
+    let name_mismatch_text = String::from_utf8_lossy(&name_mismatch_body);
+    assert!(name_mismatch_text.contains("\"code\":\"model_name_mismatch\""));
+    assert_eq!(
+        response_header_value(&items[3], "x-enkai-model-version").as_deref(),
+        Some("v1.2.3")
+    );
+    assert_eq!(
+        response_header_value(&items[3], "x-enkai-model-name").as_deref(),
+        Some("chat")
+    );
+}
+
+#[test]
+fn http_response_includes_serving_observability_headers() {
+    let _guard = http_test_guard();
+    let _model_name = set_env_var_guard("ENKAI_SERVE_MODEL_NAME", "chat");
+    let _model_version = set_env_var_guard("ENKAI_SERVE_MODEL_VERSION", "v1.2.3");
+    let _model_registry = set_env_var_guard("ENKAI_SERVE_MODEL_REGISTRY", "registry-local");
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    drop(listener);
+
+    let source = format!(
+        "fn handler(req: Request) -> Response ::\n    return http.ok(\"ok\")\n::\n\
+         http.serve(\"127.0.0.1\", {port}, handler)\n\
+         task.sleep(200)\n"
+    );
+    let server = std::thread::spawn(move || {
+        let _ = run_value(&source);
+    });
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    let response = send_raw_request(
+        port,
+        b"GET / HTTP/1.1\r\nHost: localhost\r\nx-enkai-correlation-id: corr-obsv\r\nConnection: close\r\n\r\n",
+    );
+    assert_eq!(response_status(&response), 200);
+    assert_eq!(
+        response_header(&response, "x-enkai-correlation-id").as_deref(),
+        Some("corr-obsv")
+    );
+    assert!(response_header(&response, "x-enkai-queue-ms").is_some());
+    assert!(response_header(&response, "x-enkai-latency-ms").is_some());
+    assert!(response_header(&response, "x-enkai-inflight").is_some());
+    assert_eq!(
+        response_header(&response, "x-enkai-model-name").as_deref(),
+        Some("chat")
+    );
+    assert_eq!(
+        response_header(&response, "x-enkai-model-version").as_deref(),
+        Some("v1.2.3")
+    );
+    assert_eq!(
+        response_header(&response, "x-enkai-model-registry").as_deref(),
+        Some("registry-local")
+    );
+
+    server.join().expect("server");
+}
+
+#[test]
+fn http_rate_limit_tenant_model_key_isolated() {
+    let _guard = http_test_guard();
+    let _model_name = set_env_var_guard("ENKAI_SERVE_MODEL_NAME", "chat");
+    let _model_version = set_env_var_guard("ENKAI_SERVE_MODEL_VERSION", "v1.2.3");
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    drop(listener);
+
+    let source = format!(
+        "fn handler(req: Request) -> Response ::\n    return http.ok(\"ok\")\n::\n\
+         let routes := [http.route(\"GET\", \"/\", handler)]\n\
+         let auth := json.parse(\"{{\\\"tokens\\\":[{{\\\"token\\\":\\\"token-a\\\",\\\"tenant\\\":\\\"acme\\\"}},{{\\\"token\\\":\\\"token-b\\\",\\\"tenant\\\":\\\"globex\\\"}}],\\\"allow_anonymous\\\":false}}\")\n\
+         let rate := json.parse(\"{{\\\"capacity\\\":1,\\\"refill_per_sec\\\":0.1,\\\"key\\\":\\\"tenant_model\\\"}}\")\n\
+         let middlewares := [http.middleware(\"auth\", auth), http.middleware(\"rate_limit\", rate)]\n\
+         http.serve_with(\"127.0.0.1\", {port}, routes, middlewares)\n\
+         let a1_cfg := json.parse(\"{{\\\"method\\\":\\\"GET\\\",\\\"url\\\":\\\"http://127.0.0.1:{port}/\\\",\\\"headers\\\":{{\\\"authorization\\\":\\\"Bearer token-a\\\"}}}}\")\n\
+         let a1 := http.request(a1_cfg)\n\
+         let a2_cfg := json.parse(\"{{\\\"method\\\":\\\"GET\\\",\\\"url\\\":\\\"http://127.0.0.1:{port}/\\\",\\\"headers\\\":{{\\\"authorization\\\":\\\"Bearer token-a\\\"}}}}\")\n\
+         let a2 := http.request(a2_cfg)\n\
+         let b1_cfg := json.parse(\"{{\\\"method\\\":\\\"GET\\\",\\\"url\\\":\\\"http://127.0.0.1:{port}/\\\",\\\"headers\\\":{{\\\"authorization\\\":\\\"Bearer token-b\\\"}}}}\")\n\
+         let b1 := http.request(b1_cfg)\n\
+         return [a1, a2, b1]\n"
+    );
+
+    let result = run_value(&source);
+    let items = match result {
+        Value::Obj(obj) => match obj.as_obj() {
+            enkairt::object::Obj::List(items) => items.borrow().clone(),
+            _ => panic!("expected list"),
+        },
+        _ => panic!("expected list"),
+    };
+    assert_eq!(items.len(), 3);
+    assert_eq!(response_status_value(&items[0]), Some(200));
+    assert_eq!(response_status_value(&items[1]), Some(429));
+    assert_eq!(response_status_value(&items[2]), Some(200));
+}
+
+#[test]
+fn http_backpressure_middleware_returns_503() {
+    let _guard = http_test_guard();
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    drop(listener);
+
+    let source = format!(
+        "fn handler(req: Request) -> Response ::\n    task.sleep(250)\n    return http.ok(\"slow\")\n::\n\
+         let routes := [http.route(\"GET\", \"/\", handler)]\n\
+         let middlewares := [http.middleware(\"backpressure\", json.parse(\"{{\\\"max_inflight\\\":1}}\"))]\n\
+         http.serve_with(\"127.0.0.1\", {port}, routes, middlewares)\n\
+         task.sleep(600)\n"
+    );
+    let server = std::thread::spawn(move || {
+        let _ = run_value(&source);
+    });
+    std::thread::sleep(std::time::Duration::from_millis(60));
+
+    let first_handle = std::thread::spawn(move || {
+        send_raw_request(
+            port,
+            b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+    });
+    std::thread::sleep(std::time::Duration::from_millis(25));
+    let second = send_raw_request(
+        port,
+        b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    );
+    let first = first_handle.join().expect("first request");
+
+    assert_eq!(response_status(&first), 200);
+    assert_eq!(response_status(&second), 503);
+    let second_text = String::from_utf8_lossy(&second);
+    assert!(second_text.contains("\"code\":\"backpressure_overloaded\""));
+
+    server.join().expect("server");
+}
+
+#[test]
+fn http_correlation_header_roundtrip() {
+    let _guard = http_test_guard();
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    drop(listener);
+
+    let source = format!(
+        "fn handler(req: Request) -> Response ::\n    return http.ok(\"pong\")\n::\n\
+         http.serve(\"127.0.0.1\", {port}, handler)\n\
+         task.sleep(200)\n"
+    );
+    let server = std::thread::spawn(move || {
+        let _ = run_value(&source);
+    });
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    let response = send_raw_request(
+        port,
+        b"GET / HTTP/1.1\r\nHost: localhost\r\nx-enkai-correlation-id: corr-123\r\nConnection: close\r\n\r\n",
+    );
+    assert_eq!(response_status(&response), 200);
+    assert_eq!(
+        response_header(&response, "x-enkai-correlation-id").as_deref(),
+        Some("corr-123")
+    );
+    assert!(response_header(&response, "x-enkai-request-id").is_some());
+
+    server.join().expect("server");
+}
+
+#[test]
+fn http_runtime_errors_return_structured_internal_error() {
+    let _guard = http_test_guard();
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    drop(listener);
+
+    let source = format!(
+        "fn handler(req: Request) -> Response ::\n    let value := none?\n    return http.ok(value)\n::\n\
+         http.serve(\"127.0.0.1\", {port}, handler)\n\
+         task.sleep(200)\n"
+    );
+    let server = std::thread::spawn(move || {
+        let _ = run_value(&source);
+    });
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    let response = send_raw_request(
+        port,
+        b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    );
+    assert_eq!(response_status(&response), 500);
+    let body = String::from_utf8_lossy(&response);
+    assert!(body.contains("\"code\":\"internal_error\""));
+    assert_eq!(
+        response_header(&response, "x-enkai-error-code").as_deref(),
+        Some("internal_error")
+    );
 
     server.join().expect("server");
 }

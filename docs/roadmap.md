@@ -2,9 +2,21 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.1.0.
+- Current production release line is v2.1.3.
 - v2.1.x is additive/integration work in progress (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v2.1.3 (done)
+- Hardened serving/runtime contract without syntax changes:
+  - deterministic JSON error taxonomy for malformed/runtime/invalid-response paths
+  - request correlation propagation (`x-enkai-correlation-id`) and stable response metadata headers
+  - queue/inflight/model telemetry headers and JSONL observability fields
+- Added serving controls:
+  - backpressure middleware (`http.middleware("backpressure", ...)`) with deterministic `503 backpressure_overloaded`
+  - model-version header enforcement (`missing_model_version`, `model_version_mismatch`, `model_name_mismatch`)
+  - expanded rate-limit keying (`tenant`, `model`, `tenant_model`) for tenant/model-scoped quotas
+- Added regression coverage for model header enforcement, backpressure handling, correlation roundtrip,
+  structured internal errors, observability headers, and tenant/model rate-limit isolation.
 
 v2.1.0 (done)
 - Added benchmark foundation:

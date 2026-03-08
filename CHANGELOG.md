@@ -11,6 +11,35 @@
 ### Breaking changes
 - None.
 
+## v2.1.3
+
+### Highlights
+- Hardened HTTP serving/runtime observability contract:
+  - deterministic response headers: `x-enkai-correlation-id`, `x-enkai-queue-ms`,
+    `x-enkai-latency-ms`, `x-enkai-inflight`, model tags, and `x-enkai-error-code`
+  - structured JSONL logging now includes correlation, queue/inflight, and model metadata
+- Added serving safety controls:
+  - backpressure middleware (`http.middleware("backpressure", ...)`) with deterministic
+    `503 backpressure_overloaded`
+  - model-version enforcement (`missing_model_version`, `model_version_mismatch`,
+    `model_name_mismatch`) for pinned serving flows
+- Expanded rate-limit keying options:
+  - `tenant`, `model`, and `tenant_model` in addition to existing `ip`/`token`
+
+### Fixes
+- Standardized malformed-request and runtime-error responses to deterministic JSON error payloads.
+- Added regression coverage for:
+  - model header enforcement
+  - backpressure overload behavior
+  - correlation header roundtrip
+  - structured internal error responses
+  - observability header emission
+  - tenant/model-scoped rate-limit isolation
+- Updated release/docs/spec references from `v2.1.2` to `v2.1.3`.
+
+### Breaking changes
+- None.
+
 ## v2.1.2
 
 ### Highlights
