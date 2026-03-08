@@ -93,6 +93,12 @@ pub struct ModelConfig {
     pub d_model: usize,
     pub n_layers: usize,
     pub n_heads: usize,
+    pub ff_mult: f32,
+    pub activation: String,
+    pub norm: String,
+    pub tie_embeddings: bool,
+    pub dropout: f32,
+    pub preset: String,
     pub seed: u64,
     pub device: String,
 }
@@ -104,6 +110,12 @@ impl Default for ModelConfig {
             d_model: 512,
             n_layers: 4,
             n_heads: 8,
+            ff_mult: 4.0,
+            activation: "gelu".to_string(),
+            norm: "layernorm".to_string(),
+            tie_embeddings: false,
+            dropout: 0.0,
+            preset: "tinylm".to_string(),
             seed: 0,
             device: "cpu".to_string(),
         }
@@ -234,15 +246,7 @@ pub fn init(cfg: TrainConfig) -> Result<Engine, RuntimeError> {
             .configure_dist(e.cfg.world_size as i32, e.cfg.rank as i32)?;
     }
     if e.params.is_empty() {
-        let params = e.backend.init_tinylm(
-            e.cfg.model.vocab_size as i64,
-            e.cfg.data.seq_len as i64,
-            e.cfg.model.d_model as i64,
-            e.cfg.model.n_layers as i64,
-            e.cfg.model.n_heads as i64,
-            e.cfg.model.seed as i64,
-            &e.cfg.model.device,
-        )?;
+        let params = e.backend.init_model(&e.cfg.model, e.cfg.data.seq_len)?;
         e.set_params(params)?;
     }
     Ok(e)
@@ -264,7 +268,7 @@ pub fn train_step(engine: &mut Engine, batch: &Batch) -> Result<Metrics, Runtime
     let step_result = engine.backend.train_step_on_device(
         engine.cfg.rank,
         batch,
-        engine.cfg.model.n_heads,
+        &engine.cfg.model,
         &engine.cfg.amp,
     )?;
     engine.accum_loss += step_result.loss;
@@ -391,7 +395,7 @@ pub fn eval_step(engine: &mut Engine, batch: &Batch) -> Result<Metrics, RuntimeE
     let step_result = engine.backend.eval_step_on_device(
         engine.cfg.rank,
         batch,
-        engine.cfg.model.n_heads,
+        &engine.cfg.model,
         &engine.cfg.amp,
     )?;
     let loss = step_result.loss;

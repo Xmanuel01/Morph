@@ -23,6 +23,16 @@ Determinism:
 - `seed` (Int >= 0) controls model initialization and is also used to seed tokenizer
   training tie-breaks and dataset file shuffling for repeatable runs.
 
+Architecture configuration (native backend):
+- additive `model.*` fields select preset + transformer shape/activation/norm/dropout
+- presets (`tinylm`, `gpt2-small`, `gpt2-medium`, `llama-7b`) are default templates;
+  explicit fields can override preset defaults
+
+Long-run safety:
+- additive divergence guard controls (`ema_decay`, `divergence_factor`,
+  `divergence_patience`, `divergence_warmup_steps`) provide deterministic early-stop
+  protection against runaway loss spikes.
+
 Run:
 
 ```

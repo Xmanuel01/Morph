@@ -2709,6 +2709,408 @@ pub extern "C" fn enkai_tensor_check_finite_multi(handles_json: *const c_char) -
     })
 }
 
+#[cfg(feature = "torch")]
+#[derive(Debug, Clone)]
+struct LmArchSpec {
+    vocab_size: i64,
+    seq_len: i64,
+    d_model: i64,
+    n_layers: i64,
+    n_heads: i64,
+    ff_mult: f32,
+    activation: String,
+    norm: String,
+    tie_embeddings: bool,
+    dropout: f32,
+    preset: String,
+}
+
+#[cfg(feature = "torch")]
+impl LmArchSpec {
+    fn tinylm(
+        vocab_size: i64,
+        seq_len: i64,
+        d_model: i64,
+        n_layers: i64,
+        n_heads: i64,
+    ) -> Result<Self, String> {
+        let spec = Self {
+            vocab_size,
+            seq_len,
+            d_model,
+            n_layers,
+            n_heads,
+            ff_mult: 4.0,
+            activation: "gelu".to_string(),
+            norm: "layernorm".to_string(),
+            tie_embeddings: false,
+            dropout: 0.0,
+            preset: "tinylm".to_string(),
+        };
+        spec.validate()?;
+        Ok(spec)
+    }
+
+    fn from_json(text: &str) -> Result<Self, String> {
+        let value: serde_json::Value = serde_json::from_str(text)
+            .map_err(|err| format!("invalid model spec json: {}", err))?;
+        let map = value
+            .as_object()
+            .ok_or_else(|| "model spec must be a JSON object".to_string())?;
+
+        let req_i64 = |name: &str| -> Result<i64, String> {
+            match map.get(name) {
+                Some(v) => as_i64(v, name),
+                None => Err(format!("model spec missing {}", name)),
+            }
+        };
+        let ff_mult = map
+            .get("ff_mult")
+            .map(|v| as_f32(v, "ff_mult"))
+            .transpose()?
+            .unwrap_or(4.0);
+        let activation = map
+            .get("activation")
+            .map(|v| as_string_value(v, "activation"))
+            .transpose()?
+            .unwrap_or_else(|| "gelu".to_string());
+        let norm = map
+            .get("norm")
+            .map(|v| as_string_value(v, "norm"))
+            .transpose()?
+            .unwrap_or_else(|| "layernorm".to_string());
+        let tie_embeddings = map
+            .get("tie_embeddings")
+            .map(|v| as_bool(v, "tie_embeddings"))
+            .transpose()?
+            .unwrap_or(false);
+        let dropout = map
+            .get("dropout")
+            .map(|v| as_f32(v, "dropout"))
+            .transpose()?
+            .unwrap_or(0.0);
+        let preset = map
+            .get("preset")
+            .map(|v| as_string_value(v, "preset"))
+            .transpose()?
+            .unwrap_or_else(|| "custom".to_string());
+
+        let spec = Self {
+            vocab_size: req_i64("vocab_size")?,
+            seq_len: req_i64("seq_len")?,
+            d_model: req_i64("d_model")?,
+            n_layers: req_i64("n_layers")?,
+            n_heads: req_i64("n_heads")?,
+            ff_mult,
+            activation,
+            norm,
+            tie_embeddings,
+            dropout,
+            preset,
+        };
+        spec.validate()?;
+        Ok(spec)
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        if self.vocab_size <= 0
+            || self.seq_len <= 0
+            || self.d_model <= 0
+            || self.n_layers <= 0
+            || self.n_heads <= 0
+        {
+            return Err("model spec dimensions must be > 0".to_string());
+        }
+        if self.d_model % self.n_heads != 0 {
+            return Err("model spec d_model must be divisible by n_heads".to_string());
+        }
+        if !self.ff_mult.is_finite() || self.ff_mult <= 0.0 {
+            return Err("model spec ff_mult must be finite and > 0".to_string());
+        }
+        let act = self.activation.trim().to_ascii_lowercase();
+        if !matches!(act.as_str(), "gelu" | "relu" | "silu") {
+            return Err("model spec activation must be gelu/relu/silu".to_string());
+        }
+        let norm = self.norm.trim().to_ascii_lowercase();
+        if !matches!(norm.as_str(), "layernorm" | "rmsnorm") {
+            return Err("model spec norm must be layernorm/rmsnorm".to_string());
+        }
+        if !self.dropout.is_finite() || !(0.0..1.0).contains(&self.dropout) {
+            return Err("model spec dropout must be finite and in [0,1)".to_string());
+        }
+        Ok(())
+    }
+
+    fn hidden_dim(&self) -> i64 {
+        let approx = (self.d_model as f64) * (self.ff_mult as f64);
+        approx.round().max(1.0) as i64
+    }
+}
+
+#[cfg(feature = "torch")]
+fn as_i64(value: &serde_json::Value, name: &str) -> Result<i64, String> {
+    if let Some(v) = value.as_i64() {
+        return Ok(v);
+    }
+    if let Some(v) = value.as_u64() {
+        return i64::try_from(v).map_err(|_| format!("model spec {} out of range", name));
+    }
+    Err(format!("model spec {} must be an integer", name))
+}
+
+#[cfg(feature = "torch")]
+fn as_f32(value: &serde_json::Value, name: &str) -> Result<f32, String> {
+    if let Some(v) = value.as_f64() {
+        return Ok(v as f32);
+    }
+    if let Some(v) = value.as_i64() {
+        return Ok(v as f32);
+    }
+    Err(format!("model spec {} must be a number", name))
+}
+
+#[cfg(feature = "torch")]
+fn as_bool(value: &serde_json::Value, name: &str) -> Result<bool, String> {
+    value
+        .as_bool()
+        .ok_or_else(|| format!("model spec {} must be a boolean", name))
+}
+
+#[cfg(feature = "torch")]
+fn as_string_value(value: &serde_json::Value, name: &str) -> Result<String, String> {
+    value
+        .as_str()
+        .map(|v| v.to_string())
+        .ok_or_else(|| format!("model spec {} must be a string", name))
+}
+
+#[cfg(feature = "torch")]
+fn apply_norm(x: &Tensor, norm: &str, w: &Tensor, b: &Tensor, d_model: i64) -> Tensor {
+    match norm {
+        "rmsnorm" => {
+            let eps = 1e-5;
+            let rms = (x * x).mean_dim([-1i64].as_ref(), true, Kind::Float);
+            let inv = (rms + eps).rsqrt();
+            (x * inv) * w + b
+        }
+        _ => x.layer_norm(&[d_model], Some(w), Some(b), 1e-5, true),
+    }
+}
+
+#[cfg(feature = "torch")]
+fn apply_activation(x: Tensor, activation: &str) -> Tensor {
+    match activation {
+        "relu" => x.relu(),
+        "silu" => x.silu(),
+        _ => x.gelu("none"),
+    }
+}
+
+#[cfg(feature = "torch")]
+fn init_lm_params(spec: &LmArchSpec, device: Device, seed: i64) -> Result<Vec<i64>, String> {
+    spec.validate()?;
+    tch::manual_seed(seed);
+    let init_scale = 0.02;
+    let mut handles: Vec<i64> = Vec::new();
+    let hidden_ff = spec.hidden_dim();
+
+    let tok_embed =
+        Tensor::randn([spec.vocab_size, spec.d_model], (Kind::Float, device)) * init_scale;
+    handles.push(register_tensor(tok_embed.set_requires_grad(true)));
+    let pos_embed = Tensor::randn([spec.seq_len, spec.d_model], (Kind::Float, device)) * init_scale;
+    handles.push(register_tensor(pos_embed.set_requires_grad(true)));
+
+    for _ in 0..spec.n_layers {
+        let ln1_w = Tensor::ones([spec.d_model], (Kind::Float, device));
+        let ln1_b = Tensor::zeros([spec.d_model], (Kind::Float, device));
+        handles.push(register_tensor(ln1_w.set_requires_grad(true)));
+        handles.push(register_tensor(ln1_b.set_requires_grad(true)));
+
+        let qkv_w =
+            Tensor::randn([spec.d_model, 3 * spec.d_model], (Kind::Float, device)) * init_scale;
+        let qkv_b = Tensor::zeros([3 * spec.d_model], (Kind::Float, device));
+        handles.push(register_tensor(qkv_w.set_requires_grad(true)));
+        handles.push(register_tensor(qkv_b.set_requires_grad(true)));
+
+        let proj_w =
+            Tensor::randn([spec.d_model, spec.d_model], (Kind::Float, device)) * init_scale;
+        let proj_b = Tensor::zeros([spec.d_model], (Kind::Float, device));
+        handles.push(register_tensor(proj_w.set_requires_grad(true)));
+        handles.push(register_tensor(proj_b.set_requires_grad(true)));
+
+        let ln2_w = Tensor::ones([spec.d_model], (Kind::Float, device));
+        let ln2_b = Tensor::zeros([spec.d_model], (Kind::Float, device));
+        handles.push(register_tensor(ln2_w.set_requires_grad(true)));
+        handles.push(register_tensor(ln2_b.set_requires_grad(true)));
+
+        let mlp_w1 = Tensor::randn([spec.d_model, hidden_ff], (Kind::Float, device)) * init_scale;
+        let mlp_b1 = Tensor::zeros([hidden_ff], (Kind::Float, device));
+        let mlp_w2 = Tensor::randn([hidden_ff, spec.d_model], (Kind::Float, device)) * init_scale;
+        let mlp_b2 = Tensor::zeros([spec.d_model], (Kind::Float, device));
+        handles.push(register_tensor(mlp_w1.set_requires_grad(true)));
+        handles.push(register_tensor(mlp_b1.set_requires_grad(true)));
+        handles.push(register_tensor(mlp_w2.set_requires_grad(true)));
+        handles.push(register_tensor(mlp_b2.set_requires_grad(true)));
+    }
+
+    let ln_f_w = Tensor::ones([spec.d_model], (Kind::Float, device));
+    let ln_f_b = Tensor::zeros([spec.d_model], (Kind::Float, device));
+    handles.push(register_tensor(ln_f_w.set_requires_grad(true)));
+    handles.push(register_tensor(ln_f_b.set_requires_grad(true)));
+
+    let head_w = Tensor::randn([spec.d_model, spec.vocab_size], (Kind::Float, device)) * init_scale;
+    let head_b = Tensor::zeros([spec.vocab_size], (Kind::Float, device));
+    handles.push(register_tensor(head_w.set_requires_grad(true)));
+    handles.push(register_tensor(head_b.set_requires_grad(true)));
+    Ok(handles)
+}
+
+#[cfg(feature = "torch")]
+unsafe fn forward_lm_internal(
+    handles: &[i64],
+    spec: &LmArchSpec,
+    input_ptr: *const u32,
+    input_len: usize,
+    target_ptr: *const u32,
+    target_len: usize,
+    batch_size: i64,
+    seq_len: i64,
+    training: bool,
+) -> Result<i64, String> {
+    if batch_size <= 0 || seq_len <= 0 {
+        return Err("lm_forward: invalid batch dimensions".to_string());
+    }
+    let expected = (batch_size * seq_len) as usize;
+    if input_len != expected || target_len != expected {
+        return Err("lm_forward: input/target length mismatch".to_string());
+    }
+    if seq_len != spec.seq_len {
+        return Err("lm_forward: seq_len mismatch with model spec".to_string());
+    }
+    if handles.len() < 6 {
+        return Err("lm_forward: params list too short".to_string());
+    }
+    let tok_embed = ensure_requires_grad(get_tensor(handles[0])?);
+    let pos_embed = ensure_requires_grad(get_tensor(handles[1])?);
+    let d_model = tok_embed.size()[1];
+    if d_model != spec.d_model {
+        return Err("lm_forward: d_model mismatch with model spec".to_string());
+    }
+    if d_model % spec.n_heads != 0 {
+        return Err("lm_forward: d_model not divisible by n_heads".to_string());
+    }
+    let head_dim = d_model / spec.n_heads;
+    let per_layer = 12usize;
+    let tail = handles.len() - 6;
+    if tail % per_layer != 0 {
+        return Err("lm_forward: params list not aligned to layers".to_string());
+    }
+    let n_layers = tail / per_layer;
+    if n_layers as i64 != spec.n_layers {
+        return Err("lm_forward: layer count mismatch with model spec".to_string());
+    }
+    let ln_f_w = ensure_requires_grad(get_tensor(handles[handles.len() - 4])?);
+    let ln_f_b = ensure_requires_grad(get_tensor(handles[handles.len() - 3])?);
+    let head_w = ensure_requires_grad(get_tensor(handles[handles.len() - 2])?);
+    let head_b = ensure_requires_grad(get_tensor(handles[handles.len() - 1])?);
+
+    let device = tok_embed.device();
+    let input_slice = std::slice::from_raw_parts(input_ptr, input_len);
+    let target_slice = std::slice::from_raw_parts(target_ptr, target_len);
+    let input_i64: Vec<i64> = input_slice.iter().map(|v| *v as i64).collect();
+    let target_i64: Vec<i64> = target_slice.iter().map(|v| *v as i64).collect();
+    let input = Tensor::f_from_slice(&input_i64)
+        .map_err(|err| err.to_string())?
+        .to_device(device)
+        .view([batch_size, seq_len]);
+    let targets = Tensor::f_from_slice(&target_i64)
+        .map_err(|err| err.to_string())?
+        .to_device(device)
+        .view([batch_size, seq_len]);
+
+    let tok = Tensor::embedding(&tok_embed, &input, -1, false, false);
+    let pos = pos_embed
+        .unsqueeze(0)
+        .expand(&[batch_size, seq_len, d_model], true);
+    let mut x = tok + pos;
+
+    let scale = 1.0 / (head_dim as f64).sqrt();
+    let causal_mask = Tensor::ones([seq_len, seq_len], (Kind::Bool, device))
+        .tril(0)
+        .unsqueeze(0)
+        .unsqueeze(0);
+    let norm_kind = spec.norm.trim().to_ascii_lowercase();
+    let activation = spec.activation.trim().to_ascii_lowercase();
+    let dropout_p = spec.dropout as f64;
+
+    for layer_idx in 0..n_layers {
+        let base = 2 + layer_idx * per_layer;
+        let ln1_w = ensure_requires_grad(get_tensor(handles[base])?);
+        let ln1_b = ensure_requires_grad(get_tensor(handles[base + 1])?);
+        let qkv_w = ensure_requires_grad(get_tensor(handles[base + 2])?);
+        let qkv_b = ensure_requires_grad(get_tensor(handles[base + 3])?);
+        let proj_w = ensure_requires_grad(get_tensor(handles[base + 4])?);
+        let proj_b = ensure_requires_grad(get_tensor(handles[base + 5])?);
+        let ln2_w = ensure_requires_grad(get_tensor(handles[base + 6])?);
+        let ln2_b = ensure_requires_grad(get_tensor(handles[base + 7])?);
+        let mlp_w1 = ensure_requires_grad(get_tensor(handles[base + 8])?);
+        let mlp_b1 = ensure_requires_grad(get_tensor(handles[base + 9])?);
+        let mlp_w2 = ensure_requires_grad(get_tensor(handles[base + 10])?);
+        let mlp_b2 = ensure_requires_grad(get_tensor(handles[base + 11])?);
+
+        let x_norm = apply_norm(&x, &norm_kind, &ln1_w, &ln1_b, d_model);
+        let qkv = x_norm.matmul(&qkv_w) + qkv_b;
+        let qkv = qkv
+            .view([batch_size, seq_len, 3, spec.n_heads, head_dim])
+            .permute([2, 0, 3, 1, 4]);
+        let q = qkv.select(0, 0);
+        let k = qkv.select(0, 1);
+        let v = qkv.select(0, 2);
+        let mut att = (q.matmul(&k.transpose(-2, -1)) * scale)
+            .masked_fill(&causal_mask.logical_not(), f64::NEG_INFINITY)
+            .softmax(-1, Kind::Float);
+        if dropout_p > 0.0 {
+            att = att.dropout(dropout_p, training);
+        }
+        let ctx = att.matmul(&v);
+        let ctx = ctx
+            .transpose(1, 2)
+            .contiguous()
+            .view([batch_size, seq_len, d_model]);
+        let attn_out = ctx.matmul(&proj_w) + proj_b;
+        x = x + attn_out;
+
+        let x_norm2 = apply_norm(&x, &norm_kind, &ln2_w, &ln2_b, d_model);
+        let mut mlp = x_norm2.matmul(&mlp_w1) + mlp_b1;
+        mlp = apply_activation(mlp, &activation);
+        if dropout_p > 0.0 {
+            mlp = mlp.dropout(dropout_p, training);
+        }
+        let mlp = mlp.matmul(&mlp_w2) + mlp_b2;
+        x = x + mlp;
+    }
+
+    let x = apply_norm(&x, &norm_kind, &ln_f_w, &ln_f_b, d_model);
+    let head_w_used = if spec.tie_embeddings {
+        tok_embed.transpose(0, 1).contiguous()
+    } else {
+        head_w
+    };
+    let logits = x.matmul(&head_w_used) + head_b;
+    let logits_finite = logits.isfinite().all().int64_value(&[]) != 0;
+    if !logits_finite {
+        return Err("lm_forward: logits contain NaN/Inf".to_string());
+    }
+    let logits = logits.view([batch_size * seq_len, -1]);
+    let targets = targets.view([batch_size * seq_len]);
+    let loss = logits.cross_entropy_for_logits(&targets);
+    let loss_finite = loss.isfinite().all().int64_value(&[]) != 0;
+    if !loss_finite {
+        return Err("lm_forward: loss is NaN/Inf".to_string());
+    }
+    Ok(register_tensor(loss))
+}
+
 /// Initialize a tiny transformer language model and return parameter handles as JSON.
 ///
 /// Layout (handles list):
@@ -2736,14 +3138,6 @@ pub unsafe extern "C" fn enkai_tensor_tinylm_init(
         clear_error();
         #[cfg(feature = "torch")]
         {
-            if vocab_size <= 0 || seq_len <= 0 || d_model <= 0 || n_layers <= 0 || n_heads <= 0 {
-                set_error("tinylm_init: invalid model dimensions");
-                return 1;
-            }
-            if d_model % n_heads != 0 {
-                set_error("tinylm_init: d_model must be divisible by n_heads");
-                return 1;
-            }
             let device = match get_device(device_handle) {
                 Ok(d) => d,
                 Err(err) => {
@@ -2751,59 +3145,20 @@ pub unsafe extern "C" fn enkai_tensor_tinylm_init(
                     return 1;
                 }
             };
-            tch::manual_seed(seed);
-            let init_scale = 0.02;
-            let mut handles: Vec<i64> = Vec::new();
-
-            let tok_embed =
-                Tensor::randn([vocab_size, d_model], (Kind::Float, device)) * init_scale;
-            handles.push(register_tensor(tok_embed.set_requires_grad(true)));
-            let pos_embed = Tensor::randn([seq_len, d_model], (Kind::Float, device)) * init_scale;
-            handles.push(register_tensor(pos_embed.set_requires_grad(true)));
-
-            for _ in 0..n_layers {
-                let ln1_w = Tensor::ones([d_model], (Kind::Float, device));
-                let ln1_b = Tensor::zeros([d_model], (Kind::Float, device));
-                handles.push(register_tensor(ln1_w.set_requires_grad(true)));
-                handles.push(register_tensor(ln1_b.set_requires_grad(true)));
-
-                let qkv_w =
-                    Tensor::randn([d_model, 3 * d_model], (Kind::Float, device)) * init_scale;
-                let qkv_b = Tensor::zeros([3 * d_model], (Kind::Float, device));
-                handles.push(register_tensor(qkv_w.set_requires_grad(true)));
-                handles.push(register_tensor(qkv_b.set_requires_grad(true)));
-
-                let proj_w = Tensor::randn([d_model, d_model], (Kind::Float, device)) * init_scale;
-                let proj_b = Tensor::zeros([d_model], (Kind::Float, device));
-                handles.push(register_tensor(proj_w.set_requires_grad(true)));
-                handles.push(register_tensor(proj_b.set_requires_grad(true)));
-
-                let ln2_w = Tensor::ones([d_model], (Kind::Float, device));
-                let ln2_b = Tensor::zeros([d_model], (Kind::Float, device));
-                handles.push(register_tensor(ln2_w.set_requires_grad(true)));
-                handles.push(register_tensor(ln2_b.set_requires_grad(true)));
-
-                let mlp_w1 =
-                    Tensor::randn([d_model, 4 * d_model], (Kind::Float, device)) * init_scale;
-                let mlp_b1 = Tensor::zeros([4 * d_model], (Kind::Float, device));
-                let mlp_w2 =
-                    Tensor::randn([4 * d_model, d_model], (Kind::Float, device)) * init_scale;
-                let mlp_b2 = Tensor::zeros([d_model], (Kind::Float, device));
-                handles.push(register_tensor(mlp_w1.set_requires_grad(true)));
-                handles.push(register_tensor(mlp_b1.set_requires_grad(true)));
-                handles.push(register_tensor(mlp_w2.set_requires_grad(true)));
-                handles.push(register_tensor(mlp_b2.set_requires_grad(true)));
-            }
-
-            let ln_f_w = Tensor::ones([d_model], (Kind::Float, device));
-            let ln_f_b = Tensor::zeros([d_model], (Kind::Float, device));
-            handles.push(register_tensor(ln_f_w.set_requires_grad(true)));
-            handles.push(register_tensor(ln_f_b.set_requires_grad(true)));
-
-            let head_w = Tensor::randn([d_model, vocab_size], (Kind::Float, device)) * init_scale;
-            let head_b = Tensor::zeros([vocab_size], (Kind::Float, device));
-            handles.push(register_tensor(head_w.set_requires_grad(true)));
-            handles.push(register_tensor(head_b.set_requires_grad(true)));
+            let spec = match LmArchSpec::tinylm(vocab_size, seq_len, d_model, n_layers, n_heads) {
+                Ok(s) => s,
+                Err(err) => {
+                    set_error(format!("tinylm_init: {}", err));
+                    return 1;
+                }
+            };
+            let handles = match init_lm_params(&spec, device, seed) {
+                Ok(h) => h,
+                Err(err) => {
+                    set_error(format!("tinylm_init: {}", err));
+                    return 1;
+                }
+            };
 
             let json = match serde_json::to_string(&handles) {
                 Ok(s) => s,
@@ -2831,6 +3186,80 @@ pub unsafe extern "C" fn enkai_tensor_tinylm_init(
             let _ = d_model;
             let _ = n_layers;
             let _ = n_heads;
+            let _ = device_handle;
+            let _ = seed;
+            let _ = out_json;
+            let _ = out_len;
+            set_error("torch backend not enabled");
+            1
+        }
+    })
+}
+
+#[no_mangle]
+/// # Safety
+/// `spec_json`, `out_json` and `out_len` must point to valid memory for this call.
+pub unsafe extern "C" fn enkai_tensor_lm_init(
+    spec_json: *const c_char,
+    device_handle: i64,
+    seed: i64,
+    out_json: *mut *mut c_char,
+    out_len: *mut usize,
+) -> c_int {
+    ffi_guard(1, || {
+        clear_error();
+        #[cfg(feature = "torch")]
+        {
+            let spec_json = match cstr_to_string(spec_json) {
+                Ok(v) => v,
+                Err(err) => {
+                    set_error(err);
+                    return 1;
+                }
+            };
+            let spec = match LmArchSpec::from_json(&spec_json) {
+                Ok(v) => v,
+                Err(err) => {
+                    set_error(err);
+                    return 1;
+                }
+            };
+            let device = match get_device(device_handle) {
+                Ok(d) => d,
+                Err(err) => {
+                    set_error(err);
+                    return 1;
+                }
+            };
+            let handles = match init_lm_params(&spec, device, seed) {
+                Ok(v) => v,
+                Err(err) => {
+                    set_error(err);
+                    return 1;
+                }
+            };
+            let json = match serde_json::to_string(&handles) {
+                Ok(s) => s,
+                Err(err) => {
+                    set_error(err.to_string());
+                    return 1;
+                }
+            };
+            *out_len = json.len();
+            match CString::new(json) {
+                Ok(c) => {
+                    *out_json = c.into_raw();
+                    0
+                }
+                Err(_) => {
+                    set_error("lm_init: json contained null byte");
+                    1
+                }
+            }
+        }
+        #[cfg(not(feature = "torch"))]
+        {
+            let _ = spec_json;
             let _ = device_handle;
             let _ = seed;
             let _ = out_json;
@@ -2877,233 +3306,58 @@ pub unsafe extern "C" fn enkai_tensor_forward_tinylm(
                 set_error("tinylm_forward: params list too short");
                 return 0;
             }
-            if batch_size <= 0 || seq_len <= 0 || n_heads <= 0 {
-                set_error("tinylm_forward: invalid batch dimensions");
-                return 0;
-            }
-            let expected = (batch_size * seq_len) as usize;
-            if input_len != expected || target_len != expected {
-                set_error("tinylm_forward: input/target length mismatch");
-                return 0;
-            }
-
-            let tok_embed = match get_tensor(handles[0]) {
-                Ok(t) => ensure_requires_grad(t),
+            let tok = match get_tensor(handles[0]) {
+                Ok(t) => t,
                 Err(err) => {
                     set_error(err);
                     return 0;
                 }
             };
-            let pos_embed = match get_tensor(handles[1]) {
-                Ok(t) => ensure_requires_grad(t),
-                Err(err) => {
-                    set_error(err);
-                    return 0;
-                }
-            };
-            let d_model = tok_embed.size()[1];
-            if d_model % n_heads != 0 {
-                set_error("tinylm_forward: d_model not divisible by n_heads");
+            let tok_size = tok.size();
+            if tok_size.len() != 2 {
+                set_error("tinylm_forward: token embedding must be rank-2");
                 return 0;
             }
-            let head_dim = d_model / n_heads;
-            let per_layer = 12usize;
-            let tail = handles.len() - 6;
-            if tail % per_layer != 0 {
-                set_error("tinylm_forward: params list not aligned to layers");
-                return 0;
+            let d_model = tok_size[1];
+            let n_layers = ((handles.len() - 6) / 12) as i64;
+            let ff_mult = if n_layers > 0 {
+                match get_tensor(handles[10]) {
+                    Ok(mlp_w1) => {
+                        let size = mlp_w1.size();
+                        if size.len() == 2 && d_model > 0 {
+                            (size[1] as f32) / (d_model as f32)
+                        } else {
+                            4.0
+                        }
+                    }
+                    Err(_) => 4.0,
+                }
+            } else {
+                4.0
+            };
+            let spec = LmArchSpec {
+                vocab_size: tok_size[0],
+                seq_len,
+                d_model,
+                n_layers,
+                n_heads,
+                ff_mult,
+                activation: "gelu".to_string(),
+                norm: "layernorm".to_string(),
+                tie_embeddings: false,
+                dropout: 0.0,
+                preset: "tinylm".to_string(),
+            };
+            match forward_lm_internal(
+                &handles, &spec, input_ptr, input_len, target_ptr, target_len, batch_size, seq_len,
+                true,
+            ) {
+                Ok(loss) => return loss,
+                Err(err) => {
+                    set_error(format!("tinylm_forward: {}", err));
+                    return 0;
+                }
             }
-            let n_layers = tail / per_layer;
-            let ln_f_w = match get_tensor(handles[handles.len() - 4]) {
-                Ok(t) => ensure_requires_grad(t),
-                Err(err) => {
-                    set_error(err);
-                    return 0;
-                }
-            };
-            let ln_f_b = match get_tensor(handles[handles.len() - 3]) {
-                Ok(t) => ensure_requires_grad(t),
-                Err(err) => {
-                    set_error(err);
-                    return 0;
-                }
-            };
-            let head_w = match get_tensor(handles[handles.len() - 2]) {
-                Ok(t) => ensure_requires_grad(t),
-                Err(err) => {
-                    set_error(err);
-                    return 0;
-                }
-            };
-            let head_b = match get_tensor(handles[handles.len() - 1]) {
-                Ok(t) => ensure_requires_grad(t),
-                Err(err) => {
-                    set_error(err);
-                    return 0;
-                }
-            };
-
-            let device = tok_embed.device();
-            let input_slice = std::slice::from_raw_parts(input_ptr, input_len);
-            let target_slice = std::slice::from_raw_parts(target_ptr, target_len);
-            let input_i64: Vec<i64> = input_slice.iter().map(|v| *v as i64).collect();
-            let target_i64: Vec<i64> = target_slice.iter().map(|v| *v as i64).collect();
-            let input = match Tensor::f_from_slice(&input_i64) {
-                Ok(t) => t.to_device(device).view([batch_size, seq_len]),
-                Err(err) => {
-                    set_error(err.to_string());
-                    return 0;
-                }
-            };
-            let targets = match Tensor::f_from_slice(&target_i64) {
-                Ok(t) => t.to_device(device).view([batch_size, seq_len]),
-                Err(err) => {
-                    set_error(err.to_string());
-                    return 0;
-                }
-            };
-
-            let tok = Tensor::embedding(&tok_embed, &input, -1, false, false);
-            let pos = pos_embed
-                .unsqueeze(0)
-                .expand(&[batch_size, seq_len, d_model], true);
-            let mut x = tok + pos;
-
-            let scale = 1.0 / (head_dim as f64).sqrt();
-            let causal_mask = Tensor::ones([seq_len, seq_len], (Kind::Bool, device))
-                .tril(0)
-                .unsqueeze(0)
-                .unsqueeze(0);
-
-            for layer_idx in 0..n_layers {
-                let base = 2 + layer_idx * per_layer;
-                let ln1_w = match get_tensor(handles[base]) {
-                    Ok(t) => ensure_requires_grad(t),
-                    Err(err) => {
-                        set_error(err);
-                        return 0;
-                    }
-                };
-                let ln1_b = match get_tensor(handles[base + 1]) {
-                    Ok(t) => ensure_requires_grad(t),
-                    Err(err) => {
-                        set_error(err);
-                        return 0;
-                    }
-                };
-                let qkv_w = match get_tensor(handles[base + 2]) {
-                    Ok(t) => ensure_requires_grad(t),
-                    Err(err) => {
-                        set_error(err);
-                        return 0;
-                    }
-                };
-                let qkv_b = match get_tensor(handles[base + 3]) {
-                    Ok(t) => ensure_requires_grad(t),
-                    Err(err) => {
-                        set_error(err);
-                        return 0;
-                    }
-                };
-                let proj_w = match get_tensor(handles[base + 4]) {
-                    Ok(t) => ensure_requires_grad(t),
-                    Err(err) => {
-                        set_error(err);
-                        return 0;
-                    }
-                };
-                let proj_b = match get_tensor(handles[base + 5]) {
-                    Ok(t) => ensure_requires_grad(t),
-                    Err(err) => {
-                        set_error(err);
-                        return 0;
-                    }
-                };
-                let ln2_w = match get_tensor(handles[base + 6]) {
-                    Ok(t) => ensure_requires_grad(t),
-                    Err(err) => {
-                        set_error(err);
-                        return 0;
-                    }
-                };
-                let ln2_b = match get_tensor(handles[base + 7]) {
-                    Ok(t) => ensure_requires_grad(t),
-                    Err(err) => {
-                        set_error(err);
-                        return 0;
-                    }
-                };
-                let mlp_w1 = match get_tensor(handles[base + 8]) {
-                    Ok(t) => ensure_requires_grad(t),
-                    Err(err) => {
-                        set_error(err);
-                        return 0;
-                    }
-                };
-                let mlp_b1 = match get_tensor(handles[base + 9]) {
-                    Ok(t) => ensure_requires_grad(t),
-                    Err(err) => {
-                        set_error(err);
-                        return 0;
-                    }
-                };
-                let mlp_w2 = match get_tensor(handles[base + 10]) {
-                    Ok(t) => ensure_requires_grad(t),
-                    Err(err) => {
-                        set_error(err);
-                        return 0;
-                    }
-                };
-                let mlp_b2 = match get_tensor(handles[base + 11]) {
-                    Ok(t) => ensure_requires_grad(t),
-                    Err(err) => {
-                        set_error(err);
-                        return 0;
-                    }
-                };
-
-                let x_norm = x.layer_norm(&[d_model], Some(&ln1_w), Some(&ln1_b), 1e-5, true);
-                let qkv = x_norm.matmul(&qkv_w) + qkv_b;
-                let qkv = qkv
-                    .view([batch_size, seq_len, 3, n_heads, head_dim])
-                    .permute([2, 0, 3, 1, 4]);
-                let q = qkv.select(0, 0);
-                let k = qkv.select(0, 1);
-                let v = qkv.select(0, 2);
-                let att = (q.matmul(&k.transpose(-2, -1)) * scale)
-                    .masked_fill(&causal_mask.logical_not(), f64::NEG_INFINITY)
-                    .softmax(-1, Kind::Float);
-                let ctx = att.matmul(&v);
-                let ctx = ctx
-                    .transpose(1, 2)
-                    .contiguous()
-                    .view([batch_size, seq_len, d_model]);
-                let attn_out = ctx.matmul(&proj_w) + proj_b;
-                x = x + attn_out;
-
-                let x_norm2 = x.layer_norm(&[d_model], Some(&ln2_w), Some(&ln2_b), 1e-5, true);
-                let mut mlp = x_norm2.matmul(&mlp_w1) + mlp_b1;
-                mlp = mlp.gelu("none");
-                let mlp = mlp.matmul(&mlp_w2) + mlp_b2;
-                x = x + mlp;
-            }
-
-            let x = x.layer_norm(&[d_model], Some(&ln_f_w), Some(&ln_f_b), 1e-5, true);
-            let logits = x.matmul(&head_w) + head_b;
-            let logits_finite = logits.isfinite().all().int64_value(&[]) != 0;
-            if !logits_finite {
-                set_error("tinylm_forward: logits contain NaN/Inf");
-                return 0;
-            }
-            let logits = logits.view([batch_size * seq_len, -1]);
-            let targets = targets.view([batch_size * seq_len]);
-            let loss = logits.cross_entropy_for_logits(&targets);
-            let loss_finite = loss.isfinite().all().int64_value(&[]) != 0;
-            if !loss_finite {
-                set_error("tinylm_forward: loss is NaN/Inf");
-                return 0;
-            }
-            return register_tensor(loss);
         }
         #[cfg(not(feature = "torch"))]
         {
@@ -3115,6 +3369,87 @@ pub unsafe extern "C" fn enkai_tensor_forward_tinylm(
             let _ = batch_size;
             let _ = seq_len;
             let _ = n_heads;
+            set_error("torch backend not enabled");
+            0
+        }
+    })
+}
+
+#[no_mangle]
+/// # Safety
+/// `params_json`, `spec_json`, `input_ptr`, and `target_ptr` must be valid for this call.
+pub unsafe extern "C" fn enkai_tensor_forward_lm(
+    params_json: *const c_char,
+    spec_json: *const c_char,
+    input_ptr: *const u32,
+    input_len: usize,
+    target_ptr: *const u32,
+    target_len: usize,
+    batch_size: i64,
+    seq_len: i64,
+    training: c_int,
+) -> i64 {
+    ffi_guard(0, || {
+        clear_error();
+        #[cfg(feature = "torch")]
+        {
+            let params_json = match cstr_to_string(params_json) {
+                Ok(v) => v,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            let spec_json = match cstr_to_string(spec_json) {
+                Ok(v) => v,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            let handles = match parse_handle_list(&params_json) {
+                Ok(list) => list,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            let spec = match LmArchSpec::from_json(&spec_json) {
+                Ok(v) => v,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            match forward_lm_internal(
+                &handles,
+                &spec,
+                input_ptr,
+                input_len,
+                target_ptr,
+                target_len,
+                batch_size,
+                seq_len,
+                training != 0,
+            ) {
+                Ok(loss) => loss,
+                Err(err) => {
+                    set_error(err);
+                    0
+                }
+            }
+        }
+        #[cfg(not(feature = "torch"))]
+        {
+            let _ = params_json;
+            let _ = spec_json;
+            let _ = input_ptr;
+            let _ = input_len;
+            let _ = target_ptr;
+            let _ = target_len;
+            let _ = batch_size;
+            let _ = seq_len;
+            let _ = training;
             set_error("torch backend not enabled");
             0
         }

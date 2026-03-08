@@ -3,10 +3,19 @@
 ## Unreleased
 
 ### Highlights
-- None yet.
+- Added additive model-architecture training config surface:
+  - `model.preset`, `model.ff_mult`, `model.activation`, `model.norm`,
+    `model.tie_embeddings`, `model.dropout`
+- Added native runtime/tensor configurable LM path:
+  - new tensor FFI symbols `enkai_tensor_lm_init` and `enkai_tensor_forward_lm`
+  - compatibility fallback to TinyLM symbols when newer LM symbols are unavailable
+- Added deterministic divergence guard controls for long-running training:
+  - `ema_decay`, `divergence_factor`, `divergence_patience`, `divergence_warmup_steps`
 
 ### Fixes
-- None yet.
+- Added parser and regression tests for new architecture fields and validation failures.
+- Hardened model-signature checkpoint matching with legacy compatibility fallback.
+- Updated training/tensor docs for additive architecture + safety controls.
 
 ### Breaking changes
 - None.

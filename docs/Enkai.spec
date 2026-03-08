@@ -506,6 +506,12 @@ Train/Eval config schema:
 - Optional v1.2+ fields include `world_size`, `rank`, `grad_accum_steps`, `grad_clip_norm`,
   `amp { enabled, dtype, init_scale, growth_factor, backoff_factor, growth_interval }`,
   `shuffle`, and `prefetch_batches`.
+- Optional v2.1.x additive fields include:
+  - `model.preset` (`tinylm|gpt2-small|gpt2-medium|llama-7b`)
+  - `model.ff_mult`, `model.activation` (`gelu|relu|silu`), `model.norm` (`layernorm|rmsnorm`)
+  - `model.tie_embeddings`, `model.dropout`
+  - divergence guard controls:
+    `ema_decay`, `divergence_factor`, `divergence_patience`, `divergence_warmup_steps`
 - v2.1.0 strict behavior rejects configs missing `config_version`.
 - Optional legacy recovery mode:
   - `--lenient-contracts` is accepted only when `ENKAI_ALLOW_LEGACY_CONTRACTS=1`.
@@ -548,7 +554,9 @@ The following are intentionally not fully implemented yet:
 - `std::algo` provides foundational software/ML utility routines, but not exhaustive domain
   libraries for every specialized algorithm family.
 - Frontend scaffolds target React + TypeScript web projects; non-web/mobile generators are not part of the current v2.x scope.
-- Current training-forward integration in runtime uses a TinyLM transformer forward/loss path and is not yet a full-scale Transformer stack.
+- Runtime training-forward integration supports configurable decoder-only transformer blocks
+  via model-spec metadata with TinyLM-compatible fallback behavior for older tensor builds.
+  Full-scale pretraining/serving envelopes still depend on operator hardware validation gates.
 - Engine-level checkpoint helpers exist, but full train-loop orchestration and multi-rank resume policy are constrained to currently integrated paths.
 - Training metrics include best-effort GPU memory/utilization sampling via `nvidia-smi` for CUDA devices.
   On hosts without `nvidia-smi` or compatible drivers these fields remain `null`.

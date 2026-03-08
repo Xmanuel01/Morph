@@ -25,6 +25,10 @@ fn main() ::
 - `tensor.layernorm/embedding/linear` plus `layernorm_backward`, `masked_softmax_backward`
 - Autograd: `tensor.cross_entropy`, `tensor.backward`, `tensor.require_grad`, `tensor.zero_grad`, `tensor.zero_grad_multi`
 - Optimizer helpers: `tensor.adamw_step`, `tensor.adamw_step_multi`, `tensor.param_group`, `tensor.param_group_step`
+- LM core FFI (native runtime integration):
+  - `enkai_tensor_lm_init(spec_json, device_handle, seed, out_json, out_len)`
+  - `enkai_tensor_forward_lm(params_json, spec_json, input, target, batch, seq, training)`
+  - `enkai_tensor_tinylm_init/forward_tinylm` remain supported for compatibility fallback.
 
 ## Backend selection (torch + CPU fallback)
 - `enkai_backend_list()` -> JSON array, currently `["torch","cpu"]`.

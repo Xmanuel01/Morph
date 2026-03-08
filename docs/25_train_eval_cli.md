@@ -22,6 +22,18 @@ Optional determinism:
 - `seed` (Int >= 0) controls model initialization and is also used to seed tokenizer
   training tie-breaks and dataset file shuffling for repeatable runs.
 
+Optional model architecture fields (additive, backward compatible):
+- `model.preset`: `tinylm`, `gpt2-small`, `gpt2-medium`, `llama-7b`
+- `model.d_model`, `model.n_layers`, `model.n_heads`
+- `model.ff_mult`, `model.activation` (`gelu|relu|silu`), `model.norm` (`layernorm|rmsnorm`)
+- `model.tie_embeddings`, `model.dropout`
+
+Runtime safety controls (additive):
+- `ema_decay` (default `0.95`)
+- `divergence_factor` (default `4.0`)
+- `divergence_patience` (default `3`)
+- `divergence_warmup_steps` (default `25`)
+
 ## Evaluation
 
 ```

@@ -6,8 +6,10 @@ use std::os::raw::{c_char, c_int};
 use std::sync::Arc;
 use std::time::Instant;
 
+use serde::Serialize;
+
 use crate::dataset::Batch;
-use crate::engine::AmpConfig;
+use crate::engine::{AmpConfig, ModelConfig};
 use crate::error::RuntimeError;
 
 #[derive(Debug, Clone, Copy)]
@@ -28,6 +30,7 @@ pub struct Backend {
     rank: i32,
     device: Option<i64>,
     amp_scaler: Option<i64>,
+    model_spec_json: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -59,6 +62,22 @@ struct Symbols {
         i64,
         i64,
     ) -> i64,
+    lm_init_v1: Option<
+        unsafe extern "C" fn(*const c_char, i64, i64, *mut *mut c_char, *mut usize) -> c_int,
+    >,
+    forward_lm_v1: Option<
+        unsafe extern "C" fn(
+            *const c_char,
+            *const c_char,
+            *const u32,
+            usize,
+            *const u32,
+            usize,
+            i64,
+            i64,
+            c_int,
+        ) -> i64,
+    >,
     backward: unsafe extern "C" fn(i64) -> c_int,
     item: unsafe extern "C" fn(i64) -> f64,
     device: unsafe extern "C" fn(*const c_char) -> i64,
@@ -106,6 +125,47 @@ struct Symbols {
     last_error: unsafe extern "C" fn() -> *const c_char,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct NativeLmSpec {
+    vocab_size: i64,
+    seq_len: i64,
+    d_model: i64,
+    n_layers: i64,
+    n_heads: i64,
+    ff_mult: f32,
+    activation: String,
+    norm: String,
+    tie_embeddings: bool,
+    dropout: f32,
+    preset: String,
+}
+
+impl NativeLmSpec {
+    fn from_config(model: &ModelConfig, seq_len: usize) -> Self {
+        Self {
+            vocab_size: model.vocab_size as i64,
+            seq_len: seq_len as i64,
+            d_model: model.d_model as i64,
+            n_layers: model.n_layers as i64,
+            n_heads: model.n_heads as i64,
+            ff_mult: model.ff_mult,
+            activation: model.activation.clone(),
+            norm: model.norm.clone(),
+            tie_embeddings: model.tie_embeddings,
+            dropout: model.dropout,
+            preset: model.preset.clone(),
+        }
+    }
+
+    fn is_tinylm_compatible(&self) -> bool {
+        (self.ff_mult - 4.0).abs() < f32::EPSILON
+            && self.activation.eq_ignore_ascii_case("gelu")
+            && self.norm.eq_ignore_ascii_case("layernorm")
+            && !self.tie_embeddings
+            && self.dropout.abs() < f32::EPSILON
+    }
+}
+
 impl Backend {
     pub fn new() -> Result<Self, RuntimeError> {
         let lib = load_library()?;
@@ -119,6 +179,7 @@ impl Backend {
             rank: 0,
             device: None,
             amp_scaler: None,
+            model_spec_json: None,
         })
     }
 
@@ -194,35 +255,14 @@ impl Backend {
         &mut self,
         _device_idx: usize,
         batch: &Batch,
-        n_heads: usize,
+        model: &ModelConfig,
         amp: &AmpConfig,
     ) -> Result<StepResult, RuntimeError> {
         if self.params.is_empty() {
             return Err(RuntimeError::new("No parameters registered for training"));
         }
-        // Forward (TinyLM)
-        let params_json =
-            serde_json::to_string(&self.params).map_err(|e| RuntimeError::new(&e.to_string()))?;
-        let c = CString::new(params_json).unwrap();
         let forward_start = Instant::now();
-        if amp.enabled {
-            self.autocast_enter()?;
-        }
-        let loss_handle = unsafe {
-            (self.symbols.forward_tinylm)(
-                c.as_ptr(),
-                batch.input_ids.as_ptr(),
-                batch.input_ids.len(),
-                batch.target_ids.as_ptr(),
-                batch.target_ids.len(),
-                batch.batch_size as i64,
-                batch.seq_len as i64,
-                n_heads as i64,
-            )
-        };
-        if amp.enabled {
-            self.autocast_exit()?;
-        }
+        let loss_handle = self.forward_loss_handle(batch, model, true, amp)?;
         let forward_time_ms = to_ms(forward_start.elapsed());
         if loss_handle == 0 {
             return Err(self.last_error());
@@ -254,31 +294,11 @@ impl Backend {
         &mut self,
         _device_idx: usize,
         batch: &Batch,
-        n_heads: usize,
+        model: &ModelConfig,
         amp: &AmpConfig,
     ) -> Result<StepResult, RuntimeError> {
-        let params_json =
-            serde_json::to_string(&self.params).map_err(|e| RuntimeError::new(&e.to_string()))?;
-        let c = CString::new(params_json).unwrap();
         let forward_start = Instant::now();
-        if amp.enabled {
-            self.autocast_enter()?;
-        }
-        let loss_handle = unsafe {
-            (self.symbols.forward_tinylm)(
-                c.as_ptr(),
-                batch.input_ids.as_ptr(),
-                batch.input_ids.len(),
-                batch.target_ids.as_ptr(),
-                batch.target_ids.len(),
-                batch.batch_size as i64,
-                batch.seq_len as i64,
-                n_heads as i64,
-            )
-        };
-        if amp.enabled {
-            self.autocast_exit()?;
-        }
+        let loss_handle = self.forward_loss_handle(batch, model, false, amp)?;
         let forward_time_ms = to_ms(forward_start.elapsed());
         if loss_handle == 0 {
             return Err(self.last_error());
@@ -294,6 +314,57 @@ impl Backend {
         })
     }
 
+    fn forward_loss_handle(
+        &mut self,
+        batch: &Batch,
+        model: &ModelConfig,
+        training: bool,
+        amp: &AmpConfig,
+    ) -> Result<i64, RuntimeError> {
+        let params_json =
+            serde_json::to_string(&self.params).map_err(|e| RuntimeError::new(&e.to_string()))?;
+        let params_c = CString::new(params_json).map_err(|e| RuntimeError::new(&e.to_string()))?;
+        if amp.enabled {
+            self.autocast_enter()?;
+        }
+        let loss_handle = if let (Some(forward_lm), Some(spec_json)) =
+            (self.symbols.forward_lm_v1, self.model_spec_json.as_ref())
+        {
+            let spec_c =
+                CString::new(spec_json.as_str()).map_err(|e| RuntimeError::new(&e.to_string()))?;
+            unsafe {
+                forward_lm(
+                    params_c.as_ptr(),
+                    spec_c.as_ptr(),
+                    batch.input_ids.as_ptr(),
+                    batch.input_ids.len(),
+                    batch.target_ids.as_ptr(),
+                    batch.target_ids.len(),
+                    batch.batch_size as i64,
+                    batch.seq_len as i64,
+                    if training { 1 } else { 0 },
+                )
+            }
+        } else {
+            unsafe {
+                (self.symbols.forward_tinylm)(
+                    params_c.as_ptr(),
+                    batch.input_ids.as_ptr(),
+                    batch.input_ids.len(),
+                    batch.target_ids.as_ptr(),
+                    batch.target_ids.len(),
+                    batch.batch_size as i64,
+                    batch.seq_len as i64,
+                    model.n_heads as i64,
+                )
+            }
+        };
+        if amp.enabled {
+            self.autocast_exit()?;
+        }
+        Ok(loss_handle)
+    }
+
     pub fn set_params(&mut self, params: Vec<i64>) -> Result<(), RuntimeError> {
         self.params = params;
         if self.opt.is_some() {
@@ -307,38 +378,67 @@ impl Backend {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn init_tinylm(
+    pub fn init_model(
         &mut self,
-        vocab_size: i64,
-        seq_len: i64,
-        d_model: i64,
-        n_layers: i64,
-        n_heads: i64,
-        seed: i64,
-        device_spec: &str,
+        model: &ModelConfig,
+        seq_len: usize,
     ) -> Result<Vec<i64>, RuntimeError> {
-        let device = self.device_from_spec(device_spec)?;
+        let spec = NativeLmSpec::from_config(model, seq_len);
+        if spec.d_model <= 0 || spec.n_layers <= 0 || spec.n_heads <= 0 {
+            return Err(RuntimeError::new("model dimensions must be > 0"));
+        }
+        if spec.d_model % spec.n_heads != 0 {
+            return Err(RuntimeError::new("d_model must be divisible by n_heads"));
+        }
+        if !spec.ff_mult.is_finite() || spec.ff_mult <= 0.0 {
+            return Err(RuntimeError::new("ff_mult must be finite and > 0"));
+        }
+        if !spec.dropout.is_finite() || !(0.0..1.0).contains(&spec.dropout) {
+            return Err(RuntimeError::new("dropout must be finite and in [0,1)"));
+        }
+
+        let device = self.device_from_spec(&model.device)?;
         let mut out_len: usize = 0;
         let mut out_ptr: *mut c_char = std::ptr::null_mut();
-        let rc = unsafe {
-            (self.symbols.tinylm_init)(
-                vocab_size,
-                seq_len,
-                d_model,
-                n_layers,
-                n_heads,
-                device,
-                seed,
-                &mut out_ptr,
-                &mut out_len,
-            )
+        let spec_json =
+            serde_json::to_string(&spec).map_err(|err| RuntimeError::new(&err.to_string()))?;
+        let rc = if let Some(init_lm) = self.symbols.lm_init_v1 {
+            let spec_c = CString::new(spec_json.as_str())
+                .map_err(|err| RuntimeError::new(&err.to_string()))?;
+            unsafe {
+                init_lm(
+                    spec_c.as_ptr(),
+                    device,
+                    model.seed as i64,
+                    &mut out_ptr,
+                    &mut out_len,
+                )
+            }
+        } else {
+            if !spec.is_tinylm_compatible() {
+                return Err(RuntimeError::new(
+                    "current enkai_tensor build does not support configurable transformer init; rebuild with enkai_tensor_lm_init support or use tinylm-compatible settings",
+                ));
+            }
+            unsafe {
+                (self.symbols.tinylm_init)(
+                    spec.vocab_size,
+                    spec.seq_len,
+                    spec.d_model,
+                    spec.n_layers,
+                    spec.n_heads,
+                    device,
+                    model.seed as i64,
+                    &mut out_ptr,
+                    &mut out_len,
+                )
+            }
         };
         if rc != 0 {
             return Err(self.last_error());
         }
         if out_ptr.is_null() || out_len == 0 {
-            return Err(RuntimeError::new("tinylm_init returned empty params"));
+            return Err(RuntimeError::new("native model init returned empty params"));
         }
         let slice = unsafe { std::slice::from_raw_parts(out_ptr as *const u8, out_len) };
         let json_str = std::str::from_utf8(slice).map_err(|e| RuntimeError::new(&e.to_string()))?;
@@ -348,6 +448,11 @@ impl Backend {
             let _ = CString::from_raw(out_ptr);
         }
         self.device = Some(device);
+        self.model_spec_json = if self.symbols.forward_lm_v1.is_some() {
+            Some(spec_json)
+        } else {
+            None
+        };
         Ok(handles)
     }
 
@@ -932,6 +1037,24 @@ unsafe fn load_symbols(lib: &Library) -> Result<Symbols, RuntimeError> {
                 i64,
                 i64,
                 i64,
+            ) -> i64
+        ),
+        lm_init_v1: sym_opt!(
+            b"enkai_tensor_lm_init\0",
+            unsafe extern "C" fn(*const c_char, i64, i64, *mut *mut c_char, *mut usize) -> c_int
+        ),
+        forward_lm_v1: sym_opt!(
+            b"enkai_tensor_forward_lm\0",
+            unsafe extern "C" fn(
+                *const c_char,
+                *const c_char,
+                *const u32,
+                usize,
+                *const u32,
+                usize,
+                i64,
+                i64,
+                c_int,
             ) -> i64
         ),
         backward: sym!(

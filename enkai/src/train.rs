@@ -61,6 +61,10 @@ struct TrainConfig {
     rank: usize,
     grad_accum_steps: usize,
     grad_clip_norm: Option<f32>,
+    ema_decay: f32,
+    divergence_factor: f32,
+    divergence_patience: usize,
+    divergence_warmup_steps: usize,
     legacy_config: bool,
     strict_contracts: bool,
 }
@@ -70,6 +74,12 @@ struct ModelConfig {
     d_model: usize,
     n_layers: usize,
     n_heads: usize,
+    ff_mult: f32,
+    activation: String,
+    norm: String,
+    tie_embeddings: bool,
+    dropout: f32,
+    preset: String,
     device: String,
     dtype: String,
 }
@@ -402,6 +412,57 @@ struct LogEvent {
     backward_time_ms: Option<f32>,
     optim_time_ms: Option<f32>,
     found_inf: Option<bool>,
+    ema_loss: Option<f32>,
+    divergence_streak: Option<usize>,
+}
+
+#[derive(Debug, Clone)]
+struct DivergenceGuard {
+    ema_loss: Option<f32>,
+    streak: usize,
+    decay: f32,
+    factor: f32,
+    patience: usize,
+    warmup_steps: usize,
+}
+
+impl DivergenceGuard {
+    fn new(config: &TrainConfig) -> Self {
+        Self {
+            ema_loss: None,
+            streak: 0,
+            decay: config.ema_decay,
+            factor: config.divergence_factor,
+            patience: config.divergence_patience,
+            warmup_steps: config.divergence_warmup_steps,
+        }
+    }
+
+    fn observe(&mut self, step: usize, loss: f32) -> Result<(), String> {
+        if !loss.is_finite() {
+            return Err(format!("non-finite loss detected at step {}", step));
+        }
+        let prev_ema = self.ema_loss.unwrap_or(loss);
+        let new_ema = prev_ema * self.decay + (1.0 - self.decay) * loss;
+        self.ema_loss = Some(new_ema);
+        if step <= self.warmup_steps {
+            self.streak = 0;
+            return Ok(());
+        }
+        let trigger = prev_ema.max(1e-6) * self.factor;
+        if loss > trigger {
+            self.streak += 1;
+        } else {
+            self.streak = 0;
+        }
+        if self.streak >= self.patience {
+            return Err(format!(
+                "divergence guard triggered at step {}: loss {:.6} exceeded {:.6} for {} consecutive updates",
+                step, loss, trigger, self.streak
+            ));
+        }
+        Ok(())
+    }
 }
 
 fn emit_legacy_config_warning(config_path: &Path) {
@@ -454,6 +515,7 @@ pub fn train_with_contract_mode(config_path: &Path, strict_contracts: bool) -> R
         let mut last_saved_step = step;
         let mut packing_sum = 0.0f32;
         let mut packing_count = 0usize;
+        let mut loss_guard = DivergenceGuard::new(&config);
         while step < config.max_steps {
             let batch = match stream.next_batch()? {
                 Some(batch) => batch,
@@ -489,6 +551,10 @@ pub fn train_with_contract_mode(config_path: &Path, strict_contracts: bool) -> R
                 continue;
             }
             step = metrics.step as usize;
+            if let Err(err) = loss_guard.observe(step, metrics.loss) {
+                let _ = write_error_checkpoint(&engine, &config, step, tokens, &err);
+                return Err(err);
+            }
             let avg_packing = if packing_count == 0 {
                 0.0
             } else {
@@ -511,6 +577,8 @@ pub fn train_with_contract_mode(config_path: &Path, strict_contracts: bool) -> R
                     backward_time_ms: Some(metrics.backward_time_ms),
                     optim_time_ms: Some(metrics.optim_time_ms),
                     found_inf: Some(false),
+                    ema_loss: loss_guard.ema_loss,
+                    divergence_streak: Some(loss_guard.streak),
                 };
                 let line = serde_json::to_string(&event).map_err(|err| err.to_string())?;
                 writeln!(log_file, "{}", line).map_err(|err| err.to_string())?;
@@ -540,6 +608,8 @@ pub fn train_with_contract_mode(config_path: &Path, strict_contracts: bool) -> R
                     backward_time_ms: None,
                     optim_time_ms: None,
                     found_inf: Some(false),
+                    ema_loss: loss_guard.ema_loss,
+                    divergence_streak: Some(loss_guard.streak),
                 };
                 let line = serde_json::to_string(&event).map_err(|err| err.to_string())?;
                 writeln!(log_file, "{}", line).map_err(|err| err.to_string())?;
@@ -563,7 +633,8 @@ pub fn train_with_contract_mode(config_path: &Path, strict_contracts: bool) -> R
             if !state.meta.config_hash.is_empty() && state.meta.config_hash != expected_hash {
                 return Err("checkpoint config hash mismatch".to_string());
             }
-            if !state.meta.model_sig.is_empty() && state.meta.model_sig != model_signature(&config)
+            if !state.meta.model_sig.is_empty()
+                && !model_signature_matches(&config, &state.meta.model_sig)
             {
                 return Err("checkpoint model signature mismatch".to_string());
             }
@@ -603,6 +674,7 @@ pub fn train_with_contract_mode(config_path: &Path, strict_contracts: bool) -> R
         let mut packing_sum = 0.0f32;
         let mut packing_count = 0usize;
         let mut grad_accum = vec![0.0f32; model.params().len()];
+        let mut loss_guard = DivergenceGuard::new(&config);
         while step < config.max_steps {
             let step_start = Instant::now();
             let mut step_loss_sum = 0.0f32;
@@ -641,6 +713,7 @@ pub fn train_with_contract_mode(config_path: &Path, strict_contracts: bool) -> R
             grad_accum.fill(0.0);
             step += 1;
             let avg_loss = step_loss_sum / micro_batches as f32;
+            loss_guard.observe(step, avg_loss)?;
             let avg_packing = if packing_count == 0 {
                 0.0
             } else {
@@ -666,6 +739,8 @@ pub fn train_with_contract_mode(config_path: &Path, strict_contracts: bool) -> R
                     backward_time_ms: None,
                     optim_time_ms: None,
                     found_inf: Some(false),
+                    ema_loss: loss_guard.ema_loss,
+                    divergence_streak: Some(loss_guard.streak),
                 };
                 let line = serde_json::to_string(&event).map_err(|err| err.to_string())?;
                 writeln!(log_file, "{}", line).map_err(|err| err.to_string())?;
@@ -712,6 +787,8 @@ pub fn train_with_contract_mode(config_path: &Path, strict_contracts: bool) -> R
                     backward_time_ms: None,
                     optim_time_ms: None,
                     found_inf: Some(false),
+                    ema_loss: loss_guard.ema_loss,
+                    divergence_streak: Some(loss_guard.streak),
                 };
                 let line = serde_json::to_string(&event).map_err(|err| err.to_string())?;
                 writeln!(log_file, "{}", line).map_err(|err| err.to_string())?;
@@ -784,7 +861,9 @@ pub fn eval_with_contract_mode(config_path: &Path, strict_contracts: bool) -> Re
         if !state.meta.config_hash.is_empty() && state.meta.config_hash != expected_hash {
             return Err("checkpoint config hash mismatch".to_string());
         }
-        if !state.meta.model_sig.is_empty() && state.meta.model_sig != model_signature(&config) {
+        if !state.meta.model_sig.is_empty()
+            && !model_signature_matches(&config, &state.meta.model_sig)
+        {
             return Err("checkpoint model signature mismatch".to_string());
         }
         if !state.meta.dtype.is_empty() && state.meta.dtype != config.model.dtype {
@@ -946,12 +1025,30 @@ fn parse_train_config_inner(
     validate_backend(&backend)?;
     let vocab_size = record_usize(model_ref, "vocab_size")?;
     let hidden_size = record_usize(model_ref, "hidden_size")?;
-    let d_model = record_usize_default(model_ref, "d_model", hidden_size);
-    let n_layers = record_usize_default(model_ref, "n_layers", 2);
-    let n_heads = record_usize_default(model_ref, "n_heads", 4);
+    let preset = record_string_default(model_ref, "preset", "tinylm");
+    let preset_defaults = model_preset_defaults(&preset, hidden_size)?;
+    let d_model = record_usize_default(model_ref, "d_model", preset_defaults.d_model);
+    let n_layers = record_usize_default(model_ref, "n_layers", preset_defaults.n_layers);
+    let n_heads = record_usize_default(model_ref, "n_heads", preset_defaults.n_heads);
+    let ff_mult = record_f32_default(model_ref, "ff_mult", preset_defaults.ff_mult);
+    let activation = record_string_default(model_ref, "activation", preset_defaults.activation)
+        .to_ascii_lowercase();
+    let norm = record_string_default(model_ref, "norm", preset_defaults.norm).to_ascii_lowercase();
+    let tie_embeddings =
+        record_bool_default(model_ref, "tie_embeddings", preset_defaults.tie_embeddings);
+    let dropout = record_f32_default(model_ref, "dropout", preset_defaults.dropout);
     let mut device = record_string_default(model_ref, "device", "cpu");
     let dtype = record_string_default(model_ref, "dtype", "fp32");
     validate_dtype(&dtype)?;
+    validate_model_architecture(
+        d_model,
+        n_layers,
+        n_heads,
+        ff_mult,
+        &activation,
+        &norm,
+        dropout,
+    )?;
     let seq_len = record_usize(map, "seq_len")?;
     let batch_size = record_usize(map, "batch_size")?;
     let lr = record_f32(map, "lr")?;
@@ -1014,6 +1111,19 @@ fn parse_train_config_inner(
         Some(_) => return Err("grad_clip_norm must be Float".to_string()),
         None => None,
     };
+    let ema_decay = record_f32_default(map, "ema_decay", 0.95);
+    if !(0.0..1.0).contains(&ema_decay) {
+        return Err("ema_decay must be in [0, 1)".to_string());
+    }
+    let divergence_factor = record_f32_default(map, "divergence_factor", 4.0);
+    if !divergence_factor.is_finite() || divergence_factor <= 1.0 {
+        return Err("divergence_factor must be finite and > 1.0".to_string());
+    }
+    let divergence_patience = record_usize_default(map, "divergence_patience", 3);
+    if divergence_patience == 0 {
+        return Err("divergence_patience must be >= 1".to_string());
+    }
+    let divergence_warmup_steps = record_usize_default(map, "divergence_warmup_steps", 25);
     let amp = parse_amp_config(map, &backend, &device)?;
     let tokenizer = if let Some(value) = map.get("tokenizer_path") {
         TokenizerConfig::Load(as_string(value)?)
@@ -1043,6 +1153,12 @@ fn parse_train_config_inner(
             d_model,
             n_layers,
             n_heads,
+            ff_mult,
+            activation,
+            norm,
+            tie_embeddings,
+            dropout,
+            preset: preset.to_ascii_lowercase(),
             device,
             dtype,
         },
@@ -1073,6 +1189,10 @@ fn parse_train_config_inner(
         rank,
         grad_accum_steps,
         grad_clip_norm,
+        ema_decay,
+        divergence_factor,
+        divergence_patience,
+        divergence_warmup_steps,
         legacy_config,
         strict_contracts,
     })
@@ -1135,6 +1255,19 @@ fn train_config_to_json(config: &TrainConfig) -> serde_json::Value {
         "grad_accum_steps".to_string(),
         serde_json::json!(config.grad_accum_steps),
     );
+    map.insert("ema_decay".to_string(), serde_json::json!(config.ema_decay));
+    map.insert(
+        "divergence_factor".to_string(),
+        serde_json::json!(config.divergence_factor),
+    );
+    map.insert(
+        "divergence_patience".to_string(),
+        serde_json::json!(config.divergence_patience),
+    );
+    map.insert(
+        "divergence_warmup_steps".to_string(),
+        serde_json::json!(config.divergence_warmup_steps),
+    );
     if let Some(norm) = config.grad_clip_norm {
         map.insert("grad_clip_norm".to_string(), serde_json::json!(norm));
     }
@@ -1150,6 +1283,12 @@ fn train_config_to_json(config: &TrainConfig) -> serde_json::Value {
             "d_model": config.model.d_model,
             "n_layers": config.model.n_layers,
             "n_heads": config.model.n_heads,
+            "ff_mult": config.model.ff_mult,
+            "activation": config.model.activation,
+            "norm": config.model.norm,
+            "tie_embeddings": config.model.tie_embeddings,
+            "dropout": config.model.dropout,
+            "preset": config.model.preset,
             "device": config.model.device,
             "dtype": config.model.dtype,
         }),
@@ -1337,6 +1476,18 @@ fn record_f32(map: &std::collections::HashMap<String, Value>, key: &str) -> Resu
     }
 }
 
+fn record_f32_default(
+    map: &std::collections::HashMap<String, Value>,
+    key: &str,
+    default: f32,
+) -> f32 {
+    match map.get(key) {
+        Some(Value::Float(f)) => *f as f32,
+        Some(Value::Int(i)) => *i as f32,
+        _ => default,
+    }
+}
+
 fn record_f64_default(
     map: &std::collections::HashMap<String, Value>,
     key: &str,
@@ -1414,6 +1565,102 @@ fn parse_amp_config(
         }
     }
     Ok(amp)
+}
+
+struct ModelPreset {
+    d_model: usize,
+    n_layers: usize,
+    n_heads: usize,
+    ff_mult: f32,
+    activation: &'static str,
+    norm: &'static str,
+    tie_embeddings: bool,
+    dropout: f32,
+}
+
+fn model_preset_defaults(preset: &str, hidden_size: usize) -> Result<ModelPreset, String> {
+    let normalized = preset.trim().to_ascii_lowercase();
+    let defaults = match normalized.as_str() {
+        "tinylm" | "tiny" => ModelPreset {
+            d_model: hidden_size,
+            n_layers: 2,
+            n_heads: 4,
+            ff_mult: 4.0,
+            activation: "gelu",
+            norm: "layernorm",
+            tie_embeddings: false,
+            dropout: 0.0,
+        },
+        "gpt2-small" => ModelPreset {
+            d_model: 768,
+            n_layers: 12,
+            n_heads: 12,
+            ff_mult: 4.0,
+            activation: "gelu",
+            norm: "layernorm",
+            tie_embeddings: true,
+            dropout: 0.1,
+        },
+        "gpt2-medium" => ModelPreset {
+            d_model: 1024,
+            n_layers: 24,
+            n_heads: 16,
+            ff_mult: 4.0,
+            activation: "gelu",
+            norm: "layernorm",
+            tie_embeddings: true,
+            dropout: 0.1,
+        },
+        "llama-7b" | "llama" => ModelPreset {
+            d_model: 4096,
+            n_layers: 32,
+            n_heads: 32,
+            ff_mult: 3.5,
+            activation: "silu",
+            norm: "rmsnorm",
+            tie_embeddings: true,
+            dropout: 0.0,
+        },
+        _ => {
+            return Err(format!(
+                "Unsupported model preset {} (expected one of: tinylm, gpt2-small, gpt2-medium, llama-7b)",
+                preset
+            ));
+        }
+    };
+    Ok(defaults)
+}
+
+fn validate_model_architecture(
+    d_model: usize,
+    n_layers: usize,
+    n_heads: usize,
+    ff_mult: f32,
+    activation: &str,
+    norm: &str,
+    dropout: f32,
+) -> Result<(), String> {
+    if d_model == 0 || n_layers == 0 || n_heads == 0 {
+        return Err("model dimensions must be > 0".to_string());
+    }
+    if !d_model.is_multiple_of(n_heads) {
+        return Err("d_model must be divisible by n_heads".to_string());
+    }
+    if !ff_mult.is_finite() || ff_mult <= 0.0 {
+        return Err("ff_mult must be finite and > 0".to_string());
+    }
+    let activation = activation.trim().to_ascii_lowercase();
+    if !matches!(activation.as_str(), "gelu" | "relu" | "silu") {
+        return Err("activation must be one of: gelu, relu, silu".to_string());
+    }
+    let norm = norm.trim().to_ascii_lowercase();
+    if !matches!(norm.as_str(), "layernorm" | "rmsnorm") {
+        return Err("norm must be one of: layernorm, rmsnorm".to_string());
+    }
+    if !dropout.is_finite() || !(0.0..1.0).contains(&dropout) {
+        return Err("dropout must be finite and in [0, 1)".to_string());
+    }
+    Ok(())
 }
 
 fn validate_backend(backend: &str) -> Result<(), String> {
@@ -1621,7 +1868,7 @@ struct NativeCheckpointMeta {
     amp: Option<AmpConfig>,
 }
 
-fn model_signature(config: &TrainConfig) -> String {
+fn model_signature_legacy(config: &TrainConfig) -> String {
     format!(
         "vocab={};seq={};d_model={};layers={};heads={}",
         config.vocab_size,
@@ -1630,6 +1877,27 @@ fn model_signature(config: &TrainConfig) -> String {
         config.model.n_layers,
         config.model.n_heads
     )
+}
+
+fn model_signature(config: &TrainConfig) -> String {
+    format!(
+        "preset={};vocab={};seq={};d_model={};layers={};heads={};ff_mult={:.3};act={};norm={};tie={};dropout={:.3}",
+        config.model.preset,
+        config.vocab_size,
+        config.seq_len,
+        config.model.d_model,
+        config.model.n_layers,
+        config.model.n_heads,
+        config.model.ff_mult,
+        config.model.activation,
+        config.model.norm,
+        config.model.tie_embeddings,
+        config.model.dropout
+    )
+}
+
+fn model_signature_matches(config: &TrainConfig, signature: &str) -> bool {
+    signature == model_signature(config) || signature == model_signature_legacy(config)
 }
 
 fn native_checkpoint_meta(
@@ -1723,6 +1991,12 @@ fn rt_config_from(config: &TrainConfig) -> RtTrainConfig {
             d_model: config.model.d_model,
             n_layers: config.model.n_layers,
             n_heads: config.model.n_heads,
+            ff_mult: config.model.ff_mult,
+            activation: config.model.activation.clone(),
+            norm: config.model.norm.clone(),
+            tie_embeddings: config.model.tie_embeddings,
+            dropout: config.model.dropout,
+            preset: config.model.preset.clone(),
             seed: config_seed(config),
             device: config.model.device.clone(),
         },
@@ -1767,7 +2041,7 @@ fn try_load_native_checkpoint(
     if !meta.config_hash.is_empty() && meta.config_hash != expected_hash {
         return Err("checkpoint config hash mismatch".to_string());
     }
-    if !meta.model_sig.is_empty() && meta.model_sig != model_signature(config) {
+    if !meta.model_sig.is_empty() && !model_signature_matches(config, &meta.model_sig) {
         return Err("checkpoint model signature mismatch".to_string());
     }
     if !meta.dtype.is_empty() && meta.dtype != config.model.dtype {
@@ -2141,6 +2415,74 @@ mod tests {
         let err = eval_with_contract_mode(&config_path, true)
             .expect_err("strict eval should reject legacy checkpoint");
         assert!(err.contains("format_version must be 1") || err.contains("config_hash"));
+    }
+
+    #[test]
+    fn parse_model_architecture_fields() {
+        let _env_guard = crate::env_guard();
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("arch_config.enk");
+        let config = serde_json::json!({
+            "config_version": 1,
+            "backend": "cpu",
+            "vocab_size": 32000,
+            "hidden_size": 768,
+            "seq_len": 16,
+            "batch_size": 2,
+            "lr": 0.001,
+            "dataset_path": "data.txt",
+            "checkpoint_dir": "ckpt",
+            "max_steps": 2,
+            "tokenizer_train": {"path": "data.txt", "vocab_size": 32000},
+            "model": {
+                "vocab_size": 32000,
+                "hidden_size": 768,
+                "preset": "gpt2-small",
+                "activation": "relu",
+                "norm": "rmsnorm",
+                "ff_mult": 3.0,
+                "tie_embeddings": true,
+                "dropout": 0.15
+            }
+        });
+        write_config(&config_path, &config).expect("write config");
+        let value = load_config_value(&config_path).expect("load config");
+        let parsed = parse_train_config(&value).expect("parse");
+        assert_eq!(parsed.model.preset, "gpt2-small");
+        assert_eq!(parsed.model.activation, "relu");
+        assert_eq!(parsed.model.norm, "rmsnorm");
+        assert!((parsed.model.ff_mult - 3.0).abs() < f32::EPSILON);
+        assert!(parsed.model.tie_embeddings);
+        assert!((parsed.model.dropout - 0.15).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn parse_model_architecture_rejects_invalid_activation() {
+        let _env_guard = crate::env_guard();
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("bad_arch_config.enk");
+        let config = serde_json::json!({
+            "config_version": 1,
+            "backend": "cpu",
+            "vocab_size": 32000,
+            "hidden_size": 512,
+            "seq_len": 16,
+            "batch_size": 2,
+            "lr": 0.001,
+            "dataset_path": "data.txt",
+            "checkpoint_dir": "ckpt",
+            "max_steps": 2,
+            "tokenizer_train": {"path": "data.txt", "vocab_size": 32000},
+            "model": {
+                "vocab_size": 32000,
+                "hidden_size": 512,
+                "activation": "swish-plus-plus"
+            }
+        });
+        write_config(&config_path, &config).expect("write config");
+        let value = load_config_value(&config_path).expect("load config");
+        let err = parse_train_config(&value).expect_err("invalid activation must fail");
+        assert!(err.contains("activation must be one of"));
     }
 
     #[test]
