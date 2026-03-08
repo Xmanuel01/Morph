@@ -1,0 +1,10 @@
+let payload := "{\"a\":1,\"b\":[1,2,3],\"c\":\"enkai\",\"ok\":true}"
+let i := 0
+let acc := 0
+while i < 120000 ::
+    let row := json.parse(payload)
+    let _text := json.stringify(row)
+    acc := acc + 1
+    i := i + 1
+::
+i == 120000 and acc > 0

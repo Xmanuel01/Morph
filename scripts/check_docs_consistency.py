@@ -98,8 +98,8 @@ def main() -> int:
         failures.append("missing docs/31_v2_rc_notes.md")
     else:
         rc_text = rc_notes.read_text(encoding="utf-8")
-        if "v2.0.0" not in rc_text:
-            failures.append("docs/31_v2_rc_notes.md missing v2.0.0 references")
+        if "v2." not in rc_text:
+            failures.append("docs/31_v2_rc_notes.md missing v2.x references")
         if "strict compatibility" not in rc_text.lower():
             failures.append("docs/31_v2_rc_notes.md missing strict compatibility language")
 

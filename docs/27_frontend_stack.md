@@ -1,6 +1,6 @@
-﻿# Frontend Developer Stack (v2.0.0 contract freeze)
+﻿# Frontend Developer Stack (v2.1.0 contract freeze)
 
-Enkai v2.0.0 keeps frontend scaffolding and typed SDK generation compatibility-frozen with explicit contract snapshots.
+Enkai v2.1.0 keeps frontend scaffolding and typed SDK generation compatibility-frozen with explicit contract snapshots.
 
 ## Commands
 

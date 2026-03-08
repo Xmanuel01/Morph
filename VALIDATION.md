@@ -13,12 +13,12 @@ This file is the strict verification matrix for the v2.x release line.
 
 - [x] Train/Eval config schema v1 enforced:
   - `config_version: 1` required for all runtime-accepted configs.
-  - legacy configs are rejected by default in v2.0.0 strict acceptance path.
+  - legacy configs are rejected by default in v2.1.0 strict acceptance path.
   - `backend`, `dtype`, and `device` validation errors are explicit.
 - [x] Checkpoint format v1 enforced:
   - `format_version: 1` included in metadata.
   - `model_sig`, `dtype`, `device`, `config_hash` in metadata.
-  - legacy checkpoints (missing required v1 metadata) are rejected by default in v2.0.0.
+  - legacy checkpoints (missing required v1 metadata) are rejected by default in v2.1.0.
 - [x] `enkai --version` reports CLI + language version.
 
 ## 1) Real Transformer forward + cross-entropy replaces `forward_l2`

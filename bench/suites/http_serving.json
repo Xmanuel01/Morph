@@ -1,0 +1,28 @@
+{
+  "suite": "http_serving",
+  "description": "In-process HTTP serving and request loop throughput",
+  "cases": [
+    {
+      "id": "http_serve_loop",
+      "description": "Serve local endpoint and run request loop",
+      "enkai_command": [
+        "${PYTHON_EXE}",
+        "bench/python/http_serving_bench.py",
+        "--impl",
+        "enkai",
+        "--enkai-bin",
+        "${ENKAI_BIN}",
+        "--requests",
+        "120"
+      ],
+      "python_command": [
+        "${PYTHON_EXE}",
+        "bench/python/http_serving_bench.py",
+        "--impl",
+        "python",
+        "--requests",
+        "120"
+      ]
+    }
+  ]
+}

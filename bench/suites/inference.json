@@ -1,0 +1,12 @@
+{
+  "suite": "inference",
+  "description": "Token-generation style inference throughput workload",
+  "cases": [
+    {
+      "id": "inference_kernel",
+      "description": "Autoregressive-style token loop",
+      "enkai_command": ["${ENKAI_BIN}", "run", "bench/enkai/kernel_inference.enk"],
+      "python_command": ["${PYTHON_EXE}", "bench/python/kernel_inference.py"]
+    }
+  ]
+}

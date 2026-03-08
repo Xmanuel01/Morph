@@ -1,0 +1,15 @@
+native::import "enkai_native" ::
+    fn buffer_from_string(data: String) -> Buffer
+    fn hash_sha256(data: Buffer) -> Buffer
+    fn buffer_len(data: Buffer) -> Int
+::
+
+let payload := buffer_from_string("enkai benchmark payload")
+let i := 0
+let acc := 0
+while i < 80000 ::
+    let digest := hash_sha256(payload)
+    acc := acc + buffer_len(digest)
+    i := i + 1
+::
+i == 80000 and acc > 0

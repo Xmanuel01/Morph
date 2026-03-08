@@ -11,6 +11,30 @@
 ### Breaking changes
 - None.
 
+## v2.1.0
+
+### Highlights
+- Added benchmark foundation and CLI surface:
+  - `enkai bench run --suite <name> --baseline <python|none> --output <file>`
+  - deterministic benchmark harness + suites under `bench/`
+  - official bounded claim suite: `official_v2_1_0`
+  - pinned Linux/Windows reference machine manifests in `bench/machines/`
+- Added model lifecycle CLI:
+  - `enkai model register|list|promote|retire|rollback`
+  - active-version pointer + checkpoint pointer serving resolution support in `enkai serve`
+- Added additive std modules:
+  - `std::analysis` (CSV/JSONL ingest + schema/filter/project/group/describe/histogram)
+  - `std::algo` (sorting/search/path + ML metric helpers)
+- Added benchmark CI lane (`benchmark-smoke`) with artifact upload.
+
+### Fixes
+- Fixed `scripts/v1_9_release_pipeline.ps1` wrapper argument forwarding for switch parameters.
+- Added regression coverage for new `std::analysis` and `std::algo` module behavior in runtime tests.
+- Updated docs/spec/roadmap to include v2.1.0 benchmark and model-lifecycle contracts.
+
+### Breaking changes
+- None.
+
 ## v2.0.0
 
 ### Highlights

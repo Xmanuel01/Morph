@@ -1,0 +1,12 @@
+{
+  "profile": "linux_ref",
+  "reference_class": "github-hosted",
+  "os": "linux",
+  "os_image": "ubuntu-22.04",
+  "cpu_arch": "x86_64",
+  "python": "3.11.x",
+  "rust_toolchain": "stable",
+  "enkai_profile": "release",
+  "suite": "official_v2_1_0",
+  "notes": "Pinned Linux reference class for bounded Enkai benchmark claims"
+}

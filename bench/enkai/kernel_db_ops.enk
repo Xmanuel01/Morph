@@ -1,0 +1,39 @@
+native::import "enkai_native" ::
+    fn db_sqlite_open(path: String) -> Int
+    fn db_sqlite_close(handle: Int) -> Bool
+    fn db_sqlite_exec(handle: Int, sql: String) -> Int
+    fn db_sqlite_query(handle: Int, sql: String) -> String
+::
+
+policy default ::
+    allow db
+::
+
+fn main() -> Int ::
+    let db_path := "bench/results/enkai_db_ops.sqlite"
+    let h := db_sqlite_open(db_path)
+    if h <= 0 ::
+        return 1
+    ::
+
+    db_sqlite_exec(h, "drop table if exists items")
+    db_sqlite_exec(h, "create table items(id integer primary key, name text)")
+
+    let i := 0
+    while i < 200 ::
+        db_sqlite_exec(h, "insert into items(name) values ('row')")
+        i := i + 1
+    ::
+
+    let raw := db_sqlite_query(h, "select id from items where id = 200")
+    let rows := json.parse(raw)
+    db_sqlite_close(h)
+
+    if rows != [] ::
+        return 0
+    ::
+
+    return 1
+::
+
+main()

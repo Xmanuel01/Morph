@@ -1,0 +1,9 @@
+Enkai benchmark fixture corpus.
+The quick brown fox jumps over the lazy dog.
+Machine learning systems need deterministic pipelines.
+Tokenizer and dataset benchmarks should be reproducible.
+This corpus is intentionally small but non-trivial.
+Repeatability matters for release evidence.
+Enkai focuses on language runtime and LLM workflows.
+Rust fallback remains available during self-host progression.
+Structured logs and metrics improve operator reliability.

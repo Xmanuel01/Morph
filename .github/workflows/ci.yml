@@ -38,6 +38,36 @@ jobs:
       - name: Frontend/Serve contract snapshots
         run: cargo test -p enkai --bin enkai frontend::tests::contract_snapshots_match_reference_files
 
+  benchmark-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build benchmark binary
+        run: cargo build -p enkai
+      - name: Build native benchmark dependency
+        run: cargo build -p enkai_native
+      - name: Run official benchmark suite (single-iteration smoke)
+        run: |
+          cargo run -p enkai -- bench run \
+            --suite official_v2_1_0 \
+            --baseline python \
+            --iterations 1 \
+            --warmup 0 \
+            --machine-profile bench/machines/linux_ref.json \
+            --output bench/results/ci_official_v2_1_0.json \
+            --enkai-bin target/debug/enkai
+      - name: Upload benchmark report
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-official-smoke
+          path: bench/results/ci_official_v2_1_0.json
+          if-no-files-found: error
+
   release-pipeline:
     runs-on: ubuntu-latest
     steps:

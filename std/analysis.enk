@@ -1,0 +1,52 @@
+// std::analysis (v2.1.x)
+
+native::import "enkai_native" ::
+    fn analysis_csv_read(path: String, delimiter: String, has_header: Bool) -> String
+    fn analysis_jsonl_read(path: String) -> String
+    fn analysis_infer_schema(rows_json: String) -> String
+    fn analysis_filter_eq(rows_json: String, field: String, value_json: String) -> String
+    fn analysis_project(rows_json: String, columns_json: String) -> String
+    fn analysis_group_sum(rows_json: String, key: String, field: String) -> String
+    fn analysis_describe(values_json: String) -> String
+    fn analysis_histogram(values_json: String, bins: Int) -> String
+::
+
+pub fn read_csv(path: String, delimiter: String, has_header: Bool) ::
+    let raw := analysis_csv_read(path, delimiter, has_header)
+    return json.parse(raw)
+::
+
+pub fn read_jsonl(path: String) ::
+    let raw := analysis_jsonl_read(path)
+    return json.parse(raw)
+::
+
+pub fn infer_schema(rows) ::
+    let raw := analysis_infer_schema(json.stringify(rows))
+    return json.parse(raw)
+::
+
+pub fn filter_eq(rows, field: String, value) ::
+    let raw := analysis_filter_eq(json.stringify(rows), field, json.stringify(value))
+    return json.parse(raw)
+::
+
+pub fn project(rows, columns) ::
+    let raw := analysis_project(json.stringify(rows), json.stringify(columns))
+    return json.parse(raw)
+::
+
+pub fn group_sum(rows, key: String, field: String) ::
+    let raw := analysis_group_sum(json.stringify(rows), key, field)
+    return json.parse(raw)
+::
+
+pub fn describe(values) ::
+    let raw := analysis_describe(json.stringify(values))
+    return json.parse(raw)
+::
+
+pub fn histogram(values, bins: Int) ::
+    let raw := analysis_histogram(json.stringify(values), bins)
+    return json.parse(raw)
+::

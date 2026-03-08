@@ -1,0 +1,12 @@
+let state := 1337
+let i := 0
+let acc := 0
+
+while i < 500000 ::
+    state := (state * 1103515245 + 12345) % 2147483647
+    let token := state % 32000
+    acc := acc + token
+    i := i + 1
+::
+
+i == 500000 and acc > 0

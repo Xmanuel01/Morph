@@ -3,7 +3,9 @@ use postgres::{types::Type as PgType, Client as PgClient, NoTls};
 use rusqlite::types::ValueRef;
 use rusqlite::Connection;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::cmp::Ordering as CmpOrdering;
+use std::collections::{BinaryHeap, HashMap};
+use std::fs;
 use std::net::{SocketAddr, TcpStream};
 use std::process::{Child, Command, Stdio};
 use std::sync::{
@@ -959,6 +961,726 @@ pub extern "C" fn tls_fetch_server_info(
     }
 }
 
+fn parse_json_numbers(text: &str) -> Option<Vec<f64>> {
+    let value: serde_json::Value = serde_json::from_str(text).ok()?;
+    let arr = value.as_array()?;
+    let mut out = Vec::with_capacity(arr.len());
+    for item in arr {
+        let num = item.as_f64()?;
+        if !num.is_finite() {
+            return None;
+        }
+        out.push(num);
+    }
+    Some(out)
+}
+
+fn parse_json_i64(text: &str) -> Option<Vec<i64>> {
+    let value: serde_json::Value = serde_json::from_str(text).ok()?;
+    let arr = value.as_array()?;
+    let mut out = Vec::with_capacity(arr.len());
+    for item in arr {
+        if let Some(value) = item.as_i64() {
+            out.push(value);
+            continue;
+        }
+        let value = item.as_f64()?;
+        if !value.is_finite() {
+            return None;
+        }
+        out.push(value as i64);
+    }
+    Some(out)
+}
+
+fn json_string(value: serde_json::Value) -> FfiSlice {
+    match serde_json::to_string(&value) {
+        Ok(text) => string_slice(text),
+        Err(_) => null_slice(),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn analysis_csv_read(
+    path_ptr: *const u8,
+    path_len: usize,
+    delimiter_ptr: *const u8,
+    delimiter_len: usize,
+    has_header: u8,
+) -> FfiSlice {
+    let path = match string_from_raw(path_ptr, path_len) {
+        Some(path) => path,
+        None => return null_slice(),
+    };
+    let delimiter_raw =
+        string_from_raw(delimiter_ptr, delimiter_len).unwrap_or_else(|| ",".to_string());
+    let delimiter = delimiter_raw.as_bytes().first().copied().unwrap_or(b',');
+    let mut builder = csv::ReaderBuilder::new();
+    builder.delimiter(delimiter);
+    builder.has_headers(has_header != 0);
+    let mut reader = match builder.from_path(path) {
+        Ok(reader) => reader,
+        Err(_) => return string_slice("[]".to_string()),
+    };
+    let headers: Vec<String> = if has_header != 0 {
+        match reader.headers() {
+            Ok(header) => header.iter().map(|value| value.to_string()).collect(),
+            Err(_) => return string_slice("[]".to_string()),
+        }
+    } else {
+        Vec::new()
+    };
+    let mut out = Vec::new();
+    for (idx, row) in reader.records().enumerate() {
+        let Ok(row) = row else {
+            return string_slice("[]".to_string());
+        };
+        let mut obj = serde_json::Map::new();
+        for (col_idx, value) in row.iter().enumerate() {
+            let key = if has_header != 0 {
+                headers
+                    .get(col_idx)
+                    .cloned()
+                    .unwrap_or_else(|| format!("c{}", col_idx))
+            } else {
+                format!("c{}", col_idx)
+            };
+            obj.insert(key, serde_json::Value::String(value.to_string()));
+        }
+        obj.insert(
+            "_row".to_string(),
+            serde_json::Value::Number((idx as u64).into()),
+        );
+        out.push(serde_json::Value::Object(obj));
+    }
+    json_string(serde_json::Value::Array(out))
+}
+
+#[no_mangle]
+pub extern "C" fn analysis_jsonl_read(path_ptr: *const u8, path_len: usize) -> FfiSlice {
+    let path = match string_from_raw(path_ptr, path_len) {
+        Some(path) => path,
+        None => return null_slice(),
+    };
+    let text = match fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(_) => return string_slice("[]".to_string()),
+    };
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let value: serde_json::Value = match serde_json::from_str(trimmed) {
+            Ok(value) => value,
+            Err(_) => return string_slice("[]".to_string()),
+        };
+        out.push(value);
+    }
+    json_string(serde_json::Value::Array(out))
+}
+
+#[no_mangle]
+pub extern "C" fn analysis_infer_schema(rows_ptr: *const u8, rows_len: usize) -> FfiSlice {
+    let raw = match string_from_raw(rows_ptr, rows_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let rows: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(value) => value,
+        Err(_) => return string_slice("{}".to_string()),
+    };
+    let Some(list) = rows.as_array() else {
+        return string_slice("{}".to_string());
+    };
+    let mut schema = serde_json::Map::new();
+    for row in list {
+        let Some(obj) = row.as_object() else {
+            continue;
+        };
+        for (key, value) in obj {
+            let ty = match value {
+                serde_json::Value::Null => "null",
+                serde_json::Value::Bool(_) => "bool",
+                serde_json::Value::Number(number) => {
+                    if number.is_i64() || number.is_u64() {
+                        "int"
+                    } else {
+                        "float"
+                    }
+                }
+                serde_json::Value::String(_) => "string",
+                serde_json::Value::Array(_) => "array",
+                serde_json::Value::Object(_) => "object",
+            };
+            schema
+                .entry(key.clone())
+                .or_insert_with(|| serde_json::Value::String(ty.to_string()));
+        }
+    }
+    json_string(serde_json::Value::Object(schema))
+}
+
+#[no_mangle]
+pub extern "C" fn analysis_filter_eq(
+    rows_ptr: *const u8,
+    rows_len: usize,
+    field_ptr: *const u8,
+    field_len: usize,
+    value_ptr: *const u8,
+    value_len: usize,
+) -> FfiSlice {
+    let raw_rows = match string_from_raw(rows_ptr, rows_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let field = match string_from_raw(field_ptr, field_len) {
+        Some(field) => field,
+        None => return null_slice(),
+    };
+    let raw_value = match string_from_raw(value_ptr, value_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let rows: serde_json::Value = match serde_json::from_str(&raw_rows) {
+        Ok(value) => value,
+        Err(_) => return string_slice("[]".to_string()),
+    };
+    let value: serde_json::Value = match serde_json::from_str(&raw_value) {
+        Ok(value) => value,
+        Err(_) => return string_slice("[]".to_string()),
+    };
+    let mut out = Vec::new();
+    if let Some(list) = rows.as_array() {
+        for row in list {
+            if row.get(&field) == Some(&value) {
+                out.push(row.clone());
+            }
+        }
+    }
+    json_string(serde_json::Value::Array(out))
+}
+
+#[no_mangle]
+pub extern "C" fn analysis_project(
+    rows_ptr: *const u8,
+    rows_len: usize,
+    columns_ptr: *const u8,
+    columns_len: usize,
+) -> FfiSlice {
+    let raw_rows = match string_from_raw(rows_ptr, rows_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let raw_columns = match string_from_raw(columns_ptr, columns_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let rows: serde_json::Value = match serde_json::from_str(&raw_rows) {
+        Ok(value) => value,
+        Err(_) => return string_slice("[]".to_string()),
+    };
+    let columns: serde_json::Value = match serde_json::from_str(&raw_columns) {
+        Ok(value) => value,
+        Err(_) => return string_slice("[]".to_string()),
+    };
+    let Some(column_list) = columns.as_array() else {
+        return string_slice("[]".to_string());
+    };
+    let mut keys = Vec::new();
+    for key in column_list {
+        if let Some(key) = key.as_str() {
+            keys.push(key.to_string());
+        }
+    }
+    let mut out = Vec::new();
+    if let Some(list) = rows.as_array() {
+        for row in list {
+            let Some(obj) = row.as_object() else {
+                continue;
+            };
+            let mut projected = serde_json::Map::new();
+            for key in &keys {
+                if let Some(value) = obj.get(key) {
+                    projected.insert(key.clone(), value.clone());
+                }
+            }
+            out.push(serde_json::Value::Object(projected));
+        }
+    }
+    json_string(serde_json::Value::Array(out))
+}
+
+#[no_mangle]
+pub extern "C" fn analysis_group_sum(
+    rows_ptr: *const u8,
+    rows_len: usize,
+    key_ptr: *const u8,
+    key_len: usize,
+    field_ptr: *const u8,
+    field_len: usize,
+) -> FfiSlice {
+    let raw_rows = match string_from_raw(rows_ptr, rows_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let key = match string_from_raw(key_ptr, key_len) {
+        Some(key) => key,
+        None => return null_slice(),
+    };
+    let field = match string_from_raw(field_ptr, field_len) {
+        Some(field) => field,
+        None => return null_slice(),
+    };
+    let rows: serde_json::Value = match serde_json::from_str(&raw_rows) {
+        Ok(value) => value,
+        Err(_) => return string_slice("[]".to_string()),
+    };
+    let mut groups: HashMap<String, f64> = HashMap::new();
+    if let Some(list) = rows.as_array() {
+        for row in list {
+            let Some(obj) = row.as_object() else {
+                continue;
+            };
+            let Some(group_value) = obj.get(&key) else {
+                continue;
+            };
+            let Some(sum_value) = obj.get(&field) else {
+                continue;
+            };
+            let group = match group_value {
+                serde_json::Value::String(value) => value.clone(),
+                _ => group_value.to_string(),
+            };
+            let number = sum_value.as_f64().unwrap_or(0.0);
+            let entry = groups.entry(group).or_insert(0.0);
+            *entry += number;
+        }
+    }
+    let mut out = Vec::new();
+    let mut ordered: Vec<(String, f64)> = groups.into_iter().collect();
+    ordered.sort_by(|left, right| left.0.cmp(&right.0));
+    for (group, sum) in ordered {
+        out.push(serde_json::json!({
+            "group": group,
+            "sum": sum
+        }));
+    }
+    json_string(serde_json::Value::Array(out))
+}
+
+#[no_mangle]
+pub extern "C" fn analysis_describe(values_ptr: *const u8, values_len: usize) -> FfiSlice {
+    let raw = match string_from_raw(values_ptr, values_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let mut values = match parse_json_numbers(&raw) {
+        Some(values) => values,
+        None => return string_slice("{}".to_string()),
+    };
+    if values.is_empty() {
+        return string_slice("{}".to_string());
+    }
+    values.sort_by(|left, right| left.partial_cmp(right).unwrap_or(CmpOrdering::Equal));
+    let count = values.len() as f64;
+    let sum: f64 = values.iter().sum();
+    let mean = sum / count;
+    let variance = values
+        .iter()
+        .map(|value| {
+            let diff = *value - mean;
+            diff * diff
+        })
+        .sum::<f64>()
+        / count;
+    let std_dev = variance.sqrt();
+    let min = values[0];
+    let max = values[values.len() - 1];
+    let mid = values.len() / 2;
+    let median = if values.len() % 2 == 0 {
+        (values[mid - 1] + values[mid]) / 2.0
+    } else {
+        values[mid]
+    };
+    json_string(serde_json::json!({
+        "count": values.len(),
+        "mean": mean,
+        "std": std_dev,
+        "min": min,
+        "max": max,
+        "median": median
+    }))
+}
+
+#[no_mangle]
+pub extern "C" fn analysis_histogram(
+    values_ptr: *const u8,
+    values_len: usize,
+    bins: i64,
+) -> FfiSlice {
+    let raw = match string_from_raw(values_ptr, values_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let values = match parse_json_numbers(&raw) {
+        Some(values) => values,
+        None => return string_slice("[]".to_string()),
+    };
+    if values.is_empty() {
+        return string_slice("[]".to_string());
+    }
+    let bins = bins.max(1) as usize;
+    let min = values.iter().fold(
+        f64::INFINITY,
+        |acc, value| if *value < acc { *value } else { acc },
+    );
+    let max = values.iter().fold(
+        f64::NEG_INFINITY,
+        |acc, value| if *value > acc { *value } else { acc },
+    );
+    let width = if max > min {
+        (max - min) / bins as f64
+    } else {
+        1.0
+    };
+    let mut counts = vec![0usize; bins];
+    for value in values {
+        let mut idx = if width == 0.0 {
+            0usize
+        } else {
+            ((value - min) / width).floor() as usize
+        };
+        if idx >= bins {
+            idx = bins - 1;
+        }
+        counts[idx] += 1;
+    }
+    let mut out = Vec::new();
+    for (idx, count) in counts.into_iter().enumerate() {
+        let start = min + (idx as f64) * width;
+        let end = if idx + 1 == bins {
+            max
+        } else {
+            min + ((idx + 1) as f64) * width
+        };
+        out.push(serde_json::json!({
+            "start": start,
+            "end": end,
+            "count": count
+        }));
+    }
+    json_string(serde_json::Value::Array(out))
+}
+
+#[no_mangle]
+pub extern "C" fn algo_sort_ints(values_ptr: *const u8, values_len: usize) -> FfiSlice {
+    let raw = match string_from_raw(values_ptr, values_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let mut values = match parse_json_i64(&raw) {
+        Some(values) => values,
+        None => return string_slice("[]".to_string()),
+    };
+    values.sort_unstable();
+    json_string(serde_json::json!(values))
+}
+
+#[no_mangle]
+pub extern "C" fn algo_binary_search_ints(
+    values_ptr: *const u8,
+    values_len: usize,
+    target: i64,
+) -> i64 {
+    let raw = match string_from_raw(values_ptr, values_len) {
+        Some(raw) => raw,
+        None => return -1,
+    };
+    let values = match parse_json_i64(&raw) {
+        Some(values) => values,
+        None => return -1,
+    };
+    match values.binary_search(&target) {
+        Ok(index) => index as i64,
+        Err(_) => -1,
+    }
+}
+
+#[derive(Debug, Clone)]
+struct DijkstraState {
+    distance: f64,
+    node: String,
+}
+
+impl Eq for DijkstraState {}
+
+impl PartialEq for DijkstraState {
+    fn eq(&self, other: &Self) -> bool {
+        self.distance == other.distance && self.node == other.node
+    }
+}
+
+impl Ord for DijkstraState {
+    fn cmp(&self, other: &Self) -> CmpOrdering {
+        other
+            .distance
+            .partial_cmp(&self.distance)
+            .unwrap_or(CmpOrdering::Equal)
+            .then_with(|| self.node.cmp(&other.node))
+    }
+}
+
+impl PartialOrd for DijkstraState {
+    fn partial_cmp(&self, other: &Self) -> Option<CmpOrdering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn algo_shortest_path_json(
+    edges_ptr: *const u8,
+    edges_len: usize,
+    start_ptr: *const u8,
+    start_len: usize,
+    end_ptr: *const u8,
+    end_len: usize,
+) -> FfiSlice {
+    let raw_edges = match string_from_raw(edges_ptr, edges_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let start = match string_from_raw(start_ptr, start_len) {
+        Some(value) => value,
+        None => return null_slice(),
+    };
+    let end = match string_from_raw(end_ptr, end_len) {
+        Some(value) => value,
+        None => return null_slice(),
+    };
+    let edges: serde_json::Value = match serde_json::from_str(&raw_edges) {
+        Ok(value) => value,
+        Err(_) => return string_slice("{}".to_string()),
+    };
+    let mut adjacency: HashMap<String, Vec<(String, f64)>> = HashMap::new();
+    if let Some(list) = edges.as_array() {
+        for edge in list {
+            let Some(obj) = edge.as_object() else {
+                continue;
+            };
+            let from = match obj.get("from").and_then(|value| value.as_str()) {
+                Some(value) => value.to_string(),
+                None => continue,
+            };
+            let to = match obj.get("to").and_then(|value| value.as_str()) {
+                Some(value) => value.to_string(),
+                None => continue,
+            };
+            let weight = obj
+                .get("weight")
+                .and_then(|value| value.as_f64())
+                .unwrap_or(1.0);
+            adjacency
+                .entry(from.clone())
+                .or_default()
+                .push((to.clone(), weight.max(0.0)));
+            adjacency.entry(to).or_default();
+        }
+    }
+    if !adjacency.contains_key(&start) || !adjacency.contains_key(&end) {
+        return json_string(serde_json::json!({
+            "reachable": false,
+            "distance": null,
+            "path": []
+        }));
+    }
+    let mut distances: HashMap<String, f64> = HashMap::new();
+    let mut parents: HashMap<String, String> = HashMap::new();
+    let mut heap = BinaryHeap::new();
+    distances.insert(start.clone(), 0.0);
+    heap.push(DijkstraState {
+        distance: 0.0,
+        node: start.clone(),
+    });
+    while let Some(state) = heap.pop() {
+        if state.node == end {
+            break;
+        }
+        let Some(current_distance) = distances.get(&state.node).copied() else {
+            continue;
+        };
+        if state.distance > current_distance {
+            continue;
+        }
+        let Some(neighbors) = adjacency.get(&state.node) else {
+            continue;
+        };
+        for (neighbor, weight) in neighbors {
+            let candidate = state.distance + *weight;
+            let best = distances.get(neighbor).copied().unwrap_or(f64::INFINITY);
+            if candidate + f64::EPSILON < best {
+                distances.insert(neighbor.clone(), candidate);
+                parents.insert(neighbor.clone(), state.node.clone());
+                heap.push(DijkstraState {
+                    distance: candidate,
+                    node: neighbor.clone(),
+                });
+            }
+        }
+    }
+    let Some(distance) = distances.get(&end).copied() else {
+        return json_string(serde_json::json!({
+            "reachable": false,
+            "distance": null,
+            "path": []
+        }));
+    };
+    let mut path = vec![end.clone()];
+    let mut cursor = end.clone();
+    while cursor != start {
+        let Some(parent) = parents.get(&cursor) else {
+            break;
+        };
+        path.push(parent.clone());
+        cursor = parent.clone();
+    }
+    path.reverse();
+    json_string(serde_json::json!({
+        "reachable": true,
+        "distance": distance,
+        "path": path
+    }))
+}
+
+#[no_mangle]
+pub extern "C" fn algo_count_frequencies(values_ptr: *const u8, values_len: usize) -> FfiSlice {
+    let raw = match string_from_raw(values_ptr, values_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let values: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(value) => value,
+        Err(_) => return string_slice("{}".to_string()),
+    };
+    let mut counts: HashMap<String, i64> = HashMap::new();
+    if let Some(list) = values.as_array() {
+        for value in list {
+            let key = match value {
+                serde_json::Value::String(value) => value.clone(),
+                _ => value.to_string(),
+            };
+            let entry = counts.entry(key).or_insert(0);
+            *entry += 1;
+        }
+    }
+    let mut ordered: Vec<(String, i64)> = counts.into_iter().collect();
+    ordered.sort_by(|left, right| left.0.cmp(&right.0));
+    let mut map = serde_json::Map::new();
+    for (key, count) in ordered {
+        map.insert(key, serde_json::json!(count));
+    }
+    json_string(serde_json::Value::Object(map))
+}
+
+#[no_mangle]
+pub extern "C" fn algo_window_sum_json(
+    values_ptr: *const u8,
+    values_len: usize,
+    window: i64,
+) -> FfiSlice {
+    let raw = match string_from_raw(values_ptr, values_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let values = match parse_json_numbers(&raw) {
+        Some(values) => values,
+        None => return string_slice("[]".to_string()),
+    };
+    let window = window.max(1) as usize;
+    if values.is_empty() || window > values.len() {
+        return string_slice("[]".to_string());
+    }
+    let mut out = Vec::new();
+    let mut current: f64 = values.iter().take(window).sum();
+    out.push(current);
+    for idx in window..values.len() {
+        current += values[idx];
+        current -= values[idx - window];
+        out.push(current);
+    }
+    json_string(serde_json::json!(out))
+}
+
+#[no_mangle]
+pub extern "C" fn ml_metric_accuracy_json(
+    pred_ptr: *const u8,
+    pred_len: usize,
+    target_ptr: *const u8,
+    target_len: usize,
+) -> f64 {
+    let raw_pred = match string_from_raw(pred_ptr, pred_len) {
+        Some(raw) => raw,
+        None => return f64::NAN,
+    };
+    let raw_target = match string_from_raw(target_ptr, target_len) {
+        Some(raw) => raw,
+        None => return f64::NAN,
+    };
+    let pred = match parse_json_i64(&raw_pred) {
+        Some(values) => values,
+        None => return f64::NAN,
+    };
+    let target = match parse_json_i64(&raw_target) {
+        Some(values) => values,
+        None => return f64::NAN,
+    };
+    if pred.is_empty() || pred.len() != target.len() {
+        return f64::NAN;
+    }
+    let mut correct = 0usize;
+    for (left, right) in pred.iter().zip(target.iter()) {
+        if left == right {
+            correct += 1;
+        }
+    }
+    correct as f64 / pred.len() as f64
+}
+
+#[no_mangle]
+pub extern "C" fn ml_metric_mse_json(
+    pred_ptr: *const u8,
+    pred_len: usize,
+    target_ptr: *const u8,
+    target_len: usize,
+) -> f64 {
+    let raw_pred = match string_from_raw(pred_ptr, pred_len) {
+        Some(raw) => raw,
+        None => return f64::NAN,
+    };
+    let raw_target = match string_from_raw(target_ptr, target_len) {
+        Some(raw) => raw,
+        None => return f64::NAN,
+    };
+    let pred = match parse_json_numbers(&raw_pred) {
+        Some(values) => values,
+        None => return f64::NAN,
+    };
+    let target = match parse_json_numbers(&raw_target) {
+        Some(values) => values,
+        None => return f64::NAN,
+    };
+    if pred.is_empty() || pred.len() != target.len() {
+        return f64::NAN;
+    }
+    let mut mse = 0.0;
+    for (left, right) in pred.iter().zip(target.iter()) {
+        let diff = left - right;
+        mse += diff * diff;
+    }
+    mse / pred.len() as f64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1013,6 +1735,51 @@ mod tests {
         unsafe {
             enkai_free(joined.ptr, joined.len);
             enkai_free(base.ptr, base.len);
+        }
+    }
+
+    #[test]
+    fn analysis_describe_and_histogram_work() {
+        let values = "[1,2,3,4,5]";
+        let describe = analysis_describe(values.as_ptr(), values.len());
+        let describe_text =
+            unsafe { std::str::from_utf8(std::slice::from_raw_parts(describe.ptr, describe.len)) }
+                .unwrap();
+        let describe_json: serde_json::Value = serde_json::from_str(describe_text).unwrap();
+        assert_eq!(describe_json.get("count").and_then(|v| v.as_u64()), Some(5));
+        assert_eq!(
+            describe_json.get("median").and_then(|v| v.as_f64()),
+            Some(3.0)
+        );
+        let histogram = analysis_histogram(values.as_ptr(), values.len(), 2);
+        let histogram_text = unsafe {
+            std::str::from_utf8(std::slice::from_raw_parts(histogram.ptr, histogram.len))
+        }
+        .unwrap();
+        let histogram_json: serde_json::Value = serde_json::from_str(histogram_text).unwrap();
+        assert_eq!(histogram_json.as_array().map(|v| v.len()), Some(2));
+        unsafe {
+            enkai_free(describe.ptr, describe.len);
+            enkai_free(histogram.ptr, histogram.len);
+        }
+    }
+
+    #[test]
+    fn algo_and_ml_metrics_work() {
+        let values = "[5,1,3,2]";
+        let sorted = algo_sort_ints(values.as_ptr(), values.len());
+        let sorted_text =
+            unsafe { std::str::from_utf8(std::slice::from_raw_parts(sorted.ptr, sorted.len)) }
+                .unwrap();
+        assert_eq!(sorted_text, "[1,2,3,5]");
+        let idx = algo_binary_search_ints(sorted_text.as_ptr(), sorted_text.len(), 3);
+        assert_eq!(idx, 2);
+        let accuracy = ml_metric_accuracy_json("[1,0,1]".as_ptr(), 7, "[1,1,1]".as_ptr(), 7);
+        assert!((accuracy - (2.0 / 3.0)).abs() < 1e-6);
+        let mse = ml_metric_mse_json("[1,2,3]".as_ptr(), 7, "[1,2,4]".as_ptr(), 7);
+        assert!((mse - (1.0 / 3.0)).abs() < 1e-6);
+        unsafe {
+            enkai_free(sorted.ptr, sorted.len);
         }
     }
 }

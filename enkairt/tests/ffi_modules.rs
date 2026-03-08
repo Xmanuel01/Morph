@@ -356,3 +356,38 @@ fn std_db_postgres_open_failure_is_none() {
     let value = run_package(temp.path(), "main.enk", source).expect("run");
     assert_eq!(value, Value::Bool(true));
 }
+
+#[test]
+fn std_analysis_csv_group_and_describe() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    copy_std_modules(temp.path());
+    let csv_path = temp.path().join("rows.csv");
+    fs::write(&csv_path, "team,score\nred,10\nblue,5\nred,3\nblue,7\n").expect("write csv");
+    let csv_path = csv_path.to_string_lossy().replace('\\', "/");
+    let source = format!(
+        "import std::analysis\n\
+        let rows := analysis.read_csv(\"{}\", \",\", true)\n\
+        let grouped := analysis.group_sum(rows, \"team\", \"score\")\n\
+        let stats := analysis.describe([10, 5, 3, 7])\n\
+        let nonempty := grouped != []\n\
+        nonempty and stats.count == 4 and stats.max > 9\n",
+        csv_path
+    );
+    let value = run_package(temp.path(), "main.enk", &source).expect("run");
+    assert_eq!(value, Value::Bool(true));
+}
+
+#[test]
+fn std_algo_sort_shortest_path_and_metrics() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    copy_std_modules(temp.path());
+    let source = "import std::algo\n\
+        let sorted := algo.sort_ints([4, 1, 3, 2])\n\
+        let idx := algo.binary_search_ints(sorted, 3)\n\
+        let edges := json.parse(\"[{\\\"from\\\":\\\"a\\\",\\\"to\\\":\\\"b\\\",\\\"weight\\\":1},{\\\"from\\\":\\\"b\\\",\\\"to\\\":\\\"c\\\",\\\"weight\\\":2},{\\\"from\\\":\\\"a\\\",\\\"to\\\":\\\"c\\\",\\\"weight\\\":10}]\")\n\
+        let path := algo.shortest_path(edges, \"a\", \"c\")\n\
+        let acc := algo.accuracy([1, 0, 1], [1, 1, 1])\n\
+        idx == 2 and path.reachable and path.distance > 2 and path.distance < 4 and acc > 0.6\n";
+    let value = run_package(temp.path(), "main.enk", source).expect("run");
+    assert_eq!(value, Value::Bool(true));
+}

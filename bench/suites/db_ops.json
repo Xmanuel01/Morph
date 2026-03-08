@@ -1,0 +1,12 @@
+{
+  "suite": "db_ops",
+  "description": "SQLite operation throughput",
+  "cases": [
+    {
+      "id": "sqlite_ops",
+      "description": "Create, insert, and query SQLite rows",
+      "enkai_command": ["${ENKAI_BIN}", "run", "bench/enkai/kernel_db_ops.enk"],
+      "python_command": ["${PYTHON_EXE}", "bench/python/kernel_db_ops.py"]
+    }
+  ]
+}

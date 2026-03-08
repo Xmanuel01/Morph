@@ -1,0 +1,12 @@
+{
+  "suite": "train_step",
+  "description": "Training-step style scalar optimization workload",
+  "cases": [
+    {
+      "id": "train_step_kernel",
+      "description": "Gradient-descent style training loop",
+      "enkai_command": ["${ENKAI_BIN}", "run", "bench/enkai/kernel_train_step.enk"],
+      "python_command": ["${PYTHON_EXE}", "bench/python/kernel_train_step.py"]
+    }
+  ]
+}

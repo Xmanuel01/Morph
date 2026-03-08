@@ -2,8 +2,22 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.0.0.
+- Current production release line is v2.1.0.
+- v2.1.x is additive/integration work in progress (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v2.1.0 (done)
+- Added benchmark foundation:
+  - `enkai bench run`
+  - deterministic suite harness in `bench/`
+  - machine profiles + structured benchmark artifacts (`bench/results/*.json`)
+- Added model lifecycle CLI foundation:
+  - `enkai model register|list|promote|retire|rollback`
+  - active-version and checkpoint-pointer based serve selection support
+- Added data/algorithm stdlib foundation:
+  - `std::analysis` (CSV/JSONL + schema/filter/project/group/describe/histogram)
+  - `std::algo` (sort/search/path + ML metrics)
+- Added CI benchmark smoke lane (`benchmark-smoke`) for reproducible suite execution.
 
 v2.0.0 (done)
 - Enforced strict train/eval contract checks by default:

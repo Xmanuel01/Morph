@@ -16,9 +16,11 @@ use enkai_compiler::modules::load_package;
 use enkai_compiler::{TypeChecker, TypeError};
 use enkai_runtime::{Value, VM};
 
+mod bench;
 mod bootstrap;
 mod frontend;
 mod migrate;
+mod model;
 mod train;
 
 pub(crate) fn env_guard() -> std::sync::MutexGuard<'static, ()> {
@@ -86,6 +88,8 @@ fn main() {
     let exit_code = match args[1].as_str() {
         "run" => run_command(&args[2..]),
         "serve" => serve_command(&args[2..]),
+        "bench" => bench::bench_command(&args[2..]),
+        "model" => model::model_command(&args[2..]),
         "new" => frontend::new_command(&args[2..]),
         "sdk" => frontend::sdk_command(&args[2..]),
         "fmt-lite" => bootstrap::fmt_lite_command(&args[2..]),
@@ -368,6 +372,8 @@ fn resolve_serve_model_selection(
 
     let version = if let Some(version) = model_version {
         version.to_string()
+    } else if !latest {
+        select_active_or_latest_model_version(&model_root)?
     } else {
         select_latest_model_version(&model_root)?
     };
@@ -382,6 +388,8 @@ fn resolve_serve_model_selection(
     }
     let checkpoint_path = if version_dir.join("checkpoint").exists() {
         canonical_existing_path(&version_dir.join("checkpoint"), "checkpoint directory")?
+    } else if let Some(pointer) = model::resolve_checkpoint_pointer(&version_dir) {
+        canonical_existing_path(&pointer, "checkpoint pointer")?
     } else {
         canonical_existing_path(&version_dir, "model version directory")?
     };
@@ -437,6 +445,15 @@ fn select_latest_model_version(model_root: &Path) -> Result<String, String> {
     versions
         .pop()
         .ok_or_else(|| "failed to select latest model version".to_string())
+}
+
+fn select_active_or_latest_model_version(model_root: &Path) -> Result<String, String> {
+    if let Some(active) = model::read_active_model_version(model_root) {
+        if model_root.join(&active).is_dir() {
+            return Ok(active);
+        }
+    }
+    select_latest_model_version(model_root)
 }
 
 fn compare_version_labels(a: &String, b: &String) -> std::cmp::Ordering {
@@ -791,7 +808,7 @@ fn parse_train_eval_args(command: &str, args: &[String]) -> Result<(PathBuf, boo
             "--lenient-contracts" => {
                 if !allow_legacy {
                     return Err(format!(
-                        "{}: --lenient-contracts is disabled in v2.0.0. Migrate with `enkai migrate config-v1` / `enkai migrate checkpoint-meta-v1`, or set ENKAI_ALLOW_LEGACY_CONTRACTS=1 for temporary recovery.",
+                        "{}: --lenient-contracts is disabled in v2.1.0. Migrate with `enkai migrate config-v1` / `enkai migrate checkpoint-meta-v1`, or set ENKAI_ALLOW_LEGACY_CONTRACTS=1 for temporary recovery.",
                         command
                     ));
                 }
@@ -816,7 +833,7 @@ fn parse_train_eval_args(command: &str, args: &[String]) -> Result<(PathBuf, boo
     }
     let Some(path) = path else {
         return Err(format!(
-            "enkai {} requires a config file (usage: enkai {} <config> [--strict-contracts])",
+            "enkai {} requires a config file (usage: enkai {} <config> [--strict-contracts|--lenient-contracts])",
             command, command
         ));
     };
@@ -922,6 +939,8 @@ fn print_usage() {
     eprintln!(
         "  enkai serve [--host <host>] [--port <port>] [--registry <dir> --model <name> [--model-version <v>|--latest] | --checkpoint <path>] [--trace-vm] [--disasm] [--trace-task] [--trace-net] [file|dir]"
     );
+    bench::print_bench_usage();
+    model::print_model_usage();
     frontend::print_new_usage();
     frontend::print_sdk_usage();
     bootstrap::print_usage();
@@ -1464,6 +1483,55 @@ mod tests {
         assert!(selected
             .checkpoint_path
             .ends_with(std::path::Path::new("chat").join("v1.10.0")));
+    }
+
+    #[test]
+    fn resolve_model_selection_prefers_active_pointer_without_latest_flag() {
+        let dir = tempdir().expect("tempdir");
+        let model_root = dir.path().join("registry").join("chat");
+        fs::create_dir_all(model_root.join("v1.0.0")).expect("v1");
+        fs::create_dir_all(model_root.join("v1.1.0")).expect("v2");
+        fs::write(model_root.join(".active_version"), "v1.0.0\n").expect("active pointer");
+        let selected = resolve_serve_model_selection(
+            None,
+            Some(dir.path().join("registry").to_string_lossy().as_ref()),
+            Some("chat"),
+            None,
+            false,
+        )
+        .expect("selection")
+        .expect("some");
+        assert_eq!(selected.model_version.as_deref(), Some("v1.0.0"));
+    }
+
+    #[test]
+    fn resolve_model_selection_honors_checkpoint_pointer() {
+        let dir = tempdir().expect("tempdir");
+        let registry = dir.path().join("registry");
+        let model_root = registry.join("chat");
+        let version_dir = model_root.join("v2.1.0");
+        fs::create_dir_all(&version_dir).expect("version dir");
+        fs::write(model_root.join(".active_version"), "v2.1.0").expect("active");
+        let checkpoint = dir.path().join("external_ckpt");
+        fs::create_dir_all(&checkpoint).expect("checkpoint dir");
+        fs::write(
+            version_dir.join("checkpoint_path.txt"),
+            checkpoint.to_string_lossy().to_string(),
+        )
+        .expect("pointer");
+        let selected = resolve_serve_model_selection(
+            None,
+            Some(registry.to_string_lossy().as_ref()),
+            Some("chat"),
+            None,
+            false,
+        )
+        .expect("selection")
+        .expect("some");
+        assert_eq!(
+            selected.checkpoint_path,
+            fs::canonicalize(checkpoint).expect("canon")
+        );
     }
 
     #[test]

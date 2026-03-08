@@ -1,4 +1,4 @@
-﻿# Compatibility And Deprecation Policy (v2.0.0)
+﻿# Compatibility And Deprecation Policy (v2.1.0)
 
 ## Scope
 
@@ -13,9 +13,9 @@ This policy defines compatibility guarantees for:
 - Grammar remains frozen at the v0.9.3 baseline for v2.x.
 - `config_version: 1` is the stable train/eval schema for v2.x.
 - Checkpoints with `format_version: 1` are the stable checkpoint format for v2.x.
-- v2.0.0 strict acceptance path:
+- v2.1.0 strict acceptance path:
   - `enkai train` / `enkai eval` reject configs missing `config_version`.
-  - v2.0.0 strict checkpoint loads reject `meta.json` missing `format_version` or required v1 metadata fields.
+  - v2.1.0 strict checkpoint loads reject `meta.json` missing `format_version` or required v1 metadata fields.
 - Temporary legacy recovery remains explicitly gated:
   - `enkai train|eval --lenient-contracts` only when `ENKAI_ALLOW_LEGACY_CONTRACTS=1`.
   - `enkai doctor --lenient` for transition audits.
@@ -34,7 +34,7 @@ This policy defines compatibility guarantees for:
   - target removal version.
 
 Current deprecation notice:
-- Legacy config/checkpoint compatibility is no longer implicit in v2.0.0 runtime acceptance paths.
+- Legacy config/checkpoint compatibility is no longer implicit in v2.1.0 runtime acceptance paths.
 - Migration tooling remains available for controlled recovery and upgrade.
 
 ## Required Compatibility Tests
@@ -76,7 +76,7 @@ Recommended metadata fields in `meta.json`:
 - `dtype`
 - `device`.
 
-When resaving from v2.0.0 train/eval flows, metadata is written in v1 format.
+When resaving from v2.1.0 train/eval flows, metadata is written in v1 format.
 
 
 

@@ -1,0 +1,43 @@
+// std::algo + std::ml utility surface (v2.1.x)
+
+native::import "enkai_native" ::
+    fn algo_sort_ints(values_json: String) -> String
+    fn algo_binary_search_ints(values_json: String, target: Int) -> Int
+    fn algo_shortest_path_json(edges_json: String, start: String, goal: String) -> String
+    fn algo_count_frequencies(values_json: String) -> String
+    fn algo_window_sum_json(values_json: String, window: Int) -> String
+    fn ml_metric_accuracy_json(pred_json: String, target_json: String) -> Float
+    fn ml_metric_mse_json(pred_json: String, target_json: String) -> Float
+::
+
+pub fn sort_ints(values) ::
+    let raw := algo_sort_ints(json.stringify(values))
+    return json.parse(raw)
+::
+
+pub fn binary_search_ints(values, target: Int) -> Int ::
+    return algo_binary_search_ints(json.stringify(values), target)
+::
+
+pub fn shortest_path(edges, start: String, goal: String) ::
+    let raw := algo_shortest_path_json(json.stringify(edges), start, goal)
+    return json.parse(raw)
+::
+
+pub fn count_frequencies(values) ::
+    let raw := algo_count_frequencies(json.stringify(values))
+    return json.parse(raw)
+::
+
+pub fn window_sum(values, window: Int) ::
+    let raw := algo_window_sum_json(json.stringify(values), window)
+    return json.parse(raw)
+::
+
+pub fn accuracy(pred, target) -> Float ::
+    return ml_metric_accuracy_json(json.stringify(pred), json.stringify(target))
+::
+
+pub fn mse(pred, target) -> Float ::
+    return ml_metric_mse_json(json.stringify(pred), json.stringify(target))
+::

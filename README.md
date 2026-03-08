@@ -4,13 +4,16 @@ ENKAI PROGRAMMING LANGUAGE
 Overview
 Enkai is a programming language with block structure defined by :: tokens, a clean
 assignment operator (:=), and an AI-native roadmap (tools, agents, memory, policy).
-This repository contains the v2.0.0 implementation in Rust.
+This repository contains the v2.1.0 implementation in Rust.
 
-Status (v2.0.0)
+Status (v2.1.0)
 - Bytecode VM + globals + type-checking
 - Module system with public/private exports
-- CLI: run/serve/new/sdk/check/fmt/fmt-lite/lint-lite/tokenizer-lite/dataset-lite/litec/build/test/train/eval/migrate/doctor
+- CLI: run/bench/model/serve/new/sdk/check/fmt/fmt-lite/lint-lite/tokenizer-lite/dataset-lite/litec/build/test/train/eval/migrate/doctor
 - FFI runtime + native std modules (fsx/zstd/hash/db/tls)
+- Additive data/algorithm std modules:
+  - `std::analysis` (CSV/JSONL ingest + schema/filter/project/group/describe/histogram)
+  - `std::algo` (sort/search/path + ML metric helpers)
 - Tokenizer + dataset streaming + checkpoints
 - Backend serving stack: routing, middleware/auth/rate-limit, SSE/WebSocket streaming, TLS/SQLite/Postgres helpers
 - Frontend stack: React/TypeScript scaffolds + typed SDK generation
@@ -18,9 +21,14 @@ Status (v2.0.0)
 - Schema-versioned conversation persistence (`schema_version: 1`) with startup migration hook for legacy scaffold state
 - Bootstrap-lite/core toolchain path with `litec` stage0/stage1 bytecode equivalence checks, phase staging (`litec stage`), and self-host CI corpus validation (`litec selfhost-ci`)
 - Self-host replacement-readiness gate with Stage1/Stage2 fixed-point checks (`litec replace-check`)
-- Compatibility/deprecation governance and self-host fallback workflow docs for v2.0.0 release readiness
-- Version-neutral release pipeline, deterministic packaging, checksum verification, SBOM generation, and RC evidence-archive gates for v2.0.0 sign-off
-- Strict-contract enforcement in v2.0.0:
+- Compatibility/deprecation governance and self-host fallback workflow docs for v2.1.0 release readiness
+- Version-neutral release pipeline, deterministic packaging, checksum verification, SBOM generation, and RC evidence-archive gates for v2.1.0 sign-off
+- Benchmark foundation for bounded Enkai-vs-Python claims:
+  - `enkai bench run --suite official_v2_1_0 ...`
+  - deterministic suites under `bench/suites/`
+  - machine profile manifests under `bench/machines/`
+  - structured result artifacts under `bench/results/*.json`
+- Strict-contract enforcement in v2.1.0:
   - `enkai train` / `enkai eval` enforce contract checks by default
   - explicit legacy recovery is gated: `--lenient-contracts` + `ENKAI_ALLOW_LEGACY_CONTRACTS=1`
   - readiness audit: `enkai doctor --json [--strict-contracts|--lenient]`
