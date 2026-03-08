@@ -98,7 +98,31 @@ fn response_body(value: &Value) -> Option<Vec<u8>> {
 }
 
 fn send_raw_request(port: u16, request: &[u8]) -> Vec<u8> {
-    let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+    let mut last_err: Option<std::io::Error> = None;
+    let mut stream_opt = None;
+    for _ in 0..40 {
+        match TcpStream::connect(("127.0.0.1", port)) {
+            Ok(stream) => {
+                stream_opt = Some(stream);
+                break;
+            }
+            Err(err)
+                if err.kind() == std::io::ErrorKind::ConnectionRefused
+                    || err.kind() == std::io::ErrorKind::TimedOut =>
+            {
+                last_err = Some(err);
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+            Err(err) => panic!("connect: {}", err),
+        }
+    }
+    let mut stream = match stream_opt {
+        Some(stream) => stream,
+        None => panic!(
+            "connect: {}",
+            last_err.unwrap_or_else(|| std::io::Error::from(std::io::ErrorKind::ConnectionRefused))
+        ),
+    };
     stream.write_all(request).expect("write");
     let mut buf = Vec::new();
     let mut chunk = [0u8; 1024];
@@ -306,20 +330,14 @@ fn http_stream_sends_chunks() {
     let source = format!(
         "fn handler(req: Request) -> Response ::\n    let headers := json.parse(\"{{\\\"content-type\\\":\\\"text/event-stream\\\"}}\")\n    let s := http.stream_open(200, headers)\n    http.stream_send(s, \"data: one\\n\\n\")\n    http.stream_send(s, \"data: two\\n\\n\")\n    http.stream_close(s)\n    return none\n::\n\
          http.serve(\"127.0.0.1\", {port}, handler)\n\
-         task.sleep(100)\n"
+         let resp := http.get(\"http://127.0.0.1:{port}/\")\n\
+         return resp\n"
     );
-    let server = std::thread::spawn(move || {
-        let _ = run_value(&source);
-    });
-
-    std::thread::sleep(std::time::Duration::from_millis(50));
-    let request = b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
-    let buf = send_raw_request(port, request);
-    let body = String::from_utf8_lossy(&buf);
-    assert!(body.contains("data: one"));
-    assert!(body.contains("data: two"));
-
-    server.join().expect("server");
+    let result = run_value(&source);
+    let body = response_body(&result).expect("body");
+    let body_text = String::from_utf8_lossy(&body);
+    assert!(body_text.contains("data: one"));
+    assert!(body_text.contains("data: two"));
 }
 
 #[test]

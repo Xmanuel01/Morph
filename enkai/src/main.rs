@@ -808,8 +808,9 @@ fn parse_train_eval_args(command: &str, args: &[String]) -> Result<(PathBuf, boo
             "--lenient-contracts" => {
                 if !allow_legacy {
                     return Err(format!(
-                        "{}: --lenient-contracts is disabled in v2.1.0. Migrate with `enkai migrate config-v1` / `enkai migrate checkpoint-meta-v1`, or set ENKAI_ALLOW_LEGACY_CONTRACTS=1 for temporary recovery.",
-                        command
+                        "{}: --lenient-contracts is disabled in v{}. Migrate with `enkai migrate config-v1` / `enkai migrate checkpoint-meta-v1`, or set ENKAI_ALLOW_LEGACY_CONTRACTS=1 for temporary recovery.",
+                        command,
+                        language_version()
                     ));
                 }
                 strict_contracts = false;
@@ -1509,9 +1510,10 @@ mod tests {
         let dir = tempdir().expect("tempdir");
         let registry = dir.path().join("registry");
         let model_root = registry.join("chat");
-        let version_dir = model_root.join("v2.1.0");
+        let version_tag = format!("v{}", env!("CARGO_PKG_VERSION"));
+        let version_dir = model_root.join(&version_tag);
         fs::create_dir_all(&version_dir).expect("version dir");
-        fs::write(model_root.join(".active_version"), "v2.1.0").expect("active");
+        fs::write(model_root.join(".active_version"), &version_tag).expect("active");
         let checkpoint = dir.path().join("external_ckpt");
         fs::create_dir_all(&checkpoint).expect("checkpoint dir");
         fs::write(

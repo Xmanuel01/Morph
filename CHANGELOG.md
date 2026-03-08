@@ -3,6 +3,17 @@
 ## Unreleased
 
 ### Highlights
+- None yet.
+
+### Fixes
+- None yet.
+
+### Breaking changes
+- None.
+
+## v2.1.1
+
+### Highlights
 - Added additive model-architecture training config surface:
   - `model.preset`, `model.ff_mult`, `model.activation`, `model.norm`,
     `model.tie_embeddings`, `model.dropout`
