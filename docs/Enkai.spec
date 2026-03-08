@@ -1,8 +1,8 @@
-﻿# Enkai Language Specification (v0.1 -> v1.9.9)
+﻿# Enkai Language Specification (v0.1 -> v2.0.0)
 
 Status: stable.
 Grammar and CLI contracts are frozen at the v0.9.3 baseline for the v1.x line.
-This document is the normative language and runtime surface for Enkai v1.9.9,
+This document is the normative language and runtime surface for Enkai v2.0.0,
 including compatibility constraints carried from v0.1 onward.
 
 -------------------------------------------------------------------------------
@@ -13,7 +13,7 @@ This specification covers:
 - Core syntax and block rules.
 - Module/import semantics.
 - Type and expression forms supported by parser, checker, compiler, and VM.
-- Built-in runtime modules shipped in v1.9.9.
+- Built-in runtime modules shipped in v2.0.0.
 - CLI entrypoints used in production.
 
 This specification does not claim features that are still stubbed or not yet implemented.
@@ -54,7 +54,7 @@ Compatibility baseline:
   (`use`/`type`/`enum`/`impl` + non-capturing lambda), and self-host CI lane coverage.
 - v1.8: compatibility/deprecation policy, legacy config/checkpoint compatibility
   gates, and documented self-host daily workflow + fallback process.
-- v1.9-v1.9.9: stage1 execution command (`enkai litec run`), unified master pipeline smoke test, GPU evidence verification scripts for operator-run soak gates, frontend/serve contract snapshot freeze with persisted conversation schema v1, deterministic packaging/checksum/SBOM release gates, and RC evidence-archive tooling.
+- v1.9-v2.0.0: stage1 execution command (`enkai litec run`), unified master pipeline smoke test, GPU evidence verification scripts for operator-run soak gates, frontend/serve contract snapshot freeze with persisted conversation schema v1, deterministic packaging/checksum/SBOM release gates, and RC evidence-archive tooling.
 
 Compatibility policy:
 - `.enk` and `.en` are primary source extensions.
@@ -62,7 +62,7 @@ Compatibility policy:
   primary contract unless listed explicitly.
 
 -------------------------------------------------------------------------------
-1.2 Validation Gate Status (v1.9.9)
+1.2 Validation Gate Status (v2.0.0)
 -------------------------------------------------------------------------------
 
 Current verification status:
@@ -276,7 +276,7 @@ Assignment form:
 8. Types
 -------------------------------------------------------------------------------
 
-Core types used in v1.9.9:
+Core types used in v2.0.0:
 - `Int`, `Float`, `Bool`, `String`, `Void`
 - Optional: `T?`
 - Function: `fn(T1, T2) -> R`
@@ -305,7 +305,7 @@ Formatting and tests:
 - Project test runner (`enkai test`) compiles and executes test files.
 
 -------------------------------------------------------------------------------
-10. Built-in Runtime Modules (v1.9.9)
+10. Built-in Runtime Modules (v2.0.0)
 -------------------------------------------------------------------------------
 
 Concurrency:
@@ -398,7 +398,7 @@ Native-backed std modules:
 - `std::tls` (TLS peer certificate fingerprint helper)
 - `std::model_registry` (serve-time env contract helpers)
 
-Tensor backend (`std::tensor`, v1.9.9 surface):
+Tensor backend (`std::tensor`, v2.0.0 surface):
 - device/tensor creation, math ops, shape/dtype/device transforms
 - autograd and optimizer helper APIs
 - AMP scaler/autocast APIs
@@ -415,7 +415,7 @@ Tensor C ABI checkpoint/distributed hooks:
 For full tensor C ABI contracts and safety preconditions, see `docs/tensor_api.md` and `docs/gpu_backend.md`.
 
 -------------------------------------------------------------------------------
-11. CLI Contract (v1.9.9)
+11. CLI Contract (v2.0.0)
 -------------------------------------------------------------------------------
 
 Commands:
@@ -444,6 +444,10 @@ Commands:
 - `enkai migrate config-v1 <in_config.enk> <out_config.enk|out.json>`
 - `enkai migrate checkpoint-meta-v1 <checkpoint_dir> [--dry-run] [--verify] [--strict-contracts]`
 - `enkai doctor [path] [--json] [--strict-contracts|--lenient]`
+
+Contract enforcement note:
+- In v2.0.0, train/eval run strict contracts by default.
+- `--lenient-contracts` requires `ENKAI_ALLOW_LEGACY_CONTRACTS=1`.
 
 Serve model-selection contract:
 - `enkai serve` resolves model paths from either:
@@ -487,8 +491,9 @@ Train/Eval config schema:
 - Optional v1.2+ fields include `world_size`, `rank`, `grad_accum_steps`, `grad_clip_norm`,
   `amp { enabled, dtype, init_scale, growth_factor, backoff_factor, growth_interval }`,
   `shuffle`, and `prefetch_batches`.
-- Legacy configs without `config_version` are accepted with a runtime warning in lenient mode.
-- `--strict-contracts` (or `ENKAI_STRICT_CONTRACTS=1`) rejects missing `config_version` now to preflight v2.0.
+- v2.0.0 strict behavior rejects configs missing `config_version`.
+- Optional legacy recovery mode:
+  - `--lenient-contracts` is accepted only when `ENKAI_ALLOW_LEGACY_CONTRACTS=1`.
 
 Checkpoint format:
 - v1 checkpoints include `format_version: 1` in `meta.json`.
@@ -497,11 +502,11 @@ Checkpoint format:
   - `enkai migrate config-v1` emits canonical v1 config with `config_version: 1`.
   - `enkai migrate checkpoint-meta-v1` upgrades/validates checkpoint `meta.json` files and
     supports `--dry-run`, `--verify`, and strict verification via `--strict-contracts`.
-  - `enkai doctor` scans configs/checkpoints for v2.0 strict-contract blockers (strict by default),
+  - `enkai doctor` scans configs/checkpoints for strict-contract blockers (strict by default),
     with machine-readable output via `--json`.
 
 -------------------------------------------------------------------------------
-12. Known Limits in v1.9.9
+12. Known Limits in v2.0.0
 -------------------------------------------------------------------------------
 
 The following are intentionally not fully implemented yet:
@@ -539,7 +544,7 @@ The following are intentionally not fully implemented yet:
 - `enkai litec replace-check` validates stage0/stage1/stage2 corpus compilation/runtime
   equivalence and reports compiler fixed-point status for the bootstrap subset; it is not
   yet a full replacement for Rust Stage0 compiler releases.
-- v1.9.9 validation note:
+- v2.0.0 validation note:
   - CPU-mode single-device soak requires operator-run evidence on production hardware.
   - CUDA single-GPU long-soak and distributed (2-GPU/4-GPU) reliability remain
     operator-run requirements and are not auto-proven by repository state alone.
@@ -552,7 +557,7 @@ These limits are part of the current stable contract and should be treated as pr
 13. Change Control
 -------------------------------------------------------------------------------
 
-For any language/runtime surface change after v1.9.9:
+For any language/runtime surface change after v2.0.0:
 1) Implement the change and add/adjust compiler/runtime tests.
 2) Update this specification to match the shipped behavior.
 3) Update changelog and targeted docs (`docs/xx_*.md`, `docs/tensor_api.md`, etc.).

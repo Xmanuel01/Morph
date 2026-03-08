@@ -746,9 +746,9 @@ fn train_command(args: &[String]) -> i32 {
         }
     };
     let result = if strict_contracts {
-        train::train_with_contract_mode(&path, true)
-    } else {
         train::train(&path)
+    } else {
+        train::train_with_contract_mode(&path, false)
     };
     match result {
         Ok(_) => 0,
@@ -768,9 +768,9 @@ fn eval_command(args: &[String]) -> i32 {
         }
     };
     let result = if strict_contracts {
-        train::eval_with_contract_mode(&path, true)
-    } else {
         train::eval(&path)
+    } else {
+        train::eval_with_contract_mode(&path, false)
     };
     match result {
         Ok(_) => 0,
@@ -783,11 +783,20 @@ fn eval_command(args: &[String]) -> i32 {
 
 fn parse_train_eval_args(command: &str, args: &[String]) -> Result<(PathBuf, bool), String> {
     let mut path: Option<PathBuf> = None;
-    let mut strict_contracts = strict_contracts_from_env();
+    let mut strict_contracts = true;
+    let allow_legacy = allow_legacy_contracts_from_env();
     for arg in args {
         match arg.as_str() {
             "--strict-contracts" => strict_contracts = true,
-            "--lenient-contracts" => strict_contracts = false,
+            "--lenient-contracts" => {
+                if !allow_legacy {
+                    return Err(format!(
+                        "{}: --lenient-contracts is disabled in v2.0.0. Migrate with `enkai migrate config-v1` / `enkai migrate checkpoint-meta-v1`, or set ENKAI_ALLOW_LEGACY_CONTRACTS=1 for temporary recovery.",
+                        command
+                    ));
+                }
+                strict_contracts = false;
+            }
             _ if arg.starts_with('-') => {
                 return Err(format!(
                     "Unknown {} option: {} (supported: --strict-contracts, --lenient-contracts)",
@@ -814,8 +823,8 @@ fn parse_train_eval_args(command: &str, args: &[String]) -> Result<(PathBuf, boo
     Ok((path, strict_contracts))
 }
 
-fn strict_contracts_from_env() -> bool {
-    match env::var("ENKAI_STRICT_CONTRACTS") {
+fn allow_legacy_contracts_from_env() -> bool {
+    match env::var("ENKAI_ALLOW_LEGACY_CONTRACTS") {
         Ok(value) => {
             let normalized = value.trim().to_ascii_lowercase();
             matches!(normalized.as_str(), "1" | "true" | "yes" | "on")
@@ -920,8 +929,8 @@ fn print_usage() {
     eprintln!("  enkai fmt [--check] <file|dir>");
     eprintln!("  enkai build [dir]");
     eprintln!("  enkai test [dir]");
-    eprintln!("  enkai train <config.enk> [--strict-contracts]");
-    eprintln!("  enkai eval <config.enk> [--strict-contracts]");
+    eprintln!("  enkai train <config.enk> [--strict-contracts|--lenient-contracts]");
+    eprintln!("  enkai eval <config.enk> [--strict-contracts|--lenient-contracts]");
     migrate::print_usage();
 }
 
@@ -1479,17 +1488,45 @@ mod tests {
     }
 
     #[test]
-    fn parse_train_eval_args_reads_env_default() {
-        let _guard = env_guard();
-        let prev = env::var("ENKAI_STRICT_CONTRACTS").ok();
-        env::set_var("ENKAI_STRICT_CONTRACTS", "1");
+    fn parse_train_eval_args_defaults_to_strict() {
         let parsed = parse_train_eval_args("eval", &["cfg.enk".to_string()]).expect("parse");
-        if let Some(value) = prev {
-            env::set_var("ENKAI_STRICT_CONTRACTS", value);
-        } else {
-            env::remove_var("ENKAI_STRICT_CONTRACTS");
-        }
         assert!(parsed.1);
+    }
+
+    #[test]
+    fn parse_train_eval_args_rejects_lenient_without_gate() {
+        let _guard = env_guard();
+        let prev = env::var("ENKAI_ALLOW_LEGACY_CONTRACTS").ok();
+        env::remove_var("ENKAI_ALLOW_LEGACY_CONTRACTS");
+        let err = parse_train_eval_args(
+            "train",
+            &["cfg.enk".to_string(), "--lenient-contracts".to_string()],
+        )
+        .expect_err("must reject");
+        assert!(err.contains("ENKAI_ALLOW_LEGACY_CONTRACTS=1"));
+        if let Some(value) = prev {
+            env::set_var("ENKAI_ALLOW_LEGACY_CONTRACTS", value);
+        } else {
+            env::remove_var("ENKAI_ALLOW_LEGACY_CONTRACTS");
+        }
+    }
+
+    #[test]
+    fn parse_train_eval_args_allows_lenient_with_gate() {
+        let _guard = env_guard();
+        let prev = env::var("ENKAI_ALLOW_LEGACY_CONTRACTS").ok();
+        env::set_var("ENKAI_ALLOW_LEGACY_CONTRACTS", "1");
+        let parsed = parse_train_eval_args(
+            "eval",
+            &["cfg.enk".to_string(), "--lenient-contracts".to_string()],
+        )
+        .expect("parse");
+        if let Some(value) = prev {
+            env::set_var("ENKAI_ALLOW_LEGACY_CONTRACTS", value);
+        } else {
+            env::remove_var("ENKAI_ALLOW_LEGACY_CONTRACTS");
+        }
+        assert!(!parsed.1);
     }
 
     #[test]

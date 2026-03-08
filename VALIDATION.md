@@ -1,6 +1,6 @@
-# Release Validation Matrix (v1.9.x)
+# Release Validation Matrix (v2.x)
 
-This file is the strict verification matrix for the v1.9.x release line.
+This file is the strict verification matrix for the v2.x release line.
 
 ## Current Gate State
 
@@ -9,15 +9,16 @@ This file is the strict verification matrix for the v1.9.x release line.
 - 2-GPU correctness gate: pending operator run.
 - 4-GPU soak gate: pending operator run.
 
-## 0) v1.0 format contracts (config + checkpoints + CLI)
+## 0) v2.0 contract enforcement (config + checkpoints + CLI)
 
 - [x] Train/Eval config schema v1 enforced:
-  - `config_version: 1` required for v1 configs, legacy configs still load.
+  - `config_version: 1` required for all runtime-accepted configs.
+  - legacy configs are rejected by default in v2.0.0 strict acceptance path.
   - `backend`, `dtype`, and `device` validation errors are explicit.
 - [x] Checkpoint format v1 enforced:
   - `format_version: 1` included in metadata.
   - `model_sig`, `dtype`, `device`, `config_hash` in metadata.
-  - legacy checkpoints (missing format_version) are accepted.
+  - legacy checkpoints (missing required v1 metadata) are rejected by default in v2.0.0.
 - [x] `enkai --version` reports CLI + language version.
 
 ## 1) Real Transformer forward + cross-entropy replaces `forward_l2`

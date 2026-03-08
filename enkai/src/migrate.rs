@@ -147,9 +147,9 @@ fn run_doctor(root: &Path, strict_contracts: bool) -> DoctorReport {
                     ));
                 }
                 let validation = if strict_contracts {
-                    train::validate_train_config_with_mode(&config, false, true)
-                } else {
                     train::validate_train_config(&config, false)
+                } else {
+                    train::validate_train_config_with_mode(&config, false, false)
                 };
                 if let Err(err) = validation {
                     blockers.push(format!(

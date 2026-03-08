@@ -10,9 +10,9 @@ function Usage {
     Write-Host "  scripts\\release.ps1 -Version vX.Y.Z [-SkipTests] [-Push] [-AllowDirty]"
     Write-Host ""
     Write-Host "Examples:"
-    Write-Host "  scripts\\release.ps1 -Version v1.9.9"
-    Write-Host "  scripts\\release.ps1 -Version v1.9.9 -SkipTests"
-    Write-Host "  scripts\\release.ps1 -Version v1.9.9 -Push"
+    Write-Host "  scripts\\release.ps1 -Version v2.0.0"
+    Write-Host "  scripts\\release.ps1 -Version v2.0.0 -SkipTests"
+    Write-Host "  scripts\\release.ps1 -Version v2.0.0 -Push"
 }
 
 if ($Version -notmatch '^v\d+\.\d+\.\d+$') {

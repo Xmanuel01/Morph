@@ -11,6 +11,26 @@
 ### Breaking changes
 - None.
 
+## v2.0.0
+
+### Highlights
+- Strict contracts are now enforced by default on train/eval runtime acceptance paths.
+- Added explicit legacy-recovery gate for operators:
+  - `--lenient-contracts` requires `ENKAI_ALLOW_LEGACY_CONTRACTS=1`.
+- Added release-line RC wrappers:
+  - `scripts/v2_0_0_rc_pipeline.ps1`
+  - `scripts/v2_0_0_rc_pipeline.sh`
+- Version line advanced to `2.0.0` across workspace crates.
+
+### Fixes
+- Hardened strict-checkpoint enforcement and migration/doctor parity behavior.
+- Added regression tests for strict defaults and lenient-gate behavior.
+- Updated spec/docs/release metadata for the v2.0.0 stability cut.
+
+### Breaking changes
+- `enkai train` / `enkai eval` now reject configs without `config_version` by default.
+- Checkpoint loads now reject missing required v1 metadata by default.
+
 ## v1.9.9
 
 ### Highlights

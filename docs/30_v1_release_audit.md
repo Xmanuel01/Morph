@@ -1,12 +1,12 @@
-# Enkai v1.0.0-v1.9.9 Delivery And Production-Grade Audit
+# Enkai v1.0.0-v2.0.0 Delivery And Production-Grade Audit
 
 ## Purpose
 
-This document records what shipped from `v1.0.0` through `v1.9.9` and the current production-readiness status.
+This document records what shipped from `v1.0.0` through `v2.0.0` and the current production-readiness status.
 
 ## Source of truth used for this record
 
-- Git tags: `v1.0.0` through `v1.9.9`.
+- Git tags: `v1.0.0` through `v2.0.0`.
 - `CHANGELOG.md`.
 - `docs/Enkai.spec` compatibility and runtime sections.
 - `VALIDATION.md`.
@@ -14,7 +14,7 @@ This document records what shipped from `v1.0.0` through `v1.9.9` and the curren
 - Release pipeline run on `2026-03-07`:
   - `powershell -ExecutionPolicy Bypass -File scripts/release_pipeline.ps1`
 
-## Release ledger (v1.0.0-v1.9.9)
+## Release ledger (v1.0.0-v2.0.0)
 
 ### v1.0.0 - Production core freeze
 
@@ -211,20 +211,20 @@ This document records what shipped from `v1.0.0` through `v1.9.9` and the curren
   - deterministic archive checks (`--check-deterministic`)
   - SBOM artifact generation.
 
-### v1.9.9 - Strict-contract preflight hardening
+### v2.0.0 - Stability cut (strict contracts enforced)
 
-- Added strict-contract execution controls before the v2.0 break:
-  - `enkai train <config> --strict-contracts`
-  - `enkai eval <config> --strict-contracts`
-  - `ENKAI_STRICT_CONTRACTS=1` environment default
-- Hardened checkpoint compatibility preflight:
-  - strict mode rejects legacy checkpoint metadata missing `format_version` or required contract keys
-  - `enkai migrate checkpoint-meta-v1 <dir> --verify --strict-contracts`
-- Hardened readiness scanning:
-  - `enkai doctor` now runs strict-by-default contract checks for v2.0 readiness
-  - `enkai doctor --json` machine-readable report mode
-  - `enkai doctor --lenient` transition audit mode for non-blocking scans
-- Added strict contract regression coverage in `enkai/src/train.rs` and `enkai/src/migrate.rs` tests.
+- Enforced strict contracts on default train/eval acceptance paths:
+  - configs missing `config_version` are rejected.
+  - checkpoints missing required v1 metadata are rejected.
+- Added explicit temporary recovery path for operators:
+  - `--lenient-contracts` on train/eval requires `ENKAI_ALLOW_LEGACY_CONTRACTS=1`.
+- Hardened migration/readiness tooling:
+  - `enkai migrate checkpoint-meta-v1 --verify --strict-contracts`
+  - `enkai doctor --json` strict-by-default machine-readable report
+- Added release-line wrappers:
+  - `scripts/v2_0_0_rc_pipeline.ps1`
+  - `scripts/v2_0_0_rc_pipeline.sh`
+- Added strict contract regression coverage in `enkai/src/train.rs`, `enkai/src/migrate.rs`, and `enkai/src/main.rs`.
 
 ## Production-grade audit status
 
@@ -254,6 +254,6 @@ Run executed on `2026-03-07`:
 
 ## Final readiness verdict
 
-- `v1.0.0` through `v1.9.9` are documented and implementation-backed in this repository.
+- `v1.0.0` through `v2.0.0` are documented and implementation-backed in this repository.
 - Current state is production-grade for CPU/non-GPU and self-host replacement-readiness gates.
 - Final all-target hardware production sign-off remains blocked only by operator GPU evidence.

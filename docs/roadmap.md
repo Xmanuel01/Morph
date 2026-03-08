@@ -2,17 +2,18 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v1.9.9.
+- Current production release line is v2.0.0.
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
 
-v1.9.9 (done)
-- Added strict-contract preflight controls for train/eval commands:
+v2.0.0 (done)
+- Enforced strict train/eval contract checks by default:
   - `enkai train <config> --strict-contracts`
   - `enkai eval <config> --strict-contracts`
-  - optional env default: `ENKAI_STRICT_CONTRACTS=1`
+  - default behavior is strict in v2.0.0
+  - temporary legacy recovery is explicit: `--lenient-contracts` with `ENKAI_ALLOW_LEGACY_CONTRACTS=1`
 - Added compatibility wrappers for this release line:
-  - `scripts/v1_9_9_rc_pipeline.ps1`
-  - `scripts/v1_9_9_rc_pipeline.sh`
+  - `scripts/v2_0_0_rc_pipeline.ps1`
+  - `scripts/v2_0_0_rc_pipeline.sh`
 - Added strict checkpoint-meta verification mode:
   - `enkai migrate checkpoint-meta-v1 <checkpoint_dir> --verify --strict-contracts`
 - Hardened doctor command for machine and operator workflows:

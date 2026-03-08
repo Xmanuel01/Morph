@@ -407,13 +407,13 @@ struct LogEvent {
 fn emit_legacy_config_warning(config_path: &Path) {
     eprintln!(
         "Warning: config {} is using legacy schema without config_version. \
-Set config_version = 1 to stay on the stable contract. Legacy parsing is planned for removal in v2.0.",
+In v2.0.0 strict mode this is rejected by default. Migrate with `enkai migrate config-v1`.",
         config_path.display()
     );
 }
 
 pub fn train(config_path: &Path) -> Result<(), String> {
-    train_with_contract_mode(config_path, false)
+    train_with_contract_mode(config_path, true)
 }
 
 pub fn train_with_contract_mode(config_path: &Path, strict_contracts: bool) -> Result<(), String> {
@@ -725,7 +725,7 @@ pub fn train_with_contract_mode(config_path: &Path, strict_contracts: bool) -> R
 }
 
 pub fn eval(config_path: &Path) -> Result<(), String> {
-    eval_with_contract_mode(config_path, false)
+    eval_with_contract_mode(config_path, true)
 }
 
 pub fn eval_with_contract_mode(config_path: &Path, strict_contracts: bool) -> Result<(), String> {
@@ -841,7 +841,7 @@ pub(crate) fn load_config_json(path: &Path) -> Result<serde_json::Value, String>
 }
 
 pub(crate) fn validate_train_config(path: &Path, enforce_dist_env: bool) -> Result<(), String> {
-    validate_train_config_with_mode(path, enforce_dist_env, false)
+    validate_train_config_with_mode(path, enforce_dist_env, true)
 }
 
 pub(crate) fn validate_train_config_with_mode(
@@ -900,7 +900,7 @@ fn load_config_value(path: &Path) -> Result<Value, String> {
 
 #[cfg(test)]
 fn parse_train_config(value: &Value) -> Result<TrainConfig, String> {
-    parse_train_config_with_mode(value, false)
+    parse_train_config_with_mode(value, true)
 }
 
 fn parse_train_config_with_mode(
@@ -1997,7 +1997,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_config_without_config_version_still_trains() {
+    fn legacy_config_without_config_version_loads_in_lenient_mode() {
         let dir = tempdir().expect("tempdir");
         let data = dir.path().join("legacy_data.txt");
         fs::write(&data, "alpha beta gamma\ndelta epsilon").expect("write data");
@@ -2018,7 +2018,7 @@ mod tests {
             "tokenizer_train": { "path": data.to_string_lossy(), "vocab_size": 8 }
         });
         write_config(&config_path, &config).expect("write config");
-        train(&config_path).expect("legacy train");
+        train_with_contract_mode(&config_path, false).expect("legacy train");
         let latest = latest_checkpoint(&ckpt)
             .expect("latest lookup")
             .expect("checkpoint path");
@@ -2026,7 +2026,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_checkpoint_meta_without_format_version_loads() {
+    fn legacy_checkpoint_meta_without_format_version_loads_in_lenient_mode() {
         let dir = tempdir().expect("tempdir");
         let data = dir.path().join("compat_data.txt");
         fs::write(&data, "alpha beta gamma\ndelta epsilon").expect("write data");
@@ -2064,7 +2064,7 @@ mod tests {
             serde_json::to_string_pretty(&meta_json).expect("serialize meta"),
         )
         .expect("write meta");
-        eval(&config_path).expect("legacy checkpoint eval");
+        eval_with_contract_mode(&config_path, false).expect("legacy checkpoint eval");
     }
 
     #[test]

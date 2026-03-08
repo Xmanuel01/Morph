@@ -4,9 +4,9 @@ ENKAI PROGRAMMING LANGUAGE
 Overview
 Enkai is a programming language with block structure defined by :: tokens, a clean
 assignment operator (:=), and an AI-native roadmap (tools, agents, memory, policy).
-This repository contains the v1.9.9 implementation in Rust.
+This repository contains the v2.0.0 implementation in Rust.
 
-Status (v1.9.9)
+Status (v2.0.0)
 - Bytecode VM + globals + type-checking
 - Module system with public/private exports
 - CLI: run/serve/new/sdk/check/fmt/fmt-lite/lint-lite/tokenizer-lite/dataset-lite/litec/build/test/train/eval/migrate/doctor
@@ -18,15 +18,15 @@ Status (v1.9.9)
 - Schema-versioned conversation persistence (`schema_version: 1`) with startup migration hook for legacy scaffold state
 - Bootstrap-lite/core toolchain path with `litec` stage0/stage1 bytecode equivalence checks, phase staging (`litec stage`), and self-host CI corpus validation (`litec selfhost-ci`)
 - Self-host replacement-readiness gate with Stage1/Stage2 fixed-point checks (`litec replace-check`)
-- Compatibility/deprecation governance and self-host fallback workflow docs for v1.9.9 release readiness
-- Version-neutral release pipeline, deterministic packaging, checksum verification, SBOM generation, and RC evidence-archive gates for v1.9.9 sign-off
-- Strict-contract preflight controls for v2.0 readiness:
-  - `enkai train <config> --strict-contracts`
-  - `enkai eval <config> --strict-contracts`
-  - `enkai doctor --json [--strict-contracts|--lenient]`
+- Compatibility/deprecation governance and self-host fallback workflow docs for v2.0.0 release readiness
+- Version-neutral release pipeline, deterministic packaging, checksum verification, SBOM generation, and RC evidence-archive gates for v2.0.0 sign-off
+- Strict-contract enforcement in v2.0.0:
+  - `enkai train` / `enkai eval` enforce contract checks by default
+  - explicit legacy recovery is gated: `--lenient-contracts` + `ENKAI_ALLOW_LEGACY_CONTRACTS=1`
+  - readiness audit: `enkai doctor --json [--strict-contracts|--lenient]`
 
 Workspace structure
-- enkaic: compiler front-end (lexer/parser/AST/type-check stubs)
+- enkaic: compiler front-end (lexer/parser/AST + production type-checking)
 - enkairt: bytecode VM runtime (production) + legacy tree-walk interpreter (non-production/reference)
 - enkai: CLI wrapper
 

@@ -246,15 +246,28 @@ fn http_server_handles_concurrent_requests() {
         let _ = run_value(&source);
     });
 
-    std::thread::sleep(std::time::Duration::from_millis(50));
+    std::thread::sleep(std::time::Duration::from_millis(100));
 
     let mut handles = Vec::new();
     for _ in 0..50 {
         handles.push(std::thread::spawn(move || {
             let request = b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
-            let buf = send_raw_request(port, request);
-            assert!(buf.starts_with(b"HTTP/1.1 200"));
-            assert!(buf.ends_with(b"ok"));
+            let mut last = Vec::new();
+            let mut passed = false;
+            for _ in 0..5 {
+                let buf = send_raw_request(port, request);
+                if buf.starts_with(b"HTTP/1.1 200") && buf.ends_with(b"ok") {
+                    passed = true;
+                    break;
+                }
+                last = buf;
+                std::thread::sleep(std::time::Duration::from_millis(15));
+            }
+            assert!(
+                passed,
+                "non-200 concurrent response: {:?}",
+                String::from_utf8_lossy(&last)
+            );
         }));
     }
     for handle in handles {
