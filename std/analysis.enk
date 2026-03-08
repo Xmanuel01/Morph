@@ -4,11 +4,18 @@ native::import "enkai_native" ::
     fn analysis_csv_read(path: String, delimiter: String, has_header: Bool) -> String
     fn analysis_jsonl_read(path: String) -> String
     fn analysis_infer_schema(rows_json: String) -> String
+    fn analysis_infer_schema_typed(rows_json: String) -> String
+    fn analysis_validate_schema(rows_json: String, schema_json: String) -> String
     fn analysis_filter_eq(rows_json: String, field: String, value_json: String) -> String
     fn analysis_project(rows_json: String, columns_json: String) -> String
     fn analysis_group_sum(rows_json: String, key: String, field: String) -> String
+    fn analysis_group_agg(rows_json: String, key: String, field: String, agg: String) -> String
+    fn analysis_join(left_rows_json: String, right_rows_json: String, left_key: String, right_key: String, how: String) -> String
     fn analysis_describe(values_json: String) -> String
     fn analysis_histogram(values_json: String, bins: Int) -> String
+    fn analysis_quantiles(values_json: String, quantiles_json: String) -> String
+    fn analysis_rolling_mean(values_json: String, window: Int) -> String
+    fn analysis_pipeline_run(rows_json: String, pipeline_json: String) -> String
 ::
 
 pub fn read_csv(path: String, delimiter: String, has_header: Bool) ::
@@ -23,6 +30,16 @@ pub fn read_jsonl(path: String) ::
 
 pub fn infer_schema(rows) ::
     let raw := analysis_infer_schema(json.stringify(rows))
+    return json.parse(raw)
+::
+
+pub fn infer_schema_typed(rows) ::
+    let raw := analysis_infer_schema_typed(json.stringify(rows))
+    return json.parse(raw)
+::
+
+pub fn validate_schema(rows, schema) ::
+    let raw := analysis_validate_schema(json.stringify(rows), json.stringify(schema))
     return json.parse(raw)
 ::
 
@@ -41,6 +58,22 @@ pub fn group_sum(rows, key: String, field: String) ::
     return json.parse(raw)
 ::
 
+pub fn group_agg(rows, key: String, field: String, agg: String) ::
+    let raw := analysis_group_agg(json.stringify(rows), key, field, agg)
+    return json.parse(raw)
+::
+
+pub fn join(left_rows, right_rows, left_key: String, right_key: String, how: String) ::
+    let raw := analysis_join(
+        json.stringify(left_rows),
+        json.stringify(right_rows),
+        left_key,
+        right_key,
+        how
+    )
+    return json.parse(raw)
+::
+
 pub fn describe(values) ::
     let raw := analysis_describe(json.stringify(values))
     return json.parse(raw)
@@ -48,5 +81,20 @@ pub fn describe(values) ::
 
 pub fn histogram(values, bins: Int) ::
     let raw := analysis_histogram(json.stringify(values), bins)
+    return json.parse(raw)
+::
+
+pub fn quantiles(values, quantiles) ::
+    let raw := analysis_quantiles(json.stringify(values), json.stringify(quantiles))
+    return json.parse(raw)
+::
+
+pub fn rolling_mean(values, window: Int) ::
+    let raw := analysis_rolling_mean(json.stringify(values), window)
+    return json.parse(raw)
+::
+
+pub fn run_pipeline(rows, pipeline) ::
+    let raw := analysis_pipeline_run(json.stringify(rows), json.stringify(pipeline))
     return json.parse(raw)
 ::

@@ -378,6 +378,26 @@ fn std_analysis_csv_group_and_describe() {
 }
 
 #[test]
+fn std_analysis_schema_join_and_pipeline() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    copy_std_modules(temp.path());
+    let source = "import std::analysis\n\
+        let rows := json.parse(\"[{\\\"team\\\":\\\"red\\\",\\\"score\\\":\\\"10\\\"},{\\\"team\\\":\\\"blue\\\",\\\"score\\\":\\\"5\\\"},{\\\"team\\\":\\\"red\\\",\\\"score\\\":\\\"3\\\"}]\")\n\
+        let schema := json.parse(\"{\\\"team\\\":\\\"string\\\",\\\"score\\\":{\\\"type\\\":\\\"int\\\"}}\")\n\
+        let checked := analysis.validate_schema(rows, schema)\n\
+        let inferred := analysis.infer_schema_typed(checked.rows)\n\
+        let right := json.parse(\"[{\\\"team\\\":\\\"red\\\",\\\"region\\\":\\\"west\\\"},{\\\"team\\\":\\\"blue\\\",\\\"region\\\":\\\"east\\\"}]\")\n\
+        let joined := analysis.join(checked.rows, right, \"team\", \"team\", \"inner\")\n\
+        let quant := analysis.quantiles([1,2,3,4,5], [0.5, 0.9])\n\
+        let rolling := analysis.rolling_mean([1,2,3,4], 2)\n\
+        let pipeline := json.parse(\"{\\\"name\\\":\\\"sum_by_team\\\",\\\"stages\\\":[{\\\"op\\\":\\\"group_agg\\\",\\\"key\\\":\\\"team\\\",\\\"field\\\":\\\"score\\\",\\\"agg\\\":\\\"sum\\\"}]}\")\n\
+        let run := analysis.run_pipeline(checked.rows, pipeline)\n\
+        checked.ok and inferred.schema_version == 1 and joined != [] and quant != [] and rolling != [] and run.manifest.schema_version == 1 and run.manifest.stage_count == 1\n";
+    let value = run_package(temp.path(), "main.enk", source).expect("run");
+    assert_eq!(value, Value::Bool(true));
+}
+
+#[test]
 fn std_algo_sort_shortest_path_and_metrics() {
     let temp = tempfile::tempdir().expect("tempdir");
     copy_std_modules(temp.path());

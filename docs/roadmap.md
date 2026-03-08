@@ -2,9 +2,17 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.1.3.
+- Current production release line is v2.1.4.
 - v2.1.x is additive/integration work in progress (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v2.1.4 (done)
+- Completed additive data-analysis stack hardening:
+  - typed schema inference + validation/casting reports
+  - deterministic tabular joins and generalized group aggregations
+  - quantile and rolling-stat primitives for numeric analysis
+  - deterministic analysis pipeline execution with reproducibility manifest + hashes
+- Added native/runtime coverage for analysis schema/join/pipeline/summary paths.
 
 v2.1.3 (done)
 - Hardened serving/runtime contract without syntax changes:

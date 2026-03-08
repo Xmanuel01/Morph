@@ -11,6 +11,31 @@
 ### Breaking changes
 - None.
 
+## v2.1.4
+
+### Highlights
+- Completed additive `std::analysis` expansion for v2.1.4:
+  - typed schema inference: `analysis.infer_schema_typed(rows)`
+  - schema validation/casting report: `analysis.validate_schema(rows, schema)`
+  - tabular join primitive: `analysis.join(left, right, left_key, right_key, how)`
+  - generalized group aggregation: `analysis.group_agg(rows, key, field, agg)`
+  - quantile summaries: `analysis.quantiles(values, quantiles)`
+  - rolling statistics baseline: `analysis.rolling_mean(values, window)`
+  - deterministic pipeline execution with manifest output:
+    `analysis.run_pipeline(rows, pipeline)`
+- Native analysis runtime (`enkai_native`) now emits reproducibility metadata for pipeline runs:
+  - `schema_version`
+  - stage-level input/output row counts
+  - `pipeline_hash` + `output_hash`
+
+### Fixes
+- Added deterministic ordering for group/join outputs via stable key ordering.
+- Added native and runtime integration coverage for schema validation, joins, pipeline manifests,
+  quantiles, and rolling means.
+
+### Breaking changes
+- None.
+
 ## v2.1.3
 
 ### Highlights

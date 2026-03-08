@@ -4,7 +4,7 @@ use rusqlite::types::ValueRef;
 use rusqlite::Connection;
 use sha2::{Digest, Sha256};
 use std::cmp::Ordering as CmpOrdering;
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::{BTreeMap, BinaryHeap, HashMap};
 use std::fs;
 use std::net::{SocketAddr, TcpStream};
 use std::process::{Child, Command, Stdio};
@@ -993,6 +993,235 @@ fn parse_json_i64(text: &str) -> Option<Vec<i64>> {
     Some(out)
 }
 
+fn parse_json_array(text: &str) -> Option<Vec<serde_json::Value>> {
+    let value: serde_json::Value = serde_json::from_str(text).ok()?;
+    Some(value.as_array()?.clone())
+}
+
+fn parse_json_records(text: &str) -> Option<Vec<serde_json::Map<String, serde_json::Value>>> {
+    let list = parse_json_array(text)?;
+    let mut out = Vec::with_capacity(list.len());
+    for item in list {
+        let obj = item.as_object()?.clone();
+        out.push(obj);
+    }
+    Some(out)
+}
+
+fn normalize_schema_type(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "integer" => "int".to_string(),
+        "number" => "float".to_string(),
+        "str" => "string".to_string(),
+        "boolean" => "bool".to_string(),
+        "any" => "mixed".to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn classify_json_type(value: &serde_json::Value) -> &'static str {
+    match value {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "bool",
+        serde_json::Value::Number(number) => {
+            if number.is_i64() || number.is_u64() {
+                "int"
+            } else {
+                "float"
+            }
+        }
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
+    }
+}
+
+fn parse_schema_definition(text: &str) -> Option<BTreeMap<String, (String, bool)>> {
+    let raw: serde_json::Value = serde_json::from_str(text).ok()?;
+    let map = raw.as_object()?;
+    let mut out = BTreeMap::new();
+    for (field, entry) in map {
+        match entry {
+            serde_json::Value::String(ty) => {
+                out.insert(field.clone(), (normalize_schema_type(ty), false));
+            }
+            serde_json::Value::Object(obj) => {
+                let ty = obj
+                    .get("type")
+                    .and_then(|value| value.as_str())
+                    .map(normalize_schema_type)
+                    .unwrap_or_else(|| "mixed".to_string());
+                let nullable = obj
+                    .get("nullable")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false);
+                out.insert(field.clone(), (ty, nullable));
+            }
+            _ => return None,
+        }
+    }
+    Some(out)
+}
+
+fn cast_to_schema_type(value: &serde_json::Value, ty: &str) -> Option<serde_json::Value> {
+    match ty {
+        "mixed" | "any" => Some(value.clone()),
+        "null" => {
+            if value.is_null() {
+                Some(serde_json::Value::Null)
+            } else {
+                None
+            }
+        }
+        "int" => {
+            if let Some(num) = value.as_i64() {
+                return Some(serde_json::json!(num));
+            }
+            if let Some(num) = value.as_u64() {
+                if num <= i64::MAX as u64 {
+                    return Some(serde_json::json!(num as i64));
+                }
+                return None;
+            }
+            if let Some(text) = value.as_str() {
+                let parsed = text.trim().parse::<i64>().ok()?;
+                return Some(serde_json::json!(parsed));
+            }
+            None
+        }
+        "float" => {
+            if let Some(num) = value.as_f64() {
+                if num.is_finite() {
+                    return Some(serde_json::json!(num));
+                }
+                return None;
+            }
+            if let Some(text) = value.as_str() {
+                let parsed = text.trim().parse::<f64>().ok()?;
+                if parsed.is_finite() {
+                    return Some(serde_json::json!(parsed));
+                }
+                return None;
+            }
+            None
+        }
+        "bool" => {
+            if let Some(flag) = value.as_bool() {
+                return Some(serde_json::json!(flag));
+            }
+            if let Some(text) = value.as_str() {
+                let lowered = text.trim().to_ascii_lowercase();
+                let parsed = match lowered.as_str() {
+                    "1" | "true" | "yes" | "on" => Some(true),
+                    "0" | "false" | "no" | "off" => Some(false),
+                    _ => None,
+                }?;
+                return Some(serde_json::json!(parsed));
+            }
+            None
+        }
+        "string" => {
+            if let Some(text) = value.as_str() {
+                Some(serde_json::json!(text))
+            } else {
+                Some(serde_json::json!(value.to_string()))
+            }
+        }
+        "array" => {
+            if value.is_array() {
+                Some(value.clone())
+            } else {
+                None
+            }
+        }
+        "object" => {
+            if value.is_object() {
+                Some(value.clone())
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn value_to_key_string(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::Null => "null".to_string(),
+        serde_json::Value::Bool(flag) => {
+            if *flag {
+                "true".to_string()
+            } else {
+                "false".to_string()
+            }
+        }
+        serde_json::Value::Number(number) => number.to_string(),
+        serde_json::Value::String(text) => text.clone(),
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => value.to_string(),
+    }
+}
+
+fn merged_join_row(
+    left: Option<&serde_json::Map<String, serde_json::Value>>,
+    right: Option<&serde_json::Map<String, serde_json::Value>>,
+    left_columns: &[String],
+    right_columns: &[String],
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut out = serde_json::Map::new();
+    for key in left_columns {
+        let value = left
+            .and_then(|row| row.get(key))
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        out.insert(key.clone(), value);
+    }
+    for key in right_columns {
+        let out_key = if out.contains_key(key) {
+            format!("right_{}", key)
+        } else {
+            key.clone()
+        };
+        let value = right
+            .and_then(|row| row.get(key))
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        out.insert(out_key, value);
+    }
+    out
+}
+
+fn parse_quantiles(raw: &str) -> Option<Vec<f64>> {
+    let mut out = parse_json_numbers(raw)?;
+    for value in &out {
+        if !(*value >= 0.0 && *value <= 1.0) {
+            return None;
+        }
+    }
+    if out.is_empty() {
+        return None;
+    }
+    out.shrink_to_fit();
+    Some(out)
+}
+
+fn quantile_interpolate(sorted: &[f64], q: f64) -> f64 {
+    if sorted.is_empty() {
+        return f64::NAN;
+    }
+    if sorted.len() == 1 {
+        return sorted[0];
+    }
+    let clamped = q.clamp(0.0, 1.0);
+    let pos = clamped * (sorted.len() - 1) as f64;
+    let low = pos.floor() as usize;
+    let high = pos.ceil() as usize;
+    if low == high {
+        return sorted[low];
+    }
+    let weight = pos - low as f64;
+    sorted[low] * (1.0 - weight) + sorted[high] * weight
+}
+
 fn json_string(value: serde_json::Value) -> FfiSlice {
     match serde_json::to_string(&value) {
         Ok(text) => string_slice(text),
@@ -1120,6 +1349,159 @@ pub extern "C" fn analysis_infer_schema(rows_ptr: *const u8, rows_len: usize) ->
         }
     }
     json_string(serde_json::Value::Object(schema))
+}
+
+#[no_mangle]
+pub extern "C" fn analysis_infer_schema_typed(rows_ptr: *const u8, rows_len: usize) -> FfiSlice {
+    let raw = match string_from_raw(rows_ptr, rows_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let rows = match parse_json_records(&raw) {
+        Some(rows) => rows,
+        None => return string_slice("{\"fields\":{}}".to_string()),
+    };
+    #[derive(Default)]
+    struct FieldSummary {
+        nullable: bool,
+        count: usize,
+        types: BTreeMap<String, usize>,
+    }
+    let mut fields: BTreeMap<String, FieldSummary> = BTreeMap::new();
+    for row in rows {
+        for (key, value) in row {
+            let entry = fields.entry(key).or_default();
+            entry.count += 1;
+            let ty = classify_json_type(&value).to_string();
+            if ty == "null" {
+                entry.nullable = true;
+                continue;
+            }
+            *entry.types.entry(ty).or_insert(0) += 1;
+        }
+    }
+    let mut fields_json = serde_json::Map::new();
+    for (field, summary) in fields {
+        let mut observed_types: Vec<String> = summary.types.keys().cloned().collect();
+        observed_types.sort();
+        let resolved_type = if observed_types.is_empty() {
+            "null".to_string()
+        } else if observed_types.len() == 1 {
+            observed_types[0].clone()
+        } else if observed_types.len() == 2
+            && observed_types.iter().any(|value| value == "int")
+            && observed_types.iter().any(|value| value == "float")
+        {
+            "float".to_string()
+        } else {
+            "mixed".to_string()
+        };
+        fields_json.insert(
+            field,
+            serde_json::json!({
+                "type": resolved_type,
+                "nullable": summary.nullable,
+                "observed_types": observed_types,
+                "count": summary.count
+            }),
+        );
+    }
+    json_string(serde_json::json!({
+        "schema_version": 1,
+        "fields": fields_json
+    }))
+}
+
+#[no_mangle]
+pub extern "C" fn analysis_validate_schema(
+    rows_ptr: *const u8,
+    rows_len: usize,
+    schema_ptr: *const u8,
+    schema_len: usize,
+) -> FfiSlice {
+    let raw_rows = match string_from_raw(rows_ptr, rows_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let raw_schema = match string_from_raw(schema_ptr, schema_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let rows = match parse_json_records(&raw_rows) {
+        Some(rows) => rows,
+        None => {
+            return string_slice(
+                "{\"ok\":false,\"errors\":[{\"code\":\"invalid_rows\"}],\"rows\":[]}".to_string(),
+            )
+        }
+    };
+    let schema = match parse_schema_definition(&raw_schema) {
+        Some(schema) => schema,
+        None => {
+            return string_slice(
+                "{\"ok\":false,\"errors\":[{\"code\":\"invalid_schema\"}],\"rows\":[]}".to_string(),
+            )
+        }
+    };
+
+    let mut errors = Vec::new();
+    let mut normalized_rows = Vec::with_capacity(rows.len());
+    for (row_idx, row) in rows.iter().enumerate() {
+        let mut normalized = serde_json::Map::new();
+        for (field, (expected_type, nullable)) in &schema {
+            let Some(value) = row.get(field) else {
+                errors.push(serde_json::json!({
+                    "row": row_idx,
+                    "field": field,
+                    "code": "missing_field",
+                    "expected": expected_type,
+                }));
+                if *nullable {
+                    normalized.insert(field.clone(), serde_json::Value::Null);
+                }
+                continue;
+            };
+            if value.is_null() && *nullable {
+                normalized.insert(field.clone(), serde_json::Value::Null);
+                continue;
+            }
+            match cast_to_schema_type(value, expected_type) {
+                Some(casted) => {
+                    normalized.insert(field.clone(), casted);
+                }
+                None => {
+                    errors.push(serde_json::json!({
+                        "row": row_idx,
+                        "field": field,
+                        "code": "type_mismatch",
+                        "expected": expected_type,
+                        "actual": classify_json_type(value),
+                    }));
+                }
+            }
+        }
+
+        let mut extra_keys: Vec<String> = row
+            .keys()
+            .filter(|key| !schema.contains_key(*key))
+            .cloned()
+            .collect();
+        extra_keys.sort();
+        for key in extra_keys {
+            if let Some(value) = row.get(&key) {
+                normalized.insert(key, value.clone());
+            }
+        }
+        normalized_rows.push(serde_json::Value::Object(normalized));
+    }
+
+    json_string(serde_json::json!({
+        "ok": errors.is_empty(),
+        "row_count": normalized_rows.len(),
+        "field_count": schema.len(),
+        "errors": errors,
+        "rows": normalized_rows
+    }))
 }
 
 #[no_mangle]
@@ -1271,6 +1653,215 @@ pub extern "C" fn analysis_group_sum(
 }
 
 #[no_mangle]
+pub extern "C" fn analysis_group_agg(
+    rows_ptr: *const u8,
+    rows_len: usize,
+    key_ptr: *const u8,
+    key_len: usize,
+    field_ptr: *const u8,
+    field_len: usize,
+    agg_ptr: *const u8,
+    agg_len: usize,
+) -> FfiSlice {
+    let raw_rows = match string_from_raw(rows_ptr, rows_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let key = match string_from_raw(key_ptr, key_len) {
+        Some(key) => key,
+        None => return null_slice(),
+    };
+    let field = match string_from_raw(field_ptr, field_len) {
+        Some(field) => field,
+        None => return null_slice(),
+    };
+    let agg = string_from_raw(agg_ptr, agg_len)
+        .unwrap_or_else(|| "sum".to_string())
+        .trim()
+        .to_ascii_lowercase();
+    let rows = match parse_json_records(&raw_rows) {
+        Some(rows) => rows,
+        None => return string_slice("[]".to_string()),
+    };
+
+    #[derive(Default)]
+    struct AggState {
+        count: usize,
+        sum: f64,
+        min: Option<f64>,
+        max: Option<f64>,
+        numeric_count: usize,
+    }
+    let mut groups: BTreeMap<String, AggState> = BTreeMap::new();
+    for row in rows {
+        let group_value = row
+            .get(&key)
+            .map(value_to_key_string)
+            .unwrap_or_else(|| "null".to_string());
+        let entry = groups.entry(group_value).or_default();
+        entry.count += 1;
+        let maybe_number = row.get(&field).and_then(|value| value.as_f64());
+        if let Some(number) = maybe_number {
+            entry.sum += number;
+            entry.numeric_count += 1;
+            entry.min = Some(match entry.min {
+                Some(current) => current.min(number),
+                None => number,
+            });
+            entry.max = Some(match entry.max {
+                Some(current) => current.max(number),
+                None => number,
+            });
+        }
+    }
+
+    let mut out = Vec::new();
+    for (group, state) in groups {
+        let value = match agg.as_str() {
+            "count" => serde_json::json!(state.count),
+            "mean" | "avg" => {
+                if state.numeric_count == 0 {
+                    serde_json::Value::Null
+                } else {
+                    serde_json::json!(state.sum / state.numeric_count as f64)
+                }
+            }
+            "min" => state
+                .min
+                .map(|value| serde_json::json!(value))
+                .unwrap_or(serde_json::Value::Null),
+            "max" => state
+                .max
+                .map(|value| serde_json::json!(value))
+                .unwrap_or(serde_json::Value::Null),
+            _ => serde_json::json!(state.sum),
+        };
+        out.push(serde_json::json!({
+            "group": group,
+            "agg": agg.clone(),
+            "value": value
+        }));
+    }
+    json_string(serde_json::Value::Array(out))
+}
+
+#[no_mangle]
+pub extern "C" fn analysis_join(
+    left_ptr: *const u8,
+    left_len: usize,
+    right_ptr: *const u8,
+    right_len: usize,
+    left_key_ptr: *const u8,
+    left_key_len: usize,
+    right_key_ptr: *const u8,
+    right_key_len: usize,
+    how_ptr: *const u8,
+    how_len: usize,
+) -> FfiSlice {
+    let raw_left = match string_from_raw(left_ptr, left_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let raw_right = match string_from_raw(right_ptr, right_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let left_key = match string_from_raw(left_key_ptr, left_key_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let right_key = match string_from_raw(right_key_ptr, right_key_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let how = string_from_raw(how_ptr, how_len)
+        .unwrap_or_else(|| "inner".to_string())
+        .trim()
+        .to_ascii_lowercase();
+    let left_rows = match parse_json_records(&raw_left) {
+        Some(rows) => rows,
+        None => return string_slice("[]".to_string()),
+    };
+    let right_rows = match parse_json_records(&raw_right) {
+        Some(rows) => rows,
+        None => return string_slice("[]".to_string()),
+    };
+
+    let mut left_columns: BTreeMap<String, ()> = BTreeMap::new();
+    for row in &left_rows {
+        for key in row.keys() {
+            left_columns.insert(key.clone(), ());
+        }
+    }
+    let mut right_columns: BTreeMap<String, ()> = BTreeMap::new();
+    for row in &right_rows {
+        for key in row.keys() {
+            right_columns.insert(key.clone(), ());
+        }
+    }
+    let left_columns: Vec<String> = left_columns.keys().cloned().collect();
+    let right_columns: Vec<String> = right_columns.keys().cloned().collect();
+
+    let mut right_index: HashMap<String, Vec<usize>> = HashMap::new();
+    for (idx, row) in right_rows.iter().enumerate() {
+        let key_value = row
+            .get(&right_key)
+            .map(value_to_key_string)
+            .unwrap_or_else(|| "null".to_string());
+        right_index.entry(key_value).or_default().push(idx);
+    }
+
+    let include_left = matches!(how.as_str(), "left" | "outer");
+    let include_right = matches!(how.as_str(), "right" | "outer");
+    let mut matched_right = vec![false; right_rows.len()];
+    let mut out = Vec::new();
+
+    for left_row in &left_rows {
+        let left_id = left_row
+            .get(&left_key)
+            .map(value_to_key_string)
+            .unwrap_or_else(|| "null".to_string());
+        let matches = right_index.get(&left_id).cloned().unwrap_or_default();
+        if matches.is_empty() {
+            if include_left {
+                out.push(serde_json::Value::Object(merged_join_row(
+                    Some(left_row),
+                    None,
+                    &left_columns,
+                    &right_columns,
+                )));
+            }
+            continue;
+        }
+        for right_idx in matches {
+            matched_right[right_idx] = true;
+            out.push(serde_json::Value::Object(merged_join_row(
+                Some(left_row),
+                right_rows.get(right_idx),
+                &left_columns,
+                &right_columns,
+            )));
+        }
+    }
+
+    if include_right {
+        for (idx, right_row) in right_rows.iter().enumerate() {
+            if matched_right[idx] {
+                continue;
+            }
+            out.push(serde_json::Value::Object(merged_join_row(
+                None,
+                Some(right_row),
+                &left_columns,
+                &right_columns,
+            )));
+        }
+    }
+
+    json_string(serde_json::Value::Array(out))
+}
+
+#[no_mangle]
 pub extern "C" fn analysis_describe(values_ptr: *const u8, values_len: usize) -> FfiSlice {
     let raw = match string_from_raw(values_ptr, values_len) {
         Some(raw) => raw,
@@ -1372,6 +1963,370 @@ pub extern "C" fn analysis_histogram(
         }));
     }
     json_string(serde_json::Value::Array(out))
+}
+
+#[no_mangle]
+pub extern "C" fn analysis_quantiles(
+    values_ptr: *const u8,
+    values_len: usize,
+    quantiles_ptr: *const u8,
+    quantiles_len: usize,
+) -> FfiSlice {
+    let raw_values = match string_from_raw(values_ptr, values_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let raw_quantiles = match string_from_raw(quantiles_ptr, quantiles_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let mut values = match parse_json_numbers(&raw_values) {
+        Some(values) => values,
+        None => return string_slice("[]".to_string()),
+    };
+    let quantiles = match parse_quantiles(&raw_quantiles) {
+        Some(values) => values,
+        None => return string_slice("[]".to_string()),
+    };
+    if values.is_empty() {
+        return string_slice("[]".to_string());
+    }
+    values.sort_by(|left, right| left.partial_cmp(right).unwrap_or(CmpOrdering::Equal));
+    let mut out = Vec::with_capacity(quantiles.len());
+    for q in quantiles {
+        out.push(serde_json::json!({
+            "q": q,
+            "value": quantile_interpolate(&values, q)
+        }));
+    }
+    json_string(serde_json::Value::Array(out))
+}
+
+#[no_mangle]
+pub extern "C" fn analysis_rolling_mean(
+    values_ptr: *const u8,
+    values_len: usize,
+    window: i64,
+) -> FfiSlice {
+    let raw = match string_from_raw(values_ptr, values_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let values = match parse_json_numbers(&raw) {
+        Some(values) => values,
+        None => return string_slice("[]".to_string()),
+    };
+    let window = window.max(1) as usize;
+    if values.is_empty() {
+        return string_slice("[]".to_string());
+    }
+    let mut out = Vec::with_capacity(values.len());
+    let mut running = 0.0;
+    for (idx, value) in values.iter().enumerate() {
+        running += *value;
+        if idx >= window {
+            running -= values[idx - window];
+        }
+        if idx + 1 < window {
+            out.push(serde_json::Value::Null);
+        } else {
+            out.push(serde_json::json!(running / window as f64));
+        }
+    }
+    json_string(serde_json::Value::Array(out))
+}
+
+#[no_mangle]
+pub extern "C" fn analysis_pipeline_run(
+    rows_ptr: *const u8,
+    rows_len: usize,
+    pipeline_ptr: *const u8,
+    pipeline_len: usize,
+) -> FfiSlice {
+    let raw_rows = match string_from_raw(rows_ptr, rows_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let raw_pipeline = match string_from_raw(pipeline_ptr, pipeline_len) {
+        Some(raw) => raw,
+        None => return null_slice(),
+    };
+    let mut rows = match parse_json_records(&raw_rows) {
+        Some(rows) => rows,
+        None => return string_slice("{\"rows\":[],\"manifest\":{}}".to_string()),
+    };
+    let pipeline: serde_json::Value = match serde_json::from_str(&raw_pipeline) {
+        Ok(value) => value,
+        Err(_) => return string_slice("{\"rows\":[],\"manifest\":{}}".to_string()),
+    };
+    let stages = pipeline
+        .get("stages")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let name = pipeline
+        .get("name")
+        .and_then(|value| value.as_str())
+        .unwrap_or("analysis_pipeline")
+        .to_string();
+    let input_rows = rows.len();
+    let mut manifest_stages = Vec::new();
+
+    for (idx, stage) in stages.iter().enumerate() {
+        let Some(stage_obj) = stage.as_object() else {
+            continue;
+        };
+        let op = stage_obj
+            .get("op")
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
+        if op.is_empty() {
+            continue;
+        }
+        let before = rows.len();
+        match op.as_str() {
+            "filter_eq" => {
+                let field = stage_obj
+                    .get("field")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let value = stage_obj
+                    .get("value")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                rows.retain(|row| row.get(&field) == Some(&value));
+            }
+            "project" => {
+                let mut columns = Vec::new();
+                if let Some(list) = stage_obj.get("columns").and_then(|value| value.as_array()) {
+                    for item in list {
+                        if let Some(name) = item.as_str() {
+                            columns.push(name.to_string());
+                        }
+                    }
+                }
+                let mut projected_rows = Vec::with_capacity(rows.len());
+                for row in &rows {
+                    let mut projected = serde_json::Map::new();
+                    for key in &columns {
+                        if let Some(value) = row.get(key) {
+                            projected.insert(key.clone(), value.clone());
+                        }
+                    }
+                    projected_rows.push(projected);
+                }
+                rows = projected_rows;
+            }
+            "join" => {
+                let right_rows = stage_obj
+                    .get("right")
+                    .and_then(|value| value.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                let mut right = Vec::new();
+                for item in right_rows {
+                    if let Some(obj) = item.as_object() {
+                        right.push(obj.clone());
+                    }
+                }
+                let left_key = stage_obj
+                    .get("left_key")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let right_key = stage_obj
+                    .get("right_key")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let how = stage_obj
+                    .get("how")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("inner")
+                    .to_ascii_lowercase();
+
+                let mut left_columns: BTreeMap<String, ()> = BTreeMap::new();
+                for row in &rows {
+                    for key in row.keys() {
+                        left_columns.insert(key.clone(), ());
+                    }
+                }
+                let mut right_columns: BTreeMap<String, ()> = BTreeMap::new();
+                for row in &right {
+                    for key in row.keys() {
+                        right_columns.insert(key.clone(), ());
+                    }
+                }
+                let left_columns: Vec<String> = left_columns.keys().cloned().collect();
+                let right_columns: Vec<String> = right_columns.keys().cloned().collect();
+
+                let mut right_index: HashMap<String, Vec<usize>> = HashMap::new();
+                for (right_idx, row) in right.iter().enumerate() {
+                    let key_value = row
+                        .get(&right_key)
+                        .map(value_to_key_string)
+                        .unwrap_or_else(|| "null".to_string());
+                    right_index.entry(key_value).or_default().push(right_idx);
+                }
+                let include_left = matches!(how.as_str(), "left" | "outer");
+                let include_right = matches!(how.as_str(), "right" | "outer");
+                let mut matched_right = vec![false; right.len()];
+                let mut joined = Vec::new();
+                for left_row in &rows {
+                    let left_id = left_row
+                        .get(&left_key)
+                        .map(value_to_key_string)
+                        .unwrap_or_else(|| "null".to_string());
+                    let matches = right_index.get(&left_id).cloned().unwrap_or_default();
+                    if matches.is_empty() {
+                        if include_left {
+                            joined.push(merged_join_row(
+                                Some(left_row),
+                                None,
+                                &left_columns,
+                                &right_columns,
+                            ));
+                        }
+                        continue;
+                    }
+                    for right_idx in matches {
+                        matched_right[right_idx] = true;
+                        joined.push(merged_join_row(
+                            Some(left_row),
+                            right.get(right_idx),
+                            &left_columns,
+                            &right_columns,
+                        ));
+                    }
+                }
+                if include_right {
+                    for (right_idx, right_row) in right.iter().enumerate() {
+                        if matched_right[right_idx] {
+                            continue;
+                        }
+                        joined.push(merged_join_row(
+                            None,
+                            Some(right_row),
+                            &left_columns,
+                            &right_columns,
+                        ));
+                    }
+                }
+                rows = joined;
+            }
+            "group_agg" => {
+                #[derive(Default)]
+                struct PipelineAggState {
+                    count: usize,
+                    numeric_count: usize,
+                    sum: f64,
+                    min: Option<f64>,
+                    max: Option<f64>,
+                }
+                let key = stage_obj
+                    .get("key")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let field = stage_obj
+                    .get("field")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let agg = stage_obj
+                    .get("agg")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("sum")
+                    .to_ascii_lowercase();
+                let mut groups: BTreeMap<String, PipelineAggState> = BTreeMap::new();
+                for row in &rows {
+                    let group = row
+                        .get(&key)
+                        .map(value_to_key_string)
+                        .unwrap_or_else(|| "null".to_string());
+                    let value = row.get(&field).and_then(|entry| entry.as_f64());
+                    let state = groups.entry(group).or_default();
+                    state.count += 1;
+                    if let Some(number) = value {
+                        state.numeric_count += 1;
+                        state.sum += number;
+                        state.min = Some(match state.min {
+                            Some(current) => current.min(number),
+                            None => number,
+                        });
+                        state.max = Some(match state.max {
+                            Some(current) => current.max(number),
+                            None => number,
+                        });
+                    }
+                }
+                let mut grouped_rows = Vec::new();
+                for (group, state) in groups {
+                    let value = match agg.as_str() {
+                        "count" => serde_json::json!(state.count),
+                        "mean" | "avg" => {
+                            if state.numeric_count == 0 {
+                                serde_json::Value::Null
+                            } else {
+                                serde_json::json!(state.sum / state.numeric_count as f64)
+                            }
+                        }
+                        "min" => state
+                            .min
+                            .map(|value| serde_json::json!(value))
+                            .unwrap_or(serde_json::Value::Null),
+                        "max" => state
+                            .max
+                            .map(|value| serde_json::json!(value))
+                            .unwrap_or(serde_json::Value::Null),
+                        _ => serde_json::json!(state.sum),
+                    };
+                    let mut record = serde_json::Map::new();
+                    record.insert("group".to_string(), serde_json::json!(group));
+                    record.insert("agg".to_string(), serde_json::json!(agg.clone()));
+                    record.insert("value".to_string(), value);
+                    grouped_rows.push(record);
+                }
+                rows = grouped_rows;
+            }
+            _ => {}
+        }
+        let after = rows.len();
+        manifest_stages.push(serde_json::json!({
+            "index": idx,
+            "op": op,
+            "input_rows": before,
+            "output_rows": after
+        }));
+    }
+
+    let output_rows_json = serde_json::Value::Array(
+        rows.iter()
+            .cloned()
+            .map(serde_json::Value::Object)
+            .collect::<Vec<_>>(),
+    );
+    let output_serialized =
+        serde_json::to_vec(&output_rows_json).unwrap_or_else(|_| b"[]".to_vec());
+    let output_hash = format!("{:x}", Sha256::digest(&output_serialized));
+    let pipeline_hash = format!("{:x}", Sha256::digest(raw_pipeline.as_bytes()));
+    let manifest = serde_json::json!({
+        "schema_version": 1,
+        "pipeline_name": name,
+        "input_rows": input_rows,
+        "output_rows": rows.len(),
+        "stage_count": manifest_stages.len(),
+        "pipeline_hash": pipeline_hash,
+        "output_hash": output_hash,
+        "stages": manifest_stages,
+    });
+    json_string(serde_json::json!({
+        "rows": output_rows_json,
+        "manifest": manifest
+    }))
 }
 
 #[no_mangle]
@@ -1761,6 +2716,104 @@ mod tests {
         unsafe {
             enkai_free(describe.ptr, describe.len);
             enkai_free(histogram.ptr, histogram.len);
+        }
+    }
+
+    #[test]
+    fn analysis_schema_join_and_pipeline_work() {
+        let rows = r#"[{"team":"red","score":"10"},{"team":"blue","score":"5"}]"#;
+        let schema = r#"{"team":"string","score":{"type":"int","nullable":false}}"#;
+        let validated =
+            analysis_validate_schema(rows.as_ptr(), rows.len(), schema.as_ptr(), schema.len());
+        let validated_text = unsafe {
+            std::str::from_utf8(std::slice::from_raw_parts(validated.ptr, validated.len))
+        }
+        .unwrap();
+        let validated_json: serde_json::Value = serde_json::from_str(validated_text).unwrap();
+        assert_eq!(
+            validated_json.get("ok").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+        assert_eq!(
+            validated_json
+                .get("rows")
+                .and_then(|v| v.as_array())
+                .and_then(|rows| rows.first())
+                .and_then(|row| row.get("score"))
+                .and_then(|v| v.as_i64()),
+            Some(10)
+        );
+
+        let left = r#"[{"id":1,"name":"a"},{"id":2,"name":"b"}]"#;
+        let right = r#"[{"id":1,"city":"x"},{"id":3,"city":"z"}]"#;
+        let how = "left";
+        let joined = analysis_join(
+            left.as_ptr(),
+            left.len(),
+            right.as_ptr(),
+            right.len(),
+            "id".as_ptr(),
+            2,
+            "id".as_ptr(),
+            2,
+            how.as_ptr(),
+            how.len(),
+        );
+        let joined_text =
+            unsafe { std::str::from_utf8(std::slice::from_raw_parts(joined.ptr, joined.len)) }
+                .unwrap();
+        let joined_json: serde_json::Value = serde_json::from_str(joined_text).unwrap();
+        assert_eq!(joined_json.as_array().map(|v| v.len()), Some(2));
+
+        let pipeline_rows =
+            r#"[{"team":"red","score":10},{"team":"blue","score":5},{"team":"red","score":3}]"#;
+        let pipeline = r#"{"name":"team_sum","stages":[{"op":"group_agg","key":"team","field":"score","agg":"sum"}]}"#;
+        let piped = analysis_pipeline_run(
+            pipeline_rows.as_ptr(),
+            pipeline_rows.len(),
+            pipeline.as_ptr(),
+            pipeline.len(),
+        );
+        let piped_text =
+            unsafe { std::str::from_utf8(std::slice::from_raw_parts(piped.ptr, piped.len)) }
+                .unwrap();
+        let piped_json: serde_json::Value = serde_json::from_str(piped_text).unwrap();
+        assert_eq!(
+            piped_json
+                .get("manifest")
+                .and_then(|v| v.get("schema_version"))
+                .and_then(|v| v.as_u64()),
+            Some(1)
+        );
+        assert_eq!(
+            piped_json
+                .get("manifest")
+                .and_then(|v| v.get("stage_count"))
+                .and_then(|v| v.as_u64()),
+            Some(1)
+        );
+
+        let quantiles = analysis_quantiles("[1,2,3,4,5]".as_ptr(), 11, "[0.5,0.9]".as_ptr(), 9);
+        let quantiles_text = unsafe {
+            std::str::from_utf8(std::slice::from_raw_parts(quantiles.ptr, quantiles.len))
+        }
+        .unwrap();
+        let quantiles_json: serde_json::Value = serde_json::from_str(quantiles_text).unwrap();
+        assert_eq!(quantiles_json.as_array().map(|v| v.len()), Some(2));
+
+        let rolling = analysis_rolling_mean("[1,2,3,4]".as_ptr(), 9, 2);
+        let rolling_text =
+            unsafe { std::str::from_utf8(std::slice::from_raw_parts(rolling.ptr, rolling.len)) }
+                .unwrap();
+        let rolling_json: serde_json::Value = serde_json::from_str(rolling_text).unwrap();
+        assert_eq!(rolling_json.as_array().map(|v| v.len()), Some(4));
+
+        unsafe {
+            enkai_free(validated.ptr, validated.len);
+            enkai_free(joined.ptr, joined.len);
+            enkai_free(piped.ptr, piped.len);
+            enkai_free(quantiles.ptr, quantiles.len);
+            enkai_free(rolling.ptr, rolling.len);
         }
     }
 

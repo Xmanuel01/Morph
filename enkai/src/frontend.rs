@@ -321,7 +321,7 @@ fn render_backend_manifest(root: &Path) -> String {
 fn render_backend_readme(root: &Path, api_version: &str) -> String {
     let name = sanitize_name(root);
     format!(
-        "# {}\n\nEnkai backend scaffold (`v2.1.3` contract freeze).\n\n## API Contract\n\n- Base path: `/api/{}`\n- Header required by SDK: `x-enkai-api-version: {}`\n- Routes:\n  - `GET /api/{}/health`\n  - `POST /api/{}/chat`\n  - `GET /api/{}/chat/stream`\n  - `GET /api/{}/chat/ws`\n\n## Contract Snapshots\n\n- Backend contract snapshot: `contracts/backend_api.snapshot.json`\n- Conversation schema: `contracts/conversation_state.schema.json`\n\n## Persistence\n\n- Latest conversation state is persisted to `conversation_state.json`.\n- Schema version is enforced (`schema_version: 1`) with startup migration for legacy files.\n- Override target directory with `ENKAI_CONVERSATION_DIR`.\n\n## Run\n\n- `enkai serve --host 0.0.0.0 --port 8080 .`\n",
+        "# {}\n\nEnkai backend scaffold (`v2.1.4` contract freeze).\n\n## API Contract\n\n- Base path: `/api/{}`\n- Header required by SDK: `x-enkai-api-version: {}`\n- Routes:\n  - `GET /api/{}/health`\n  - `POST /api/{}/chat`\n  - `GET /api/{}/chat/stream`\n  - `GET /api/{}/chat/ws`\n\n## Contract Snapshots\n\n- Backend contract snapshot: `contracts/backend_api.snapshot.json`\n- Conversation schema: `contracts/conversation_state.schema.json`\n\n## Persistence\n\n- Latest conversation state is persisted to `conversation_state.json`.\n- Schema version is enforced (`schema_version: 1`) with startup migration for legacy files.\n- Override target directory with `ENKAI_CONVERSATION_DIR`.\n\n## Run\n\n- `enkai serve --host 0.0.0.0 --port 8080 .`\n",
         name, api_version, api_version, api_version, api_version, api_version, api_version
     )
 }
@@ -677,7 +677,7 @@ export default function App() {{\n\
   return (\n\
     <div className=\"app-shell\">\n\
       <header className=\"hero\">\n\
-        <p className=\"eyebrow\">Enkai v2.1.3 frontend contract freeze</p>\n\
+        <p className=\"eyebrow\">Enkai v2.1.4 frontend contract freeze</p>\n\
         <h1>Streaming Chat UI Kit</h1>\n\
         <p className=\"subtitle\">Typed SDK, version-pinned API contract, and resilient error UX.</p>\n\
         <p className=\"subtitle\">{{conversationId ? `Conversation: ${{conversationId}}` : \"Conversation: new\"}}</p>\n\
