@@ -54,18 +54,82 @@ jobs:
       - name: Run official benchmark suite (single-iteration smoke)
         run: |
           cargo run -p enkai -- bench run \
-            --suite official_v2_1_0 \
+            --suite official_v2_1_8 \
             --baseline python \
             --iterations 1 \
             --warmup 0 \
             --machine-profile bench/machines/linux_ref.json \
-            --output bench/results/ci_official_v2_1_0.json \
+            --output bench/results/ci_official_v2_1_8_smoke.json \
             --enkai-bin target/debug/enkai
       - name: Upload benchmark report
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-official-smoke
-          path: bench/results/ci_official_v2_1_0.json
+          path: bench/results/ci_official_v2_1_8_smoke.json
+          if-no-files-found: error
+
+  benchmark-target-gate:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target_os: linux
+            machine_profile: bench/machines/linux_ref.json
+            enkai_bin: target/release/enkai
+            output: bench/results/ci_official_v2_1_8_linux.json
+          - os: windows-latest
+            target_os: windows
+            machine_profile: bench/machines/windows_ref.json
+            enkai_bin: target/release/enkai.exe
+            output: bench/results/ci_official_v2_1_8_windows.json
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build release benchmark binaries
+        run: |
+          cargo build -p enkai --release
+          cargo build -p enkai_native --release
+      - name: Run benchmark target gate (Linux)
+        if: matrix.target_os == 'linux'
+        shell: bash
+        run: |
+          cargo run -p enkai --release -- bench run \
+            --suite official_v2_1_8 \
+            --baseline python \
+            --iterations 2 \
+            --warmup 1 \
+            --machine-profile "${{ matrix.machine_profile }}" \
+            --output "${{ matrix.output }}" \
+            --enkai-bin "${{ matrix.enkai_bin }}" \
+            --target-speedup 5 \
+            --target-memory 5 \
+            --enforce-target
+      - name: Run benchmark target gate (Windows)
+        if: matrix.target_os == 'windows'
+        shell: pwsh
+        run: |
+          cargo run -p enkai --release -- bench run `
+            --suite official_v2_1_8 `
+            --baseline python `
+            --iterations 2 `
+            --warmup 1 `
+            --machine-profile "${{ matrix.machine_profile }}" `
+            --output "${{ matrix.output }}" `
+            --enkai-bin "${{ matrix.enkai_bin }}" `
+            --target-speedup 5 `
+            --target-memory 5 `
+            --enforce-target
+      - name: Upload benchmark target artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-target-gate-${{ matrix.target_os }}
+          path: ${{ matrix.output }}
           if-no-files-found: error
 
   release-pipeline:

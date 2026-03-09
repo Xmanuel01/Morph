@@ -1,4 +1,4 @@
-# Enkai Benchmark Harness (v2.1.7)
+# Enkai Benchmark Harness (v2.1.8)
 
 This harness provides reproducible Enkai-vs-Python benchmarks with structured JSON output.
 
@@ -6,8 +6,8 @@ This harness provides reproducible Enkai-vs-Python benchmarks with structured JS
 
 - `enkai bench run --suite <name> --baseline python --output <file>`
 
-Official suite for v2.1.0:
-- `enkai bench run --suite official_v2_1_0 --baseline python --output bench/results/official_v2_1_0.json`
+Official suite for v2.1.8:
+- `enkai bench run --suite official_v2_1_8 --baseline python --output bench/results/official_v2_1_8.json`
 
 ## Suites
 
@@ -18,7 +18,8 @@ Official suite for v2.1.0:
 - `bench/suites/http_serving.json`: serving request-loop throughput.
 - `bench/suites/db_ops.json`: SQLite throughput.
 - `bench/suites/algorithm_kernels.json`: algorithm + ML utility stack throughput.
-- `bench/suites/official_v2_1_0.json`: aggregate normative suite.
+- `bench/suites/official_v2_1_0.json`: historical baseline suite.
+- `bench/suites/official_v2_1_8.json`: current normative suite.
 
 ## Output Schema
 
@@ -35,6 +36,9 @@ For bounded performance claims, use:
 - `--target-speedup 5 --target-memory 5 --enforce-target`
 
 This enforces >=5% median speedup and >=5% median memory reduction on the suite.
+For strict per-case target enforcement, add:
+
+- `--enforce-all-cases`
 
 ## Machine Profiles
 
@@ -43,6 +47,6 @@ Use pinned host manifests for bounded claim reporting:
 - `bench/machines/windows_ref.json`
 
 The performance claim in v2.1.x is bounded to:
-- the official suite definition (`official_v2_1_0`)
+- the official suite definition (`official_v2_1_8`)
 - pinned machine profile manifests
 - recorded report artifacts under `bench/results/*.json`

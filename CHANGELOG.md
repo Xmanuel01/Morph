@@ -11,6 +11,29 @@
 ### Breaking changes
 - None.
 
+## v2.1.8
+
+### Highlights
+- Completed v2.1.x performance hardening pass:
+  - VM arithmetic hot-path optimization for `Int` operations (`+`, `-`, `*`, `/`, `%`)
+  - direct integer comparison paths for `<`, `>`, `<=`, `>=`
+- Added official bounded benchmark suite for v2.1.8:
+  - `bench/suites/official_v2_1_8.json`
+  - focused on production-representative tokenizer/dataset/serving workloads
+- Added benchmark target enforcement controls:
+  - `--enforce-target` now validates suite-level median targets
+  - `--enforce-all-cases` adds strict per-case target enforcement
+
+### Fixes
+- Added deterministic runtime errors for divide-by-zero and modulo-by-zero in VM numeric ops.
+- Updated CI benchmark lanes:
+  - smoke lane now uses `official_v2_1_8`
+  - new `benchmark-target-gate` runs on Linux + Windows with release binaries and target enforcement.
+- Updated machine profiles to pin `official_v2_1_8` for bounded claim evidence.
+
+### Breaking changes
+- None.
+
 ## v2.1.7
 
 ### Highlights

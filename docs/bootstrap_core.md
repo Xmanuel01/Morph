@@ -1,8 +1,8 @@
-# Enkai Bootstrap Core (v2.1.7)
+# Enkai Bootstrap Core (v2.1.8)
 
 ## Purpose
 
-`v2.1.7` stabilizes bootstrap-core primitives for a deterministic Stage0/Stage1 path.
+`v2.1.8` stabilizes bootstrap-core primitives for a deterministic Stage0/Stage1 path.
 The objective is to validate that Enkai-scripted compiler orchestration produces the
 same bytecode as direct Rust Stage0 compilation for the supported subset.
 

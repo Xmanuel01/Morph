@@ -148,3 +148,19 @@ Expected result:
 - [ ] Optional GPU evidence verification (after operator runs):
   - `powershell -ExecutionPolicy Bypass -File scripts/verify_gpu_gates.ps1 -LogDir artifacts/gpu`
   - `sh scripts/verify_gpu_gates.sh artifacts/gpu`
+
+## 7) Benchmark Target Gates (v2.1.8)
+
+- [x] Official bounded benchmark suite updated:
+  - `bench/suites/official_v2_1_8.json`
+- [x] Machine profiles pinned to official suite:
+  - `bench/machines/linux_ref.json`
+  - `bench/machines/windows_ref.json`
+- [x] Benchmark target enforcement supports suite-level median policy:
+  - `--enforce-target` validates median speedup/memory reduction
+  - `--enforce-all-cases` enables strict per-case enforcement
+- [x] CI regression blocker lane for benchmark targets:
+  - `benchmark-target-gate` (Linux + Windows release binaries)
+
+Suggested operator rerun command:
+- `enkai bench run --suite official_v2_1_8 --baseline python --iterations 2 --warmup 1 --machine-profile bench/machines/windows_ref.json --output bench/results/official_v2_1_8.windows.json --target-speedup 5 --target-memory 5 --enforce-target`

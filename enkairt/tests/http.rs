@@ -124,7 +124,8 @@ fn response_body(value: &Value) -> Option<Vec<u8>> {
 fn send_raw_request(port: u16, request: &[u8]) -> Vec<u8> {
     let mut last_err: Option<std::io::Error> = None;
     let mut stream_opt = None;
-    for _ in 0..40 {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
         match TcpStream::connect(("127.0.0.1", port)) {
             Ok(stream) => {
                 stream_opt = Some(stream);

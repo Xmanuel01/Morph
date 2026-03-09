@@ -1599,19 +1599,19 @@ impl VM {
                         }
                     };
                     let result = match instr {
-                        Instruction::Add => match numeric_op(a, b, |x, y| x + y) {
+                        Instruction::Add => match numeric_add(a, b) {
                             Ok(v) => v,
                             Err(err) => return TaskRunOutcome::Errored(trace(err)),
                         },
-                        Instruction::Sub => match numeric_op(a, b, |x, y| x - y) {
+                        Instruction::Sub => match numeric_sub(a, b) {
                             Ok(v) => v,
                             Err(err) => return TaskRunOutcome::Errored(trace(err)),
                         },
-                        Instruction::Mul => match numeric_op(a, b, |x, y| x * y) {
+                        Instruction::Mul => match numeric_mul(a, b) {
                             Ok(v) => v,
                             Err(err) => return TaskRunOutcome::Errored(trace(err)),
                         },
-                        Instruction::Div => match numeric_op(a, b, |x, y| x / y) {
+                        Instruction::Div => match numeric_div(a, b) {
                             Ok(v) => v,
                             Err(err) => return TaskRunOutcome::Errored(trace(err)),
                         },
@@ -1621,19 +1621,19 @@ impl VM {
                         },
                         Instruction::Eq => Value::Bool(a == b),
                         Instruction::Neq => Value::Bool(a != b),
-                        Instruction::Lt => match compare_op(a, b, |x, y| x < y) {
+                        Instruction::Lt => match compare_lt(a, b) {
                             Ok(v) => v,
                             Err(err) => return TaskRunOutcome::Errored(trace(err)),
                         },
-                        Instruction::Gt => match compare_op(a, b, |x, y| x > y) {
+                        Instruction::Gt => match compare_gt(a, b) {
                             Ok(v) => v,
                             Err(err) => return TaskRunOutcome::Errored(trace(err)),
                         },
-                        Instruction::Le => match compare_op(a, b, |x, y| x <= y) {
+                        Instruction::Le => match compare_le(a, b) {
                             Ok(v) => v,
                             Err(err) => return TaskRunOutcome::Errored(trace(err)),
                         },
-                        Instruction::Ge => match compare_op(a, b, |x, y| x >= y) {
+                        Instruction::Ge => match compare_ge(a, b) {
                             Ok(v) => v,
                             Err(err) => return TaskRunOutcome::Errored(trace(err)),
                         },
@@ -6916,38 +6916,105 @@ fn domain_from_url(url: &str) -> Option<String> {
     }
 }
 
-fn numeric_op<F>(a: Value, b: Value, f: F) -> Result<Value, RuntimeError>
-where
-    F: Fn(f64, f64) -> f64,
-{
+fn numeric_add(a: Value, b: Value) -> Result<Value, RuntimeError> {
     match (a, b) {
-        (Value::Int(x), Value::Int(y)) => Ok(Value::Int(f(x as f64, y as f64) as i64)),
-        (Value::Int(x), Value::Float(y)) => Ok(Value::Float(f(x as f64, y))),
-        (Value::Float(x), Value::Int(y)) => Ok(Value::Float(f(x, y as f64))),
-        (Value::Float(x), Value::Float(y)) => Ok(Value::Float(f(x, y))),
+        (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x.wrapping_add(y))),
+        (Value::Int(x), Value::Float(y)) => Ok(Value::Float((x as f64) + y)),
+        (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x + (y as f64))),
+        (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x + y)),
+        _ => Err(RuntimeError::new("Operands must be numbers")),
+    }
+}
+
+fn numeric_sub(a: Value, b: Value) -> Result<Value, RuntimeError> {
+    match (a, b) {
+        (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x.wrapping_sub(y))),
+        (Value::Int(x), Value::Float(y)) => Ok(Value::Float((x as f64) - y)),
+        (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x - (y as f64))),
+        (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x - y)),
+        _ => Err(RuntimeError::new("Operands must be numbers")),
+    }
+}
+
+fn numeric_mul(a: Value, b: Value) -> Result<Value, RuntimeError> {
+    match (a, b) {
+        (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x.wrapping_mul(y))),
+        (Value::Int(x), Value::Float(y)) => Ok(Value::Float((x as f64) * y)),
+        (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x * (y as f64))),
+        (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x * y)),
+        _ => Err(RuntimeError::new("Operands must be numbers")),
+    }
+}
+
+fn numeric_div(a: Value, b: Value) -> Result<Value, RuntimeError> {
+    match (a, b) {
+        (Value::Int(_), Value::Int(0)) => Err(RuntimeError::new("Division by zero")),
+        (Value::Int(x), Value::Int(y)) => {
+            if x == i64::MIN && y == -1 {
+                Ok(Value::Int(i64::MIN))
+            } else {
+                Ok(Value::Int(x / y))
+            }
+        }
+        (Value::Int(x), Value::Float(y)) => Ok(Value::Float((x as f64) / y)),
+        (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x / (y as f64))),
+        (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x / y)),
         _ => Err(RuntimeError::new("Operands must be numbers")),
     }
 }
 
 fn numeric_mod(a: Value, b: Value) -> Result<Value, RuntimeError> {
     match (a, b) {
-        (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x % y)),
+        (Value::Int(_), Value::Int(0)) => Err(RuntimeError::new("Modulo by zero")),
+        (Value::Int(x), Value::Int(y)) => {
+            if x == i64::MIN && y == -1 {
+                Ok(Value::Int(0))
+            } else {
+                Ok(Value::Int(x % y))
+            }
+        }
         _ => Err(RuntimeError::new("Modulo expects integers")),
     }
 }
 
-fn compare_op<F>(a: Value, b: Value, f: F) -> Result<Value, RuntimeError>
-where
-    F: Fn(f64, f64) -> bool,
-{
-    let result = match (a, b) {
-        (Value::Int(x), Value::Int(y)) => f(x as f64, y as f64),
-        (Value::Int(x), Value::Float(y)) => f(x as f64, y),
-        (Value::Float(x), Value::Int(y)) => f(x, y as f64),
-        (Value::Float(x), Value::Float(y)) => f(x, y),
-        _ => return Err(RuntimeError::new("Operands must be numbers")),
-    };
-    Ok(Value::Bool(result))
+fn compare_lt(a: Value, b: Value) -> Result<Value, RuntimeError> {
+    match (a, b) {
+        (Value::Int(x), Value::Int(y)) => Ok(Value::Bool(x < y)),
+        (Value::Int(x), Value::Float(y)) => Ok(Value::Bool((x as f64) < y)),
+        (Value::Float(x), Value::Int(y)) => Ok(Value::Bool(x < (y as f64))),
+        (Value::Float(x), Value::Float(y)) => Ok(Value::Bool(x < y)),
+        _ => Err(RuntimeError::new("Operands must be numbers")),
+    }
+}
+
+fn compare_gt(a: Value, b: Value) -> Result<Value, RuntimeError> {
+    match (a, b) {
+        (Value::Int(x), Value::Int(y)) => Ok(Value::Bool(x > y)),
+        (Value::Int(x), Value::Float(y)) => Ok(Value::Bool((x as f64) > y)),
+        (Value::Float(x), Value::Int(y)) => Ok(Value::Bool(x > (y as f64))),
+        (Value::Float(x), Value::Float(y)) => Ok(Value::Bool(x > y)),
+        _ => Err(RuntimeError::new("Operands must be numbers")),
+    }
+}
+
+fn compare_le(a: Value, b: Value) -> Result<Value, RuntimeError> {
+    match (a, b) {
+        (Value::Int(x), Value::Int(y)) => Ok(Value::Bool(x <= y)),
+        (Value::Int(x), Value::Float(y)) => Ok(Value::Bool((x as f64) <= y)),
+        (Value::Float(x), Value::Int(y)) => Ok(Value::Bool(x <= (y as f64))),
+        (Value::Float(x), Value::Float(y)) => Ok(Value::Bool(x <= y)),
+        _ => Err(RuntimeError::new("Operands must be numbers")),
+    }
+}
+
+fn compare_ge(a: Value, b: Value) -> Result<Value, RuntimeError> {
+    match (a, b) {
+        (Value::Int(x), Value::Int(y)) => Ok(Value::Bool(x >= y)),
+        (Value::Int(x), Value::Float(y)) => Ok(Value::Bool((x as f64) >= y)),
+        (Value::Float(x), Value::Int(y)) => Ok(Value::Bool(x >= (y as f64))),
+        (Value::Float(x), Value::Float(y)) => Ok(Value::Bool(x >= y)),
+        _ => Err(RuntimeError::new("Operands must be numbers")),
+    }
 }
 
 fn display_value(v: &Value) -> String {

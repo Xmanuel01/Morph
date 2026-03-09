@@ -14,6 +14,7 @@ struct BenchRunOptions {
     target_speedup_pct: f64,
     target_memory_pct: f64,
     enforce_target: bool,
+    enforce_all_cases: bool,
     python_command: Option<String>,
     enkai_bin: Option<PathBuf>,
 }
@@ -30,6 +31,7 @@ impl Default for BenchRunOptions {
             target_speedup_pct: 5.0,
             target_memory_pct: 5.0,
             enforce_target: false,
+            enforce_all_cases: false,
             python_command: None,
             enkai_bin: None,
         }
@@ -52,7 +54,7 @@ pub fn bench_command(args: &[String]) -> i32 {
 }
 
 pub fn print_bench_usage() {
-    eprintln!("  enkai bench run [--suite <name>] [--baseline <python|none>] [--output <file>] [--machine-profile <file>] [--iterations <n>] [--warmup <n>] [--target-speedup <pct>] [--target-memory <pct>] [--enforce-target] [--python <command>] [--enkai-bin <path>]");
+    eprintln!("  enkai bench run [--suite <name>] [--baseline <python|none>] [--output <file>] [--machine-profile <file>] [--iterations <n>] [--warmup <n>] [--target-speedup <pct>] [--target-memory <pct>] [--enforce-target] [--enforce-all-cases] [--python <command>] [--enkai-bin <path>]");
 }
 
 fn run_suite_command(args: &[String]) -> i32 {
@@ -111,6 +113,9 @@ fn run_suite_command(args: &[String]) -> i32 {
         .arg(options.target_memory_pct.to_string());
     if options.enforce_target {
         command.arg("--enforce-target");
+    }
+    if options.enforce_all_cases {
+        command.arg("--enforce-all-cases");
     }
     if let Some(machine_profile) = options.machine_profile {
         command
@@ -201,6 +206,9 @@ fn parse_bench_run_options(args: &[String]) -> Result<BenchRunOptions, String> {
             }
             "--enforce-target" => {
                 options.enforce_target = true;
+            }
+            "--enforce-all-cases" => {
+                options.enforce_all_cases = true;
             }
             "--python" => {
                 idx += 1;
@@ -350,6 +358,7 @@ mod tests {
         assert_eq!(options.target_speedup_pct, 7.5);
         assert_eq!(options.target_memory_pct, 8.5);
         assert!(options.enforce_target);
+        assert!(!options.enforce_all_cases);
     }
 
     #[test]
@@ -357,5 +366,16 @@ mod tests {
         let err = parse_bench_run_options(&["--baseline".to_string(), "unknown".to_string()])
             .expect_err("must reject");
         assert!(err.contains("baseline"));
+    }
+
+    #[test]
+    fn parse_enforce_all_cases_flag() {
+        let options = parse_bench_run_options(&[
+            "--enforce-target".to_string(),
+            "--enforce-all-cases".to_string(),
+        ])
+        .expect("parse");
+        assert!(options.enforce_target);
+        assert!(options.enforce_all_cases);
     }
 }

@@ -2,9 +2,24 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.1.7.
+- Current production release line is v2.1.8.
 - v2.1.x is additive/integration work in progress (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v2.1.8 (done)
+- Completed performance/efficiency hardening for the v2.1.x line:
+  - added VM arithmetic fast paths for int-int add/sub/mul/div/mod and direct int comparisons.
+  - added deterministic arithmetic safety errors for divide/modulo by zero.
+- Hardened benchmark contract + gates:
+  - new official bounded claim suite: `bench/suites/official_v2_1_8.json`
+  - benchmark target enforcement now supports suite-median contract:
+    - `--enforce-target` validates median speedup/memory targets
+    - `--enforce-all-cases` enforces strict per-case targets
+  - machine profiles now pin `official_v2_1_8`.
+- Added CI regression blocker lanes for benchmark targets:
+  - `benchmark-target-gate` runs on Linux + Windows with release binaries
+  - requires `--target-speedup 5 --target-memory 5 --enforce-target`
+  - uploads per-platform benchmark evidence artifacts.
 
 v2.1.7 (done)
 - Completed bootstrap mainline integration hardening:

@@ -22,6 +22,10 @@ Note:
 - [ ] `powershell -ExecutionPolicy Bypass -File scripts/check_docs_consistency.ps1` (Windows)
 - [ ] Frontend/serve contract snapshot test:
   - `cargo test -p enkai --bin enkai frontend::tests::contract_snapshots_match_reference_files`
+- [ ] Benchmark target gate (v2.1.8 bounded suite):
+  - `enkai bench run --suite official_v2_1_8 --baseline python --iterations 2 --warmup 1 --machine-profile bench/machines/linux_ref.json --output bench/results/official_v2_1_8.linux.json --target-speedup 5 --target-memory 5 --enforce-target`
+  - Optional strict per-case mode:
+    - add `--enforce-all-cases`
 - [ ] Version-neutral release pipeline:
   - `powershell -ExecutionPolicy Bypass -File scripts/release_pipeline.ps1`
   - or `sh scripts/release_pipeline.sh`

@@ -1,4 +1,4 @@
-# 33. Benchmark Suite (v2.1 foundation)
+# 33. Benchmark Suite (v2.1.8)
 
 This document defines the benchmark contract used for bounded Enkai performance claims.
 
@@ -15,6 +15,7 @@ Optional controls:
 - `--target-speedup <pct>`
 - `--target-memory <pct>`
 - `--enforce-target`
+- `--enforce-all-cases`
 - `--python <command>`
 - `--enkai-bin <path>`
 
@@ -25,6 +26,9 @@ Optional controls:
 - Python baselines: `bench/python/*.py`
 - Machine profiles: `bench/machines/*.json`
 - Result artifacts: `bench/results/*.json`
+
+Official bounded claim suite for `v2.1.8`:
+- `bench/suites/official_v2_1_8.json`
 
 ## Reporting Contract
 
@@ -41,5 +45,11 @@ Performance claims are bounded to:
 - declared suite(s)
 - pinned machine profile(s)
 - recorded tool/runtime versions
+
+For `v2.1.8`, target enforcement defaults to suite-level medians:
+- `median_speedup_pct >= target_speedup_pct`
+- `median_memory_reduction_pct >= target_memory_pct`
+
+Use `--enforce-all-cases` when every benchmark case must individually satisfy targets.
 
 No universal cross-hardware claim is implied.

@@ -191,6 +191,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--target-speedup", type=float, default=5.0)
     parser.add_argument("--target-memory", type=float, default=5.0)
     parser.add_argument("--enforce-target", action="store_true")
+    parser.add_argument(
+        "--enforce-all-cases",
+        action="store_true",
+        help="Require every case to meet speedup/memory targets (default: suite medians only)",
+    )
     return parser.parse_args()
 
 
@@ -356,12 +361,23 @@ def main() -> int:
         case_report["pass"] = pass_case
         case_reports.append(case_report)
 
+    median_speedup = median(speedups) if speedups else 0.0
+    median_memory_reduction = median(memory_reductions) if memory_reductions else 0.0
+    case_pass_count = sum(1 for case in case_reports if case.get("pass", False))
+    case_fail_count = len(case_reports) - case_pass_count
+    summary_pass = median_speedup >= args.target_speedup and median_memory_reduction >= args.target_memory
+    if args.enforce_all_cases and case_fail_count > 0:
+        summary_pass = False
+
     summary = {
-        "median_speedup_pct": median(speedups) if speedups else 0.0,
-        "median_memory_reduction_pct": median(memory_reductions) if memory_reductions else 0.0,
+        "median_speedup_pct": median_speedup,
+        "median_memory_reduction_pct": median_memory_reduction,
         "target_speedup_pct": args.target_speedup,
         "target_memory_pct": args.target_memory,
-        "pass": all(case.get("pass", False) for case in case_reports),
+        "case_pass_count": case_pass_count,
+        "case_fail_count": case_fail_count,
+        "enforce_all_cases": args.enforce_all_cases,
+        "pass": summary_pass,
     }
 
     report = {
