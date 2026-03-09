@@ -2,9 +2,19 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.1.9.
-- v2.1.x is additive/integration work in progress (no contract-breaking removals).
+- Current production release line is v2.2.0.
+- v2.2.x is additive/integration work in progress (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v2.2.0 (in progress)
+- Advanced workspace + contract version line to `v2.2.0`.
+- Promoted official bounded benchmark suite for the new line:
+  - `bench/suites/official_v2_2_0.json`
+  - machine profiles pinned to `official_v2_2_0`.
+- Hardened CI release discipline for evidence integrity:
+  - `release-pipeline` CI lane now runs full package gates (not skip-package mode)
+  - strict evidence archive + strict capability report generation are executed in CI
+  - release evidence artifacts are uploaded from CI.
 
 v2.1.9 (done)
 - Completed v2.1 stability-cut evidence hardening:

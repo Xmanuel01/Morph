@@ -1,6 +1,6 @@
-# 36. Capability-Complete Report (v2.1.9)
+# 36. Capability-Complete Report (v2.2.0)
 
-This document defines the objective release evidence contract for the `v2.1.9`
+This document defines the objective release evidence contract for the `v2.2.0`
 stability cut.
 
 ## Goal
@@ -58,6 +58,6 @@ Outputs:
 
 The RC wrappers for the current line are:
 
-- `scripts/v2_1_9_rc_pipeline.ps1`
-- `scripts/v2_1_9_rc_pipeline.sh`
+- `scripts/v2_2_0_rc_pipeline.ps1`
+- `scripts/v2_2_0_rc_pipeline.sh`
 

@@ -54,18 +54,18 @@ jobs:
       - name: Run official benchmark suite (single-iteration smoke)
         run: |
           cargo run -p enkai -- bench run \
-            --suite official_v2_1_9 \
+            --suite official_v2_2_0 \
             --baseline python \
             --iterations 1 \
             --warmup 0 \
             --machine-profile bench/machines/linux_ref.json \
-            --output bench/results/ci_official_v2_1_9_smoke.json \
+            --output bench/results/ci_official_v2_2_0_smoke.json \
             --enkai-bin target/debug/enkai
       - name: Upload benchmark report
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-official-smoke
-          path: bench/results/ci_official_v2_1_9_smoke.json
+          path: bench/results/ci_official_v2_2_0_smoke.json
           if-no-files-found: error
 
   benchmark-target-gate:
@@ -77,12 +77,12 @@ jobs:
             target_os: linux
             machine_profile: bench/machines/linux_ref.json
             enkai_bin: target/release/enkai
-            output: bench/results/ci_official_v2_1_9_linux.json
+            output: bench/results/ci_official_v2_2_0_linux.json
           - os: windows-latest
             target_os: windows
             machine_profile: bench/machines/windows_ref.json
             enkai_bin: target/release/enkai.exe
-            output: bench/results/ci_official_v2_1_9_windows.json
+            output: bench/results/ci_official_v2_2_0_windows.json
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -100,7 +100,7 @@ jobs:
         shell: bash
         run: |
           cargo run -p enkai --release -- bench run \
-            --suite official_v2_1_9 \
+            --suite official_v2_2_0 \
             --baseline python \
             --iterations 2 \
             --warmup 1 \
@@ -115,7 +115,7 @@ jobs:
         shell: pwsh
         run: |
           cargo run -p enkai --release -- bench run `
-            --suite official_v2_1_9 `
+            --suite official_v2_2_0 `
             --baseline python `
             --iterations 2 `
             --warmup 1 `
@@ -141,10 +141,18 @@ jobs:
           python-version: "3.11"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Run release pipeline (package gate handled by matrix package-check job)
-        env:
-          SKIP_PACKAGE_CHECK: "1"
+      - name: Run full release pipeline
         run: sh scripts/release_pipeline.sh
+      - name: Generate strict capability evidence report
+        run: |
+          python3 scripts/collect_release_evidence.py --strict
+          python3 scripts/generate_capability_report.py --strict
+      - name: Upload release evidence artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-pipeline-evidence
+          path: artifacts/release/**
+          if-no-files-found: error
 
   rc-pipeline-dry-run:
     runs-on: ubuntu-latest

@@ -42,12 +42,12 @@ python3 scripts/license_audit.py
 echo "[release] Running benchmark target gate..."
 mkdir -p dist
 cargo run -p enkai --release -- bench run \
-  --suite official_v2_1_9 \
+  --suite official_v2_2_0 \
   --baseline python \
   --iterations 2 \
   --warmup 1 \
   --machine-profile bench/machines/linux_ref.json \
-  --output dist/benchmark_official_v2_1_9_linux.json \
+  --output dist/benchmark_official_v2_2_0_linux.json \
   --target-speedup 5 \
   --target-memory 5 \
   --enforce-target

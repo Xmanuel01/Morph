@@ -11,6 +11,27 @@
 ### Breaking changes
 - None.
 
+## v2.2.0
+
+### Highlights
+- Advanced the release line to `v2.2.0` with additive contract continuity.
+- Added official bounded benchmark suite for this line:
+  - `bench/suites/official_v2_2_0.json`
+  - machine profiles pinned to `official_v2_2_0`
+- Added current-line RC wrappers:
+  - `scripts/v2_2_0_rc_pipeline.ps1`
+  - `scripts/v2_2_0_rc_pipeline.sh`
+
+### Fixes
+- CI `release-pipeline` lane now runs full package gates (no skip-package mode) and publishes strict evidence artifacts.
+- CI now runs strict evidence/report generation from release outputs:
+  - `scripts/collect_release_evidence.py --strict`
+  - `scripts/generate_capability_report.py --strict`
+- Updated benchmark/release/spec/docs references to the `v2.2.0` contract line.
+
+### Breaking changes
+- None.
+
 ## v2.1.9
 
 ### Highlights

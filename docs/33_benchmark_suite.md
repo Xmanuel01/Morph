@@ -1,4 +1,4 @@
-# 33. Benchmark Suite (v2.1.9)
+# 33. Benchmark Suite (v2.2.0)
 
 This document defines the benchmark contract used for bounded Enkai performance claims.
 
@@ -27,8 +27,8 @@ Optional controls:
 - Machine profiles: `bench/machines/*.json`
 - Result artifacts: `bench/results/*.json`
 
-Official bounded claim suite for `v2.1.9`:
-- `bench/suites/official_v2_1_9.json`
+Official bounded claim suite for `v2.2.0`:
+- `bench/suites/official_v2_2_0.json`
 
 ## Reporting Contract
 
@@ -46,7 +46,7 @@ Performance claims are bounded to:
 - pinned machine profile(s)
 - recorded tool/runtime versions
 
-For `v2.1.9`, target enforcement defaults to suite-level medians:
+For `v2.2.0`, target enforcement defaults to suite-level medians:
 - `median_speedup_pct >= target_speedup_pct`
 - `median_memory_reduction_pct >= target_memory_pct`
 

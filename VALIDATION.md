@@ -151,10 +151,10 @@ Expected result:
   - `powershell -ExecutionPolicy Bypass -File scripts/verify_gpu_gates.ps1 -LogDir artifacts/gpu`
   - `sh scripts/verify_gpu_gates.sh artifacts/gpu`
 
-## 7) Benchmark Target Gates (v2.1.9)
+## 7) Benchmark Target Gates (v2.2.0)
 
 - [x] Official bounded benchmark suite updated:
-  - `bench/suites/official_v2_1_9.json`
+  - `bench/suites/official_v2_2_0.json`
 - [x] Machine profiles pinned to official suite:
   - `bench/machines/linux_ref.json`
   - `bench/machines/windows_ref.json`
@@ -165,4 +165,4 @@ Expected result:
   - `benchmark-target-gate` (Linux + Windows release binaries)
 
 Suggested operator rerun command:
-- `enkai bench run --suite official_v2_1_9 --baseline python --iterations 2 --warmup 1 --machine-profile bench/machines/windows_ref.json --output bench/results/official_v2_1_9.windows.json --target-speedup 5 --target-memory 5 --enforce-target`
+- `enkai bench run --suite official_v2_2_0 --baseline python --iterations 2 --warmup 1 --machine-profile bench/machines/windows_ref.json --output bench/results/official_v2_2_0.windows.json --target-speedup 5 --target-memory 5 --enforce-target`
