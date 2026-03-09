@@ -11,6 +11,35 @@
 ### Breaking changes
 - None.
 
+## v2.1.9
+
+### Highlights
+- Completed v2.1.x stability-cut evidence hardening:
+  - release pipelines now run benchmark target gates and emit bounded-claim artifacts:
+    - `dist/benchmark_official_v2_1_9_linux.json`
+    - `dist/benchmark_official_v2_1_9_windows.json`
+  - release evidence archival now captures expanded categories:
+    - `dist` (archive/checksum/SBOM/benchmark)
+    - `selfhost` triage artifacts
+    - `contracts` snapshots
+    - `gpu` operator evidence (when required)
+- Added capability-complete report generation:
+  - `scripts/generate_capability_report.py`
+  - outputs:
+    - `artifacts/release/v<version>/capability_complete.json`
+    - `artifacts/release/v<version>/capability_complete.md`
+- Added current-line RC wrappers:
+  - `scripts/v2_1_9_rc_pipeline.ps1`
+  - `scripts/v2_1_9_rc_pipeline.sh`
+
+### Fixes
+- `scripts/collect_release_evidence.py` now supports strict evidence validation and self-host/contract category capture.
+- RC pipelines now generate capability reports in both dry-run and full modes; full mode enforces strict evidence checks when package gates run.
+- Updated benchmark/CI/docs contracts to pin `official_v2_1_9`.
+
+### Breaking changes
+- None.
+
 ## v2.1.8
 
 ### Highlights

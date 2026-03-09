@@ -1,0 +1,92 @@
+{
+  "suite": "official_v2_1_9",
+  "description": "Official Enkai v2.1.9 benchmark suite (bounded claims, median target enforcement)",
+  "cases": [
+    {
+      "id": "tokenizer_train_cli",
+      "description": "Tokenizer training on deterministic fixture corpus",
+      "enkai_command": [
+        "${ENKAI_BIN}",
+        "tokenizer-lite",
+        "train",
+        "bench/fixtures/tiny_corpus.txt",
+        "bench/results/tokenizer_bench.json",
+        "--vocab-size",
+        "256",
+        "--min-freq",
+        "1",
+        "--seed",
+        "1337"
+      ],
+      "python_command": [
+        "${PYTHON_EXE}",
+        "bench/python/tokenizer_train_cli.py",
+        "bench/fixtures/tiny_corpus.txt",
+        "bench/results/tokenizer_bench.py.json",
+        "--vocab-size",
+        "256",
+        "--min-freq",
+        "1",
+        "--seed",
+        "1337"
+      ]
+    },
+    {
+      "id": "dataset_inspect_cli",
+      "description": "Dataset inspect pass with deterministic batching",
+      "enkai_command": [
+        "${ENKAI_BIN}",
+        "dataset-lite",
+        "inspect",
+        "bench/fixtures/tiny_corpus.txt",
+        "bench/results/tokenizer_bench.json",
+        "--seq-len",
+        "8",
+        "--batch-size",
+        "4",
+        "--seed",
+        "1337",
+        "--shuffle",
+        "--output",
+        "bench/results/dataset_bench.json"
+      ],
+      "python_command": [
+        "${PYTHON_EXE}",
+        "bench/python/dataset_inspect_cli.py",
+        "bench/fixtures/tiny_corpus.txt",
+        "bench/results/tokenizer_bench.py.json",
+        "--seq-len",
+        "8",
+        "--batch-size",
+        "4",
+        "--seed",
+        "1337",
+        "--shuffle",
+        "--output",
+        "bench/results/dataset_bench.py.json"
+      ]
+    },
+    {
+      "id": "http_serve_loop",
+      "description": "In-process local HTTP serving and request loop",
+      "enkai_command": [
+        "${PYTHON_EXE}",
+        "bench/python/http_serving_bench.py",
+        "--impl",
+        "enkai",
+        "--enkai-bin",
+        "${ENKAI_BIN}",
+        "--requests",
+        "400"
+      ],
+      "python_command": [
+        "${PYTHON_EXE}",
+        "bench/python/http_serving_bench.py",
+        "--impl",
+        "python",
+        "--requests",
+        "400"
+      ]
+    }
+  ]
+}

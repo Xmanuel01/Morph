@@ -119,6 +119,21 @@ Invoke-Gate -Name "license-audit" -Command {
     Invoke-Python scripts/license_audit.py
 }
 
+Write-Host "[release] Running benchmark target gate..."
+Invoke-Gate -Name "benchmark-target" -Command {
+    New-Item -ItemType Directory -Path dist -Force | Out-Null
+    cargo run -p enkai --release -- bench run `
+        --suite official_v2_1_9 `
+        --baseline python `
+        --iterations 2 `
+        --warmup 1 `
+        --machine-profile bench/machines/windows_ref.json `
+        --output dist/benchmark_official_v2_1_9_windows.json `
+        --target-speedup 5 `
+        --target-memory 5 `
+        --enforce-target
+}
+
 if (-not $SkipPackageCheck) {
     $version = Get-EnkaiVersion
 

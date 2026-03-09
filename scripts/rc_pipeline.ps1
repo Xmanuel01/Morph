@@ -46,6 +46,7 @@ if ($AllowMissingGpuEvidence) {
     & powershell @args
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     Invoke-Python scripts/collect_release_evidence.py --gpu-log-dir $GpuLogDir
+    Invoke-Python scripts/generate_capability_report.py
     Write-Host "[rc] RC dry-run completed."
     exit 0
 }
@@ -62,5 +63,12 @@ if ($SkipPackageCheck.IsPresent) {
 }
 & powershell @args
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-Invoke-Python scripts/collect_release_evidence.py --gpu-log-dir $GpuLogDir --require-gpu
+$collectArgs = @("scripts/collect_release_evidence.py", "--gpu-log-dir", $GpuLogDir, "--require-gpu")
+$reportArgs = @("scripts/generate_capability_report.py", "--require-gpu")
+if (-not $SkipPackageCheck.IsPresent) {
+    $collectArgs += "--strict"
+    $reportArgs += "--strict"
+}
+Invoke-Python @collectArgs
+Invoke-Python @reportArgs
 Write-Host "[rc] RC pipeline passed with archived evidence."

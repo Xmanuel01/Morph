@@ -261,7 +261,7 @@ dependencies = [
 
 [[package]]
 name = "enkai"
-version = "2.1.8"
+version = "2.1.9"
 dependencies = [
  "bincode",
  "enkaic",
@@ -277,7 +277,7 @@ dependencies = [
 
 [[package]]
 name = "enkai_native"
-version = "2.1.8"
+version = "2.1.9"
 dependencies = [
  "csv",
  "memmap2",
@@ -291,7 +291,7 @@ dependencies = [
 
 [[package]]
 name = "enkai_tensor"
-version = "2.1.8"
+version = "2.1.9"
 dependencies = [
  "libc",
  "once_cell",
@@ -302,7 +302,7 @@ dependencies = [
 
 [[package]]
 name = "enkaic"
-version = "2.1.8"
+version = "2.1.9"
 dependencies = [
  "bumpalo",
  "serde",
@@ -312,7 +312,7 @@ dependencies = [
 
 [[package]]
 name = "enkairt"
-version = "2.1.8"
+version = "2.1.9"
 dependencies = [
  "base64",
  "bincode",

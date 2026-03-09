@@ -69,6 +69,8 @@ def main() -> int:
         failures.append("docs/RELEASE_CHECKLIST.md missing scripts/rc_pipeline.sh")
     if "scripts/collect_release_evidence.py" not in release_checklist:
         failures.append("docs/RELEASE_CHECKLIST.md missing scripts/collect_release_evidence.py")
+    if "scripts/generate_capability_report.py" not in release_checklist:
+        failures.append("docs/RELEASE_CHECKLIST.md missing scripts/generate_capability_report.py")
 
     version_token = version.replace(".", "_")
     for wrapper in (
@@ -83,6 +85,20 @@ def main() -> int:
         failures.append("docs/27_frontend_stack.md missing backend snapshot reference")
     if "sdk_api.snapshot.json" not in frontend_docs:
         failures.append("docs/27_frontend_stack.md missing SDK snapshot reference")
+
+    capability_doc = ROOT / "docs/36_capability_complete_report.md"
+    if not capability_doc.is_file():
+        failures.append("missing docs/36_capability_complete_report.md")
+    else:
+        capability_text = capability_doc.read_text(encoding="utf-8")
+        if "scripts/collect_release_evidence.py" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing collect_release_evidence reference"
+            )
+        if "scripts/generate_capability_report.py" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing generate_capability_report reference"
+            )
 
     required_snapshots = [
         ROOT / "enkai/contracts/backend_api_v1.snapshot.json",

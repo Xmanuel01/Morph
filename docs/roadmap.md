@@ -2,9 +2,20 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.1.8.
+- Current production release line is v2.1.9.
 - v2.1.x is additive/integration work in progress (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v2.1.9 (done)
+- Completed v2.1 stability-cut evidence hardening:
+  - promoted official bounded claim suite for the stability cut:
+    - `bench/suites/official_v2_1_9.json`
+  - release pipelines now run official benchmark target gates and emit benchmark evidence into `dist/`.
+  - RC pipelines now archive expanded evidence categories (`dist`, `selfhost`, `contracts`, optional `gpu`).
+  - RC pipelines now generate capability-complete reports:
+    - `artifacts/release/v<version>/capability_complete.json`
+    - `artifacts/release/v<version>/capability_complete.md`
+  - strict RC sign-off enforces required archive/checksum/SBOM/benchmark/self-host/contract evidence.
 
 v2.1.8 (done)
 - Completed performance/efficiency hardening for the v2.1.x line:

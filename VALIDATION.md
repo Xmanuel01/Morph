@@ -144,15 +144,17 @@ Expected result:
   - `powershell -ExecutionPolicy Bypass -File scripts/rc_pipeline.ps1`
   - `sh scripts/rc_pipeline.sh`
 - [x] RC evidence archive tooling:
-  - `python3 scripts/collect_release_evidence.py --gpu-log-dir artifacts/gpu --require-gpu`
+  - `python3 scripts/collect_release_evidence.py --gpu-log-dir artifacts/gpu --require-gpu --strict`
+- [x] Capability-complete report tooling:
+  - `python3 scripts/generate_capability_report.py --require-gpu --strict`
 - [ ] Optional GPU evidence verification (after operator runs):
   - `powershell -ExecutionPolicy Bypass -File scripts/verify_gpu_gates.ps1 -LogDir artifacts/gpu`
   - `sh scripts/verify_gpu_gates.sh artifacts/gpu`
 
-## 7) Benchmark Target Gates (v2.1.8)
+## 7) Benchmark Target Gates (v2.1.9)
 
 - [x] Official bounded benchmark suite updated:
-  - `bench/suites/official_v2_1_8.json`
+  - `bench/suites/official_v2_1_9.json`
 - [x] Machine profiles pinned to official suite:
   - `bench/machines/linux_ref.json`
   - `bench/machines/windows_ref.json`
@@ -163,4 +165,4 @@ Expected result:
   - `benchmark-target-gate` (Linux + Windows release binaries)
 
 Suggested operator rerun command:
-- `enkai bench run --suite official_v2_1_8 --baseline python --iterations 2 --warmup 1 --machine-profile bench/machines/windows_ref.json --output bench/results/official_v2_1_8.windows.json --target-speedup 5 --target-memory 5 --enforce-target`
+- `enkai bench run --suite official_v2_1_9 --baseline python --iterations 2 --warmup 1 --machine-profile bench/machines/windows_ref.json --output bench/results/official_v2_1_9.windows.json --target-speedup 5 --target-memory 5 --enforce-target`

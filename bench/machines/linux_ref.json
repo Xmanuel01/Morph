@@ -7,6 +7,6 @@
   "python": "3.11.x",
   "rust_toolchain": "stable",
   "enkai_profile": "release",
-  "suite": "official_v2_1_8",
+  "suite": "official_v2_1_9",
   "notes": "Pinned Linux reference class for bounded Enkai benchmark claims"
 }

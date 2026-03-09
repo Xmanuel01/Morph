@@ -1,6 +1,6 @@
 [package]
 name = "enkai_tensor"
-version = "2.1.8"
+version = "2.1.9"
 edition = "2021"
 license = "Apache-2.0"
 description = "Enkai GPU tensor backend (libtorch)."

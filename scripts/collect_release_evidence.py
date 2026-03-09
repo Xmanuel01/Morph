@@ -6,6 +6,7 @@ import datetime as dt
 import hashlib
 import json
 import pathlib
+import re
 import shutil
 import sys
 
@@ -35,6 +36,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gpu-log-dir", default="artifacts/gpu", help="GPU evidence source directory")
     parser.add_argument("--dist-dir", default="dist", help="Built artifacts source directory")
     parser.add_argument(
+        "--selfhost-dir",
+        default="artifacts/selfhost",
+        help="Self-host triage source directory",
+    )
+    parser.add_argument(
+        "--contracts-dir",
+        default="enkai/contracts",
+        help="Contract snapshot source directory",
+    )
+    parser.add_argument(
         "--out-dir",
         default="artifacts/release",
         help="Output directory for evidence bundle",
@@ -43,6 +54,11 @@ def parse_args() -> argparse.Namespace:
         "--require-gpu",
         action="store_true",
         help="Fail if required GPU evidence files are missing",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Fail if required non-GPU release evidence is missing",
     )
     return parser.parse_args()
 
@@ -68,6 +84,7 @@ def copy_files(
     root: pathlib.Path,
     source_base: pathlib.Path,
     destination_base: pathlib.Path,
+    category: str,
     files: list[pathlib.Path],
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
@@ -80,6 +97,7 @@ def copy_files(
         shutil.copy2(source, target)
         rows.append(
             {
+                "category": category,
                 "source": str(source.relative_to(root)),
                 "copied_to": str(target.relative_to(root)),
                 "sha256": sha256_file(source),
@@ -89,6 +107,33 @@ def copy_files(
     return rows
 
 
+def ensure_required_files(directory: pathlib.Path, required: list[str], label: str) -> list[pathlib.Path]:
+    missing = [name for name in required if not (directory / name).is_file()]
+    if missing:
+        raise RuntimeError(f"missing required {label} files: {', '.join(sorted(missing))}")
+    return [directory / name for name in required]
+
+
+def validate_dist_artifacts(dist_files: list[pathlib.Path]) -> None:
+    names = [file.name for file in dist_files if file.is_file()]
+    has_archive = any(name.startswith("enkai-") and (name.endswith(".zip") or name.endswith(".tar.gz")) for name in names)
+    has_checksum = any(name.startswith("enkai-") and name.endswith(".sha256") for name in names)
+    has_sbom = any(name.startswith("sbom-") and name.endswith(".json") for name in names)
+    has_bench = any(re.match(r"benchmark_official_.*\.json$", name) for name in names)
+
+    missing: list[str] = []
+    if not has_archive:
+        missing.append("release archive (enkai-<version>-<os>-<arch>.zip|tar.gz)")
+    if not has_checksum:
+        missing.append("release checksum (.sha256)")
+    if not has_sbom:
+        missing.append("SBOM (sbom-<version>-<os>-<arch>.json)")
+    if not has_bench:
+        missing.append("benchmark evidence (benchmark_official_*.json)")
+    if missing:
+        raise RuntimeError("missing required dist evidence: " + ", ".join(missing))
+
+
 def main() -> int:
     args = parse_args()
     root = pathlib.Path(__file__).resolve().parents[1]
@@ -96,14 +141,17 @@ def main() -> int:
 
     gpu_dir = (root / args.gpu_log_dir).resolve()
     dist_dir = (root / args.dist_dir).resolve()
+    selfhost_dir = (root / args.selfhost_dir).resolve()
+    contracts_dir = (root / args.contracts_dir).resolve()
     out_root = (root / args.out_dir / f"v{version}").resolve()
     out_root.mkdir(parents=True, exist_ok=True)
 
     manifest: dict[str, object] = {
-        "schema": "enkai-release-evidence-v1",
+        "schema": "enkai-release-evidence-v2",
         "version": f"v{version}",
         "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "gpu_required": args.require_gpu,
+        "strict": args.strict,
         "files": [],
     }
 
@@ -113,13 +161,52 @@ def main() -> int:
             gpu_files = ensure_required_gpu_files(gpu_dir)
         else:
             gpu_files = sorted(path for path in gpu_dir.glob("*") if path.is_file())
-        file_rows.extend(copy_files(root, gpu_dir, out_root / "gpu", gpu_files))
+        file_rows.extend(copy_files(root, gpu_dir, out_root / "gpu", "gpu", gpu_files))
     elif args.require_gpu:
         raise RuntimeError(f"GPU evidence directory not found: {gpu_dir}")
 
+    dist_files: list[pathlib.Path] = []
     if dist_dir.is_dir():
         dist_files = sorted(path for path in dist_dir.glob("*") if path.is_file())
-        file_rows.extend(copy_files(root, dist_dir, out_root / "dist", dist_files))
+        if args.strict:
+            validate_dist_artifacts(dist_files)
+        file_rows.extend(copy_files(root, dist_dir, out_root / "dist", "dist", dist_files))
+    elif args.strict:
+        raise RuntimeError(f"dist directory not found for strict evidence mode: {dist_dir}")
+
+    required_selfhost = [
+        "litec_selfhost_ci_report.json",
+        "litec_replace_check_report.json",
+        "litec_mainline_ci_report.json",
+    ]
+    if selfhost_dir.is_dir():
+        if args.strict:
+            selfhost_files = ensure_required_files(selfhost_dir, required_selfhost, "self-host triage")
+        else:
+            selfhost_files = sorted(path for path in selfhost_dir.glob("*") if path.is_file())
+        file_rows.extend(
+            copy_files(root, selfhost_dir, out_root / "selfhost", "selfhost", selfhost_files)
+        )
+    elif args.strict:
+        raise RuntimeError(f"self-host triage directory not found for strict evidence mode: {selfhost_dir}")
+
+    required_contracts = [
+        "backend_api_v1.snapshot.json",
+        "sdk_api_v1.snapshot.json",
+        "conversation_state_v1.schema.json",
+    ]
+    if contracts_dir.is_dir():
+        if args.strict:
+            contract_files = ensure_required_files(contracts_dir, required_contracts, "contract snapshot")
+        else:
+            contract_files = sorted(path for path in contracts_dir.glob("*.json") if path.is_file())
+        file_rows.extend(
+            copy_files(root, contracts_dir, out_root / "contracts", "contracts", contract_files)
+        )
+    elif args.strict:
+        raise RuntimeError(
+            f"contract snapshot directory not found for strict evidence mode: {contracts_dir}"
+        )
 
     manifest["files"] = file_rows
     manifest_path = out_root / "manifest.json"

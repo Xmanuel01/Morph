@@ -397,7 +397,7 @@ fn backend_profile_slug(profile: BackendProfile) -> &'static str {
 fn render_backend_readme(root: &Path, api_version: &str, profile: BackendProfile) -> String {
     let name = sanitize_name(root);
     format!(
-        "# {}\n\nEnkai {} scaffold (`v2.1.8` contract freeze).\n\n## API Contract\n\n- Base path: `/api/{}`\n- Header required by SDK: `x-enkai-api-version: {}`\n- Routes:\n  - `GET /api/{}/health`\n  - `POST /api/{}/chat`\n  - `GET /api/{}/chat/stream`\n  - `GET /api/{}/chat/ws`\n\n## Contract Snapshots\n\n- Backend contract snapshot: `contracts/backend_api.snapshot.json`\n- Conversation schema: `contracts/conversation_state.schema.json`\n- Deployment env snapshot: `contracts/deploy_env.snapshot.json`\n\n## Persistence + Migration\n\n- Latest conversation state is persisted to `conversation_state.json`.\n- A backup copy is persisted to `conversation_state.backup.json`.\n- SQLite metadata DB is stored at `ENKAI_CONVERSATION_DB` (default `conversation_state.db`).\n- Startup applies DB migration steps from `migrations/` and records versions in `schema_migrations`.\n\n## Environment Contract\n\n- Copy `.env.example` to `.env` and validate before deploy:\n  - `python scripts/validate_env_contract.py --env-file .env`\n\n## Run\n\n- `enkai serve --host 0.0.0.0 --port 8080 .`\n",
+        "# {}\n\nEnkai {} scaffold (`v2.1.9` contract freeze).\n\n## API Contract\n\n- Base path: `/api/{}`\n- Header required by SDK: `x-enkai-api-version: {}`\n- Routes:\n  - `GET /api/{}/health`\n  - `POST /api/{}/chat`\n  - `GET /api/{}/chat/stream`\n  - `GET /api/{}/chat/ws`\n\n## Contract Snapshots\n\n- Backend contract snapshot: `contracts/backend_api.snapshot.json`\n- Conversation schema: `contracts/conversation_state.schema.json`\n- Deployment env snapshot: `contracts/deploy_env.snapshot.json`\n\n## Persistence + Migration\n\n- Latest conversation state is persisted to `conversation_state.json`.\n- A backup copy is persisted to `conversation_state.backup.json`.\n- SQLite metadata DB is stored at `ENKAI_CONVERSATION_DB` (default `conversation_state.db`).\n- Startup applies DB migration steps from `migrations/` and records versions in `schema_migrations`.\n\n## Environment Contract\n\n- Copy `.env.example` to `.env` and validate before deploy:\n  - `python scripts/validate_env_contract.py --env-file .env`\n\n## Run\n\n- `enkai serve --host 0.0.0.0 --port 8080 .`\n",
         name,
         backend_profile_name(profile),
         api_version,
@@ -871,7 +871,7 @@ export default function App() {{\n\
   return (\n\
     <div className=\"app-shell\">\n\
       <header className=\"hero\">\n\
-        <p className=\"eyebrow\">Enkai v2.1.8 frontend contract freeze</p>\n\
+        <p className=\"eyebrow\">Enkai v2.1.9 frontend contract freeze</p>\n\
         <h1>Streaming Chat UI Kit</h1>\n\
         <p className=\"subtitle\">Typed SDK, version-pinned API contract, and resilient error UX.</p>\n\
         <p className=\"subtitle\">{{conversationId ? `Conversation: ${{conversationId}}` : \"Conversation: new\"}}</p>\n\
