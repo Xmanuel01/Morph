@@ -1,8 +1,8 @@
-﻿# Enkai Bootstrap Core (v2.1.0)
+# Enkai Bootstrap Core (v2.1.7)
 
 ## Purpose
 
-`v2.1.0` stabilizes bootstrap-core primitives for a deterministic Stage0/Stage1 path.
+`v2.1.7` stabilizes bootstrap-core primitives for a deterministic Stage0/Stage1 path.
 The objective is to validate that Enkai-scripted compiler orchestration produces the
 same bytecode as direct Rust Stage0 compilation for the supported subset.
 
@@ -14,8 +14,9 @@ same bytecode as direct Rust Stage0 compilation for the supported subset.
 - `enkai litec run <input.enk>`
 - `enkai litec stage <parse|check|codegen> <input.enk> [--out <program.bin>]`
 - `enkai litec selfhost <corpus_dir>`
-- `enkai litec selfhost-ci <corpus_dir> [--no-compare-stage0]`
-- `enkai litec replace-check <corpus_dir> [--no-compare-stage0]`
+- `enkai litec selfhost-ci <corpus_dir> [--no-compare-stage0] [--triage-dir <dir>]`
+- `enkai litec replace-check <corpus_dir> [--no-compare-stage0] [--triage-dir <dir>]`
+- `enkai litec mainline-ci <corpus_dir> [--triage-dir <dir>]`
 
 `litec verify` performs:
 
@@ -34,7 +35,7 @@ same bytecode as direct Rust Stage0 compilation for the supported subset.
 1. Stage1 compile through Enkai phase pipeline (`parse` + `check` + `codegen`) per corpus file.
 2. Runs Stage1 bytecode in VM for each file.
 3. Optionally compiles/runs Stage0 and compares canonicalized result values.
-4. Fails fast on compile/runtime/result mismatch.
+4. Emits deterministic triage JSON (`litec_selfhost_ci_report.json`) when `--triage-dir` is provided.
 
 `litec run` performs:
 
@@ -48,6 +49,13 @@ same bytecode as direct Rust Stage0 compilation for the supported subset.
 2. Rebuilds `enkai_lite.enk` with Stage1 to produce Stage2.
 3. Reports Stage2/Stage3 fixed-point status for the compiler artifact.
 4. Compiles corpus files with Stage2 and validates runtime parity (plus optional Stage0 comparisons).
+5. Emits deterministic triage JSON (`litec_replace_check_report.json`) when `--triage-dir` is provided.
+
+`litec mainline-ci` performs:
+
+1. Runs `litec selfhost-ci --no-compare-stage0` to make the Enkai-built compiler path the default self-host CI lane.
+2. Runs `litec replace-check --no-compare-stage0` to validate fixed-point + Stage1/Stage2 parity.
+3. Emits a summary report (`litec_mainline_ci_report.json`) and keeps a separate Stage0 fallback lane as mandatory release safety.
 
 ## Runtime Surface
 
@@ -82,10 +90,7 @@ The subset intentionally rejects:
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace`
 - bootstrap-core tests for `litec compile`, `litec verify`, `litec stage`, `litec selfhost`, `litec replace-check`, and subset-rejection behavior.
-- self-host CI command validation over repository corpus (`enkai/tools/bootstrap/selfhost_corpus`).
+- self-host CI command validation over repository corpus (`enkai/tools/bootstrap/selfhost_corpus`), including `mainline-ci` triage report emission.
 - release script shortcut:
   - `powershell -ExecutionPolicy Bypass -File scripts/release_pipeline.ps1`
   - `sh scripts/release_pipeline.sh`
-
-
-

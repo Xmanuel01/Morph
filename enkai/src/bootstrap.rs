@@ -10,6 +10,7 @@ use enkai_compiler::parse_module_named;
 use enkai_compiler::{TypeChecker, TypeError};
 use enkai_runtime::object::Obj;
 use enkai_runtime::{Value, VM};
+use sha2::{Digest, Sha256};
 
 const FMT_LITE_SCRIPT: &str = include_str!("../tools/bootstrap/fmt_lite.enk");
 const LINT_LITE_SCRIPT: &str = include_str!("../tools/bootstrap/lint_lite.enk");
@@ -28,8 +29,11 @@ pub fn print_usage() {
     eprintln!("  enkai litec run <input.enk>");
     eprintln!("  enkai litec stage <parse|check|codegen> <input.enk> [--out <program.bin>]");
     eprintln!("  enkai litec selfhost <corpus_dir>");
-    eprintln!("  enkai litec selfhost-ci <corpus_dir> [--no-compare-stage0]");
-    eprintln!("  enkai litec replace-check <corpus_dir> [--no-compare-stage0]");
+    eprintln!("  enkai litec selfhost-ci <corpus_dir> [--no-compare-stage0] [--triage-dir <dir>]");
+    eprintln!(
+        "  enkai litec replace-check <corpus_dir> [--no-compare-stage0] [--triage-dir <dir>]"
+    );
+    eprintln!("  enkai litec mainline-ci <corpus_dir> [--triage-dir <dir>]");
 }
 
 pub fn fmt_lite_command(args: &[String]) -> i32 {
@@ -480,6 +484,7 @@ pub fn litec_command(args: &[String]) -> i32 {
         "selfhost" => litec_selfhost(&args[1..]),
         "selfhost-ci" => litec_selfhost_ci(&args[1..]),
         "replace-check" => litec_replace_check(&args[1..]),
+        "mainline-ci" => litec_mainline_ci(&args[1..]),
         other => {
             eprintln!("unknown litec subcommand: {}", other);
             1
@@ -670,6 +675,105 @@ fn litec_stage(args: &[String]) -> i32 {
     }
 }
 
+#[derive(Debug, Clone)]
+struct LitecCorpusOptions {
+    corpus: PathBuf,
+    compare_stage0: bool,
+    triage_dir: Option<PathBuf>,
+}
+
+fn parse_litec_corpus_options(
+    args: &[String],
+    usage: &str,
+    default_compare_stage0: bool,
+) -> Result<LitecCorpusOptions, String> {
+    if args.is_empty() {
+        return Err(usage.to_string());
+    }
+    let corpus = PathBuf::from(&args[0]);
+    if !corpus.is_dir() {
+        return Err(format!("corpus directory not found: {}", corpus.display()));
+    }
+    let mut compare_stage0 = default_compare_stage0;
+    let mut triage_dir: Option<PathBuf> = None;
+    let mut index = 1usize;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--no-compare-stage0" => compare_stage0 = false,
+            "--triage-dir" => {
+                index += 1;
+                let Some(path) = args.get(index) else {
+                    return Err("--triage-dir requires a value".to_string());
+                };
+                triage_dir = Some(PathBuf::from(path));
+            }
+            other => return Err(format!("Unexpected argument: {}", other)),
+        }
+        index += 1;
+    }
+    Ok(LitecCorpusOptions {
+        corpus,
+        compare_stage0,
+        triage_dir,
+    })
+}
+
+fn sorted_source_files(corpus: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut files = super::collect_source_files(corpus)?;
+    files.sort_by(|lhs, rhs| {
+        lhs.to_string_lossy()
+            .as_ref()
+            .cmp(rhs.to_string_lossy().as_ref())
+    });
+    if files.is_empty() {
+        return Err(format!("no source files found in {}", corpus.display()));
+    }
+    Ok(files)
+}
+
+fn to_report_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn bytes_sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut out = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        out.push_str(&format!("{:02x}", byte));
+    }
+    out
+}
+
+fn stage_fingerprint(bytes: &[u8]) -> serde_json::Value {
+    serde_json::json!({
+        "bytes": bytes.len(),
+        "sha256": bytes_sha256_hex(bytes),
+    })
+}
+
+fn write_triage_report(
+    triage_dir: Option<&Path>,
+    report_file: &str,
+    report: &serde_json::Value,
+) -> Result<Option<PathBuf>, String> {
+    let Some(dir) = triage_dir else {
+        return Ok(None);
+    };
+    fs::create_dir_all(dir).map_err(|err| {
+        format!(
+            "failed to create triage directory {}: {}",
+            dir.display(),
+            err
+        )
+    })?;
+    let out_path = dir.join(report_file);
+    let text = serde_json::to_string_pretty(report)
+        .map_err(|err| format!("failed to serialize triage report {}: {}", report_file, err))?;
+    fs::write(&out_path, text)
+        .map_err(|err| format!("failed to write {}: {}", out_path.display(), err))?;
+    Ok(Some(out_path))
+}
+
 fn litec_selfhost(args: &[String]) -> i32 {
     if args.len() != 1 {
         eprintln!("Usage: enkai litec selfhost <corpus_dir>");
@@ -680,17 +784,13 @@ fn litec_selfhost(args: &[String]) -> i32 {
         eprintln!("corpus directory not found: {}", corpus.display());
         return 1;
     }
-    let files = match super::collect_source_files(&corpus) {
+    let files = match sorted_source_files(&corpus) {
         Ok(files) => files,
         Err(err) => {
             eprintln!("{}", err);
             return 1;
         }
     };
-    if files.is_empty() {
-        eprintln!("no source files found in {}", corpus.display());
-        return 1;
-    }
     for file in &files {
         if let Err(err) = verify_stage_equivalence(file) {
             eprintln!("selfhost mismatch for {}: {}", file.display(), err);
@@ -702,137 +802,208 @@ fn litec_selfhost(args: &[String]) -> i32 {
 }
 
 fn litec_selfhost_ci(args: &[String]) -> i32 {
-    if args.is_empty() {
-        eprintln!("Usage: enkai litec selfhost-ci <corpus_dir> [--no-compare-stage0]");
-        return 1;
-    }
-    let corpus = PathBuf::from(&args[0]);
-    if !corpus.is_dir() {
-        eprintln!("corpus directory not found: {}", corpus.display());
-        return 1;
-    }
-    let mut compare_stage0 = true;
-    for arg in &args[1..] {
-        match arg.as_str() {
-            "--no-compare-stage0" => compare_stage0 = false,
-            other => {
-                eprintln!("Unexpected argument: {}", other);
-                return 1;
-            }
+    let options = match parse_litec_corpus_options(
+        args,
+        "Usage: enkai litec selfhost-ci <corpus_dir> [--no-compare-stage0] [--triage-dir <dir>]",
+        true,
+    ) {
+        Ok(options) => options,
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
         }
-    }
-    let files = match super::collect_source_files(&corpus) {
+    };
+    let files = match sorted_source_files(&options.corpus) {
         Ok(files) => files,
         Err(err) => {
             eprintln!("{}", err);
             return 1;
         }
     };
-    if files.is_empty() {
-        eprintln!("no source files found in {}", corpus.display());
-        return 1;
-    }
+    let mut entries: Vec<serde_json::Value> = Vec::with_capacity(files.len());
     let mut passed = 0usize;
+    let mut failures = 0usize;
     for file in &files {
+        let mut entry = serde_json::json!({
+            "file": to_report_path(file),
+            "status": "pass",
+        });
         let stage1_bytes = match compile_stage1_program_bytes(file, "codegen") {
             Ok(bytes) => bytes,
             Err(err) => {
-                eprintln!("[fail] {}: {}", file.display(), err);
-                return 1;
+                let message = err.to_string();
+                eprintln!("[fail] {}: {}", file.display(), message);
+                entry["status"] = serde_json::json!("fail");
+                entry["error"] = serde_json::json!(message);
+                entries.push(entry);
+                failures += 1;
+                continue;
             }
         };
+        entry["stage1"] = stage_fingerprint(&stage1_bytes);
         let stage1 = match decode_program_bytes(file, &stage1_bytes, "stage1") {
             Ok(program) => program,
             Err(err) => {
-                eprintln!("[fail] {}: {}", file.display(), err);
-                return 1;
+                let message = err.to_string();
+                eprintln!("[fail] {}: {}", file.display(), message);
+                entry["status"] = serde_json::json!("fail");
+                entry["error"] = serde_json::json!(message);
+                entries.push(entry);
+                failures += 1;
+                continue;
             }
         };
         let stage1_value = match run_program(&stage1) {
             Ok(value) => value,
             Err(err) => {
-                eprintln!("[fail] {}: stage1 runtime error: {}", file.display(), err);
-                return 1;
+                let message = format!("stage1 runtime error: {}", err);
+                eprintln!("[fail] {}: {}", file.display(), message);
+                entry["status"] = serde_json::json!("fail");
+                entry["error"] = serde_json::json!(message);
+                entries.push(entry);
+                failures += 1;
+                continue;
             }
         };
-        if compare_stage0 {
+        let stage1_canonical = canonical_value(&stage1_value);
+        entry["stage1_result"] = serde_json::json!(stage1_canonical);
+        if options.compare_stage0 {
             let stage0_bytes = match compile_stage0_program_bytes(file) {
                 Ok(bytes) => bytes,
                 Err(err) => {
-                    eprintln!("[fail] {}: stage0 compile failed: {}", file.display(), err);
-                    return 1;
+                    let message = format!("stage0 compile failed: {}", err);
+                    eprintln!("[fail] {}: {}", file.display(), message);
+                    entry["status"] = serde_json::json!("fail");
+                    entry["error"] = serde_json::json!(message);
+                    entries.push(entry);
+                    failures += 1;
+                    continue;
                 }
             };
+            entry["stage0"] = stage_fingerprint(&stage0_bytes);
             let stage0 = match decode_program_bytes(file, &stage0_bytes, "stage0") {
                 Ok(program) => program,
                 Err(err) => {
-                    eprintln!("[fail] {}: {}", file.display(), err);
-                    return 1;
+                    let message = err.to_string();
+                    eprintln!("[fail] {}: {}", file.display(), message);
+                    entry["status"] = serde_json::json!("fail");
+                    entry["error"] = serde_json::json!(message);
+                    entries.push(entry);
+                    failures += 1;
+                    continue;
                 }
             };
             let stage0_value = match run_program(&stage0) {
                 Ok(value) => value,
                 Err(err) => {
-                    eprintln!("[fail] {}: stage0 runtime error: {}", file.display(), err);
-                    return 1;
+                    let message = format!("stage0 runtime error: {}", err);
+                    eprintln!("[fail] {}: {}", file.display(), message);
+                    entry["status"] = serde_json::json!("fail");
+                    entry["error"] = serde_json::json!(message);
+                    entries.push(entry);
+                    failures += 1;
+                    continue;
                 }
             };
-            if canonical_value(&stage0_value) != canonical_value(&stage1_value) {
-                eprintln!(
-                    "[fail] {}: stage0/stage1 result mismatch (stage0={}, stage1={})",
-                    file.display(),
-                    canonical_value(&stage0_value),
-                    canonical_value(&stage1_value)
+            let stage0_canonical = canonical_value(&stage0_value);
+            entry["stage0_result"] = serde_json::json!(stage0_canonical);
+            let stage0_str = entry["stage0_result"].as_str().unwrap_or_default();
+            let stage1_str = entry["stage1_result"].as_str().unwrap_or_default();
+            if stage0_str != stage1_str {
+                let message = format!(
+                    "stage0/stage1 result mismatch (stage0={}, stage1={})",
+                    stage0_str, stage1_str
                 );
-                return 1;
+                eprintln!("[fail] {}: {}", file.display(), message);
+                entry["status"] = serde_json::json!("fail");
+                entry["error"] = serde_json::json!(message);
+                entries.push(entry);
+                failures += 1;
+                continue;
             }
         }
         println!("[pass] {}", file.display());
+        entries.push(entry);
         passed += 1;
     }
+    let report = serde_json::json!({
+        "command": "selfhost-ci",
+        "corpus": to_report_path(&options.corpus),
+        "compare_stage0": options.compare_stage0,
+        "files_total": files.len(),
+        "files_passed": passed,
+        "files_failed": failures,
+        "status": if failures == 0 { "ok" } else { "failed" },
+        "entries": entries,
+    });
+    match write_triage_report(
+        options.triage_dir.as_deref(),
+        "litec_selfhost_ci_report.json",
+        &report,
+    ) {
+        Ok(Some(path)) => println!("selfhost-ci triage report: {}", path.display()),
+        Ok(None) => {}
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    }
     println!(
-        "litec selfhost-ci ok ({} files, compare_stage0={})",
-        passed, compare_stage0
+        "litec selfhost-ci {} ({} files, compare_stage0={})",
+        if failures == 0 { "ok" } else { "failed" },
+        files.len(),
+        options.compare_stage0
     );
-    0
+    if failures == 0 {
+        0
+    } else {
+        1
+    }
 }
 
 fn litec_replace_check(args: &[String]) -> i32 {
-    if args.is_empty() {
-        eprintln!("Usage: enkai litec replace-check <corpus_dir> [--no-compare-stage0]");
-        return 1;
-    }
-    let corpus = PathBuf::from(&args[0]);
-    if !corpus.is_dir() {
-        eprintln!("corpus directory not found: {}", corpus.display());
-        return 1;
-    }
-    let mut compare_stage0 = true;
-    for arg in &args[1..] {
-        match arg.as_str() {
-            "--no-compare-stage0" => compare_stage0 = false,
-            other => {
-                eprintln!("Unexpected argument: {}", other);
-                return 1;
-            }
+    let options = match parse_litec_corpus_options(
+        args,
+        "Usage: enkai litec replace-check <corpus_dir> [--no-compare-stage0] [--triage-dir <dir>]",
+        true,
+    ) {
+        Ok(options) => options,
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
         }
-    }
-    let files = match super::collect_source_files(&corpus) {
+    };
+    let files = match sorted_source_files(&options.corpus) {
         Ok(files) => files,
         Err(err) => {
             eprintln!("{}", err);
             return 1;
         }
     };
-    if files.is_empty() {
-        eprintln!("no source files found in {}", corpus.display());
-        return 1;
-    }
+
+    let mut report = serde_json::json!({
+        "command": "replace-check",
+        "corpus": to_report_path(&options.corpus),
+        "compare_stage0": options.compare_stage0,
+        "files_total": files.len(),
+        "files_passed": 0,
+        "files_failed": 0,
+        "status": "failed",
+        "stage2_stage3_fixed_point": false,
+        "entries": [],
+    });
 
     let compiler_source = match write_temp_script("enkai_lite_compiler.enk", ENKAI_LITEC_SCRIPT) {
         Ok(path) => path,
         Err(err) => {
             eprintln!("failed to materialize compiler source: {}", err);
+            report["error"] =
+                serde_json::json!(format!("failed to materialize compiler source: {}", err));
+            let _ = write_triage_report(
+                options.triage_dir.as_deref(),
+                "litec_replace_check_report.json",
+                &report,
+            );
             return 1;
         }
     };
@@ -841,6 +1012,12 @@ fn litec_replace_check(args: &[String]) -> i32 {
         Ok(program) => program,
         Err(err) => {
             eprintln!("stage0 compiler build failed: {}", err);
+            report["error"] = serde_json::json!(format!("stage0 compiler build failed: {}", err));
+            let _ = write_triage_report(
+                options.triage_dir.as_deref(),
+                "litec_replace_check_report.json",
+                &report,
+            );
             return 1;
         }
     };
@@ -849,9 +1026,17 @@ fn litec_replace_check(args: &[String]) -> i32 {
             Ok(bytes) => bytes,
             Err(err) => {
                 eprintln!("stage1 compiler build failed: {}", err);
+                report["error"] =
+                    serde_json::json!(format!("stage1 compiler build failed: {}", err));
+                let _ = write_triage_report(
+                    options.triage_dir.as_deref(),
+                    "litec_replace_check_report.json",
+                    &report,
+                );
                 return 1;
             }
         };
+    report["stage1_compiler"] = stage_fingerprint(&stage1_driver_bytes);
     let stage1_driver = match decode_program_bytes(
         &compiler_source.path,
         &stage1_driver_bytes,
@@ -860,6 +1045,12 @@ fn litec_replace_check(args: &[String]) -> i32 {
         Ok(program) => program,
         Err(err) => {
             eprintln!("{}", err);
+            report["error"] = serde_json::json!(err);
+            let _ = write_triage_report(
+                options.triage_dir.as_deref(),
+                "litec_replace_check_report.json",
+                &report,
+            );
             return 1;
         }
     };
@@ -868,9 +1059,17 @@ fn litec_replace_check(args: &[String]) -> i32 {
             Ok(bytes) => bytes,
             Err(err) => {
                 eprintln!("stage2 compiler build failed: {}", err);
+                report["error"] =
+                    serde_json::json!(format!("stage2 compiler build failed: {}", err));
+                let _ = write_triage_report(
+                    options.triage_dir.as_deref(),
+                    "litec_replace_check_report.json",
+                    &report,
+                );
                 return 1;
             }
         };
+    report["stage2_compiler"] = stage_fingerprint(&stage2_driver_bytes);
     let stage2_driver = match decode_program_bytes(
         &compiler_source.path,
         &stage2_driver_bytes,
@@ -879,6 +1078,12 @@ fn litec_replace_check(args: &[String]) -> i32 {
         Ok(program) => program,
         Err(err) => {
             eprintln!("{}", err);
+            report["error"] = serde_json::json!(err);
+            let _ = write_triage_report(
+                options.triage_dir.as_deref(),
+                "litec_replace_check_report.json",
+                &report,
+            );
             return 1;
         }
     };
@@ -887,9 +1092,17 @@ fn litec_replace_check(args: &[String]) -> i32 {
             Ok(bytes) => bytes,
             Err(err) => {
                 eprintln!("stage3 compiler build failed: {}", err);
+                report["error"] =
+                    serde_json::json!(format!("stage3 compiler build failed: {}", err));
+                let _ = write_triage_report(
+                    options.triage_dir.as_deref(),
+                    "litec_replace_check_report.json",
+                    &report,
+                );
                 return 1;
             }
         };
+    report["stage3_compiler"] = stage_fingerprint(&stage3_driver_bytes);
     let stage23_equal = match equivalent_program_bytes(
         &compiler_source.path,
         &stage2_driver_bytes,
@@ -900,9 +1113,16 @@ fn litec_replace_check(args: &[String]) -> i32 {
         Ok(equal) => equal,
         Err(err) => {
             eprintln!("{}", err);
+            report["error"] = serde_json::json!(err);
+            let _ = write_triage_report(
+                options.triage_dir.as_deref(),
+                "litec_replace_check_report.json",
+                &report,
+            );
             return 1;
         }
     };
+    report["stage2_stage3_fixed_point"] = serde_json::json!(stage23_equal);
     if !stage23_equal {
         eprintln!(
             "[warn] stage2/stage3 compiler mismatch (stage2={} bytes, stage3={}); continuing with corpus equivalence checks",
@@ -912,21 +1132,39 @@ fn litec_replace_check(args: &[String]) -> i32 {
     }
 
     let mut passed = 0usize;
+    let mut failures = 0usize;
+    let mut entries: Vec<serde_json::Value> = Vec::with_capacity(files.len());
     for file in &files {
+        let mut entry = serde_json::json!({
+            "file": to_report_path(file),
+            "status": "pass",
+        });
         let stage1_bytes = match compile_with_driver_program(&stage1_driver, file) {
             Ok(bytes) => bytes,
             Err(err) => {
-                eprintln!("[fail] {}: stage1 compile failed: {}", file.display(), err);
-                return 1;
+                let message = format!("stage1 compile failed: {}", err);
+                eprintln!("[fail] {}: {}", file.display(), message);
+                entry["status"] = serde_json::json!("fail");
+                entry["error"] = serde_json::json!(message);
+                entries.push(entry);
+                failures += 1;
+                continue;
             }
         };
+        entry["stage1"] = stage_fingerprint(&stage1_bytes);
         let stage2_bytes = match compile_with_driver_program(&stage2_driver, file) {
             Ok(bytes) => bytes,
             Err(err) => {
-                eprintln!("[fail] {}: stage2 compile failed: {}", file.display(), err);
-                return 1;
+                let message = format!("stage2 compile failed: {}", err);
+                eprintln!("[fail] {}: {}", file.display(), message);
+                entry["status"] = serde_json::json!("fail");
+                entry["error"] = serde_json::json!(message);
+                entries.push(entry);
+                failures += 1;
+                continue;
             }
         };
+        entry["stage2"] = stage_fingerprint(&stage2_bytes);
         let stage12_equal = match equivalent_program_bytes(
             file,
             &stage1_bytes,
@@ -937,72 +1175,205 @@ fn litec_replace_check(args: &[String]) -> i32 {
             Ok(equal) => equal,
             Err(err) => {
                 eprintln!("[fail] {}: {}", file.display(), err);
-                return 1;
+                entry["status"] = serde_json::json!("fail");
+                entry["error"] = serde_json::json!(err);
+                entries.push(entry);
+                failures += 1;
+                continue;
             }
         };
+        entry["stage1_stage2_equivalent"] = serde_json::json!(stage12_equal);
         if !stage12_equal {
-            eprintln!(
-                "[fail] {}: stage1/stage2 bytecode mismatch (stage1={} bytes, stage2={} bytes)",
-                file.display(),
+            let message = format!(
+                "stage1/stage2 bytecode mismatch (stage1={} bytes, stage2={} bytes)",
                 stage1_bytes.len(),
                 stage2_bytes.len()
             );
-            return 1;
+            eprintln!("[fail] {}: {}", file.display(), message);
+            entry["status"] = serde_json::json!("fail");
+            entry["error"] = serde_json::json!(message);
+            entries.push(entry);
+            failures += 1;
+            continue;
         }
         let stage2_program = match decode_program_bytes(file, &stage2_bytes, "stage2") {
             Ok(program) => program,
             Err(err) => {
                 eprintln!("[fail] {}: {}", file.display(), err);
-                return 1;
+                entry["status"] = serde_json::json!("fail");
+                entry["error"] = serde_json::json!(err);
+                entries.push(entry);
+                failures += 1;
+                continue;
             }
         };
         let stage2_value = match run_program(&stage2_program) {
             Ok(value) => value,
             Err(err) => {
-                eprintln!("[fail] {}: stage2 runtime error: {}", file.display(), err);
-                return 1;
+                let message = format!("stage2 runtime error: {}", err);
+                eprintln!("[fail] {}: {}", file.display(), message);
+                entry["status"] = serde_json::json!("fail");
+                entry["error"] = serde_json::json!(message);
+                entries.push(entry);
+                failures += 1;
+                continue;
             }
         };
-        if compare_stage0 {
+        let stage2_canonical = canonical_value(&stage2_value);
+        entry["stage2_result"] = serde_json::json!(stage2_canonical);
+        if options.compare_stage0 {
             let stage0_bytes = match compile_stage0_program_bytes(file) {
                 Ok(bytes) => bytes,
                 Err(err) => {
-                    eprintln!("[fail] {}: stage0 compile failed: {}", file.display(), err);
-                    return 1;
+                    let message = format!("stage0 compile failed: {}", err);
+                    eprintln!("[fail] {}: {}", file.display(), message);
+                    entry["status"] = serde_json::json!("fail");
+                    entry["error"] = serde_json::json!(message);
+                    entries.push(entry);
+                    failures += 1;
+                    continue;
                 }
             };
+            entry["stage0"] = stage_fingerprint(&stage0_bytes);
             let stage0_program = match decode_program_bytes(file, &stage0_bytes, "stage0") {
                 Ok(program) => program,
                 Err(err) => {
                     eprintln!("[fail] {}: {}", file.display(), err);
-                    return 1;
+                    entry["status"] = serde_json::json!("fail");
+                    entry["error"] = serde_json::json!(err);
+                    entries.push(entry);
+                    failures += 1;
+                    continue;
                 }
             };
             let stage0_value = match run_program(&stage0_program) {
                 Ok(value) => value,
                 Err(err) => {
-                    eprintln!("[fail] {}: stage0 runtime error: {}", file.display(), err);
-                    return 1;
+                    let message = format!("stage0 runtime error: {}", err);
+                    eprintln!("[fail] {}: {}", file.display(), message);
+                    entry["status"] = serde_json::json!("fail");
+                    entry["error"] = serde_json::json!(message);
+                    entries.push(entry);
+                    failures += 1;
+                    continue;
                 }
             };
-            if canonical_value(&stage0_value) != canonical_value(&stage2_value) {
-                eprintln!(
-                    "[fail] {}: stage0/stage2 result mismatch (stage0={}, stage2={})",
-                    file.display(),
-                    canonical_value(&stage0_value),
-                    canonical_value(&stage2_value)
+            let stage0_canonical = canonical_value(&stage0_value);
+            entry["stage0_result"] = serde_json::json!(stage0_canonical);
+            let stage0_str = entry["stage0_result"].as_str().unwrap_or_default();
+            let stage2_str = entry["stage2_result"].as_str().unwrap_or_default();
+            if stage0_str != stage2_str {
+                let message = format!(
+                    "stage0/stage2 result mismatch (stage0={}, stage2={})",
+                    stage0_str, stage2_str
                 );
-                return 1;
+                eprintln!("[fail] {}: {}", file.display(), message);
+                entry["status"] = serde_json::json!("fail");
+                entry["error"] = serde_json::json!(message);
+                entries.push(entry);
+                failures += 1;
+                continue;
             }
         }
         println!("[pass] {}", file.display());
+        entries.push(entry);
         passed += 1;
     }
+    report["entries"] = serde_json::json!(entries);
+    report["files_passed"] = serde_json::json!(passed);
+    report["files_failed"] = serde_json::json!(failures);
+    report["status"] = serde_json::json!(if failures == 0 { "ok" } else { "failed" });
+    match write_triage_report(
+        options.triage_dir.as_deref(),
+        "litec_replace_check_report.json",
+        &report,
+    ) {
+        Ok(Some(path)) => println!("replace-check triage report: {}", path.display()),
+        Ok(None) => {}
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    }
     println!(
-        "litec replace-check ok ({} files, compare_stage0={}, stage2_stage3_fixed_point={})",
-        passed, compare_stage0, stage23_equal
+        "litec replace-check {} ({} files, compare_stage0={}, stage2_stage3_fixed_point={})",
+        if failures == 0 { "ok" } else { "failed" },
+        files.len(),
+        options.compare_stage0,
+        stage23_equal
     );
-    0
+    if failures == 0 {
+        0
+    } else {
+        1
+    }
+}
+
+fn litec_mainline_ci(args: &[String]) -> i32 {
+    let options = match parse_litec_corpus_options(
+        args,
+        "Usage: enkai litec mainline-ci <corpus_dir> [--triage-dir <dir>]",
+        false,
+    ) {
+        Ok(options) => options,
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    };
+    if options.compare_stage0 {
+        eprintln!("mainline-ci always runs with stage0 comparison disabled");
+        return 1;
+    }
+    let mut selfhost_args = vec![
+        options.corpus.to_string_lossy().to_string(),
+        "--no-compare-stage0".to_string(),
+    ];
+    let mut replace_args = vec![
+        options.corpus.to_string_lossy().to_string(),
+        "--no-compare-stage0".to_string(),
+    ];
+    if let Some(path) = options.triage_dir.as_ref() {
+        selfhost_args.push("--triage-dir".to_string());
+        selfhost_args.push(path.to_string_lossy().to_string());
+        replace_args.push("--triage-dir".to_string());
+        replace_args.push(path.to_string_lossy().to_string());
+    }
+
+    let selfhost_code = litec_selfhost_ci(&selfhost_args);
+    let replace_code = litec_replace_check(&replace_args);
+    let status = if selfhost_code == 0 && replace_code == 0 {
+        "ok"
+    } else {
+        "failed"
+    };
+    let summary = serde_json::json!({
+        "command": "mainline-ci",
+        "corpus": to_report_path(&options.corpus),
+        "stage0_fallback_lane": "separate-stage0-compare-lane-required",
+        "selfhost_ci_exit_code": selfhost_code,
+        "replace_check_exit_code": replace_code,
+        "status": status,
+    });
+    match write_triage_report(
+        options.triage_dir.as_deref(),
+        "litec_mainline_ci_report.json",
+        &summary,
+    ) {
+        Ok(Some(path)) => println!("mainline-ci summary report: {}", path.display()),
+        Ok(None) => {}
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    }
+    if status == "ok" {
+        println!("litec mainline-ci ok");
+        0
+    } else {
+        eprintln!("litec mainline-ci failed");
+        1
+    }
 }
 
 fn verify_stage_equivalence(input: &Path) -> Result<(), String> {
@@ -1801,6 +2172,34 @@ mod tests {
     }
 
     #[test]
+    fn litec_selfhost_ci_emits_triage_report() {
+        let dir = tempdir().expect("tempdir");
+        let corpus = dir.path().join("ci-corpus");
+        let triage = dir.path().join("triage");
+        fs::create_dir_all(&corpus).expect("corpus dir");
+        fs::write(
+            corpus.join("main_a.enk"),
+            "fn main() -> Int ::\n    let x := 2\n    let f := (v: Int) -> Int => v + 5\n    return f(x)\n::\nmain()\n",
+        )
+        .expect("write a");
+        let code = litec_command(&[
+            "selfhost-ci".to_string(),
+            corpus.to_string_lossy().to_string(),
+            "--no-compare-stage0".to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+        ]);
+        assert_eq!(code, 0);
+        let report_path = triage.join("litec_selfhost_ci_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["files_failed"], 0);
+        assert_eq!(report["files_total"], 1);
+    }
+
+    #[test]
     fn litec_replace_check_verifies_stage_fixed_point() {
         let dir = tempdir().expect("tempdir");
         let corpus = dir.path().join("replace-corpus");
@@ -1824,5 +2223,36 @@ mod tests {
             "--no-compare-stage0".to_string(),
         ]);
         assert_eq!(code, 0);
+    }
+
+    #[test]
+    fn litec_mainline_ci_runs_and_writes_reports() {
+        let dir = tempdir().expect("tempdir");
+        let corpus = dir.path().join("mainline-corpus");
+        let triage = dir.path().join("triage");
+        fs::create_dir_all(&corpus).expect("corpus dir");
+        fs::write(
+            corpus.join("main_a.enk"),
+            "fn main() -> Int ::\n    return 3\n::\nmain()\n",
+        )
+        .expect("write a");
+        fs::write(
+            corpus.join("main_b.enk"),
+            "type Pair ::\n    value: Int\n::\n\
+             impl Pair ::\n    fn add(x: Int) -> Int ::\n        return self.value + x\n    ::\n::\n\
+             fn main() -> Int ::\n    let p := Pair(1)\n    let _tmp := p.add(2)\n    return 3\n::\n\
+             main()\n",
+        )
+        .expect("write b");
+        let code = litec_command(&[
+            "mainline-ci".to_string(),
+            corpus.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+        ]);
+        assert_eq!(code, 0);
+        assert!(triage.join("litec_selfhost_ci_report.json").is_file());
+        assert!(triage.join("litec_replace_check_report.json").is_file());
+        assert!(triage.join("litec_mainline_ci_report.json").is_file());
     }
 }

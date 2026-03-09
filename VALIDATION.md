@@ -127,6 +127,12 @@ Expected result:
   - `legacy_checkpoint_meta_without_format_version_loads`
 - [x] Self-host CI corpus gate:
   - `enkai litec selfhost-ci enkai/tools/bootstrap/selfhost_corpus`
+- [x] Self-host mainline CI gate:
+  - `enkai litec mainline-ci enkai/tools/bootstrap/selfhost_corpus --triage-dir artifacts/selfhost`
+  - expected triage artifacts:
+    - `artifacts/selfhost/litec_selfhost_ci_report.json`
+    - `artifacts/selfhost/litec_replace_check_report.json`
+    - `artifacts/selfhost/litec_mainline_ci_report.json`
 - [x] Self-host replacement-readiness gate:
   - `enkai litec replace-check enkai/tools/bootstrap/selfhost_corpus --no-compare-stage0`
 - [x] Master pipeline smoke:

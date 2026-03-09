@@ -1,4 +1,4 @@
-﻿# Self-Host Workflow (v2.1.0)
+# Self-Host Workflow (v2.1.7)
 
 ## Purpose
 
@@ -22,16 +22,21 @@ required fallback path when a self-host lane fails.
    - `enkai litec selfhost-ci <corpus_dir>`
 6. Run replacement-readiness fixed-point gate:
    - `enkai litec replace-check <corpus_dir>`
+7. Run mainline CI-equivalent path with deterministic triage output:
+   - `enkai litec mainline-ci <corpus_dir> --triage-dir artifacts/selfhost`
 
 Repository baseline corpus:
 - `enkai/tools/bootstrap/selfhost_corpus`
 
 ## CI Expectation
 
-The self-host lane is expected to run:
-- bootstrap self-host tests (`bootstrap::tests::litec_selfhost_...`)
-- `enkai litec selfhost-ci enkai/tools/bootstrap/selfhost_corpus`
-- `master_pipeline_cpu_smoke`
+Self-host CI is split into two required lanes:
+- Mainline lane (Enkai-built compiler default):
+  - `enkai litec mainline-ci enkai/tools/bootstrap/selfhost_corpus --triage-dir artifacts/selfhost`
+- Stage0 fallback lane (mandatory safety path):
+  - bootstrap self-host tests (`bootstrap::tests::litec_selfhost_...`)
+  - `enkai litec selfhost-ci enkai/tools/bootstrap/selfhost_corpus`
+- plus `master_pipeline_cpu_smoke` in workspace tests.
 
 ## Fallback Path
 
@@ -46,11 +51,12 @@ If any self-host command fails:
    - failing `.enk` file path
    - stage mode (`parse/check/codegen/verify/selfhost-ci`)
    - compiler/type/runtime error text
+   - triage JSON artifacts from `--triage-dir` when available:
+     - `litec_selfhost_ci_report.json`
+     - `litec_replace_check_report.json`
+     - `litec_mainline_ci_report.json`
 4. Land a targeted fix with:
    - regression test in `enkai/src/bootstrap.rs` or compiler/runtime tests,
    - docs update if behavior changed.
 
 Self-host failures do not permit replacing Stage0 for release builds.
-
-
-

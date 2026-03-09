@@ -103,14 +103,15 @@ Invoke-Gate -Name "contract-snapshots" -Command {
     cargo test -p enkai --bin enkai frontend::tests::contract_snapshots_match_reference_files
 }
 
-Write-Host "[release] Running self-host corpus gate..."
-Invoke-Gate -Name "selfhost-ci" -Command {
-    cargo run -p enkai -- litec selfhost-ci enkai/tools/bootstrap/selfhost_corpus
+Write-Host "[release] Running self-host mainline gate..."
+Invoke-Gate -Name "selfhost-mainline" -Command {
+    New-Item -ItemType Directory -Path artifacts/selfhost -Force | Out-Null
+    cargo run -p enkai -- litec mainline-ci enkai/tools/bootstrap/selfhost_corpus --triage-dir artifacts/selfhost
 }
 
-Write-Host "[release] Running self-host replacement fixed-point gate..."
-Invoke-Gate -Name "selfhost-replace-check" -Command {
-    cargo run -p enkai -- litec replace-check enkai/tools/bootstrap/selfhost_corpus --no-compare-stage0
+Write-Host "[release] Running self-host Stage0 fallback gate..."
+Invoke-Gate -Name "selfhost-stage0-fallback" -Command {
+    cargo run -p enkai -- litec selfhost-ci enkai/tools/bootstrap/selfhost_corpus
 }
 
 Write-Host "[release] Running dependency license audit gate..."

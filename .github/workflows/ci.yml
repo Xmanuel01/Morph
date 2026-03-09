@@ -128,7 +128,7 @@ jobs:
         run: cargo build -p enkai_native
       - name: Bootstrap parity tests
         run: cargo test -p enkai --bin enkai bootstrap::tests::
-  selfhost-beta:
+  selfhost-mainline:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -136,7 +136,26 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build native runtime module
         run: cargo build -p enkai_native
-      - name: Run self-host beta tests
+      - name: Run self-host mainline lane (Enkai-built compiler default)
+        run: |
+          mkdir -p artifacts/selfhost
+          cargo run -p enkai -- litec mainline-ci enkai/tools/bootstrap/selfhost_corpus --triage-dir artifacts/selfhost
+      - name: Upload self-host mainline triage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: selfhost-mainline-triage
+          path: artifacts/selfhost/*.json
+          if-no-files-found: error
+
+  selfhost-stage0-fallback:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build native runtime module
+        run: cargo build -p enkai_native
+      - name: Run self-host fallback lane (Stage0 comparison required)
         run: |
           cargo test -p enkai --bin enkai bootstrap::tests::litec_selfhost_
           cargo run -p enkai -- litec selfhost-ci enkai/tools/bootstrap/selfhost_corpus

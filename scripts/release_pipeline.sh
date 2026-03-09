@@ -29,11 +29,12 @@ python3 scripts/check_docs_consistency.py
 echo "[release] Running serve/frontend contract snapshot gate..."
 cargo test -p enkai --bin enkai frontend::tests::contract_snapshots_match_reference_files
 
-echo "[release] Running self-host corpus gate..."
-cargo run -p enkai -- litec selfhost-ci enkai/tools/bootstrap/selfhost_corpus
+echo "[release] Running self-host mainline gate..."
+mkdir -p artifacts/selfhost
+cargo run -p enkai -- litec mainline-ci enkai/tools/bootstrap/selfhost_corpus --triage-dir artifacts/selfhost
 
-echo "[release] Running self-host replacement fixed-point gate..."
-cargo run -p enkai -- litec replace-check enkai/tools/bootstrap/selfhost_corpus --no-compare-stage0
+echo "[release] Running self-host Stage0 fallback gate..."
+cargo run -p enkai -- litec selfhost-ci enkai/tools/bootstrap/selfhost_corpus
 
 echo "[release] Running dependency license audit gate..."
 python3 scripts/license_audit.py

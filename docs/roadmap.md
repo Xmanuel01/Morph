@@ -2,9 +2,26 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.1.6.
+- Current production release line is v2.1.7.
 - v2.1.x is additive/integration work in progress (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v2.1.7 (done)
+- Completed bootstrap mainline integration hardening:
+  - added `enkai litec mainline-ci <corpus_dir> [--triage-dir <dir>]`
+  - `mainline-ci` composes:
+    - `litec selfhost-ci --no-compare-stage0`
+    - `litec replace-check --no-compare-stage0`
+  - added deterministic triage artifact support:
+    - `litec selfhost-ci ... --triage-dir <dir>` -> `litec_selfhost_ci_report.json`
+    - `litec replace-check ... --triage-dir <dir>` -> `litec_replace_check_report.json`
+    - `litec mainline-ci ... --triage-dir <dir>` -> `litec_mainline_ci_report.json`
+- Added CI lane split for self-hosting:
+  - `selfhost-mainline`: Enkai-built compiler default path + triage artifact upload
+  - `selfhost-stage0-fallback`: mandatory Stage0 comparison lane retained
+- Updated release pipeline gates to run:
+  - self-host mainline lane with triage output
+  - self-host Stage0 fallback lane
 
 v2.1.6 (done)
 - Completed fullstack platform freeze/hardening:

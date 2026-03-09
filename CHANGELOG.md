@@ -11,6 +11,30 @@
 ### Breaking changes
 - None.
 
+## v2.1.7
+
+### Highlights
+- Completed bootstrap mainline integration hardening:
+  - added `enkai litec mainline-ci <corpus_dir> [--triage-dir <dir>]`
+  - mainline lane composes:
+    - `enkai litec selfhost-ci ... --no-compare-stage0`
+    - `enkai litec replace-check ... --no-compare-stage0`
+- Added deterministic self-host triage report outputs:
+  - `litec_selfhost_ci_report.json`
+  - `litec_replace_check_report.json`
+  - `litec_mainline_ci_report.json`
+- CI self-hosting now runs two explicit lanes:
+  - `selfhost-mainline` (Enkai-built compiler default path)
+  - `selfhost-stage0-fallback` (mandatory Stage0 safety path)
+
+### Fixes
+- `selfhost-ci` and `replace-check` source-file traversal is now sorted for deterministic report ordering.
+- Release pipelines (`scripts/release_pipeline.sh`, `scripts/release_pipeline.ps1`) now execute the mainline lane plus Stage0 fallback lane.
+- Added bootstrap regression tests for triage-report emission and `mainline-ci` flow.
+
+### Breaking changes
+- None.
+
 ## v2.1.6
 
 ### Highlights

@@ -32,6 +32,14 @@ Note:
   - `powershell -ExecutionPolicy Bypass -File scripts/verify_gpu_gates.ps1 -LogDir artifacts/gpu`
   - or `sh scripts/verify_gpu_gates.sh artifacts/gpu`
 - [ ] Complete `VALIDATION.md` gates for the target release
+- [ ] Self-host mainline gate (Enkai-built compiler default lane):
+  - `enkai litec mainline-ci enkai/tools/bootstrap/selfhost_corpus --triage-dir artifacts/selfhost`
+  - expected triage artifacts:
+    - `artifacts/selfhost/litec_selfhost_ci_report.json`
+    - `artifacts/selfhost/litec_replace_check_report.json`
+    - `artifacts/selfhost/litec_mainline_ci_report.json`
+- [ ] Self-host Stage0 fallback gate:
+  - `enkai litec selfhost-ci enkai/tools/bootstrap/selfhost_corpus`
 - [ ] Self-host replacement-readiness gate:
   - `enkai litec replace-check enkai/tools/bootstrap/selfhost_corpus --no-compare-stage0`
 - [ ] Packaging reproducibility + checksum verification:
