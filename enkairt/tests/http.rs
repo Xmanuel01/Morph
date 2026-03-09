@@ -101,6 +101,21 @@ fn set_env_var_guard(key: &str, value: &str) -> EnvVarGuard {
     }
 }
 
+fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!(
+        "enkai_http_{}_{}_{}",
+        prefix,
+        std::process::id(),
+        ts
+    ));
+    std::fs::create_dir_all(&path).expect("create temp dir");
+    path
+}
+
 fn response_body(value: &Value) -> Option<Vec<u8>> {
     match value {
         Value::Obj(obj) => match obj.as_obj() {
@@ -635,6 +650,86 @@ fn http_model_version_header_enforcement() {
         response_header_value(&items[3], "x-enkai-model-name").as_deref(),
         Some("chat")
     );
+}
+
+#[test]
+fn http_multi_model_requires_loaded_selector() {
+    let _guard = http_test_guard();
+    let registry = unique_temp_dir("multi_model_registry");
+    let model_version_dir = registry.join("chat").join("v1.0.0");
+    std::fs::create_dir_all(&model_version_dir).expect("model version dir");
+    let _multi = set_env_var_guard("ENKAI_SERVE_MULTI_MODEL", "1");
+    let _registry = set_env_var_guard(
+        "ENKAI_SERVE_MODEL_REGISTRY",
+        registry.to_string_lossy().as_ref(),
+    );
+    let _model_name = set_env_var_guard("ENKAI_SERVE_MODEL_NAME", "");
+    let _model_version = set_env_var_guard("ENKAI_SERVE_MODEL_VERSION", "");
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    drop(listener);
+
+    let source = format!(
+        "fn handler(req: Request) -> Response ::\n    return http.ok(\"ok\")\n::\n\
+         http.serve(\"127.0.0.1\", {port}, handler)\n\
+         let missing := http.get(\"http://127.0.0.1:{port}/\")\n\
+         let unloaded_cfg := json.parse(\"{{\\\"method\\\":\\\"GET\\\",\\\"url\\\":\\\"http://127.0.0.1:{port}/\\\",\\\"headers\\\":{{\\\"x-enkai-model-name\\\":\\\"chat\\\",\\\"x-enkai-model-version\\\":\\\"v1.0.0\\\"}}}}\")\n\
+         let unloaded := http.request(unloaded_cfg)\n\
+         return [missing, unloaded]\n"
+    );
+    let first = run_value(&source);
+    let items = match first {
+        Value::Obj(obj) => match obj.as_obj() {
+            enkairt::object::Obj::List(items) => items.borrow().clone(),
+            _ => panic!("expected list"),
+        },
+        _ => panic!("expected list"),
+    };
+    assert_eq!(items.len(), 2);
+    assert_eq!(response_status_value(&items[0]), Some(400));
+    assert_eq!(response_status_value(&items[1]), Some(409));
+    let unloaded_body = response_body(&items[1]).expect("unloaded body");
+    let unloaded_text = String::from_utf8_lossy(&unloaded_body);
+    assert!(unloaded_text.contains("\"code\":\"model_not_loaded\""));
+
+    let serve_state = serde_json::json!({
+        "schema_version": 1,
+        "loaded": {
+            "chat": {
+                "v1.0.0": {
+                    "checkpoint_path": model_version_dir.to_string_lossy(),
+                    "loaded_at_ms": 0
+                }
+            }
+        }
+    });
+    std::fs::write(
+        registry.join(".serve_state.json"),
+        serde_json::to_string_pretty(&serve_state).expect("serialize serve state"),
+    )
+    .expect("write serve state");
+
+    let listener_loaded = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let loaded_port = listener_loaded.local_addr().expect("addr").port();
+    drop(listener_loaded);
+    let loaded_source = format!(
+        "fn handler(req: Request) -> Response ::\n    return http.ok(\"ok\")\n::\n\
+         http.serve(\"127.0.0.1\", {loaded_port}, handler)\n\
+         let loaded_cfg := json.parse(\"{{\\\"method\\\":\\\"GET\\\",\\\"url\\\":\\\"http://127.0.0.1:{loaded_port}/\\\",\\\"headers\\\":{{\\\"x-enkai-model-name\\\":\\\"chat\\\",\\\"x-enkai-model-version\\\":\\\"v1.0.0\\\"}}}}\")\n\
+         return http.request(loaded_cfg)\n"
+    );
+    let loaded = run_value(&loaded_source);
+    assert_eq!(response_status_value(&loaded), Some(200));
+    assert_eq!(
+        response_header_value(&loaded, "x-enkai-model-name").as_deref(),
+        Some("chat")
+    );
+    assert_eq!(
+        response_header_value(&loaded, "x-enkai-model-version").as_deref(),
+        Some("v1.0.0")
+    );
+    let _ = std::fs::remove_dir_all(&registry);
 }
 
 #[test]

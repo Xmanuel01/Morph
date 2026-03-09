@@ -149,6 +149,7 @@ struct HttpServer {
     model_name: Option<String>,
     model_version: Option<String>,
     model_registry: Option<String>,
+    multi_model_registry: Option<String>,
     stop: mpsc::Sender<()>,
 }
 
@@ -219,6 +220,8 @@ type PreparedHttpRequest = (
     HashMap<String, String>,
     Option<String>,
     String,
+    Option<String>,
+    Option<String>,
     Option<HttpResponseData>,
     Option<String>,
 );
@@ -1274,34 +1277,33 @@ impl VM {
             let request_id = self.next_request_id;
             self.next_request_id = self.next_request_id.saturating_add(1);
             let queue_ms = event.accepted_at.elapsed().as_millis() as u64;
-            let (handler, params, tenant, correlation_id, error_resp, error_code) =
-                match self.prepare_http_request(event.server_id, &event.request, request_id) {
-                    Ok(value) => value,
-                    Err(err) => {
-                        self.write_http_error(stream, &err.to_string());
-                        continue;
-                    }
-                };
             let (
-                model_name,
-                model_version,
-                model_registry,
-                inflight_counter,
-                inflight_now,
-                max_inflight,
-                server_policy,
-            ) = match self.servers.get(event.server_id) {
-                Some(server) => (
-                    server.model_name.clone(),
-                    server.model_version.clone(),
-                    server.model_registry.clone(),
-                    Arc::clone(&server.inflight),
-                    server.inflight.load(Ordering::Relaxed),
-                    server.max_inflight,
-                    server.policy.clone(),
-                ),
-                None => (None, None, None, Arc::new(AtomicUsize::new(0)), 0, 0, None),
+                handler,
+                params,
+                tenant,
+                correlation_id,
+                request_model_name,
+                request_model_version,
+                error_resp,
+                error_code,
+            ) = match self.prepare_http_request(event.server_id, &event.request, request_id) {
+                Ok(value) => value,
+                Err(err) => {
+                    self.write_http_error(stream, &err.to_string());
+                    continue;
+                }
             };
+            let (model_registry, inflight_counter, inflight_now, max_inflight, server_policy) =
+                match self.servers.get(event.server_id) {
+                    Some(server) => (
+                        server.model_registry.clone(),
+                        Arc::clone(&server.inflight),
+                        server.inflight.load(Ordering::Relaxed),
+                        server.max_inflight,
+                        server.policy.clone(),
+                    ),
+                    None => (None, Arc::new(AtomicUsize::new(0)), 0, 0, None),
+                };
             if let Some(mut resp) = error_resp {
                 let meta = HttpRequestMeta {
                     id: request_id,
@@ -1313,8 +1315,8 @@ impl VM {
                     remote_addr: event.request.remote_addr.clone(),
                     correlation_id: correlation_id.clone(),
                     tenant: tenant.clone(),
-                    model_name: model_name.clone(),
-                    model_version: model_version.clone(),
+                    model_name: request_model_name.clone(),
+                    model_version: request_model_version.clone(),
                     model_registry: model_registry.clone(),
                     inflight_at_start: inflight_now,
                     error_code: error_code.clone(),
@@ -1338,8 +1340,8 @@ impl VM {
                         remote_addr: event.request.remote_addr.clone(),
                         correlation_id: correlation_id.clone(),
                         tenant: tenant.clone(),
-                        model_name: model_name.clone(),
-                        model_version: model_version.clone(),
+                        model_name: request_model_name.clone(),
+                        model_version: request_model_version.clone(),
                         model_registry: model_registry.clone(),
                         inflight_at_start: inflight_now,
                         error_code: Some("not_found".to_string()),
@@ -1366,8 +1368,8 @@ impl VM {
                     remote_addr: event.request.remote_addr.clone(),
                     correlation_id: correlation_id.clone(),
                     tenant,
-                    model_name: model_name.clone(),
-                    model_version: model_version.clone(),
+                    model_name: request_model_name.clone(),
+                    model_version: request_model_version.clone(),
                     model_registry: model_registry.clone(),
                     inflight_at_start: inflight_now,
                     error_code: Some("backpressure_overloaded".to_string()),
@@ -1387,8 +1389,8 @@ impl VM {
                 remote_addr: event.request.remote_addr.clone(),
                 correlation_id,
                 tenant,
-                model_name,
-                model_version,
+                model_name: request_model_name,
+                model_version: request_model_version,
                 model_registry: model_registry.clone(),
                 inflight_at_start: inflight_now.saturating_add(1),
                 error_code: None,
@@ -3534,6 +3536,16 @@ impl VM {
             .ok()
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
+        let multi_model_registry = if env_flag("ENKAI_SERVE_MULTI_MODEL") {
+            model_registry.clone()
+        } else {
+            None
+        };
+        let require_model_version_header = if multi_model_registry.is_some() {
+            true
+        } else {
+            env_flag("ENKAI_REQUIRE_MODEL_VERSION_HEADER")
+        };
         let server = HttpServer {
             handler,
             routes: Vec::new(),
@@ -3545,10 +3557,19 @@ impl VM {
             policy: self.active_policy.clone(),
             inflight: Arc::new(AtomicUsize::new(0)),
             max_inflight: parse_env_usize("ENKAI_HTTP_MAX_INFLIGHT").unwrap_or(0),
-            require_model_version_header: env_flag("ENKAI_REQUIRE_MODEL_VERSION_HEADER"),
-            model_name,
-            model_version,
+            require_model_version_header,
+            model_name: if multi_model_registry.is_some() {
+                None
+            } else {
+                model_name
+            },
+            model_version: if multi_model_registry.is_some() {
+                None
+            } else {
+                model_version
+            },
             model_registry,
+            multi_model_registry,
             stop: mpsc::channel().0,
         };
         self.start_http_server(host, port, server)
@@ -3592,6 +3613,11 @@ impl VM {
             .ok()
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
+        let multi_model_registry = if env_flag("ENKAI_SERVE_MULTI_MODEL") {
+            model_registry.clone()
+        } else {
+            None
+        };
         let server = HttpServer {
             handler: Value::Null,
             routes,
@@ -3603,10 +3629,23 @@ impl VM {
             policy: self.active_policy.clone(),
             inflight: Arc::new(AtomicUsize::new(0)),
             max_inflight,
-            require_model_version_header,
-            model_name,
-            model_version,
+            require_model_version_header: if multi_model_registry.is_some() {
+                true
+            } else {
+                require_model_version_header
+            },
+            model_name: if multi_model_registry.is_some() {
+                None
+            } else {
+                model_name
+            },
+            model_version: if multi_model_registry.is_some() {
+                None
+            } else {
+                model_version
+            },
             model_registry,
+            multi_model_registry,
             stop: mpsc::channel().0,
         };
         self.start_http_server(host, port, server)
@@ -4381,6 +4420,8 @@ impl VM {
                     HashMap::new(),
                     None,
                     format!("req-{}", request_id),
+                    None,
+                    None,
                     Some(error_response(500, "server_missing", "Unknown server")),
                     Some("server_missing".to_string()),
                 ))
@@ -4406,6 +4447,8 @@ impl VM {
         };
         let mut tenant: Option<String> = None;
         let mut token_value: Option<String> = None;
+        let mut effective_model_name = server.model_name.clone();
+        let mut effective_model_version = server.model_version.clone();
         if let Some(auth) = &server.auth {
             let token = extract_auth_token(req, auth);
             match token {
@@ -4421,6 +4464,8 @@ impl VM {
                             params,
                             None,
                             correlation_id,
+                            effective_model_name,
+                            effective_model_version,
                             Some(error_response(401, "unauthorized", "Invalid API token")),
                             Some("unauthorized".to_string()),
                         ));
@@ -4433,12 +4478,93 @@ impl VM {
                             params,
                             None,
                             correlation_id,
+                            effective_model_name,
+                            effective_model_version,
                             Some(error_response(401, "unauthorized", "Missing API token")),
                             Some("unauthorized".to_string()),
                         ));
                     }
                 }
             }
+        }
+        if let Some(registry_raw) = server.multi_model_registry.as_deref() {
+            let model_name = match model_selector_header(req, "x-enkai-model-name") {
+                Some(value) => value,
+                None => {
+                    return Ok((
+                        None,
+                        params,
+                        tenant.clone(),
+                        correlation_id,
+                        effective_model_name,
+                        effective_model_version,
+                        Some(error_response(
+                            400,
+                            "missing_model_selector",
+                            "Missing x-enkai-model-name or x-enkai-model-version header",
+                        )),
+                        Some("missing_model_selector".to_string()),
+                    ))
+                }
+            };
+            let model_version = match model_selector_header(req, "x-enkai-model-version") {
+                Some(value) => value,
+                None => {
+                    return Ok((
+                        None,
+                        params,
+                        tenant.clone(),
+                        correlation_id,
+                        effective_model_name,
+                        effective_model_version,
+                        Some(error_response(
+                            400,
+                            "missing_model_selector",
+                            "Missing x-enkai-model-name or x-enkai-model-version header",
+                        )),
+                        Some("missing_model_selector".to_string()),
+                    ))
+                }
+            };
+            if !env_flag("ENKAI_SERVE_ALLOW_UNLOADED") {
+                match is_model_loaded_in_registry(
+                    Path::new(registry_raw),
+                    &model_name,
+                    &model_version,
+                ) {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        return Ok((
+                            None,
+                            params,
+                            tenant.clone(),
+                            correlation_id,
+                            Some(model_name),
+                            Some(model_version),
+                            Some(error_response(
+                                409,
+                                "model_not_loaded",
+                                "Requested model version is not loaded",
+                            )),
+                            Some("model_not_loaded".to_string()),
+                        ))
+                    }
+                    Err(err) => {
+                        return Ok((
+                            None,
+                            params,
+                            tenant.clone(),
+                            correlation_id,
+                            None,
+                            None,
+                            Some(error_response(500, "model_registry_error", &err)),
+                            Some("model_registry_error".to_string()),
+                        ))
+                    }
+                }
+            }
+            effective_model_name = Some(model_name);
+            effective_model_version = Some(model_version);
         }
         if server.require_model_version_header && !req.headers.contains_key("x-enkai-model-version")
         {
@@ -4447,6 +4573,8 @@ impl VM {
                 params,
                 tenant.clone(),
                 correlation_id,
+                effective_model_name,
+                effective_model_version,
                 Some(error_response(
                     400,
                     "missing_model_version",
@@ -4455,7 +4583,7 @@ impl VM {
                 Some("missing_model_version".to_string()),
             ));
         }
-        if let Some(expected) = server.model_version.as_deref() {
+        if let Some(expected) = effective_model_version.as_deref() {
             if let Some(actual) = req.headers.get("x-enkai-model-version") {
                 if actual.trim() != expected {
                     return Ok((
@@ -4463,6 +4591,8 @@ impl VM {
                         params,
                         tenant.clone(),
                         correlation_id,
+                        effective_model_name,
+                        effective_model_version,
                         Some(error_response(
                             409,
                             "model_version_mismatch",
@@ -4473,7 +4603,7 @@ impl VM {
                 }
             }
         }
-        if let Some(expected) = server.model_name.as_deref() {
+        if let Some(expected) = effective_model_name.as_deref() {
             if let Some(actual) = req.headers.get("x-enkai-model-name") {
                 let trimmed = actual.trim();
                 if !trimmed.is_empty() && trimmed != expected {
@@ -4482,6 +4612,8 @@ impl VM {
                         params,
                         tenant.clone(),
                         correlation_id,
+                        effective_model_name,
+                        effective_model_version,
                         Some(error_response(
                             409,
                             "model_name_mismatch",
@@ -4498,8 +4630,8 @@ impl VM {
                 req,
                 token_value.as_deref(),
                 tenant.as_deref(),
-                server.model_name.as_deref(),
-                server.model_version.as_deref(),
+                effective_model_name.as_deref(),
+                effective_model_version.as_deref(),
             );
             if !rate_limit_allow(&mut server.rate_state, &key, rate) {
                 return Ok((
@@ -4507,12 +4639,23 @@ impl VM {
                     params,
                     tenant.clone(),
                     correlation_id,
+                    effective_model_name,
+                    effective_model_version,
                     Some(error_response(429, "rate_limited", "Rate limit exceeded")),
                     Some("rate_limited".to_string()),
                 ));
             }
         }
-        Ok((handler, params, tenant, correlation_id, None, None))
+        Ok((
+            handler,
+            params,
+            tenant,
+            correlation_id,
+            effective_model_name,
+            effective_model_version,
+            None,
+            None,
+        ))
     }
 
     fn http_request_value_with_params(
@@ -6028,6 +6171,47 @@ fn env_flag(name: &str) -> bool {
         ),
         Err(_) => false,
     }
+}
+
+fn model_selector_header(req: &HttpRequestData, key: &str) -> Option<String> {
+    req.headers
+        .get(key)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+}
+
+fn is_model_loaded_in_registry(
+    registry_dir: &Path,
+    name: &str,
+    version: &str,
+) -> Result<bool, String> {
+    let path = registry_dir.join(".serve_state.json");
+    if !path.is_file() {
+        return Ok(false);
+    }
+    let text = std::fs::read_to_string(&path)
+        .map_err(|err| format!("failed to read {}: {}", path.display(), err))?;
+    let value: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|err| format!("invalid {}: {}", path.display(), err))?;
+    let Some(loaded_models) = value.get("loaded").and_then(|v| v.as_object()) else {
+        return Err("model serve state missing `loaded` object".to_string());
+    };
+    let Some(loaded_versions) = loaded_models.get(name) else {
+        return Ok(false);
+    };
+    if let Some(map) = loaded_versions.as_object() {
+        return Ok(map.contains_key(version));
+    }
+    if let Some(list) = loaded_versions.as_array() {
+        for item in list {
+            if item.as_str().map(|v| v == version).unwrap_or(false) {
+                return Ok(true);
+            }
+        }
+        return Ok(false);
+    }
+    Err("model serve state has invalid version map".to_string())
 }
 
 fn parse_env_usize(name: &str) -> Option<usize> {

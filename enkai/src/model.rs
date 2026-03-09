@@ -26,6 +26,18 @@ struct ModelVersion {
     updated_ms: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ServeState {
+    schema_version: u32,
+    loaded: BTreeMap<String, BTreeMap<String, ServeLoadedVersion>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ServeLoadedVersion {
+    checkpoint_path: String,
+    loaded_at_ms: u64,
+}
+
 pub fn model_command(args: &[String]) -> i32 {
     if args.is_empty() {
         print_model_usage();
@@ -34,6 +46,9 @@ pub fn model_command(args: &[String]) -> i32 {
     match args[0].as_str() {
         "register" => model_register(&args[1..]),
         "list" => model_list(&args[1..]),
+        "load" => model_load(&args[1..]),
+        "unload" => model_unload(&args[1..]),
+        "loaded" => model_loaded(&args[1..]),
         "promote" => model_promote_like("promote", &args[1..]),
         "retire" => model_retire(&args[1..]),
         "rollback" => model_promote_like("rollback", &args[1..]),
@@ -50,6 +65,9 @@ pub fn print_model_usage() {
         "  enkai model register <registry_dir> <name> <version> <checkpoint_path> [--activate]"
     );
     eprintln!("  enkai model list <registry_dir> [name] [--json]");
+    eprintln!("  enkai model load <registry_dir> <name> <version>");
+    eprintln!("  enkai model unload <registry_dir> <name> <version>");
+    eprintln!("  enkai model loaded <registry_dir> [name] [--json]");
     eprintln!("  enkai model promote <registry_dir> <name> <version>");
     eprintln!("  enkai model retire <registry_dir> <name> <version>");
     eprintln!("  enkai model rollback <registry_dir> <name> <version>");
@@ -289,6 +307,192 @@ fn model_promote_like(kind: &str, args: &[String]) -> i32 {
     0
 }
 
+fn model_load(args: &[String]) -> i32 {
+    if args.len() != 3 {
+        eprintln!("Usage: enkai model load <registry_dir> <name> <version>");
+        return 1;
+    }
+    let registry_dir = PathBuf::from(&args[0]);
+    let name = args[1].trim();
+    let version = args[2].trim();
+    if name.is_empty() || version.is_empty() {
+        eprintln!("enkai model load: name/version cannot be empty");
+        return 1;
+    }
+    let registry = match load_registry(&registry_dir) {
+        Ok(registry) => registry,
+        Err(err) => {
+            eprintln!("enkai model load: {}", err);
+            return 1;
+        }
+    };
+    let Some(model_entry) = registry.models.get(name) else {
+        eprintln!("enkai model load: model '{}' not found", name);
+        return 1;
+    };
+    let Some(version_entry) = model_entry.versions.get(version) else {
+        eprintln!(
+            "enkai model load: model '{}' version '{}' not found",
+            name, version
+        );
+        return 1;
+    };
+    if version_entry.status == "retired" {
+        eprintln!(
+            "enkai model load: model '{}' version '{}' is retired",
+            name, version
+        );
+        return 1;
+    }
+    let mut serve_state = match load_serve_state(&registry_dir) {
+        Ok(state) => state,
+        Err(err) => {
+            eprintln!("enkai model load: {}", err);
+            return 1;
+        }
+    };
+    serve_state
+        .loaded
+        .entry(name.to_string())
+        .or_default()
+        .insert(
+            version.to_string(),
+            ServeLoadedVersion {
+                checkpoint_path: version_entry.checkpoint_path.clone(),
+                loaded_at_ms: now_ms(),
+            },
+        );
+    if let Err(err) = save_serve_state(&registry_dir, &serve_state) {
+        eprintln!("enkai model load: {}", err);
+        return 1;
+    }
+    println!("loaded model {} {}", name, version);
+    0
+}
+
+fn model_unload(args: &[String]) -> i32 {
+    if args.len() != 3 {
+        eprintln!("Usage: enkai model unload <registry_dir> <name> <version>");
+        return 1;
+    }
+    let registry_dir = PathBuf::from(&args[0]);
+    let name = args[1].trim();
+    let version = args[2].trim();
+    if name.is_empty() || version.is_empty() {
+        eprintln!("enkai model unload: name/version cannot be empty");
+        return 1;
+    }
+    let mut serve_state = match load_serve_state(&registry_dir) {
+        Ok(state) => state,
+        Err(err) => {
+            eprintln!("enkai model unload: {}", err);
+            return 1;
+        }
+    };
+    let mut unloaded = false;
+    if let Some(model_loaded) = serve_state.loaded.get_mut(name) {
+        unloaded = model_loaded.remove(version).is_some();
+        if model_loaded.is_empty() {
+            serve_state.loaded.remove(name);
+        }
+    }
+    if !unloaded {
+        eprintln!(
+            "enkai model unload: model '{}' version '{}' is not loaded",
+            name, version
+        );
+        return 1;
+    }
+    if let Err(err) = save_serve_state(&registry_dir, &serve_state) {
+        eprintln!("enkai model unload: {}", err);
+        return 1;
+    }
+    println!("unloaded model {} {}", name, version);
+    0
+}
+
+fn model_loaded(args: &[String]) -> i32 {
+    if args.is_empty() || args.len() > 3 {
+        eprintln!("Usage: enkai model loaded <registry_dir> [name] [--json]");
+        return 1;
+    }
+    let registry_dir = PathBuf::from(&args[0]);
+    let mut name: Option<&str> = None;
+    let mut as_json = false;
+    for arg in &args[1..] {
+        if arg == "--json" {
+            as_json = true;
+        } else if name.is_none() {
+            name = Some(arg.as_str());
+        } else {
+            eprintln!("enkai model loaded: unexpected argument '{}'", arg);
+            return 1;
+        }
+    }
+    let state = match load_serve_state(&registry_dir) {
+        Ok(state) => state,
+        Err(err) => {
+            eprintln!("enkai model loaded: {}", err);
+            return 1;
+        }
+    };
+    if as_json {
+        if let Some(name) = name {
+            let Some(entry) = state.loaded.get(name) else {
+                eprintln!(
+                    "enkai model loaded: model '{}' has no loaded versions",
+                    name
+                );
+                return 1;
+            };
+            match serde_json::to_string_pretty(entry) {
+                Ok(text) => println!("{}", text),
+                Err(err) => {
+                    eprintln!("enkai model loaded: failed to serialize JSON: {}", err);
+                    return 1;
+                }
+            }
+        } else {
+            match serde_json::to_string_pretty(&state) {
+                Ok(text) => println!("{}", text),
+                Err(err) => {
+                    eprintln!("enkai model loaded: failed to serialize JSON: {}", err);
+                    return 1;
+                }
+            }
+        }
+        return 0;
+    }
+    if let Some(name) = name {
+        let Some(entry) = state.loaded.get(name) else {
+            println!("model: {} (no loaded versions)", name);
+            return 0;
+        };
+        println!("model: {}", name);
+        for (version, loaded) in entry {
+            println!(
+                "  - {} checkpoint={} loaded_at_ms={}",
+                version, loaded.checkpoint_path, loaded.loaded_at_ms
+            );
+        }
+        return 0;
+    }
+    if state.loaded.is_empty() {
+        println!("(no loaded models)");
+        return 0;
+    }
+    for (model, versions) in state.loaded {
+        println!("model: {}", model);
+        for (version, loaded) in versions {
+            println!(
+                "  - {} checkpoint={} loaded_at_ms={}",
+                version, loaded.checkpoint_path, loaded.loaded_at_ms
+            );
+        }
+    }
+    0
+}
+
 fn model_retire(args: &[String]) -> i32 {
     if args.len() != 3 {
         eprintln!("Usage: enkai model retire <registry_dir> <name> <version>");
@@ -334,6 +538,7 @@ fn model_retire(args: &[String]) -> i32 {
         eprintln!("enkai model retire: {}", err);
         return 1;
     }
+    let _ = unload_model_version(&registry_dir, name, version);
     println!("retired model {} {}", name, version);
     0
 }
@@ -393,6 +598,49 @@ fn save_registry(registry_dir: &Path, registry: &ModelRegistry) -> Result<(), St
         .map_err(|err| format!("failed to write {}: {}", path.display(), err))?;
     file.write_all(text.as_bytes())
         .map_err(|err| format!("failed to write {}: {}", path.display(), err))
+}
+
+fn serve_state_path(registry_dir: &Path) -> PathBuf {
+    registry_dir.join(".serve_state.json")
+}
+
+fn load_serve_state(registry_dir: &Path) -> Result<ServeState, String> {
+    let path = serve_state_path(registry_dir);
+    if !path.is_file() {
+        return Ok(ServeState {
+            schema_version: 1,
+            loaded: BTreeMap::new(),
+        });
+    }
+    let text = fs::read_to_string(&path)
+        .map_err(|err| format!("failed to read {}: {}", path.display(), err))?;
+    let mut state: ServeState = serde_json::from_str(&text)
+        .map_err(|err| format!("invalid {}: {}", path.display(), err))?;
+    if state.schema_version == 0 {
+        state.schema_version = 1;
+    }
+    Ok(state)
+}
+
+fn save_serve_state(registry_dir: &Path, state: &ServeState) -> Result<(), String> {
+    let path = serve_state_path(registry_dir);
+    let mut to_write = state.clone();
+    to_write.schema_version = 1;
+    let text = serde_json::to_string_pretty(&to_write)
+        .map_err(|err| format!("failed to serialize serve state: {}", err))?;
+    fs::write(&path, text).map_err(|err| format!("failed to write {}: {}", path.display(), err))
+}
+
+fn unload_model_version(registry_dir: &Path, name: &str, version: &str) -> Result<(), String> {
+    let mut state = load_serve_state(registry_dir)?;
+    if let Some(model_loaded) = state.loaded.get_mut(name) {
+        model_loaded.remove(version);
+        if model_loaded.is_empty() {
+            state.loaded.remove(name);
+        }
+        save_serve_state(registry_dir, &state)?;
+    }
+    Ok(())
 }
 
 fn write_checkpoint_pointer(version_dir: &Path, checkpoint_path: &str) -> Result<(), String> {
@@ -480,6 +728,19 @@ pub(crate) fn resolve_checkpoint_pointer(version_dir: &Path) -> Option<PathBuf> 
     }
 }
 
+pub(crate) fn is_model_loaded(
+    registry_dir: &Path,
+    name: &str,
+    version: &str,
+) -> Result<bool, String> {
+    let state = load_serve_state(registry_dir)?;
+    Ok(state
+        .loaded
+        .get(name)
+        .and_then(|versions| versions.get(version))
+        .is_some())
+}
+
 #[cfg(all(test, not(windows)))]
 mod tests {
     use super::*;
@@ -524,6 +785,50 @@ mod tests {
             "--json".to_string(),
         ]);
         assert_eq!(list, 0);
+    }
+
+    #[test]
+    fn load_and_unload_model_versions() {
+        let dir = tempdir().expect("tempdir");
+        let registry = dir.path().join("registry");
+        let checkpoint = dir.path().join("checkpoint");
+        fs::create_dir_all(&checkpoint).expect("checkpoint dir");
+
+        let register = model_command(&[
+            "register".to_string(),
+            registry.to_string_lossy().to_string(),
+            "chat".to_string(),
+            "v1.0.0".to_string(),
+            checkpoint.to_string_lossy().to_string(),
+            "--activate".to_string(),
+        ]);
+        assert_eq!(register, 0);
+
+        let load = model_command(&[
+            "load".to_string(),
+            registry.to_string_lossy().to_string(),
+            "chat".to_string(),
+            "v1.0.0".to_string(),
+        ]);
+        assert_eq!(load, 0);
+        assert!(is_model_loaded(&registry, "chat", "v1.0.0").expect("loaded"));
+
+        let loaded = model_command(&[
+            "loaded".to_string(),
+            registry.to_string_lossy().to_string(),
+            "chat".to_string(),
+            "--json".to_string(),
+        ]);
+        assert_eq!(loaded, 0);
+
+        let unload = model_command(&[
+            "unload".to_string(),
+            registry.to_string_lossy().to_string(),
+            "chat".to_string(),
+            "v1.0.0".to_string(),
+        ]);
+        assert_eq!(unload, 0);
+        assert!(!is_model_loaded(&registry, "chat", "v1.0.0").expect("loaded"));
     }
 
     #[test]

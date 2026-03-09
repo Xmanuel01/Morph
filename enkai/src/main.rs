@@ -210,6 +210,8 @@ fn serve_command(args: &[String]) -> i32 {
     let mut model_version: Option<String> = None;
     let mut latest = false;
     let mut checkpoint: Option<String> = None;
+    let mut multi_model = false;
+    let mut require_loaded = false;
     let mut run_args = Vec::new();
     let mut target: Option<String> = None;
     let mut idx = 0usize;
@@ -259,6 +261,12 @@ fn serve_command(args: &[String]) -> i32 {
             "--latest" => {
                 latest = true;
             }
+            "--multi-model" => {
+                multi_model = true;
+            }
+            "--require-loaded" => {
+                require_loaded = true;
+            }
             "--checkpoint" => {
                 idx += 1;
                 if idx >= args.len() {
@@ -284,17 +292,49 @@ fn serve_command(args: &[String]) -> i32 {
         }
         idx += 1;
     }
-    let model_selection = match resolve_serve_model_selection(
-        checkpoint.as_deref(),
-        registry.as_deref(),
-        model.as_deref(),
-        model_version.as_deref(),
-        latest,
-    ) {
-        Ok(selection) => selection,
-        Err(err) => {
-            eprintln!("enkai serve: {}", err);
+    let model_selection = if multi_model {
+        if checkpoint.is_some() || model.is_some() || model_version.is_some() || latest {
+            eprintln!(
+                "enkai serve: --multi-model cannot be combined with --checkpoint/--model/--model-version/--latest"
+            );
             return 1;
+        }
+        let Some(registry_raw) = registry.as_deref() else {
+            eprintln!("enkai serve: --multi-model requires --registry <dir>");
+            return 1;
+        };
+        let registry_path = match canonical_existing_path(Path::new(registry_raw), "--registry") {
+            Ok(path) => path,
+            Err(err) => {
+                eprintln!("enkai serve: {}", err);
+                return 1;
+            }
+        };
+        env::set_var("ENKAI_SERVE_MULTI_MODEL", "1");
+        env::set_var("ENKAI_REQUIRE_MODEL_VERSION_HEADER", "1");
+        env::set_var(
+            "ENKAI_SERVE_MODEL_REGISTRY",
+            registry_path.to_string_lossy().to_string(),
+        );
+        env::remove_var("ENKAI_SERVE_MODEL_PATH");
+        env::remove_var("ENKAI_SERVE_MODEL_NAME");
+        env::remove_var("ENKAI_SERVE_MODEL_VERSION");
+        None
+    } else {
+        env::remove_var("ENKAI_SERVE_MULTI_MODEL");
+        match resolve_serve_model_selection(
+            checkpoint.as_deref(),
+            registry.as_deref(),
+            model.as_deref(),
+            model_version.as_deref(),
+            latest,
+            require_loaded,
+        ) {
+            Ok(selection) => selection,
+            Err(err) => {
+                eprintln!("enkai serve: {}", err);
+                return 1;
+            }
         }
     };
     if let Some(host) = host {
@@ -331,6 +371,7 @@ fn resolve_serve_model_selection(
     model: Option<&str>,
     model_version: Option<&str>,
     latest: bool,
+    require_loaded: bool,
 ) -> Result<Option<ServeModelSelection>, String> {
     if checkpoint.is_some()
         && (registry.is_some() || model.is_some() || model_version.is_some() || latest)
@@ -394,6 +435,20 @@ fn resolve_serve_model_selection(
     } else {
         canonical_existing_path(&version_dir, "model version directory")?
     };
+    if require_loaded {
+        let loaded = model::is_model_loaded(&registry_path, model, &version)
+            .map_err(|err| format!("failed to read serve load state: {}", err))?;
+        if !loaded {
+            return Err(format!(
+                "model '{}' version '{}' is not loaded for serving (run: enkai model load {} {} {})",
+                model,
+                version,
+                registry_path.display(),
+                model,
+                version
+            ));
+        }
+    }
     Ok(Some(ServeModelSelection {
         checkpoint_path,
         model_name: Some(model.to_string()),
@@ -961,7 +1016,7 @@ fn print_usage() {
     eprintln!("  enkai --version");
     eprintln!("  enkai run [--trace-vm] [--disasm] [--trace-task] [--trace-net] <file|dir>");
     eprintln!(
-        "  enkai serve [--host <host>] [--port <port>] [--registry <dir> --model <name> [--model-version <v>|--latest] | --checkpoint <path>] [--trace-vm] [--disasm] [--trace-task] [--trace-net] [file|dir]"
+        "  enkai serve [--host <host>] [--port <port>] [--registry <dir> --model <name> [--model-version <v>|--latest] [--require-loaded] | --multi-model --registry <dir> | --checkpoint <path>] [--trace-vm] [--disasm] [--trace-task] [--trace-net] [file|dir]"
     );
     bench::print_bench_usage();
     model::print_model_usage();
@@ -1471,6 +1526,60 @@ mod tests {
     }
 
     #[test]
+    fn serve_rejects_multi_model_without_registry() {
+        let code = serve_command(&["--multi-model".to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn resolve_model_selection_requires_loaded_when_requested() {
+        let dir = tempdir().expect("tempdir");
+        let registry = dir.path().join("registry");
+        let checkpoint = dir.path().join("checkpoint");
+        fs::create_dir_all(&checkpoint).expect("checkpoint");
+        let register = super::model::model_command(&[
+            "register".to_string(),
+            registry.to_string_lossy().to_string(),
+            "chat".to_string(),
+            "v1.0.0".to_string(),
+            checkpoint.to_string_lossy().to_string(),
+            "--activate".to_string(),
+        ]);
+        assert_eq!(register, 0);
+
+        let err = resolve_serve_model_selection(
+            None,
+            Some(registry.to_string_lossy().as_ref()),
+            Some("chat"),
+            Some("v1.0.0"),
+            false,
+            true,
+        )
+        .expect_err("must reject unloaded model");
+        assert!(err.contains("not loaded for serving"));
+
+        let load = super::model::model_command(&[
+            "load".to_string(),
+            registry.to_string_lossy().to_string(),
+            "chat".to_string(),
+            "v1.0.0".to_string(),
+        ]);
+        assert_eq!(load, 0);
+
+        let selected = resolve_serve_model_selection(
+            None,
+            Some(registry.to_string_lossy().as_ref()),
+            Some("chat"),
+            Some("v1.0.0"),
+            false,
+            true,
+        )
+        .expect("selection")
+        .expect("some");
+        assert_eq!(selected.model_version.as_deref(), Some("v1.0.0"));
+    }
+
+    #[test]
     fn resolve_model_selection_checkpoint_path() {
         let dir = tempdir().expect("tempdir");
         let ckpt = dir.path().join("checkpoint");
@@ -1480,6 +1589,7 @@ mod tests {
             None,
             None,
             None,
+            false,
             false,
         )
         .expect("selection")
@@ -1501,6 +1611,7 @@ mod tests {
             Some("chat"),
             None,
             true,
+            false,
         )
         .expect("selection")
         .expect("some");
@@ -1522,6 +1633,7 @@ mod tests {
             Some(dir.path().join("registry").to_string_lossy().as_ref()),
             Some("chat"),
             None,
+            false,
             false,
         )
         .expect("selection")
@@ -1550,6 +1662,7 @@ mod tests {
             Some(registry.to_string_lossy().as_ref()),
             Some("chat"),
             None,
+            false,
             false,
         )
         .expect("selection")

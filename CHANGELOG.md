@@ -21,6 +21,13 @@
 - Added current-line RC wrappers:
   - `scripts/v2_2_0_rc_pipeline.ps1`
   - `scripts/v2_2_0_rc_pipeline.sh`
+- Added explicit serving lifecycle controls for model registry operations:
+  - `enkai model load <registry_dir> <name> <version>`
+  - `enkai model unload <registry_dir> <name> <version>`
+  - `enkai model loaded <registry_dir> [name] [--json]`
+- Added multi-model serving mode with per-request selector enforcement:
+  - `enkai serve --multi-model --registry <dir>`
+  - deterministic selector/load errors: `missing_model_selector`, `model_not_loaded`
 
 ### Fixes
 - CI `release-pipeline` lane now runs full package gates (no skip-package mode) and publishes strict evidence artifacts.
@@ -28,6 +35,7 @@
   - `scripts/collect_release_evidence.py --strict`
   - `scripts/generate_capability_report.py --strict`
 - Updated benchmark/release/spec/docs references to the `v2.2.0` contract line.
+- Runtime HTTP metadata + rate-limiter model keying now use request-selected model identity in multi-model mode.
 
 ### Breaking changes
 - None.

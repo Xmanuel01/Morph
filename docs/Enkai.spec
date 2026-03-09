@@ -469,9 +469,12 @@ For full tensor C ABI contracts and safety preconditions, see `docs/tensor_api.m
 Commands:
 - `enkai run <file|dir> [--trace-vm] [--disasm] [--trace-task] [--trace-net]`
 - `enkai bench run [--suite <name>] [--baseline <python|none>] [--output <file>] [--machine-profile <file>] [--iterations <n>] [--warmup <n>] [--target-speedup <pct>] [--target-memory <pct>] [--enforce-target] [--enforce-all-cases] [--python <command>] [--enkai-bin <path>]`
-- `enkai serve [--host <host>] [--port <port>] [--registry <dir> --model <name> [--model-version <v>|--latest] | --checkpoint <path>] [--trace-vm] [--disasm] [--trace-task] [--trace-net] [file|dir]`
+- `enkai serve [--host <host>] [--port <port>] [--registry <dir> --model <name> [--model-version <v>|--latest] [--require-loaded] | --multi-model --registry <dir> | --checkpoint <path>] [--trace-vm] [--disasm] [--trace-task] [--trace-net] [file|dir]`
 - `enkai model register <registry_dir> <name> <version> <checkpoint_path> [--activate]`
 - `enkai model list <registry_dir> [name] [--json]`
+- `enkai model load <registry_dir> <name> <version>`
+- `enkai model unload <registry_dir> <name> <version>`
+- `enkai model loaded <registry_dir> [name] [--json]`
 - `enkai model promote <registry_dir> <name> <version>`
 - `enkai model retire <registry_dir> <name> <version>`
 - `enkai model rollback <registry_dir> <name> <version>`
@@ -508,18 +511,22 @@ Contract enforcement note:
 Serve model-selection contract:
 - `enkai serve` resolves model paths from either:
   - explicit `--checkpoint <path>`, or
-  - registry tuple `--registry <dir> --model <name>` with `--model-version <v>` or `--latest`.
+  - registry tuple `--registry <dir> --model <name>` with `--model-version <v>` or `--latest`,
+  - multi-model registry mode `--multi-model --registry <dir>` with per-request model selector headers.
 - resolved values are exported for program/runtime consumption:
   - `ENKAI_SERVE_MODEL_PATH`
   - `ENKAI_SERVE_MODEL_NAME`
   - `ENKAI_SERVE_MODEL_VERSION`
   - `ENKAI_SERVE_MODEL_REGISTRY`
+  - `ENKAI_SERVE_MULTI_MODEL` (`1|true|yes|on` enables per-request model selector mode)
   - `ENKAI_REQUIRE_MODEL_VERSION_HEADER` (`1|true|yes|on` to require `x-enkai-model-version`)
   - `ENKAI_HTTP_MAX_INFLIGHT` (`Int >= 0`; `0` disables cap)
 - deterministic model pin checks in HTTP runtime:
   - missing version header -> `400 missing_model_version`
   - version mismatch -> `409 model_version_mismatch`
   - model-name mismatch (when supplied) -> `409 model_name_mismatch`
+  - multi-model selector missing -> `400 missing_model_selector`
+  - multi-model requested version not loaded -> `409 model_not_loaded`
 
 Frontend scaffolding + SDK contract:
 - `enkai new backend` creates an Enkai HTTP backend scaffold with versioned routes:
@@ -626,7 +633,7 @@ The following are intentionally not fully implemented yet:
 - `std::db` ships SQLite in-tree and includes Postgres connector functions (`pg_open/pg_exec/pg_query/pg_close`)
   through `enkai_native` using direct `NoTls` connections.
 - Model registry support is filesystem-based (`--registry` directory scanning). Remote registries and artifact pull/auth flows are out of scope in v2.x.
-- Model lifecycle control is local-filesystem scoped (`enkai model register|promote|retire|rollback`).
+- Model lifecycle control is local-filesystem scoped (`enkai model register|load|unload|promote|retire|rollback`).
   Remote registry replication and signed artifact exchange are out of scope in v2.2.0.
 - `std::analysis` provides deterministic ingest + aggregate primitives, but does not yet provide
   a full dataframe/columnar query planner.

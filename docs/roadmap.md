@@ -15,6 +15,10 @@ v2.2.0 (in progress)
   - `release-pipeline` CI lane now runs full package gates (not skip-package mode)
   - strict evidence archive + strict capability report generation are executed in CI
   - release evidence artifacts are uploaded from CI.
+- Added explicit model serving lifecycle controls and multi-model runtime pinning:
+  - `enkai model load|unload|loaded`
+  - `enkai serve --multi-model --registry <dir>`
+  - deterministic request-level selector/load enforcement (`missing_model_selector`, `model_not_loaded`).
 
 v2.1.9 (done)
 - Completed v2.1 stability-cut evidence hardening:
