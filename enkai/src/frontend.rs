@@ -4,8 +4,18 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NewKind {
     Backend,
+    Service,
+    LlmBackend,
     FrontendChat,
     FullstackChat,
+    LlmFullstack,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BackendProfile {
+    Backend,
+    Service,
+    Llm,
 }
 
 #[derive(Debug, Clone)]
@@ -66,7 +76,7 @@ pub fn sdk_command(args: &[String]) -> i32 {
 
 pub fn print_new_usage() {
     eprintln!(
-        "  enkai new <backend|frontend-chat|fullstack-chat> <target_dir> [--api-version <v>] [--backend-url <url>] [--force]"
+        "  enkai new <backend|service|llm-backend|frontend-chat|fullstack-chat|llm-fullstack> <target_dir> [--api-version <v>] [--backend-url <url>] [--force]"
     );
 }
 
@@ -127,10 +137,13 @@ fn parse_new_options(args: &[String]) -> Result<NewOptions, String> {
 fn parse_new_kind(raw: &str) -> Result<NewKind, String> {
     match raw {
         "backend" => Ok(NewKind::Backend),
+        "service" => Ok(NewKind::Service),
+        "llm-backend" => Ok(NewKind::LlmBackend),
         "frontend-chat" => Ok(NewKind::FrontendChat),
         "fullstack-chat" => Ok(NewKind::FullstackChat),
+        "llm-fullstack" => Ok(NewKind::LlmFullstack),
         _ => Err(format!(
-            "unknown scaffold kind '{}'; expected backend|frontend-chat|fullstack-chat",
+            "unknown scaffold kind '{}'; expected backend|service|llm-backend|frontend-chat|fullstack-chat|llm-fullstack",
             raw
         )),
     }
@@ -179,13 +192,28 @@ fn parse_sdk_options(args: &[String]) -> Result<SdkOptions, String> {
 fn scaffold_project(options: &NewOptions) -> Result<(), String> {
     prepare_destination(&options.target_dir, options.force)?;
     match options.kind {
-        NewKind::Backend => scaffold_backend_project(&options.target_dir, &options.api_version),
+        NewKind::Backend => scaffold_backend_project(
+            &options.target_dir,
+            &options.api_version,
+            BackendProfile::Backend,
+        ),
+        NewKind::Service => scaffold_backend_project(
+            &options.target_dir,
+            &options.api_version,
+            BackendProfile::Service,
+        ),
+        NewKind::LlmBackend => scaffold_backend_project(
+            &options.target_dir,
+            &options.api_version,
+            BackendProfile::Llm,
+        ),
         NewKind::FrontendChat => scaffold_frontend_project(
             &options.target_dir,
             &options.api_version,
             &options.backend_url,
         ),
-        NewKind::FullstackChat => scaffold_fullstack_project(options),
+        NewKind::FullstackChat => scaffold_fullstack_project(options, BackendProfile::Backend),
+        NewKind::LlmFullstack => scaffold_fullstack_project(options, BackendProfile::Llm),
     }
 }
 
@@ -212,13 +240,24 @@ fn prepare_destination(path: &Path, force: bool) -> Result<(), String> {
     fs::create_dir_all(path).map_err(|err| format!("failed to create {}: {}", path.display(), err))
 }
 
-fn scaffold_backend_project(root: &Path, api_version: &str) -> Result<(), String> {
+fn scaffold_backend_project(
+    root: &Path,
+    api_version: &str,
+    profile: BackendProfile,
+) -> Result<(), String> {
     write_text_file(&root.join("enkai.toml"), &render_backend_manifest(root))?;
     write_text_file(
         &root.join("README.md"),
-        &render_backend_readme(root, api_version),
+        &render_backend_readme(root, api_version, profile),
     )?;
-    write_text_file(&root.join(".gitignore"), "logs/\n")?;
+    write_text_file(
+        &root.join(".gitignore"),
+        ".env\n.env.local\nlogs/\n*.db\n*.db-journal\n",
+    )?;
+    write_text_file(
+        &root.join(".env.example"),
+        &render_backend_env_example(api_version, profile),
+    )?;
     write_text_file(
         &root.join("contracts").join("backend_api.snapshot.json"),
         &render_backend_contract_snapshot(api_version),
@@ -228,6 +267,24 @@ fn scaffold_backend_project(root: &Path, api_version: &str) -> Result<(), String
             .join("contracts")
             .join("conversation_state.schema.json"),
         &render_conversation_schema_json(),
+    )?;
+    write_text_file(
+        &root.join("contracts").join("deploy_env.snapshot.json"),
+        &render_deploy_env_snapshot(api_version, profile),
+    )?;
+    write_text_file(
+        &root.join("migrations").join("001_conversation_state.sql"),
+        MIGRATION_001_CONVERSATION_STATE_SQL,
+    )?;
+    write_text_file(
+        &root
+            .join("migrations")
+            .join("002_conversation_state_index.sql"),
+        MIGRATION_002_CONVERSATION_STATE_INDEX_SQL,
+    )?;
+    write_text_file(
+        &root.join("scripts").join("validate_env_contract.py"),
+        &render_backend_env_validator_py(api_version, profile),
     )?;
     write_text_file(
         &root.join("src").join("main.enk"),
@@ -279,17 +336,20 @@ fn scaffold_frontend_project(
     Ok(())
 }
 
-fn scaffold_fullstack_project(options: &NewOptions) -> Result<(), String> {
+fn scaffold_fullstack_project(
+    options: &NewOptions,
+    backend_profile: BackendProfile,
+) -> Result<(), String> {
     let root = &options.target_dir;
     write_text_file(
         &root.join("README.md"),
-        &render_fullstack_readme(&options.api_version, &options.backend_url),
+        &render_fullstack_readme(&options.api_version, &options.backend_url, backend_profile),
     )?;
     write_text_file(
         &root.join(".gitignore"),
         "frontend/node_modules/\nfrontend/dist/\nbackend/logs/\n",
     )?;
-    scaffold_backend_project(&root.join("backend"), &options.api_version)?;
+    scaffold_backend_project(&root.join("backend"), &options.api_version, backend_profile)?;
     scaffold_frontend_project(
         &root.join("frontend"),
         &options.api_version,
@@ -318,12 +378,47 @@ fn render_backend_manifest(root: &Path) -> String {
     )
 }
 
-fn render_backend_readme(root: &Path, api_version: &str) -> String {
+fn backend_profile_name(profile: BackendProfile) -> &'static str {
+    match profile {
+        BackendProfile::Backend => "backend",
+        BackendProfile::Service => "service",
+        BackendProfile::Llm => "llm-backend",
+    }
+}
+
+fn backend_profile_slug(profile: BackendProfile) -> &'static str {
+    match profile {
+        BackendProfile::Backend => "backend",
+        BackendProfile::Service => "service",
+        BackendProfile::Llm => "llm",
+    }
+}
+
+fn render_backend_readme(root: &Path, api_version: &str, profile: BackendProfile) -> String {
     let name = sanitize_name(root);
     format!(
-        "# {}\n\nEnkai backend scaffold (`v2.1.5` contract freeze).\n\n## API Contract\n\n- Base path: `/api/{}`\n- Header required by SDK: `x-enkai-api-version: {}`\n- Routes:\n  - `GET /api/{}/health`\n  - `POST /api/{}/chat`\n  - `GET /api/{}/chat/stream`\n  - `GET /api/{}/chat/ws`\n\n## Contract Snapshots\n\n- Backend contract snapshot: `contracts/backend_api.snapshot.json`\n- Conversation schema: `contracts/conversation_state.schema.json`\n\n## Persistence\n\n- Latest conversation state is persisted to `conversation_state.json`.\n- Schema version is enforced (`schema_version: 1`) with startup migration for legacy files.\n- Override target directory with `ENKAI_CONVERSATION_DIR`.\n\n## Run\n\n- `enkai serve --host 0.0.0.0 --port 8080 .`\n",
-        name, api_version, api_version, api_version, api_version, api_version, api_version
+        "# {}\n\nEnkai {} scaffold (`v2.1.6` contract freeze).\n\n## API Contract\n\n- Base path: `/api/{}`\n- Header required by SDK: `x-enkai-api-version: {}`\n- Routes:\n  - `GET /api/{}/health`\n  - `POST /api/{}/chat`\n  - `GET /api/{}/chat/stream`\n  - `GET /api/{}/chat/ws`\n\n## Contract Snapshots\n\n- Backend contract snapshot: `contracts/backend_api.snapshot.json`\n- Conversation schema: `contracts/conversation_state.schema.json`\n- Deployment env snapshot: `contracts/deploy_env.snapshot.json`\n\n## Persistence + Migration\n\n- Latest conversation state is persisted to `conversation_state.json`.\n- A backup copy is persisted to `conversation_state.backup.json`.\n- SQLite metadata DB is stored at `ENKAI_CONVERSATION_DB` (default `conversation_state.db`).\n- Startup applies DB migration steps from `migrations/` and records versions in `schema_migrations`.\n\n## Environment Contract\n\n- Copy `.env.example` to `.env` and validate before deploy:\n  - `python scripts/validate_env_contract.py --env-file .env`\n\n## Run\n\n- `enkai serve --host 0.0.0.0 --port 8080 .`\n",
+        name,
+        backend_profile_name(profile),
+        api_version,
+        api_version,
+        api_version,
+        api_version,
+        api_version,
+        api_version
     )
+}
+
+fn render_backend_env_example(api_version: &str, profile: BackendProfile) -> String {
+    let mut out = format!(
+        "ENKAI_APP_PROFILE={}\nENKAI_API_VERSION={}\nENKAI_SERVE_HOST=0.0.0.0\nENKAI_SERVE_PORT=8080\nENKAI_CONVERSATION_DIR=.\nENKAI_CONVERSATION_DB=conversation_state.db\nENKAI_LOG_PATH=server.jsonl\n",
+        backend_profile_slug(profile),
+        api_version
+    );
+    if profile == BackendProfile::Llm {
+        out.push_str("ENKAI_MODEL_NAME=tinyllm\nENKAI_MODEL_VERSION=latest\n");
+    }
+    out
 }
 
 fn render_backend_contract_snapshot(api_version: &str) -> String {
@@ -342,6 +437,57 @@ fn render_sdk_contract_snapshot(api_version: &str) -> String {
 
 fn render_conversation_schema_json() -> String {
     "{\n  \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n  \"title\": \"EnkaiConversationStateV1\",\n  \"type\": \"object\",\n  \"required\": [\n    \"schema_version\",\n    \"id\",\n    \"source\",\n    \"updated_ms\"\n  ],\n  \"properties\": {\n    \"schema_version\": {\n      \"const\": 1\n    },\n    \"id\": {\n      \"type\": \"string\",\n      \"minLength\": 1\n    },\n    \"messages\": {\n      \"type\": \"array\",\n      \"minItems\": 1,\n      \"items\": {\n        \"type\": \"object\",\n        \"required\": [\n          \"role\",\n          \"content\"\n        ],\n        \"properties\": {\n          \"role\": {\n            \"type\": \"string\",\n            \"enum\": [\n              \"user\",\n              \"assistant\"\n            ]\n          },\n          \"content\": {\n            \"type\": \"string\"\n          }\n        },\n        \"additionalProperties\": true\n      }\n    },\n    \"source\": {\n      \"type\": \"string\"\n    },\n    \"updated_ms\": {\n      \"type\": \"integer\"\n    },\n    \"user_text\": {\n      \"type\": \"string\"\n    },\n    \"reply\": {\n      \"type\": \"string\"\n    }\n  },\n  \"additionalProperties\": true\n}\n".to_string()
+}
+
+fn render_deploy_env_snapshot(api_version: &str, profile: BackendProfile) -> String {
+    let mut required = vec![
+        "ENKAI_APP_PROFILE",
+        "ENKAI_API_VERSION",
+        "ENKAI_SERVE_HOST",
+        "ENKAI_SERVE_PORT",
+        "ENKAI_CONVERSATION_DIR",
+        "ENKAI_CONVERSATION_DB",
+    ];
+    if profile == BackendProfile::Llm {
+        required.push("ENKAI_MODEL_NAME");
+        required.push("ENKAI_MODEL_VERSION");
+    }
+    let required_json = required
+        .into_iter()
+        .map(|item| format!("    \"{}\"", item))
+        .collect::<Vec<_>>()
+        .join(",\n");
+    format!(
+        "{{\n  \"snapshot_version\": 1,\n  \"api_version\": \"{}\",\n  \"profile\": \"{}\",\n  \"required_env\": [\n{}\n  ],\n  \"optional_env\": [\n    \"ENKAI_MODEL_REGISTRY\",\n    \"ENKAI_API_TOKEN\",\n    \"ENKAI_LOG_PATH\"\n  ],\n  \"constraints\": {{\n    \"ENKAI_SERVE_PORT\": \"integer 1..65535\",\n    \"ENKAI_API_VERSION\": \"must equal scaffold api version\"\n  }}\n}}\n",
+        api_version,
+        backend_profile_slug(profile),
+        required_json
+    )
+}
+
+fn render_backend_env_validator_py(api_version: &str, profile: BackendProfile) -> String {
+    let profile_slug = backend_profile_slug(profile);
+    let mut required = vec![
+        "ENKAI_APP_PROFILE",
+        "ENKAI_API_VERSION",
+        "ENKAI_SERVE_HOST",
+        "ENKAI_SERVE_PORT",
+        "ENKAI_CONVERSATION_DIR",
+        "ENKAI_CONVERSATION_DB",
+    ];
+    if profile == BackendProfile::Llm {
+        required.push("ENKAI_MODEL_NAME");
+        required.push("ENKAI_MODEL_VERSION");
+    }
+    let required_list = required
+        .into_iter()
+        .map(|key| format!("\"{}\"", key))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "import argparse\nimport os\nimport pathlib\nimport sys\n\nEXPECTED_API_VERSION = \"{}\"\nEXPECTED_PROFILE = \"{}\"\nREQUIRED = [{}]\n\n\ndef parse_env_file(path):\n    values = {{}}\n    data = pathlib.Path(path)\n    if not data.exists():\n        return values\n    for line in data.read_text(encoding=\"utf-8\").splitlines():\n        raw = line.strip()\n        if not raw or raw.startswith(\"#\"):\n            continue\n        if \"=\" not in raw:\n            continue\n        key, value = raw.split(\"=\", 1)\n        values[key.strip()] = value.strip()\n    return values\n\n\ndef merged_env(file_values):\n    out = dict(file_values)\n    for key, value in os.environ.items():\n        out[key] = value\n    return out\n\n\ndef main():\n    parser = argparse.ArgumentParser(description=\"Validate Enkai deploy env contract\")\n    parser.add_argument(\"--env-file\", default=\".env\", help=\"Path to env file\")\n    args = parser.parse_args()\n\n    file_values = parse_env_file(args.env_file)\n    env = merged_env(file_values)\n\n    errors = []\n    for key in REQUIRED:\n        value = env.get(key, \"\").strip()\n        if not value:\n            errors.append(f\"missing required env: {{key}}\")\n\n    api_version = env.get(\"ENKAI_API_VERSION\", \"\").strip()\n    if api_version and api_version != EXPECTED_API_VERSION:\n        errors.append(\n            f\"ENKAI_API_VERSION mismatch: expected {{EXPECTED_API_VERSION}}, got {{api_version}}\"\n        )\n\n    profile = env.get(\"ENKAI_APP_PROFILE\", \"\").strip()\n    if profile and profile != EXPECTED_PROFILE:\n        errors.append(\n            f\"ENKAI_APP_PROFILE mismatch: expected {{EXPECTED_PROFILE}}, got {{profile}}\"\n        )\n\n    raw_port = env.get(\"ENKAI_SERVE_PORT\", \"\").strip()\n    if raw_port:\n        try:\n            port = int(raw_port)\n            if port < 1 or port > 65535:\n                errors.append(\"ENKAI_SERVE_PORT must be in range 1..65535\")\n        except ValueError:\n            errors.append(\"ENKAI_SERVE_PORT must be an integer\")\n\n    if errors:\n        for error in errors:\n            print(f\"[env-contract] {{error}}\", file=sys.stderr)\n        return 1\n\n    print(\"[env-contract] ok\")\n    return 0\n\n\nif __name__ == \"__main__\":\n    raise SystemExit(main())\n",
+        api_version, profile_slug, required_list
+    )
 }
 
 fn render_backend_main(api_version: &str) -> String {
@@ -371,6 +517,37 @@ fn conversation_dir() -> String ::\n\
 fn conversation_path() -> String ::\n\
     return path.join(conversation_dir(), \"conversation_state.json\")\n\
 ::\n\n\
+fn conversation_backup_path() -> String ::\n\
+    return path.join(conversation_dir(), \"conversation_state.backup.json\")\n\
+::\n\n\
+fn log_path() -> String ::\n\
+    let value := env.get(\"ENKAI_LOG_PATH\")\n\
+    if value != none ::\n\
+        return value?\n\
+    ::\n\
+    return \"server.jsonl\"\n\
+::\n\n\
+fn env_api_version() -> String ::\n\
+    let value := env.get(\"ENKAI_API_VERSION\")\n\
+    if value == none ::\n\
+        return \"{}\"\n\
+    ::\n\
+    return value?\n\
+::\n\n\
+fn env_port() -> Int ::\n\
+    let value := env.get(\"ENKAI_SERVE_PORT\")\n\
+    if value == none ::\n\
+        return 8080\n\
+    ::\n\
+    let parsed := json.parse(value?)\n\
+    if parsed < 1 ::\n\
+        return 8080\n\
+    ::\n\
+    if parsed > 65535 ::\n\
+        return 8080\n\
+    ::\n\
+    return parsed\n\
+::\n\n\
 fn contract_error(code: String, message: String) -> Response ::\n\
     let out := json.parse(\"{{}}\")\n\
     let err := json.parse(\"{{}}\")\n\
@@ -380,28 +557,15 @@ fn contract_error(code: String, message: String) -> Response ::\n\
     out.error := err\n\
     return http.bad_request(json.stringify(out))\n\
 ::\n\n\
-fn require_contract_header(req: Request) -> Response? ::\n\
-    let value := http.header(req, \"x-enkai-api-version\")\n\
-    if value == none ::\n\
-        return contract_error(\"missing_api_version_header\", \"missing x-enkai-api-version header\")\n\
-    ::\n\
-    if value? != \"{}\" ::\n\
-        return contract_error(\"api_version_mismatch\", \"x-enkai-api-version mismatch\")\n\
-    ::\n\
-    return none\n\
+fn request_api_version(req: Request) -> String? ::\n\
+    return http.header(req, \"x-enkai-api-version\")\n\
 ::\n\n\
-fn require_ws_contract(req: Request) -> Response? ::\n\
+fn request_ws_api_version(req: Request) -> String? ::\n\
     let value := http.header(req, \"x-enkai-api-version\")\n\
     if value == none ::\n\
         value := http.query(req, \"api_version\")\n\
     ::\n\
-    if value == none ::\n\
-        return contract_error(\"missing_api_version_header\", \"missing x-enkai-api-version header\")\n\
-    ::\n\
-    if value? != \"{}\" ::\n\
-        return contract_error(\"api_version_mismatch\", \"x-enkai-api-version mismatch\")\n\
-    ::\n\
-    return none\n\
+    return value\n\
 ::\n\n\
 fn next_conversation_id(value: String?) -> String ::\n\
     if value != none ::\n\
@@ -412,11 +576,15 @@ fn next_conversation_id(value: String?) -> String ::\n\
 fn migrate_conversation_state_file() ::\n\
     let raw := io.read_text(conversation_path())\n\
     if raw == none ::\n\
+        raw := io.read_text(conversation_backup_path())\n\
+    ::\n\
+    if raw == none ::\n\
         return\n\
     ::\n\
     let parsed := json.parse(raw?)\n\
     parsed.schema_version := 1\n\
     io.write_text(conversation_path(), json.stringify(parsed))\n\
+    io.write_text(conversation_backup_path(), json.stringify(parsed))\n\
 ::\n\n\
 fn save_conversation(id: String, user_text: String, reply: String, source: String) ::\n\
     let user_msg := json.parse(\"{{}}\")\n\
@@ -434,6 +602,7 @@ fn save_conversation(id: String, user_text: String, reply: String, source: Strin
     state.source := source\n\
     state.updated_ms := time.now_ms()\n\
     io.write_text(conversation_path(), json.stringify(state))\n\
+    io.write_text(conversation_backup_path(), json.stringify(state))\n\
 ::\n\n\
 fn chat_payload(id: String, reply: String) -> String ::\n\
     let body := json.parse(\"{{}}\")\n\
@@ -442,16 +611,22 @@ fn chat_payload(id: String, reply: String) -> String ::\n\
     return json.stringify(body)\n\
 ::\n\n\
 fn health(req: Request) -> Response ::\n\
-    let header_error := require_contract_header(req)\n\
-    if header_error != none ::\n\
-        return header_error?\n\
+    let version := request_api_version(req)\n\
+    if version == none ::\n\
+        return contract_error(\"missing_api_version_header\", \"missing x-enkai-api-version header\")\n\
+    ::\n\
+    if version? != \"{}\" ::\n\
+        return contract_error(\"api_version_mismatch\", \"x-enkai-api-version mismatch\")\n\
     ::\n\
     return http.ok(\"{{\\\"status\\\":\\\"ok\\\",\\\"api_version\\\":\\\"{}\\\"}}\")\n\
 ::\n\n\
 fn chat(req: Request) -> Response ::\n\
-    let header_error := require_contract_header(req)\n\
-    if header_error != none ::\n\
-        return header_error?\n\
+    let version := request_api_version(req)\n\
+    if version == none ::\n\
+        return contract_error(\"missing_api_version_header\", \"missing x-enkai-api-version header\")\n\
+    ::\n\
+    if version? != \"{}\" ::\n\
+        return contract_error(\"api_version_mismatch\", \"x-enkai-api-version mismatch\")\n\
     ::\n\
     let prompt_query := http.query(req, \"prompt\")\n\
     if prompt_query == none ::\n\
@@ -464,9 +639,12 @@ fn chat(req: Request) -> Response ::\n\
     return http.ok(chat_payload(conversation_id, reply))\n\
 ::\n\n\
 fn stream(req: Request) -> Response ::\n\
-    let header_error := require_contract_header(req)\n\
-    if header_error != none ::\n\
-        return header_error?\n\
+    let version := request_api_version(req)\n\
+    if version == none ::\n\
+        return contract_error(\"missing_api_version_header\", \"missing x-enkai-api-version header\")\n\
+    ::\n\
+    if version? != \"{}\" ::\n\
+        return contract_error(\"api_version_mismatch\", \"x-enkai-api-version mismatch\")\n\
     ::\n\
     let prompt_query := http.query(req, \"prompt\")\n\
     if prompt_query == none ::\n\
@@ -496,9 +674,12 @@ fn stream(req: Request) -> Response ::\n\
     return http.ok(\"\")\n\
 ::\n\n\
 fn chat_ws(req: Request) -> Response ::\n\
-    let header_error := require_ws_contract(req)\n\
-    if header_error != none ::\n\
-        return header_error?\n\
+    let version := request_ws_api_version(req)\n\
+    if version == none ::\n\
+        return contract_error(\"missing_api_version_header\", \"missing x-enkai-api-version header\")\n\
+    ::\n\
+    if version? != \"{}\" ::\n\
+        return contract_error(\"api_version_mismatch\", \"x-enkai-api-version mismatch\")\n\
     ::\n\
     let prompt_query := http.query(req, \"prompt\")\n\
     if prompt_query == none ::\n\
@@ -538,6 +719,10 @@ fn not_found(req: Request) -> Response ::\n\
 ::\n\n\
 fn main() ::\n\
     migrate_conversation_state_file()\n\
+    if env_api_version() != \"{}\" ::\n\
+        io.stderr_write_text(\"ENKAI_API_VERSION mismatch with scaffold contract\")\n\
+        return\n\
+    ::\n\
     let routes := [\n\
         http.route(\"GET\", \"{}\", health),\n\
         http.route(\"POST\", \"{}\", chat),\n\
@@ -546,7 +731,8 @@ fn main() ::\n\
     ]\n\
     let auth_cfg := json.parse(\"{{\\\"allow_anonymous\\\":true,\\\"tokens\\\":[{{\\\"token\\\":\\\"dev-token\\\",\\\"tenant\\\":\\\"local\\\"}}]}}\")\n\
     let rate_cfg := json.parse(\"{{\\\"capacity\\\":120,\\\"refill_per_sec\\\":60,\\\"key\\\":\\\"ip\\\"}}\")\n\
-    let log_cfg := json.parse(\"{{\\\"path\\\":\\\"logs/server.jsonl\\\"}}\")\n\
+    let log_cfg := json.parse(\"{{}}\")\n\
+    log_cfg.path := log_path()\n\
     let middlewares := [\n\
         http.middleware(\"auth\", auth_cfg),\n\
         http.middleware(\"rate_limit\", rate_cfg),\n\
@@ -558,11 +744,7 @@ fn main() ::\n\
     if host_env != none ::\n\
         host := host_env?\n\
     ::\n\
-    let port := 8080\n\
-    let port_env := env.get(\"ENKAI_SERVE_PORT\")\n\
-    if port_env != none ::\n\
-        port := json.parse(port_env?)\n\
-    ::\n\
+    let port := env_port()\n\
     http.serve(host, port, routes, middlewares)\n\
     let contract_mode := env.get(\"ENKAI_CONTRACT_TEST_MODE\")\n\
     if contract_mode != none ::\n\
@@ -578,7 +760,19 @@ fn main() ::\n\
 ::\n\
 \n\
 main()\n",
-        api_version, api_version, api_version, api_version, api_version, health, chat, stream, ws
+        api_version,
+        api_version,
+        api_version,
+        api_version,
+        api_version,
+        api_version,
+        api_version,
+        api_version,
+        api_version,
+        health,
+        chat,
+        stream,
+        ws
     )
 }
 
@@ -677,7 +871,7 @@ export default function App() {{\n\
   return (\n\
     <div className=\"app-shell\">\n\
       <header className=\"hero\">\n\
-        <p className=\"eyebrow\">Enkai v2.1.5 frontend contract freeze</p>\n\
+        <p className=\"eyebrow\">Enkai v2.1.6 frontend contract freeze</p>\n\
         <h1>Streaming Chat UI Kit</h1>\n\
         <p className=\"subtitle\">Typed SDK, version-pinned API contract, and resilient error UX.</p>\n\
         <p className=\"subtitle\">{{conversationId ? `Conversation: ${{conversationId}}` : \"Conversation: new\"}}</p>\n\
@@ -942,10 +1136,16 @@ function trimSlash(value: string): string {{\n\
     )
 }
 
-fn render_fullstack_readme(api_version: &str, backend_url: &str) -> String {
+fn render_fullstack_readme(
+    api_version: &str,
+    backend_url: &str,
+    backend_profile: BackendProfile,
+) -> String {
     format!(
-        "# Fullstack Chat Scaffold\n\nThis scaffold contains:\n\n- `backend/` Enkai serving project\n- `frontend/` React + TypeScript client app\n\n## API Contract\n\n- URL: `{}`\n- API version: `{}`\n- Pinned header: `x-enkai-api-version`\n- Streaming transports: SSE + WebSocket\n\n## Snapshots\n\n- `backend/contracts/backend_api.snapshot.json`\n- `backend/contracts/conversation_state.schema.json`\n- `frontend/contracts/sdk_api.snapshot.json`\n\n## Start\n\n1. Backend: `cd backend && enkai serve --host 0.0.0.0 --port 8080 .`\n2. Frontend: `cd frontend && npm install && npm run dev`\n",
-        backend_url, api_version
+        "# Fullstack Chat Scaffold\n\nThis scaffold contains:\n\n- `backend/` Enkai serving project (`{}` profile)\n- `frontend/` React + TypeScript client app\n\n## API Contract\n\n- URL: `{}`\n- API version: `{}`\n- Pinned header: `x-enkai-api-version`\n- Streaming transports: SSE + WebSocket\n\n## Snapshots\n\n- `backend/contracts/backend_api.snapshot.json`\n- `backend/contracts/conversation_state.schema.json`\n- `backend/contracts/deploy_env.snapshot.json`\n- `frontend/contracts/sdk_api.snapshot.json`\n\n## Start\n\n1. Backend: `cd backend && enkai serve --host 0.0.0.0 --port 8080 .`\n2. Frontend: `cd frontend && npm install && npm run dev`\n",
+        backend_profile_name(backend_profile),
+        backend_url,
+        api_version
     )
 }
 
@@ -983,9 +1183,13 @@ const FRONTEND_VITE_CONFIG: &str = "import { defineConfig } from \"vite\";\nimpo
 
 const FRONTEND_TYPES_TS: &str = "export type UiRole = \"user\" | \"assistant\";\n";
 
+const MIGRATION_001_CONVERSATION_STATE_SQL: &str = "-- Enkai backend conversation persistence v1\nCREATE TABLE IF NOT EXISTS schema_migrations (\n  version INTEGER PRIMARY KEY,\n  applied_ms INTEGER NOT NULL\n);\n\nCREATE TABLE IF NOT EXISTS conversation_events (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  source_code INTEGER NOT NULL,\n  updated_ms INTEGER NOT NULL\n);\n";
+
+const MIGRATION_002_CONVERSATION_STATE_INDEX_SQL: &str = "-- Enkai backend conversation persistence v2\nCREATE INDEX IF NOT EXISTS idx_conversation_events_updated_ms ON conversation_events(updated_ms);\n";
+
 const FRONTEND_STYLES_CSS: &str = "@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap');\n\n:root {\n  font-family: \"Space Grotesk\", \"Segoe UI\", sans-serif;\n  color: #f7f6f2;\n  background: radial-gradient(circle at 15% 10%, #233a66, transparent 42%), radial-gradient(circle at 80% 0%, #b14922, transparent 36%), linear-gradient(180deg, #0a1628 0%, #12253f 48%, #0f1d34 100%);\n}\n\n* {\n  box-sizing: border-box;\n}\n\nbody {\n  margin: 0;\n  min-height: 100vh;\n}\n\n#root {\n  min-height: 100vh;\n  padding: 1.5rem;\n}\n\n.app-shell {\n  max-width: 880px;\n  margin: 0 auto;\n  display: grid;\n  gap: 1rem;\n}\n\n.hero h1 {\n  margin: 0;\n  font-size: clamp(1.7rem, 4vw, 2.4rem);\n}\n\n.eyebrow {\n  font-family: \"IBM Plex Mono\", monospace;\n  letter-spacing: 0.1em;\n  text-transform: uppercase;\n  opacity: 0.8;\n  margin: 0 0 0.4rem;\n}\n\n.subtitle {\n  margin: 0.4rem 0 0;\n  opacity: 0.85;\n}\n\n.panel {\n  border: 1px solid rgba(255, 255, 255, 0.2);\n  background: rgba(6, 16, 30, 0.55);\n  backdrop-filter: blur(12px);\n  border-radius: 16px;\n  padding: 0.9rem;\n}\n\n.auth-panel {\n  display: grid;\n  gap: 0.4rem;\n}\n\ninput,\nbutton {\n  border: 1px solid rgba(255, 255, 255, 0.24);\n  border-radius: 10px;\n  padding: 0.75rem;\n  font: inherit;\n  color: inherit;\n  background: rgba(10, 25, 46, 0.82);\n}\n\nbutton {\n  cursor: pointer;\n  background: linear-gradient(120deg, #e66a2f, #d35317);\n  border: none;\n  font-weight: 600;\n}\n\nbutton:disabled {\n  opacity: 0.6;\n  cursor: not-allowed;\n}\n\n.transcript {\n  display: grid;\n  gap: 0.7rem;\n  min-height: 300px;\n}\n\n.bubble {\n  border-radius: 12px;\n  padding: 0.75rem;\n  animation: rise-in 220ms ease;\n}\n\n.bubble.user {\n  background: rgba(57, 123, 200, 0.32);\n}\n\n.bubble.assistant {\n  background: rgba(237, 122, 66, 0.28);\n}\n\n.role {\n  display: block;\n  font-family: \"IBM Plex Mono\", monospace;\n  font-size: 0.72rem;\n  letter-spacing: 0.06em;\n  text-transform: uppercase;\n  opacity: 0.82;\n}\n\n.bubble p {\n  margin: 0.25rem 0 0;\n  white-space: pre-wrap;\n}\n\n.composer {\n  display: grid;\n  grid-template-columns: 1fr auto;\n  gap: 0.7rem;\n}\n\n.error {\n  margin: 0;\n  color: #ffd9c8;\n}\n\n@keyframes rise-in {\n  from {\n    opacity: 0;\n    transform: translateY(6px);\n  }\n  to {\n    opacity: 1;\n    transform: translateY(0);\n  }\n}\n\n@media (max-width: 640px) {\n  #root {\n    padding: 1rem;\n  }\n\n  .composer {\n    grid-template-columns: 1fr;\n  }\n}\n";
 
-#[cfg(all(test, not(windows)))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::io::{Read, Write};
@@ -1047,6 +1251,10 @@ mod tests {
         Some(rest[..end].to_string())
     }
 
+    fn normalize_newlines(value: &str) -> String {
+        value.replace("\r\n", "\n")
+    }
+
     #[test]
     fn sdk_template_contains_version_pinning_contract() {
         let sdk = render_typescript_sdk("v9");
@@ -1073,8 +1281,8 @@ mod tests {
         assert!(text.contains("http.middleware(\"rate_limit\""));
         assert!(text.contains("save_conversation"));
         assert!(text.contains("ENKAI_CONTRACT_TEST_MODE"));
-        assert!(text.contains("require_contract_header"));
-        assert!(text.contains("require_ws_contract"));
+        assert!(text.contains("request_api_version"));
+        assert!(text.contains("request_ws_api_version"));
         assert!(text.contains("schema_version := 1"));
         assert!(text.contains("migrate_conversation_state_file"));
     }
@@ -1082,16 +1290,28 @@ mod tests {
     #[test]
     fn contract_snapshots_match_reference_files() {
         assert_eq!(
-            render_backend_contract_snapshot("v1"),
-            include_str!("../contracts/backend_api_v1.snapshot.json")
+            normalize_newlines(&render_backend_contract_snapshot("v1")),
+            normalize_newlines(include_str!("../contracts/backend_api_v1.snapshot.json"))
         );
         assert_eq!(
-            render_sdk_contract_snapshot("v1"),
-            include_str!("../contracts/sdk_api_v1.snapshot.json")
+            normalize_newlines(&render_sdk_contract_snapshot("v1")),
+            normalize_newlines(include_str!("../contracts/sdk_api_v1.snapshot.json"))
         );
         assert_eq!(
-            render_conversation_schema_json(),
-            include_str!("../contracts/conversation_state_v1.schema.json")
+            normalize_newlines(&render_conversation_schema_json()),
+            normalize_newlines(include_str!(
+                "../contracts/conversation_state_v1.schema.json"
+            ))
+        );
+        assert_eq!(
+            normalize_newlines(&render_deploy_env_snapshot("v1", BackendProfile::Backend)),
+            normalize_newlines(include_str!(
+                "../contracts/deploy_env_backend_v1.snapshot.json"
+            ))
+        );
+        assert_eq!(
+            normalize_newlines(&render_deploy_env_snapshot("v1", BackendProfile::Llm)),
+            normalize_newlines(include_str!("../contracts/deploy_env_llm_v1.snapshot.json"))
         );
     }
 
@@ -1114,6 +1334,61 @@ mod tests {
             .is_file());
         let env = fs::read_to_string(target.join(".env.example")).expect("env");
         assert!(env.contains("VITE_ENKAI_API_VERSION=v2"));
+    }
+
+    #[test]
+    fn new_command_creates_service_scaffold() {
+        let dir = tempdir().expect("tempdir");
+        let target = dir.path().join("service");
+        let code = new_command(&[
+            "service".to_string(),
+            target.to_string_lossy().to_string(),
+            "--api-version".to_string(),
+            "v3".to_string(),
+        ]);
+        assert_eq!(code, 0);
+        assert!(target
+            .join("migrations")
+            .join("001_conversation_state.sql")
+            .is_file());
+        assert!(target
+            .join("scripts")
+            .join("validate_env_contract.py")
+            .is_file());
+        assert!(target
+            .join("contracts")
+            .join("deploy_env.snapshot.json")
+            .is_file());
+        let env = fs::read_to_string(target.join(".env.example")).expect("env");
+        assert!(env.contains("ENKAI_APP_PROFILE=service"));
+        assert!(env.contains("ENKAI_API_VERSION=v3"));
+    }
+
+    #[test]
+    fn new_command_creates_llm_fullstack_scaffold() {
+        let dir = tempdir().expect("tempdir");
+        let target = dir.path().join("llm-fullstack");
+        let code = new_command(&[
+            "llm-fullstack".to_string(),
+            target.to_string_lossy().to_string(),
+            "--api-version".to_string(),
+            "v5".to_string(),
+            "--backend-url".to_string(),
+            "http://localhost:8085".to_string(),
+        ]);
+        assert_eq!(code, 0);
+        let backend_env =
+            fs::read_to_string(target.join("backend").join(".env.example")).expect("backend env");
+        assert!(backend_env.contains("ENKAI_APP_PROFILE=llm"));
+        assert!(backend_env.contains("ENKAI_MODEL_NAME="));
+        let deploy_snapshot = fs::read_to_string(
+            target
+                .join("backend")
+                .join("contracts")
+                .join("deploy_env.snapshot.json"),
+        )
+        .expect("deploy snapshot");
+        assert!(deploy_snapshot.contains("\"profile\": \"llm\""));
     }
 
     #[test]
@@ -1187,6 +1462,15 @@ mod tests {
         assert_eq!(
             fs::read_to_string(&conversation_schema).expect("conversation schema"),
             render_conversation_schema_json()
+        );
+        let deploy_snapshot = root
+            .join("backend")
+            .join("contracts")
+            .join("deploy_env.snapshot.json");
+        assert!(deploy_snapshot.is_file());
+        assert_eq!(
+            fs::read_to_string(&deploy_snapshot).expect("deploy snapshot"),
+            render_deploy_env_snapshot("v1", BackendProfile::Backend)
         );
         let frontend_sdk = root
             .join("frontend")
@@ -1262,8 +1546,13 @@ mod tests {
             "GET /api/v1/chat/stream?prompt=hello HTTP/1.1\r\nHost: localhost\r\nx-enkai-api-version: v1\r\nConnection: close\r\n\r\n"
                 .to_string();
         let stream_resp = send_http_request("127.0.0.1", port, &stream_request);
-        assert_eq!(response_status(&stream_resp), 200);
         let stream_body = response_body(&stream_resp);
+        assert_eq!(
+            response_status(&stream_resp),
+            200,
+            "unexpected stream response body: {}",
+            stream_body
+        );
         assert!(
             stream_body.contains("\"event\":\"token\""),
             "stream body: {}",
@@ -1275,8 +1564,13 @@ mod tests {
             conversation_id
         );
         let chat_resp = send_http_request("127.0.0.1", port, &chat_request);
-        assert_eq!(response_status(&chat_resp), 200);
         let chat_body = response_body(&chat_resp);
+        assert_eq!(
+            response_status(&chat_resp),
+            200,
+            "unexpected chat response body: {}",
+            chat_body
+        );
         assert!(
             chat_body.contains(&conversation_id),
             "chat body: {}",
@@ -1320,5 +1614,52 @@ mod tests {
         std::env::remove_var("ENKAI_CONTRACT_TEST_MODE");
         std::env::remove_var("ENKAI_STD");
         std::env::remove_var("ENKAI_CONVERSATION_DIR");
+    }
+
+    #[test]
+    fn fullstack_force_rescaffold_updates_contract_version() {
+        let dir = tempdir().expect("tempdir");
+        let root = dir.path().join("fullstack-upgrade");
+        let code = new_command(&[
+            "fullstack-chat".to_string(),
+            root.to_string_lossy().to_string(),
+            "--api-version".to_string(),
+            "v1".to_string(),
+            "--backend-url".to_string(),
+            "http://127.0.0.1:8080".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let code = new_command(&[
+            "fullstack-chat".to_string(),
+            root.to_string_lossy().to_string(),
+            "--api-version".to_string(),
+            "v2".to_string(),
+            "--backend-url".to_string(),
+            "http://127.0.0.1:8080".to_string(),
+            "--force".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let backend_snapshot = fs::read_to_string(
+            root.join("backend")
+                .join("contracts")
+                .join("backend_api.snapshot.json"),
+        )
+        .expect("backend snapshot");
+        assert!(backend_snapshot.contains("\"api_version\": \"v2\""));
+        assert!(backend_snapshot.contains("/api/v2/chat/stream"));
+
+        let sdk_snapshot = fs::read_to_string(
+            root.join("frontend")
+                .join("contracts")
+                .join("sdk_api.snapshot.json"),
+        )
+        .expect("sdk snapshot");
+        assert!(sdk_snapshot.contains("\"api_version\": \"v2\""));
+
+        let frontend_env =
+            fs::read_to_string(root.join("frontend").join(".env.example")).expect("frontend env");
+        assert!(frontend_env.contains("VITE_ENKAI_API_VERSION=v2"));
     }
 }

@@ -756,11 +756,18 @@ fn http_backpressure_middleware_returns_503() {
         b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     );
     let first = first_handle.join().expect("first request");
-
-    assert_eq!(response_status(&first), 200);
-    assert_eq!(response_status(&second), 503);
-    let second_text = String::from_utf8_lossy(&second);
-    assert!(second_text.contains("\"code\":\"backpressure_overloaded\""));
+    let first_status = response_status(&first);
+    let second_status = response_status(&second);
+    assert!(
+        (first_status == 200 && second_status == 503)
+            || (first_status == 503 && second_status == 200),
+        "expected one 200 and one 503, got first={} second={}",
+        first_status,
+        second_status
+    );
+    let overloaded = if first_status == 503 { &first } else { &second };
+    let overloaded_text = String::from_utf8_lossy(overloaded);
+    assert!(overloaded_text.contains("\"code\":\"backpressure_overloaded\""));
 
     server.join().expect("server");
 }

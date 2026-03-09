@@ -2,9 +2,30 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.1.5.
+- Current production release line is v2.1.6.
 - v2.1.x is additive/integration work in progress (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v2.1.6 (done)
+- Completed fullstack platform freeze/hardening:
+  - expanded scaffold matrix:
+    - `enkai new service`
+    - `enkai new llm-backend`
+    - `enkai new llm-fullstack`
+  - deployment env contract artifacts in generated backends:
+    - `contracts/deploy_env.snapshot.json`
+    - `.env.example`
+    - `scripts/validate_env_contract.py`
+  - migration assets shipped in generated backends:
+    - `migrations/001_conversation_state.sql`
+    - `migrations/002_conversation_state_index.sql`
+  - persistence durability hardening:
+    - dual-write `conversation_state.json` + `conversation_state.backup.json`
+    - startup migration reads primary/fallback state files
+  - end-to-end generated fullstack compatibility tests now include:
+    - contract snapshot parity checks for deployment env snapshot
+    - force-rescaffold version upgrade contract checks
+    - persistence migration validation during stream/chat flows
 
 v2.1.5 (done)
 - Completed additive algorithm-development stack hardening:

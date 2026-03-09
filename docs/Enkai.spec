@@ -1,8 +1,8 @@
-# Enkai Language Specification (v0.1 -> v2.1.5)
+# Enkai Language Specification (v0.1 -> v2.1.6)
 
 Status: stable.
 Grammar and CLI contracts are frozen at the v0.9.3 baseline for the v1.x/v2.x line.
-This document is the normative language and runtime surface for Enkai v2.1.5,
+This document is the normative language and runtime surface for Enkai v2.1.6,
 including compatibility constraints carried from v0.1 onward.
 
 -------------------------------------------------------------------------------
@@ -13,7 +13,7 @@ This specification covers:
 - Core syntax and block rules.
 - Module/import semantics.
 - Type and expression forms supported by parser, checker, compiler, and VM.
-- Built-in runtime modules shipped in v2.1.5.
+- Built-in runtime modules shipped in v2.1.6.
 - CLI entrypoints used in production.
 
 This specification does not claim features that are still stubbed or not yet implemented.
@@ -54,7 +54,7 @@ Compatibility baseline:
   (`use`/`type`/`enum`/`impl` + non-capturing lambda), and self-host CI lane coverage.
 - v1.8: compatibility/deprecation policy, legacy config/checkpoint compatibility
   gates, and documented self-host daily workflow + fallback process.
-- v1.9-v2.1.5: stage1 execution command (`enkai litec run`), unified master pipeline smoke test, GPU evidence verification scripts for operator-run soak gates, frontend/serve contract snapshot freeze with persisted conversation schema v1, deterministic packaging/checksum/SBOM release gates, and RC evidence-archive tooling.
+- v1.9-v2.1.6: stage1 execution command (`enkai litec run`), unified master pipeline smoke test, GPU evidence verification scripts for operator-run soak gates, frontend/serve contract snapshot freeze with persisted conversation schema v1, deterministic packaging/checksum/SBOM release gates, and RC evidence-archive tooling.
 
 Compatibility policy:
 - `.enk` and `.en` are primary source extensions.
@@ -62,7 +62,7 @@ Compatibility policy:
   primary contract unless listed explicitly.
 
 -------------------------------------------------------------------------------
-1.2 Validation Gate Status (v2.1.5)
+1.2 Validation Gate Status (v2.1.6)
 -------------------------------------------------------------------------------
 
 Current verification status:
@@ -276,7 +276,7 @@ Assignment form:
 8. Types
 -------------------------------------------------------------------------------
 
-Core types used in v2.1.5:
+Core types used in v2.1.6:
 - `Int`, `Float`, `Bool`, `String`, `Void`
 - Optional: `T?`
 - Function: `fn(T1, T2) -> R`
@@ -305,7 +305,7 @@ Formatting and tests:
 - Project test runner (`enkai test`) compiles and executes test files.
 
 -------------------------------------------------------------------------------
-10. Built-in Runtime Modules (v2.1.5)
+10. Built-in Runtime Modules (v2.1.6)
 -------------------------------------------------------------------------------
 
 Concurrency:
@@ -408,7 +408,7 @@ Native-backed std modules:
 - `std::analysis` (CSV/JSONL ingest, typed schema inference/validation, filter/project/join/group aggregates, describe/histogram/quantiles/rolling stats, deterministic pipeline manifests)
 - `std::algo` (sorting/searching/path, priority/merge/stream helpers, ML metric/eval/scheduler helpers)
 
-`std::analysis` additive APIs (v2.1.5):
+`std::analysis` additive APIs (v2.1.6):
 - `read_csv(path, delimiter, has_header)`
 - `read_jsonl(path)`
 - `infer_schema(rows)`
@@ -425,7 +425,7 @@ Native-backed std modules:
 - `rolling_mean(values, window)`
 - `run_pipeline(rows, pipeline)` -> `{ rows, manifest }` with deterministic stage stats + hashes
 
-`std::algo` additive APIs (v2.1.5):
+`std::algo` additive APIs (v2.1.6):
 - software/algorithm primitives:
   - `sort_ints(values)`
   - `binary_search_ints(values, target)`
@@ -446,7 +446,7 @@ Native-backed std modules:
   - `split_indices(total, test_ratio, seed, shuffle)`
   - `scheduler_linear_warmup(step, total_steps, warmup_steps, base_lr, min_lr)`
 
-Tensor backend (`std::tensor`, v2.1.5 surface):
+Tensor backend (`std::tensor`, v2.1.6 surface):
 - device/tensor creation, math ops, shape/dtype/device transforms
 - autograd and optimizer helper APIs
 - AMP scaler/autocast APIs
@@ -463,7 +463,7 @@ Tensor C ABI checkpoint/distributed hooks:
 For full tensor C ABI contracts and safety preconditions, see `docs/tensor_api.md` and `docs/gpu_backend.md`.
 
 -------------------------------------------------------------------------------
-11. CLI Contract (v2.1.5)
+11. CLI Contract (v2.1.6)
 -------------------------------------------------------------------------------
 
 Commands:
@@ -475,7 +475,7 @@ Commands:
 - `enkai model promote <registry_dir> <name> <version>`
 - `enkai model retire <registry_dir> <name> <version>`
 - `enkai model rollback <registry_dir> <name> <version>`
-- `enkai new <backend|frontend-chat|fullstack-chat> <target_dir> [--api-version <v>] [--backend-url <url>] [--force]`
+- `enkai new <backend|service|llm-backend|frontend-chat|fullstack-chat|llm-fullstack> <target_dir> [--api-version <v>] [--backend-url <url>] [--force]`
 - `enkai sdk generate <output_file> [--api-version <v>]`
 - `enkai check <file|dir>`
 - `enkai fmt [--check] <file|dir>`
@@ -501,7 +501,7 @@ Commands:
 - `enkai doctor [path] [--json] [--strict-contracts|--lenient]`
 
 Contract enforcement note:
-- In v2.1.5, train/eval run strict contracts by default.
+- In v2.1.6, train/eval run strict contracts by default.
 - `--lenient-contracts` requires `ENKAI_ALLOW_LEGACY_CONTRACTS=1`.
 
 Serve model-selection contract:
@@ -529,15 +529,28 @@ Frontend scaffolding + SDK contract:
   - backend contract snapshots:
     - `contracts/backend_api.snapshot.json`
     - `contracts/conversation_state.schema.json`
+    - `contracts/deploy_env.snapshot.json`
+  - backend env/migration assets:
+    - `.env.example`
+    - `scripts/validate_env_contract.py`
+    - `migrations/001_conversation_state.sql`
+    - `migrations/002_conversation_state_index.sql`
+- `enkai new service` and `enkai new llm-backend` emit backend-profile variants:
+  - `ENKAI_APP_PROFILE` pin in `.env.example`
+  - `llm-backend` additionally requires `ENKAI_MODEL_NAME` and `ENKAI_MODEL_VERSION`
 - `enkai new frontend-chat` creates React/TypeScript UI scaffolding with:
   - typed SDK (`src/sdk/enkaiClient.ts`)
   - SDK contract snapshot (`contracts/sdk_api.snapshot.json`)
   - env contract (`VITE_ENKAI_API_BASE_URL`, `VITE_ENKAI_API_VERSION`, `VITE_ENKAI_API_TOKEN`)
   - streaming chat UI and error handling conventions (SSE + WebSocket SDK support).
 - `enkai new fullstack-chat` emits both backend and frontend scaffolds with aligned API version defaults.
+- `enkai new llm-fullstack` emits `llm-backend` + frontend scaffolds with aligned API version defaults.
 - Generated SDK pins `x-enkai-api-version` and path prefix `/api/<version>`.
 - Backend scaffold persistence contract is schema-versioned (`schema_version: 1`) and includes
   startup migration of legacy `conversation_state.json` data without `schema_version`.
+- Backend scaffold durability contract writes both:
+  - `conversation_state.json`
+  - `conversation_state.backup.json`
 
 Project entry resolution:
 - Running with a directory resolves project root and `src/main.enk`.
@@ -548,7 +561,7 @@ Build caching and lockfile:
 
 Benchmarking:
 - `enkai bench run` executes deterministic suites from `bench/suites/*.json`.
-- Official v2.1.5 bounded claim suite: `official_v2_1_0`.
+- Official v2.1.6 bounded claim suite: `official_v2_1_0`.
 - Baseline comparisons are bounded to pinned suite/machine profiles and emit structured JSON reports.
 - Official performance claim thresholds are represented by `--target-speedup` and `--target-memory`,
   with optional hard gating via `--enforce-target`.
@@ -575,7 +588,7 @@ Train/Eval config schema:
   - `run_state.json` (resumable run identity + status),
   - `runs/index.jsonl` (append-only run events),
   - `checkpoint_lifecycle.json` (integrity digests + tiered retention metadata).
-- v2.1.5 strict behavior rejects configs missing `config_version`.
+- v2.1.6 strict behavior rejects configs missing `config_version`.
 - Optional legacy recovery mode:
   - `--lenient-contracts` is accepted only when `ENKAI_ALLOW_LEGACY_CONTRACTS=1`.
 
@@ -590,7 +603,7 @@ Checkpoint format:
     with machine-readable output via `--json`.
 
 -------------------------------------------------------------------------------
-12. Known Limits in v2.1.5
+12. Known Limits in v2.1.6
 -------------------------------------------------------------------------------
 
 The following are intentionally not fully implemented yet:
@@ -611,7 +624,7 @@ The following are intentionally not fully implemented yet:
   through `enkai_native` using direct `NoTls` connections.
 - Model registry support is filesystem-based (`--registry` directory scanning). Remote registries and artifact pull/auth flows are out of scope in v2.x.
 - Model lifecycle control is local-filesystem scoped (`enkai model register|promote|retire|rollback`).
-  Remote registry replication and signed artifact exchange are out of scope in v2.1.5.
+  Remote registry replication and signed artifact exchange are out of scope in v2.1.6.
 - `std::analysis` provides deterministic ingest + aggregate primitives, but does not yet provide
   a full dataframe/columnar query planner.
 - `std::algo` provides foundational software/ML utility routines, but not exhaustive domain
@@ -636,7 +649,7 @@ The following are intentionally not fully implemented yet:
 - `enkai litec replace-check` validates stage0/stage1/stage2 corpus compilation/runtime
   equivalence and reports compiler fixed-point status for the bootstrap subset; it is not
   yet a full replacement for Rust Stage0 compiler releases.
-- v2.1.5 validation note:
+- v2.1.6 validation note:
   - CPU-mode single-device soak requires operator-run evidence on production hardware.
   - CUDA single-GPU long-soak and distributed (2-GPU/4-GPU) reliability remain
     operator-run requirements and are not auto-proven by repository state alone.
@@ -649,7 +662,7 @@ These limits are part of the current stable contract and should be treated as pr
 13. Change Control
 -------------------------------------------------------------------------------
 
-For any language/runtime surface change after v2.1.5:
+For any language/runtime surface change after v2.1.6:
 1) Implement the change and add/adjust compiler/runtime tests.
 2) Update this specification to match the shipped behavior.
 3) Update changelog and targeted docs (`docs/xx_*.md`, `docs/tensor_api.md`, etc.).

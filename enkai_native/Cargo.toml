@@ -1,6 +1,6 @@
-﻿[package]
+[package]
 name = "enkai_native"
-version = "2.1.5"
+version = "2.1.6"
 edition = "2021"
 
 [lib]

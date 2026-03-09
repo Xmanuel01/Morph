@@ -1,4 +1,4 @@
-# Enkai Benchmark Harness (v2.1.5)
+# Enkai Benchmark Harness (v2.1.6)
 
 This harness provides reproducible Enkai-vs-Python benchmarks with structured JSON output.
 

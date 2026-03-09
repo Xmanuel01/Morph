@@ -11,6 +11,36 @@
 ### Breaking changes
 - None.
 
+## v2.1.6
+
+### Highlights
+- Completed fullstack platform contract freeze hardening:
+  - expanded scaffolds:
+    - `enkai new service`
+    - `enkai new llm-backend`
+    - `enkai new llm-fullstack`
+  - backend scaffolds now include deployment env + migration assets:
+    - `.env.example`
+    - `contracts/deploy_env.snapshot.json`
+    - `scripts/validate_env_contract.py`
+    - `migrations/001_conversation_state.sql`
+    - `migrations/002_conversation_state_index.sql`
+- Hardened generated backend persistence behavior:
+  - dual-write durability (`conversation_state.json` + `conversation_state.backup.json`)
+  - startup fallback migration from backup when primary state is missing
+- Added contract snapshots for deployment env profiles:
+  - `enkai/contracts/deploy_env_backend_v1.snapshot.json`
+  - `enkai/contracts/deploy_env_llm_v1.snapshot.json`
+
+### Fixes
+- Re-enabled and expanded `frontend::tests` on Windows in `enkai/src/frontend.rs` (previously skipped by module-level platform guard).
+- Added generated-fullstack upgrade regression coverage:
+  - force-rescaffold version upgrade now checked for backend/frontend snapshot alignment.
+- Added scaffold regression coverage for service/LLM profile outputs.
+
+### Breaking changes
+- None.
+
 ## v2.1.5
 
 ### Highlights

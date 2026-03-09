@@ -1,0 +1,24 @@
+{
+  "snapshot_version": 1,
+  "api_version": "v1",
+  "profile": "llm",
+  "required_env": [
+    "ENKAI_APP_PROFILE",
+    "ENKAI_API_VERSION",
+    "ENKAI_SERVE_HOST",
+    "ENKAI_SERVE_PORT",
+    "ENKAI_CONVERSATION_DIR",
+    "ENKAI_CONVERSATION_DB",
+    "ENKAI_MODEL_NAME",
+    "ENKAI_MODEL_VERSION"
+  ],
+  "optional_env": [
+    "ENKAI_MODEL_REGISTRY",
+    "ENKAI_API_TOKEN",
+    "ENKAI_LOG_PATH"
+  ],
+  "constraints": {
+    "ENKAI_SERVE_PORT": "integer 1..65535",
+    "ENKAI_API_VERSION": "must equal scaffold api version"
+  }
+}
