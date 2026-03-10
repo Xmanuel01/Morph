@@ -1,0 +1,7 @@
+﻿{
+  "suite": "official_v2_3_0",
+  "description": "Compatibility alias for the class-based official matrix",
+  "includes": [
+    "official_v2_3_0_matrix"
+  ]
+}

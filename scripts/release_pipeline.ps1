@@ -70,48 +70,37 @@ function Invoke-Python {
     & $cmd @prefix @Args
 }
 
-Write-Host "[release] Running format gate..."
-Invoke-Gate -Name "format" -Command { cargo fmt --all --check }
-
-Write-Host "[release] Running clippy gate..."
-Invoke-Gate -Name "clippy" -Command { cargo clippy --workspace --all-targets -- -D warnings }
-
-Write-Host "[release] Running test gate..."
-Invoke-Gate -Name "tests" -Command {
-    $previousRustflags = $env:RUSTFLAGS
-    if ($stripDebug -eq "1") {
-        if ([string]::IsNullOrWhiteSpace($previousRustflags)) {
-            $env:RUSTFLAGS = "-C debuginfo=0"
-        } else {
-            $env:RUSTFLAGS = "$previousRustflags -C debuginfo=0"
-        }
+function Resolve-BenchPython {
+    if (-not [string]::IsNullOrWhiteSpace($env:ENKAI_BENCH_PYTHON)) {
+        return $env:ENKAI_BENCH_PYTHON
     }
     try {
-        cargo test --workspace -j 1
-    } finally {
-        $env:RUSTFLAGS = $previousRustflags
+        $candidate = (py -3.11 -c "import sys; print(sys.executable)" 2>$null).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($candidate)) {
+            return $candidate
+        }
     }
+    catch {
+    }
+    foreach ($name in @("python3.11", "python3", "python")) {
+        $cmd = Get-Command $name -ErrorAction SilentlyContinue
+        if ($null -ne $cmd) {
+            return $cmd.Source
+        }
+    }
+    throw "Unable to resolve a Python interpreter for benchmark lane. Set ENKAI_BENCH_PYTHON."
 }
 
-Write-Host "[release] Running docs contract consistency gate..."
-Invoke-Gate -Name "docs-consistency" -Command {
-    powershell -ExecutionPolicy Bypass -File scripts/check_docs_consistency.ps1
-}
-
-Write-Host "[release] Running serve/frontend contract snapshot gate..."
-Invoke-Gate -Name "contract-snapshots" -Command {
-    cargo test -p enkai --bin enkai frontend::tests::contract_snapshots_match_reference_files
-}
-
-Write-Host "[release] Running self-host mainline gate..."
-Invoke-Gate -Name "selfhost-mainline" -Command {
+Write-Host "[release] Running consolidated production readiness gate..."
+Invoke-Gate -Name "readiness-check" -Command {
     New-Item -ItemType Directory -Path artifacts/selfhost -Force | Out-Null
-    cargo run -p enkai -- litec mainline-ci enkai/tools/bootstrap/selfhost_corpus --triage-dir artifacts/selfhost
+    New-Item -ItemType Directory -Path artifacts/readiness -Force | Out-Null
+    cargo run -p enkai -- readiness check --profile production --json --output artifacts/readiness/production.json
 }
 
-Write-Host "[release] Running self-host Stage0 fallback gate..."
-Invoke-Gate -Name "selfhost-stage0-fallback" -Command {
-    cargo run -p enkai -- litec selfhost-ci enkai/tools/bootstrap/selfhost_corpus
+Write-Host "[release] Running bootstrap release lane gate..."
+Invoke-Gate -Name "selfhost-release-ci" -Command {
+    cargo run -p enkai -- litec release-ci enkai/tools/bootstrap/selfhost_corpus --triage-dir artifacts/selfhost
 }
 
 Write-Host "[release] Running dependency license audit gate..."
@@ -119,27 +108,31 @@ Invoke-Gate -Name "license-audit" -Command {
     Invoke-Python scripts/license_audit.py
 }
 
+Write-Host "[release] Building release binaries for benchmark/package gates..."
+Invoke-Gate -Name "build-release-enkai" -Command { cargo build -p enkai --release }
+Invoke-Gate -Name "build-release-native" -Command { cargo build -p enkai_native --release }
+
 Write-Host "[release] Running benchmark target gate..."
 Invoke-Gate -Name "benchmark-target" -Command {
+    $benchPython = Resolve-BenchPython
     New-Item -ItemType Directory -Path dist -Force | Out-Null
     cargo run -p enkai --release -- bench run `
-        --suite official_v2_2_0 `
+        --suite official_v2_3_0_matrix `
         --baseline python `
         --iterations 2 `
         --warmup 1 `
         --machine-profile bench/machines/windows_ref.json `
-        --output dist/benchmark_official_v2_2_0_windows.json `
-        --target-speedup 5 `
+        --output dist/benchmark_official_v2_3_0_matrix_windows.json `
+        --target-speedup 15 `
         --target-memory 5 `
-        --enforce-target
+        --enforce-target `
+        --enforce-class-targets `
+        --class-targets bench/suites/official_v2_3_0_targets.json `
+        --python $benchPython
 }
 
 if (-not $SkipPackageCheck) {
     $version = Get-EnkaiVersion
-
-    Write-Host "[release] Building release binaries for package gate..."
-    Invoke-Gate -Name "build-release-enkai" -Command { cargo build -p enkai --release }
-    Invoke-Gate -Name "build-release-native" -Command { cargo build -p enkai_native --release }
 
     Write-Host "[release] Building deterministic package and checksum..."
     Invoke-Gate -Name "package-release" -Command {

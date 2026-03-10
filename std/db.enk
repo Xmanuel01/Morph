@@ -3,7 +3,10 @@
 native::import "enkai_native" ::
     fn db_sqlite_open(path: String) -> Int
     fn db_sqlite_close(handle: Int) -> Bool
+    fn db_sqlite_transaction_begin(handle: Int) -> Bool
+    fn db_sqlite_transaction_commit(handle: Int) -> Bool
     fn db_sqlite_exec(handle: Int, sql: String) -> Int
+    fn db_sqlite_exec_many(handle: Int, sql: String, count: Int) -> Int
     fn db_sqlite_query(handle: Int, sql: String) -> String
     fn db_postgres_open(conn: String) -> Int
     fn db_postgres_close(handle: Int) -> Bool
@@ -25,6 +28,18 @@ pub fn sqlite_close(handle: Int) -> Bool ::
 
 pub fn sqlite_exec(handle: Int, sql: String) -> Int ::
     return db_sqlite_exec(handle, sql)
+::
+
+pub fn sqlite_transaction_begin(handle: Int) -> Bool ::
+    return db_sqlite_transaction_begin(handle)
+::
+
+pub fn sqlite_transaction_commit(handle: Int) -> Bool ::
+    return db_sqlite_transaction_commit(handle)
+::
+
+pub fn sqlite_exec_many(handle: Int, sql: String, count: Int) -> Int ::
+    return db_sqlite_exec_many(handle, sql, count)
 ::
 
 pub fn sqlite_query(handle: Int, sql: String) ::

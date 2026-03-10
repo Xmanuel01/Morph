@@ -29,6 +29,10 @@ def main() -> int:
     main_rs = read("enkai/src/main.rs")
     if 'const LANG_VERSION: &' in main_rs and 'env!("ENKAI_LANG_VERSION")' not in main_rs:
         failures.append("enkai/src/main.rs still hardcodes LANG_VERSION")
+    if '"readiness" => readiness::readiness_command' not in main_rs:
+        failures.append("enkai/src/main.rs missing readiness command wiring")
+    if '"deploy" => deploy::deploy_command' not in main_rs:
+        failures.append("enkai/src/main.rs missing deploy command wiring")
 
     readme = read("README.md")
     if f"Status ({expected_tag})" not in readme:
@@ -71,6 +75,16 @@ def main() -> int:
         failures.append("docs/RELEASE_CHECKLIST.md missing scripts/collect_release_evidence.py")
     if "scripts/generate_capability_report.py" not in release_checklist:
         failures.append("docs/RELEASE_CHECKLIST.md missing scripts/generate_capability_report.py")
+    if "enkai readiness check --profile production" not in release_checklist:
+        failures.append("docs/RELEASE_CHECKLIST.md missing readiness command gate")
+    if "enkai litec release-ci" not in release_checklist:
+        failures.append("docs/RELEASE_CHECKLIST.md missing litec release-ci gate")
+    if "official_v2_3_0_matrix" not in release_checklist:
+        failures.append("docs/RELEASE_CHECKLIST.md missing official_v2_3_0_matrix benchmark gate")
+    if "--enforce-class-targets --class-targets bench/suites/official_v2_3_0_targets.json" not in release_checklist:
+        failures.append("docs/RELEASE_CHECKLIST.md missing class-target benchmark enforcement gate")
+    if "--fairness-check-only" not in release_checklist:
+        failures.append("docs/RELEASE_CHECKLIST.md missing fairness-only benchmark precheck gate")
 
     version_token = version.replace(".", "_")
     for wrapper in (
@@ -99,15 +113,47 @@ def main() -> int:
             failures.append(
                 "docs/36_capability_complete_report.md missing generate_capability_report reference"
             )
+        if "readiness/production.json" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing readiness evidence reference"
+            )
+
+    readiness_doc = ROOT / "docs/37_readiness_matrix.md"
+    if not readiness_doc.is_file():
+        failures.append("missing docs/37_readiness_matrix.md")
+    benchmark_doc = ROOT / "docs/33_benchmark_suite.md"
+    if not benchmark_doc.is_file():
+        failures.append("missing docs/33_benchmark_suite.md")
+    else:
+        benchmark_text = benchmark_doc.read_text(encoding="utf-8")
+        if "official_v2_3_0_matrix" not in benchmark_text:
+            failures.append("docs/33_benchmark_suite.md missing official_v2_3_0_matrix reference")
+        if "workload_equivalence_v1.json" not in benchmark_text:
+            failures.append("docs/33_benchmark_suite.md missing workload equivalence contract reference")
 
     required_snapshots = [
         ROOT / "enkai/contracts/backend_api_v1.snapshot.json",
         ROOT / "enkai/contracts/sdk_api_v1.snapshot.json",
         ROOT / "enkai/contracts/conversation_state_v1.schema.json",
+        ROOT / "enkai/contracts/readiness_production_v2_3_0.json",
     ]
     for snapshot in required_snapshots:
         if not snapshot.is_file():
             failures.append(f"missing contract snapshot file: {snapshot.relative_to(ROOT)}")
+
+    required_bench_assets = [
+        ROOT / "bench/suites/official_v2_3_0_matrix.json",
+        ROOT / "bench/suites/official_v2_3_0_vm_compute.json",
+        ROOT / "bench/suites/official_v2_3_0_native_bridge.json",
+        ROOT / "bench/suites/official_v2_3_0_cli_workflows.json",
+        ROOT / "bench/suites/official_v2_3_0_ai_data_workflows.json",
+        ROOT / "bench/suites/official_v2_3_0_targets.json",
+        ROOT / "bench/contracts/workload_equivalence_v1.json",
+        ROOT / "bench/baselines/v2_2_0/pre_recovery_baseline.json",
+    ]
+    for asset in required_bench_assets:
+        if not asset.is_file():
+            failures.append(f"missing benchmark asset: {asset.relative_to(ROOT)}")
 
     rc_notes = ROOT / "docs/31_v2_rc_notes.md"
     if not rc_notes.is_file():

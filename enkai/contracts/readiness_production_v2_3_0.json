@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "profile": "production",
+  "checks": [
+    {
+      "id": "fmt",
+      "description": "Rust formatting gate",
+      "command": ["cargo", "fmt", "--all", "--check"]
+    },
+    {
+      "id": "clippy",
+      "description": "Workspace lint gate",
+      "command": ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]
+    },
+    {
+      "id": "test",
+      "description": "Workspace unit/integration tests",
+      "command": ["cargo", "test", "--workspace"]
+    },
+    {
+      "id": "docs-consistency",
+      "description": "Docs/spec/contract consistency check",
+      "command": ["${PYTHON}", "scripts/check_docs_consistency.py"]
+    },
+    {
+      "id": "frontend-contract",
+      "description": "Frontend/backend contract snapshot test",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "enkai",
+        "--bin",
+        "enkai",
+        "frontend::tests::contract_snapshots_match_reference_files"
+      ]
+    },
+    {
+      "id": "selfhost-mainline",
+      "description": "Bootstrap self-host mainline lane",
+      "command": [
+        "enkai",
+        "litec",
+        "mainline-ci",
+        "enkai/tools/bootstrap/selfhost_corpus",
+        "--triage-dir",
+        "artifacts/selfhost"
+      ]
+    },
+    {
+      "id": "selfhost-stage0-fallback",
+      "description": "Bootstrap Stage0 fallback lane",
+      "command": [
+        "enkai",
+        "litec",
+        "selfhost-ci",
+        "enkai/tools/bootstrap/selfhost_corpus"
+      ]
+    },
+    {
+      "id": "benchmark-smoke",
+      "description": "Benchmark fairness/suite integrity smoke check",
+      "command": [
+        "enkai",
+        "bench",
+        "run",
+        "--suite",
+        "official_v2_3_0_matrix",
+        "--baseline",
+        "python",
+        "--iterations",
+        "1",
+        "--warmup",
+        "0",
+        "--fairness-check-only",
+        "--enkai-bin",
+        "${ENKAI_BIN}",
+        "--output",
+        "bench/results/readiness_smoke.json"
+      ]
+    }
+  ]
+}

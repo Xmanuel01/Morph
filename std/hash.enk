@@ -1,6 +1,7 @@
 // Native-backed hashing helpers
 native::import "enkai_native" ::
     fn hash_sha256(data: Buffer) -> Buffer
+    fn hash_sha256_many(data: Buffer, count: Int) -> Buffer
     fn buffer_from_string(data: String) -> Buffer
 ::
 
@@ -10,6 +11,14 @@ pub fn sha256(data: Buffer) -> Buffer ::
 
 pub fn sha256_from_string(data: String) -> Buffer ::
     return hash_sha256(buffer_from_string(data))
+::
+
+pub fn sha256_many(data: Buffer, count: Int) -> Buffer ::
+    return hash_sha256_many(data, count)
+::
+
+pub fn sha256_many_from_string(data: String, count: Int) -> Buffer ::
+    return hash_sha256_many(buffer_from_string(data), count)
 ::
 
 

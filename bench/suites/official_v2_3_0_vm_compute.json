@@ -1,0 +1,23 @@
+﻿{
+  "suite": "official_v2_3_0_vm_compute",
+  "description": "VM compute focused benchmark cases",
+  "class": "vm_compute",
+  "cases": [
+    {
+      "id": "numeric_kernel",
+      "description": "Integer arithmetic loop throughput",
+      "enkai_command": ["${ENKAI_BIN}", "run", "bench/enkai/kernel_numeric.enk"],
+      "python_command": ["${PYTHON_EXE}", "bench/python/kernel_numeric.py"],
+      "equivalence": {
+        "enkai_work_units": 500000,
+        "python_work_units": 500000,
+        "enkai_payload_bytes": 16,
+        "python_payload_bytes": 16,
+        "enkai_batching_mode": "loop_scalar",
+        "python_batching_mode": "loop_scalar",
+        "enkai_warmup_policy": "suite_default",
+        "python_warmup_policy": "suite_default"
+      }
+    }
+  ]
+}

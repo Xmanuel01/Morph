@@ -1,0 +1,39 @@
+﻿{
+  "suite": "official_v2_3_0_ai_data_workflows",
+  "description": "AI/data workflow benchmark cases",
+  "class": "ai_data_workflows",
+  "cases": [
+    {
+      "id": "http_serve_loop",
+      "description": "In-process local HTTP serving and request loop",
+      "enkai_command": [
+        "${PYTHON_EXE}",
+        "bench/python/http_serving_bench.py",
+        "--impl",
+        "enkai",
+        "--enkai-bin",
+        "${ENKAI_BIN}",
+        "--requests",
+        "40"
+      ],
+      "python_command": [
+        "${PYTHON_EXE}",
+        "bench/python/http_serving_bench.py",
+        "--impl",
+        "python",
+        "--requests",
+        "40"
+      ],
+      "equivalence": {
+        "enkai_work_units": 40,
+        "python_work_units": 40,
+        "enkai_payload_bytes": 2,
+        "python_payload_bytes": 2,
+        "enkai_batching_mode": "steady_state_loop",
+        "python_batching_mode": "steady_state_loop",
+        "enkai_warmup_policy": "suite_default",
+        "python_warmup_policy": "suite_default"
+      }
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+﻿{
+  "suite": "official_v2_3_0_matrix",
+  "description": "Class-based official benchmark matrix for Enkai v2.3.0",
+  "includes": [
+    "official_v2_3_0_vm_compute",
+    "official_v2_3_0_native_bridge",
+    "official_v2_3_0_cli_workflows",
+    "official_v2_3_0_ai_data_workflows"
+  ]
+}

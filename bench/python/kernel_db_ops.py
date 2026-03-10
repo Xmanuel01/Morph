@@ -14,6 +14,7 @@ def run() -> int:
         cur = conn.cursor()
         cur.execute("drop table if exists items")
         cur.execute("create table items(id integer primary key, name text)")
+        cur.execute("begin immediate")
         cur.executemany("insert into items(name) values (?)", [("row",) for _ in range(200)])
         conn.commit()
 

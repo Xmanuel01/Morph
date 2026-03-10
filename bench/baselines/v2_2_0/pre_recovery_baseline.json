@@ -1,0 +1,16 @@
+﻿{
+  "schema_version": 1,
+  "suite": "official_v2_2_0",
+  "captured_utc": "2026-03-10T00:00:00Z",
+  "source": "frozen_from_pre_recovery_run",
+  "host_note": "User-reported failing gate before fairness/runtime recovery",
+  "summary": {
+    "median_speedup_pct": -66.65,
+    "median_memory_reduction_pct": 6.2,
+    "pass": false
+  },
+  "notes": [
+    "This baseline preserves the pre-recovery headline failure for delta tracking.",
+    "Use bench/results/*.json from pinned Linux/Windows references for release-grade evidence."
+  ]
+}

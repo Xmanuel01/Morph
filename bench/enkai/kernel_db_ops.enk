@@ -2,6 +2,9 @@ native::import "enkai_native" ::
     fn db_sqlite_open(path: String) -> Int
     fn db_sqlite_close(handle: Int) -> Bool
     fn db_sqlite_exec(handle: Int, sql: String) -> Int
+    fn db_sqlite_transaction_begin(handle: Int) -> Bool
+    fn db_sqlite_exec_many(handle: Int, sql: String, count: Int) -> Int
+    fn db_sqlite_transaction_commit(handle: Int) -> Bool
     fn db_sqlite_query(handle: Int, sql: String) -> String
 ::
 
@@ -18,18 +21,25 @@ fn main() -> Int ::
 
     db_sqlite_exec(h, "drop table if exists items")
     db_sqlite_exec(h, "create table items(id integer primary key, name text)")
-
-    let i := 0
-    while i < 200 ::
-        db_sqlite_exec(h, "insert into items(name) values ('row')")
-        i := i + 1
+    if not db_sqlite_transaction_begin(h) ::
+        db_sqlite_close(h)
+        return 1
+    ::
+    let inserted := db_sqlite_exec_many(h, "insert into items(name) values ('row')", 200)
+    if inserted < 0 ::
+        db_sqlite_close(h)
+        return 1
+    ::
+    if not db_sqlite_transaction_commit(h) ::
+        db_sqlite_close(h)
+        return 1
     ::
 
     let raw := db_sqlite_query(h, "select id from items where id = 200")
     let rows := json.parse(raw)
     db_sqlite_close(h)
 
-    if rows != [] ::
+    if rows != [] and inserted == 200 ::
         return 0
     ::
 

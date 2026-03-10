@@ -3,10 +3,42 @@
 ## Unreleased
 
 ### Highlights
-- None yet.
+- None.
+
+### Breaking changes
+- None.
+
+## v2.3.0
+
+### Highlights
+- Added consolidated production readiness command:
+  - `enkai readiness check --profile production --json --output <file>`
+  - readiness manifest: `enkai/contracts/readiness_production_v2_3_0.json`
+- Added bootstrap consolidated release gate:
+  - `enkai litec release-ci <corpus_dir> [--triage-dir <dir>]`
+  - triage summary artifact: `litec_release_ci_report.json`
+- Added deployment validator command:
+  - `enkai deploy validate <project_dir> --profile <backend|fullstack> --strict`
+- Added class-based official benchmark target suite for v2.3 readiness:
+  - `bench/suites/official_v2_3_0_matrix.json`
+  - `bench/suites/official_v2_3_0_vm_compute.json`
+  - `bench/suites/official_v2_3_0_native_bridge.json`
+  - `bench/suites/official_v2_3_0_cli_workflows.json`
+  - `bench/suites/official_v2_3_0_ai_data_workflows.json`
+  - `bench/suites/official_v2_3_0_targets.json`
+- Added workload-equivalence benchmark fairness contract:
+  - `bench/contracts/workload_equivalence_v1.json`
 
 ### Fixes
-- None yet.
+- Release/CI workflows now emit readiness-report artifacts.
+- Release pipelines now run `litec release-ci` and produce readiness JSON (`artifacts/readiness/production.json`).
+- Release pipeline benchmark runner now pins benchmark Python to the machine profile for deterministic fairness checks.
+- Capability evidence tooling now archives/validates readiness + `litec_release_ci_report.json` in strict mode.
+- Backend/frontend scaffold contracts now include readiness endpoint `GET /api/<version>/ready` and `service_not_ready` error code.
+- Benchmark workloads were aligned for deterministic class-gate enforcement:
+  - HTTP serving benchmark steady-state profile
+  - numeric VM compute kernel fairness path
+  - JSON/hash/db bridge workload equivalence metadata
 
 ### Breaking changes
 - None.

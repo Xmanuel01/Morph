@@ -1,5 +1,7 @@
 use std::ffi::c_void;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 
 use libffi::middle::{Arg, Cif, CodePtr, Type};
 
@@ -10,6 +12,35 @@ use crate::object::buffer_value;
 use crate::value::Value;
 
 const MAX_FFI_BUFFER: usize = 128 * 1024 * 1024;
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FfiStats {
+    pub call_count: u64,
+    pub marshal_in_bytes: u64,
+    pub marshal_out_bytes: u64,
+    pub native_time_ns: u64,
+}
+
+static FFI_CALL_COUNT: AtomicU64 = AtomicU64::new(0);
+static FFI_MARSHAL_IN_BYTES: AtomicU64 = AtomicU64::new(0);
+static FFI_MARSHAL_OUT_BYTES: AtomicU64 = AtomicU64::new(0);
+static FFI_NATIVE_TIME_NS: AtomicU64 = AtomicU64::new(0);
+
+pub fn ffi_stats_snapshot() -> FfiStats {
+    FfiStats {
+        call_count: FFI_CALL_COUNT.load(Ordering::Relaxed),
+        marshal_in_bytes: FFI_MARSHAL_IN_BYTES.load(Ordering::Relaxed),
+        marshal_out_bytes: FFI_MARSHAL_OUT_BYTES.load(Ordering::Relaxed),
+        native_time_ns: FFI_NATIVE_TIME_NS.load(Ordering::Relaxed),
+    }
+}
+
+pub fn ffi_stats_reset() {
+    FFI_CALL_COUNT.store(0, Ordering::Relaxed);
+    FFI_MARSHAL_IN_BYTES.store(0, Ordering::Relaxed);
+    FFI_MARSHAL_OUT_BYTES.store(0, Ordering::Relaxed);
+    FFI_NATIVE_TIME_NS.store(0, Ordering::Relaxed);
+}
 
 #[derive(Clone)]
 pub struct FfiFunction {
@@ -72,6 +103,8 @@ impl FfiFunction {
         if args.len() != self.signature.params.len() {
             return Err(RuntimeError::new("Arity mismatch"));
         }
+        FFI_CALL_COUNT.fetch_add(1, Ordering::Relaxed);
+        let started = Instant::now();
         let mut i64_args: Vec<i64> = Vec::new();
         let mut f64_args: Vec<f64> = Vec::new();
         let mut u8_args: Vec<u8> = Vec::new();
@@ -114,6 +147,7 @@ impl FfiFunction {
                 }
                 FfiType::String => {
                     let (ptr, len) = string_arg(value, &mut keep_alive)?;
+                    FFI_MARSHAL_IN_BYTES.fetch_add(len as u64, Ordering::Relaxed);
                     ptr_args.push(ptr);
                     usize_args.push(len);
                     ffi_args.push(Arg::new(ptr_args.last().unwrap()));
@@ -121,6 +155,7 @@ impl FfiFunction {
                 }
                 FfiType::Buffer => {
                     let (ptr, len) = buffer_arg(value, &mut keep_alive)?;
+                    FFI_MARSHAL_IN_BYTES.fetch_add(len as u64, Ordering::Relaxed);
                     ptr_args.push(ptr);
                     usize_args.push(len);
                     ffi_args.push(Arg::new(ptr_args.last().unwrap()));
@@ -146,6 +181,7 @@ impl FfiFunction {
                         match inner.as_ref() {
                             FfiType::String => {
                                 let (ptr, len) = string_arg(value, &mut keep_alive)?;
+                                FFI_MARSHAL_IN_BYTES.fetch_add(len as u64, Ordering::Relaxed);
                                 ptr_args.push(ptr);
                                 usize_args.push(len);
                                 ffi_args.push(Arg::new(ptr_args.last().unwrap()));
@@ -153,6 +189,7 @@ impl FfiFunction {
                             }
                             FfiType::Buffer => {
                                 let (ptr, len) = buffer_arg(value, &mut keep_alive)?;
+                                FFI_MARSHAL_IN_BYTES.fetch_add(len as u64, Ordering::Relaxed);
                                 ptr_args.push(ptr);
                                 usize_args.push(len);
                                 ffi_args.push(Arg::new(ptr_args.last().unwrap()));
@@ -196,6 +233,8 @@ impl FfiFunction {
                 }
             },
         };
+        let elapsed_ns = started.elapsed().as_nanos().min(u64::MAX as u128) as u64;
+        FFI_NATIVE_TIME_NS.fetch_add(elapsed_ns, Ordering::Relaxed);
         Ok(ret)
     }
 
@@ -207,6 +246,7 @@ impl FfiFunction {
         if slice.len > MAX_FFI_BUFFER {
             return Err(RuntimeError::new("FFI returned oversized buffer"));
         }
+        FFI_MARSHAL_OUT_BYTES.fetch_add(slice.len as u64, Ordering::Relaxed);
         let bytes = unsafe { std::slice::from_raw_parts(slice.ptr, slice.len) }.to_vec();
         self.free_buffer(slice.ptr, slice.len)?;
         if as_string {
@@ -230,6 +270,7 @@ impl FfiFunction {
         if slice.len > MAX_FFI_BUFFER {
             return Err(RuntimeError::new("FFI returned oversized buffer"));
         }
+        FFI_MARSHAL_OUT_BYTES.fetch_add(slice.len as u64, Ordering::Relaxed);
         let bytes = unsafe { std::slice::from_raw_parts(slice.ptr, slice.len) }.to_vec();
         self.free_buffer(slice.ptr, slice.len)?;
         if as_string {

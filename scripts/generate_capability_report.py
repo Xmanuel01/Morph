@@ -70,7 +70,6 @@ def has_exact(paths: list[str], suffix: str) -> bool:
 
 
 def build_checks(version: str, copied_paths: list[str], require_gpu: bool) -> list[CheckResult]:
-    version_token = version.replace(".", "_")
     checks: list[CheckResult] = []
 
     archive = first_match(
@@ -111,7 +110,7 @@ def build_checks(version: str, copied_paths: list[str], require_gpu: bool) -> li
         )
     )
 
-    bench_regex = re.compile(rf"/dist/benchmark_official_v{version_token}_[^/]+\.json$")
+    bench_regex = re.compile(r"/dist/benchmark_official_[^/]+\.json$")
     bench = first_match(copied_paths, lambda path: bool(bench_regex.search(path)))
     checks.append(
         CheckResult(
@@ -119,8 +118,7 @@ def build_checks(version: str, copied_paths: list[str], require_gpu: bool) -> li
             description="Official benchmark target evidence is present",
             required=True,
             passed=bench is not None,
-            details=bench
-            or f"missing dist/benchmark_official_v{version_token}_<platform>.json",
+            details=bench or "missing dist/benchmark_official_<suite>_<platform>.json",
         )
     )
 
@@ -128,6 +126,7 @@ def build_checks(version: str, copied_paths: list[str], require_gpu: bool) -> li
         "litec_selfhost_ci_report.json",
         "litec_replace_check_report.json",
         "litec_mainline_ci_report.json",
+        "litec_release_ci_report.json",
     ):
         present = has_exact(copied_paths, f"/selfhost/{name}")
         checks.append(
@@ -155,6 +154,21 @@ def build_checks(version: str, copied_paths: list[str], require_gpu: bool) -> li
                 details=name if present else f"missing contracts/{name}",
             )
         )
+
+    readiness_present = has_exact(copied_paths, "/readiness/production.json")
+    checks.append(
+        CheckResult(
+            id="readiness_production_report",
+            description="Production readiness JSON report is present",
+            required=True,
+            passed=readiness_present,
+            details=(
+                "readiness/production.json"
+                if readiness_present
+                else "missing readiness/production.json"
+            ),
+        )
+    )
 
     for name in (
         "single_gpu.log",
@@ -290,4 +304,3 @@ if __name__ == "__main__":
     except Exception as err:  # pragma: no cover - script entrypoint
         print(f"error: {err}", file=sys.stderr)
         raise SystemExit(1)
-

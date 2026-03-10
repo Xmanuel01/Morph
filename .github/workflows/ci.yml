@@ -38,6 +38,30 @@ jobs:
       - name: Frontend/Serve contract snapshots
         run: cargo test -p enkai --bin enkai frontend::tests::contract_snapshots_match_reference_files
 
+  readiness-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build readiness dependencies
+        run: |
+          cargo build -p enkai_native
+          cargo build -p enkai
+      - name: Run production readiness profile (non-GPU)
+        run: |
+          mkdir -p artifacts/readiness
+          cargo run -p enkai -- readiness check --profile production --json --output artifacts/readiness/production.json
+      - name: Upload readiness report
+        uses: actions/upload-artifact@v4
+        with:
+          name: readiness-production-report
+          path: artifacts/readiness/production.json
+          if-no-files-found: error
+
   benchmark-smoke:
     runs-on: ubuntu-latest
     steps:
@@ -51,21 +75,20 @@ jobs:
         run: cargo build -p enkai
       - name: Build native benchmark dependency
         run: cargo build -p enkai_native
-      - name: Run official benchmark suite (single-iteration smoke)
+      - name: Run official benchmark fairness smoke
         run: |
           cargo run -p enkai -- bench run \
-            --suite official_v2_2_0 \
+            --suite official_v2_3_0_matrix \
             --baseline python \
-            --iterations 1 \
-            --warmup 0 \
+            --fairness-check-only \
             --machine-profile bench/machines/linux_ref.json \
-            --output bench/results/ci_official_v2_2_0_smoke.json \
+            --output bench/results/ci_official_v2_3_0_matrix_fairness.json \
             --enkai-bin target/debug/enkai
       - name: Upload benchmark report
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-official-smoke
-          path: bench/results/ci_official_v2_2_0_smoke.json
+          path: bench/results/ci_official_v2_3_0_matrix_fairness.json
           if-no-files-found: error
 
   benchmark-target-gate:
@@ -77,12 +100,12 @@ jobs:
             target_os: linux
             machine_profile: bench/machines/linux_ref.json
             enkai_bin: target/release/enkai
-            output: bench/results/ci_official_v2_2_0_linux.json
+            output: bench/results/ci_official_v2_3_0_matrix_linux.json
           - os: windows-latest
             target_os: windows
             machine_profile: bench/machines/windows_ref.json
             enkai_bin: target/release/enkai.exe
-            output: bench/results/ci_official_v2_2_0_windows.json
+            output: bench/results/ci_official_v2_3_0_matrix_windows.json
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -100,31 +123,35 @@ jobs:
         shell: bash
         run: |
           cargo run -p enkai --release -- bench run \
-            --suite official_v2_2_0 \
+            --suite official_v2_3_0_matrix \
             --baseline python \
             --iterations 2 \
             --warmup 1 \
             --machine-profile "${{ matrix.machine_profile }}" \
             --output "${{ matrix.output }}" \
             --enkai-bin "${{ matrix.enkai_bin }}" \
-            --target-speedup 5 \
+            --target-speedup 15 \
             --target-memory 5 \
-            --enforce-target
+            --enforce-target \
+            --enforce-class-targets \
+            --class-targets bench/suites/official_v2_3_0_targets.json
       - name: Run benchmark target gate (Windows)
         if: matrix.target_os == 'windows'
         shell: pwsh
         run: |
           cargo run -p enkai --release -- bench run `
-            --suite official_v2_2_0 `
+            --suite official_v2_3_0_matrix `
             --baseline python `
             --iterations 2 `
             --warmup 1 `
             --machine-profile "${{ matrix.machine_profile }}" `
             --output "${{ matrix.output }}" `
             --enkai-bin "${{ matrix.enkai_bin }}" `
-            --target-speedup 5 `
+            --target-speedup 15 `
             --target-memory 5 `
-            --enforce-target
+            --enforce-target `
+            --enforce-class-targets `
+            --class-targets bench/suites/official_v2_3_0_targets.json
       - name: Upload benchmark target artifacts
         uses: actions/upload-artifact@v4
         with:

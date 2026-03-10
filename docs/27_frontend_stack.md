@@ -1,6 +1,6 @@
-# Frontend Developer Stack (v2.2.0 contract freeze)
+# Frontend Developer Stack (v2.3.0 contract freeze)
 
-Enkai v2.2.0 keeps frontend scaffolding and typed SDK generation compatibility-frozen with explicit contract snapshots.
+Enkai v2.3.0 keeps frontend scaffolding and typed SDK generation compatibility-frozen with explicit contract snapshots.
 
 ## Commands
 
@@ -12,6 +12,7 @@ enkai new frontend-chat <target_dir> [--api-version <v>] [--backend-url <url>] [
 enkai new fullstack-chat <target_dir> [--api-version <v>] [--backend-url <url>] [--force]
 enkai new llm-fullstack <target_dir> [--api-version <v>] [--backend-url <url>] [--force]
 enkai sdk generate <output_file> [--api-version <v>]
+enkai deploy validate <project_dir> --profile <backend|fullstack> --strict
 ```
 
 ## API Contract
@@ -25,6 +26,7 @@ Generated frontend projects and SDKs pin to a versioned backend contract:
 Expected backend routes:
 
 - `GET /api/<api_version>/health`
+- `GET /api/<api_version>/ready`
 - `POST /api/<api_version>/chat`
 - `GET /api/<api_version>/chat/stream`
 - `GET /api/<api_version>/chat/ws`

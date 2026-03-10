@@ -1,6 +1,7 @@
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use enkai_compiler::bytecode::Program;
@@ -34,6 +35,7 @@ pub fn print_usage() {
         "  enkai litec replace-check <corpus_dir> [--no-compare-stage0] [--triage-dir <dir>]"
     );
     eprintln!("  enkai litec mainline-ci <corpus_dir> [--triage-dir <dir>]");
+    eprintln!("  enkai litec release-ci <corpus_dir> [--triage-dir <dir>]");
 }
 
 pub fn fmt_lite_command(args: &[String]) -> i32 {
@@ -471,6 +473,7 @@ fn dataset_lite_inspect(args: &[String]) -> i32 {
 }
 
 pub fn litec_command(args: &[String]) -> i32 {
+    let _guard = litec_global_guard();
     if args.is_empty() {
         eprintln!("enkai litec requires a subcommand");
         return 1;
@@ -485,11 +488,20 @@ pub fn litec_command(args: &[String]) -> i32 {
         "selfhost-ci" => litec_selfhost_ci(&args[1..]),
         "replace-check" => litec_replace_check(&args[1..]),
         "mainline-ci" => litec_mainline_ci(&args[1..]),
+        "release-ci" => litec_release_ci(&args[1..]),
         other => {
             eprintln!("unknown litec subcommand: {}", other);
             1
         }
     }
+}
+
+fn litec_global_guard() -> std::sync::MutexGuard<'static, ()> {
+    static LITEC_GUARD: OnceLock<Mutex<()>> = OnceLock::new();
+    LITEC_GUARD
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|err| err.into_inner())
 }
 
 fn litec_check(args: &[String]) -> i32 {
@@ -1376,6 +1388,83 @@ fn litec_mainline_ci(args: &[String]) -> i32 {
     }
 }
 
+fn litec_release_ci(args: &[String]) -> i32 {
+    let options = match parse_litec_corpus_options(
+        args,
+        "Usage: enkai litec release-ci <corpus_dir> [--triage-dir <dir>]",
+        true,
+    ) {
+        Ok(options) => options,
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    };
+    if !options.compare_stage0 {
+        eprintln!("release-ci requires stage0 fallback comparison");
+        return 1;
+    }
+
+    let corpus_arg = options.corpus.to_string_lossy().to_string();
+    let mut mainline_args = vec![corpus_arg.clone()];
+    let mut selfhost_args = vec![corpus_arg.clone()];
+    let mut replace_args = vec![corpus_arg.clone()];
+    if let Some(path) = options.triage_dir.as_ref() {
+        let triage = path.to_string_lossy().to_string();
+        for args in [&mut mainline_args, &mut selfhost_args, &mut replace_args] {
+            args.push("--triage-dir".to_string());
+            args.push(triage.clone());
+        }
+    }
+    let mainline_code = litec_mainline_ci(&mainline_args);
+    let selfhost_fallback_code = litec_selfhost_ci(&selfhost_args);
+    let replace_fallback_code = litec_replace_check(&replace_args);
+
+    let mut failure_codes = Vec::new();
+    if mainline_code != 0 {
+        failure_codes.push("bootstrap_mainline_failed");
+    }
+    if selfhost_fallback_code != 0 {
+        failure_codes.push("bootstrap_stage0_selfhost_failed");
+    }
+    if replace_fallback_code != 0 {
+        failure_codes.push("bootstrap_stage0_replace_failed");
+    }
+    let status = if failure_codes.is_empty() {
+        "ok"
+    } else {
+        "failed"
+    };
+    let summary = serde_json::json!({
+        "command": "release-ci",
+        "corpus": to_report_path(&options.corpus),
+        "mainline_ci_exit_code": mainline_code,
+        "selfhost_stage0_fallback_exit_code": selfhost_fallback_code,
+        "replace_stage0_fallback_exit_code": replace_fallback_code,
+        "status": status,
+        "failure_codes": failure_codes,
+    });
+    match write_triage_report(
+        options.triage_dir.as_deref(),
+        "litec_release_ci_report.json",
+        &summary,
+    ) {
+        Ok(Some(path)) => println!("release-ci summary report: {}", path.display()),
+        Ok(None) => {}
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    }
+    if status == "ok" {
+        println!("litec release-ci ok");
+        0
+    } else {
+        eprintln!("litec release-ci failed");
+        1
+    }
+}
+
 fn verify_stage_equivalence(input: &Path) -> Result<(), String> {
     let stage0 = match compile_stage0_program_bytes(input) {
         Ok(bytes) => bytes,
@@ -2254,5 +2343,29 @@ mod tests {
         assert!(triage.join("litec_selfhost_ci_report.json").is_file());
         assert!(triage.join("litec_replace_check_report.json").is_file());
         assert!(triage.join("litec_mainline_ci_report.json").is_file());
+    }
+
+    #[test]
+    fn litec_release_ci_runs_mainline_and_fallback_lanes() {
+        let dir = tempdir().expect("tempdir");
+        let corpus = dir.path().join("release-corpus");
+        let triage = dir.path().join("triage");
+        fs::create_dir_all(&corpus).expect("corpus dir");
+        fs::write(
+            corpus.join("main_a.enk"),
+            "fn main() -> Int ::\n    return 3\n::\nmain()\n",
+        )
+        .expect("write a");
+        let code = litec_command(&[
+            "release-ci".to_string(),
+            corpus.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+        ]);
+        assert_eq!(code, 0);
+        assert!(triage.join("litec_selfhost_ci_report.json").is_file());
+        assert!(triage.join("litec_replace_check_report.json").is_file());
+        assert!(triage.join("litec_mainline_ci_report.json").is_file());
+        assert!(triage.join("litec_release_ci_report.json").is_file());
     }
 }

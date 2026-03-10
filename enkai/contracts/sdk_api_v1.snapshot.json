@@ -9,12 +9,14 @@
   ],
   "methods": [
     "health",
+    "ready",
     "chat",
     "streamChat",
     "streamChatWs"
   ],
   "endpoints": [
     "/api/v1/health",
+    "/api/v1/ready",
     "/api/v1/chat",
     "/api/v1/chat/stream",
     "/api/v1/chat/ws"

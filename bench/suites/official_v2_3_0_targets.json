@@ -1,0 +1,28 @@
+﻿{
+  "schema_version": 1,
+  "description": "Official class targets for v2.3.0 benchmark gating",
+  "default": {
+    "case_speedup_pct": 15.0,
+    "case_memory_reduction_pct": 5.0,
+    "median_speedup_pct": 15.0,
+    "median_memory_reduction_pct": 5.0
+  },
+  "classes": {
+    "vm_compute": {
+      "case_speedup_pct": 15.0,
+      "median_speedup_pct": 15.0
+    },
+    "native_bridge": {
+      "case_speedup_pct": 15.0,
+      "median_speedup_pct": 15.0
+    },
+    "cli_workflows": {
+      "case_speedup_pct": 15.0,
+      "median_speedup_pct": 15.0
+    },
+    "ai_data_workflows": {
+      "case_speedup_pct": 15.0,
+      "median_speedup_pct": 15.0
+    }
+  }
+}

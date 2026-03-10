@@ -133,8 +133,14 @@ Expected result:
     - `artifacts/selfhost/litec_selfhost_ci_report.json`
     - `artifacts/selfhost/litec_replace_check_report.json`
     - `artifacts/selfhost/litec_mainline_ci_report.json`
+- [x] Self-host consolidated release gate:
+  - `enkai litec release-ci enkai/tools/bootstrap/selfhost_corpus --triage-dir artifacts/selfhost`
+  - expected triage artifact:
+    - `artifacts/selfhost/litec_release_ci_report.json`
 - [x] Self-host replacement-readiness gate:
   - `enkai litec replace-check enkai/tools/bootstrap/selfhost_corpus --no-compare-stage0`
+- [x] Production readiness report gate (non-GPU bundle):
+  - `enkai readiness check --profile production --json --output artifacts/readiness/production.json`
 - [x] Master pipeline smoke:
   - `master_pipeline_cpu_smoke`
 - [x] Consolidated pipeline scripts:
@@ -151,18 +157,25 @@ Expected result:
   - `powershell -ExecutionPolicy Bypass -File scripts/verify_gpu_gates.ps1 -LogDir artifacts/gpu`
   - `sh scripts/verify_gpu_gates.sh artifacts/gpu`
 
-## 7) Benchmark Target Gates (v2.2.0)
+## 7) Benchmark Target Gates (v2.3 target suite)
 
 - [x] Official bounded benchmark suite updated:
-  - `bench/suites/official_v2_2_0.json`
+  - `bench/suites/official_v2_3_0_matrix.json`
+  - `bench/suites/official_v2_3_0_vm_compute.json`
+  - `bench/suites/official_v2_3_0_native_bridge.json`
+  - `bench/suites/official_v2_3_0_cli_workflows.json`
+  - `bench/suites/official_v2_3_0_ai_data_workflows.json`
+- [x] Benchmark fairness contract frozen:
+  - `bench/contracts/workload_equivalence_v1.json`
 - [x] Machine profiles pinned to official suite:
   - `bench/machines/linux_ref.json`
   - `bench/machines/windows_ref.json`
-- [x] Benchmark target enforcement supports suite-level median policy:
-  - `--enforce-target` validates median speedup/memory reduction
-  - `--enforce-all-cases` enables strict per-case enforcement
+- [x] Benchmark target enforcement supports class-based policy:
+  - `--enforce-target` validates global summary targets
+  - `--enforce-class-targets --class-targets bench/suites/official_v2_3_0_targets.json` validates class medians + per-case targets
+  - `--fairness-check-only` validates workload-equivalence metadata without executing workloads
 - [x] CI regression blocker lane for benchmark targets:
   - `benchmark-target-gate` (Linux + Windows release binaries)
 
 Suggested operator rerun command:
-- `enkai bench run --suite official_v2_2_0 --baseline python --iterations 2 --warmup 1 --machine-profile bench/machines/windows_ref.json --output bench/results/official_v2_2_0.windows.json --target-speedup 5 --target-memory 5 --enforce-target`
+- `enkai bench run --suite official_v2_3_0_matrix --baseline python --iterations 2 --warmup 1 --machine-profile bench/machines/windows_ref.json --output bench/results/official_v2_3_0_matrix.windows.json --target-speedup 15 --target-memory 5 --enforce-target --enforce-class-targets --class-targets bench/suites/official_v2_3_0_targets.json`

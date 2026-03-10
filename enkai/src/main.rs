@@ -18,9 +18,11 @@ use enkai_runtime::{Value, VM};
 
 mod bench;
 mod bootstrap;
+mod deploy;
 mod frontend;
 mod migrate;
 mod model;
+mod readiness;
 mod train;
 
 pub(crate) fn env_guard() -> std::sync::MutexGuard<'static, ()> {
@@ -92,6 +94,8 @@ fn main() {
         "model" => model::model_command(&args[2..]),
         "new" => frontend::new_command(&args[2..]),
         "sdk" => frontend::sdk_command(&args[2..]),
+        "readiness" => readiness::readiness_command(&args[2..]),
+        "deploy" => deploy::deploy_command(&args[2..]),
         "fmt-lite" => bootstrap::fmt_lite_command(&args[2..]),
         "lint-lite" => bootstrap::lint_lite_command(&args[2..]),
         "tokenizer-lite" => bootstrap::tokenizer_lite_command(&args[2..]),
@@ -1022,6 +1026,8 @@ fn print_usage() {
     model::print_model_usage();
     frontend::print_new_usage();
     frontend::print_sdk_usage();
+    readiness::print_readiness_usage();
+    deploy::print_deploy_usage();
     bootstrap::print_usage();
     eprintln!("  enkai check <file|dir>");
     eprintln!("  enkai fmt [--check] <file|dir>");

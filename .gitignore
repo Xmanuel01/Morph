@@ -1,6 +1,11 @@
 /target
+/dist/
 **/*.rs.bk
 /checkpoints
 /data
 /enkai/conversation_state.json
 /enkai/logs/
+/artifacts/
+/bench/results/*
+!/bench/results/.gitkeep
+/enkai/server.jsonl

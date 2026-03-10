@@ -1,8 +1,8 @@
-# Enkai Bootstrap Core (v2.2.0)
+# Enkai Bootstrap Core (v2.3.0)
 
 ## Purpose
 
-`v2.2.0` stabilizes bootstrap-core primitives for a deterministic Stage0/Stage1 path.
+`v2.3.0` stabilizes bootstrap-core primitives for a deterministic Stage0/Stage1 path.
 The objective is to validate that Enkai-scripted compiler orchestration produces the
 same bytecode as direct Rust Stage0 compilation for the supported subset.
 
@@ -17,6 +17,7 @@ same bytecode as direct Rust Stage0 compilation for the supported subset.
 - `enkai litec selfhost-ci <corpus_dir> [--no-compare-stage0] [--triage-dir <dir>]`
 - `enkai litec replace-check <corpus_dir> [--no-compare-stage0] [--triage-dir <dir>]`
 - `enkai litec mainline-ci <corpus_dir> [--triage-dir <dir>]`
+- `enkai litec release-ci <corpus_dir> [--triage-dir <dir>]`
 
 `litec verify` performs:
 
@@ -57,6 +58,12 @@ same bytecode as direct Rust Stage0 compilation for the supported subset.
 2. Runs `litec replace-check --no-compare-stage0` to validate fixed-point + Stage1/Stage2 parity.
 3. Emits a summary report (`litec_mainline_ci_report.json`) and keeps a separate Stage0 fallback lane as mandatory release safety.
 
+`litec release-ci` performs:
+
+1. Runs `litec mainline-ci` for default Enkai-built compiler coverage.
+2. Runs Stage0 fallback comparisons (`litec selfhost-ci` + `litec replace-check`) in the same invocation.
+3. Emits deterministic summary JSON (`litec_release_ci_report.json`) with stable failure codes.
+
 ## Runtime Surface
 
 Bootstrap-core relies on the `compiler` runtime module:
@@ -91,6 +98,7 @@ The subset intentionally rejects:
 - `cargo test --workspace`
 - bootstrap-core tests for `litec compile`, `litec verify`, `litec stage`, `litec selfhost`, `litec replace-check`, and subset-rejection behavior.
 - self-host CI command validation over repository corpus (`enkai/tools/bootstrap/selfhost_corpus`), including `mainline-ci` triage report emission.
+- release self-host gate command validation (`litec release-ci`) with triage output.
 - release script shortcut:
   - `powershell -ExecutionPolicy Bypass -File scripts/release_pipeline.ps1`
   - `sh scripts/release_pipeline.sh`

@@ -1,0 +1,55 @@
+﻿{
+  "suite": "official_v2_3_0_native_bridge",
+  "description": "Native bridge benchmark cases (JSON/hash/db)",
+  "class": "native_bridge",
+  "cases": [
+    {
+      "id": "json_kernel",
+      "description": "JSON parse/stringify throughput",
+      "enkai_command": ["${ENKAI_BIN}", "run", "bench/enkai/kernel_json.enk"],
+      "python_command": ["${PYTHON_EXE}", "bench/python/kernel_json.py"],
+      "equivalence": {
+        "enkai_work_units": 2000,
+        "python_work_units": 2000,
+        "enkai_payload_bytes": 41,
+        "python_payload_bytes": 41,
+        "enkai_batching_mode": "loop_batch",
+        "python_batching_mode": "loop_batch",
+        "enkai_warmup_policy": "suite_default",
+        "python_warmup_policy": "suite_default"
+      }
+    },
+    {
+      "id": "hash_kernel",
+      "description": "SHA-256 throughput",
+      "enkai_command": ["${ENKAI_BIN}", "run", "bench/enkai/kernel_hash.enk"],
+      "python_command": ["${PYTHON_EXE}", "bench/python/kernel_hash.py"],
+      "equivalence": {
+        "enkai_work_units": 80000,
+        "python_work_units": 80000,
+        "enkai_payload_bytes": 23,
+        "python_payload_bytes": 23,
+        "enkai_batching_mode": "loop_batch",
+        "python_batching_mode": "loop_batch",
+        "enkai_warmup_policy": "suite_default",
+        "python_warmup_policy": "suite_default"
+      }
+    },
+    {
+      "id": "sqlite_ops",
+      "description": "Create, insert, and query SQLite rows",
+      "enkai_command": ["${ENKAI_BIN}", "run", "bench/enkai/kernel_db_ops.enk"],
+      "python_command": ["${PYTHON_EXE}", "bench/python/kernel_db_ops.py"],
+      "equivalence": {
+        "enkai_work_units": 200,
+        "python_work_units": 200,
+        "enkai_payload_bytes": 3,
+        "python_payload_bytes": 3,
+        "enkai_batching_mode": "transaction_batch",
+        "python_batching_mode": "transaction_batch",
+        "enkai_warmup_policy": "suite_default",
+        "python_warmup_policy": "suite_default"
+      }
+    }
+  ]
+}

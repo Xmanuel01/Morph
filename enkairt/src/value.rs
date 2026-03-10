@@ -1,4 +1,5 @@
 use std::rc::Rc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::object::Obj;
 
@@ -14,8 +15,11 @@ pub enum Value {
 #[derive(Clone, Debug)]
 pub struct ObjRef(Rc<Obj>);
 
+static OBJECT_ALLOCATIONS: AtomicU64 = AtomicU64::new(0);
+
 impl ObjRef {
     pub fn new(obj: Obj) -> Self {
+        OBJECT_ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
         Self(Rc::new(obj))
     }
 
@@ -76,4 +80,12 @@ impl PartialEq for Value {
             _ => false,
         }
     }
+}
+
+pub fn object_allocation_count() -> u64 {
+    OBJECT_ALLOCATIONS.load(Ordering::Relaxed)
+}
+
+pub fn reset_object_allocation_count() {
+    OBJECT_ALLOCATIONS.store(0, Ordering::Relaxed);
 }

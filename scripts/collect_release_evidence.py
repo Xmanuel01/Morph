@@ -46,6 +46,11 @@ def parse_args() -> argparse.Namespace:
         help="Contract snapshot source directory",
     )
     parser.add_argument(
+        "--readiness-dir",
+        default="artifacts/readiness",
+        help="Readiness report source directory",
+    )
+    parser.add_argument(
         "--out-dir",
         default="artifacts/release",
         help="Output directory for evidence bundle",
@@ -143,6 +148,7 @@ def main() -> int:
     dist_dir = (root / args.dist_dir).resolve()
     selfhost_dir = (root / args.selfhost_dir).resolve()
     contracts_dir = (root / args.contracts_dir).resolve()
+    readiness_dir = (root / args.readiness_dir).resolve()
     out_root = (root / args.out_dir / f"v{version}").resolve()
     out_root.mkdir(parents=True, exist_ok=True)
 
@@ -178,6 +184,7 @@ def main() -> int:
         "litec_selfhost_ci_report.json",
         "litec_replace_check_report.json",
         "litec_mainline_ci_report.json",
+        "litec_release_ci_report.json",
     ]
     if selfhost_dir.is_dir():
         if args.strict:
@@ -206,6 +213,22 @@ def main() -> int:
     elif args.strict:
         raise RuntimeError(
             f"contract snapshot directory not found for strict evidence mode: {contracts_dir}"
+        )
+
+    required_readiness = ["production.json"]
+    if readiness_dir.is_dir():
+        if args.strict:
+            readiness_files = ensure_required_files(
+                readiness_dir, required_readiness, "readiness report"
+            )
+        else:
+            readiness_files = sorted(path for path in readiness_dir.glob("*.json") if path.is_file())
+        file_rows.extend(
+            copy_files(root, readiness_dir, out_root / "readiness", "readiness", readiness_files)
+        )
+    elif args.strict:
+        raise RuntimeError(
+            f"readiness directory not found for strict evidence mode: {readiness_dir}"
         )
 
     manifest["files"] = file_rows

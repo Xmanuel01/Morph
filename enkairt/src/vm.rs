@@ -3,7 +3,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc;
@@ -26,14 +26,14 @@ use crate::checkpoint::{
 };
 use crate::dataset::{resolve_dataset_paths, Batch, DatasetConfig, DatasetStream};
 use crate::error::{RuntimeError, RuntimeFrame};
-use crate::ffi::FfiLoader;
+use crate::ffi::{ffi_stats_snapshot, FfiLoader, FfiStats};
 use crate::object::{
     channel_value, function_value, record_value, string_value, task_handle_value, BoundFunctionObj,
     HttpStream, NativeFunction, NativeImpl, Obj, StreamCommand, WebSocketHandle, WsCommand,
     WsIncoming,
 };
 use crate::tokenizer::{bytes_to_ids, ids_to_bytes, Tokenizer, TrainConfig};
-use crate::value::{ObjRef, Value};
+use crate::value::{object_allocation_count, ObjRef, Value};
 
 #[derive(Debug)]
 struct CallFrame {
@@ -187,6 +187,24 @@ struct HttpResponseData {
     body: Vec<u8>,
 }
 
+#[derive(Default, Clone, Copy)]
+struct VmBenchCounters {
+    opcode_dispatch: u64,
+    arithmetic_ops: u64,
+    compare_ops: u64,
+    native_calls: u64,
+}
+
+#[derive(Clone)]
+struct VmBenchProfile {
+    out_path: PathBuf,
+    case: Option<String>,
+    started: Instant,
+    start_object_allocs: u64,
+    start_ffi: FfiStats,
+    counters: VmBenchCounters,
+}
+
 #[derive(Clone)]
 struct HttpRequestOptions {
     headers: HashMap<String, String>,
@@ -302,12 +320,28 @@ pub struct VM {
     active_http_conn: Option<TcpStream>,
     policies: HashMap<String, Policy>,
     active_policy: Option<String>,
+    bench_profile: Option<VmBenchProfile>,
 }
 
 impl VM {
     pub fn new(trace: bool, disasm: bool, trace_task: bool, trace_net: bool) -> Self {
         let (io_sender, io_receiver) = mpsc::channel();
         let (server_sender, server_receiver) = mpsc::channel();
+        let bench_profile = std::env::var("ENKAI_BENCH_PROFILE_OUT")
+            .ok()
+            .map(|raw| raw.trim().to_string())
+            .filter(|raw| !raw.is_empty())
+            .map(|raw| VmBenchProfile {
+                out_path: PathBuf::from(raw),
+                case: std::env::var("ENKAI_BENCH_PROFILE_CASE")
+                    .ok()
+                    .map(|v| v.trim().to_string())
+                    .filter(|v| !v.is_empty()),
+                started: Instant::now(),
+                start_object_allocs: 0,
+                start_ffi: FfiStats::default(),
+                counters: VmBenchCounters::default(),
+            });
         Self {
             stack: Vec::new(),
             frames: Vec::new(),
@@ -333,17 +367,92 @@ impl VM {
             active_http_conn: None,
             policies: HashMap::new(),
             active_policy: None,
+            bench_profile,
         }
     }
 
     pub fn run(&mut self, program: &Program) -> Result<Value, RuntimeError> {
+        self.begin_bench_profile();
         self.install_globals(program)?;
         if self.disasm {
             println!("{}", program.disassemble());
         }
         let main_func = function_value(program.main, program);
         let main_id = self.spawn_task_internal(program, main_func)?;
-        self.scheduler_loop(program, main_id)
+        let result = self.scheduler_loop(program, main_id);
+        self.finish_bench_profile(result.as_ref().err());
+        result
+    }
+
+    fn begin_bench_profile(&mut self) {
+        let Some(profile) = self.bench_profile.as_mut() else {
+            return;
+        };
+        profile.started = Instant::now();
+        profile.start_object_allocs = object_allocation_count();
+        profile.start_ffi = ffi_stats_snapshot();
+        profile.counters = VmBenchCounters::default();
+    }
+
+    fn finish_bench_profile(&mut self, error: Option<&RuntimeError>) {
+        let Some(profile) = self.bench_profile.as_ref() else {
+            return;
+        };
+        let finished = Instant::now();
+        let ffi_now = ffi_stats_snapshot();
+        let obj_now = object_allocation_count();
+        let ffi_call_count = ffi_now
+            .call_count
+            .saturating_sub(profile.start_ffi.call_count);
+        let marshal_in_bytes = ffi_now
+            .marshal_in_bytes
+            .saturating_sub(profile.start_ffi.marshal_in_bytes);
+        let marshal_out_bytes = ffi_now
+            .marshal_out_bytes
+            .saturating_sub(profile.start_ffi.marshal_out_bytes);
+        let ffi_time_ns = ffi_now
+            .native_time_ns
+            .saturating_sub(profile.start_ffi.native_time_ns);
+        let total_ms = finished.duration_since(profile.started).as_secs_f64() * 1000.0;
+        let ffi_ms = (ffi_time_ns as f64) / 1_000_000.0;
+        let vm_exec_ms = (total_ms - ffi_ms).max(0.0);
+        let status = if error.is_none() { "ok" } else { "error" };
+        let report = serde_json::json!({
+            "schema_version": 1,
+            "case": profile.case,
+            "status": status,
+            "error": error.map(|e| {
+                serde_json::json!({
+                    "code": e.code(),
+                    "message": e.message,
+                })
+            }),
+            "timing_ms": {
+                "total": total_ms,
+                "vm_exec": vm_exec_ms,
+                "native_calls": ffi_ms,
+                "gc": 0.0,
+                "io": 0.0,
+            },
+            "counters": {
+                "opcode_dispatch": profile.counters.opcode_dispatch,
+                "arithmetic_ops": profile.counters.arithmetic_ops,
+                "compare_ops": profile.counters.compare_ops,
+                "native_function_calls": profile.counters.native_calls,
+                "ffi_calls": ffi_call_count,
+                "object_allocations": obj_now.saturating_sub(profile.start_object_allocs),
+                "marshal_in_bytes": marshal_in_bytes,
+                "marshal_out_bytes": marshal_out_bytes,
+            }
+        });
+        if let Some(parent) = profile.out_path.parent() {
+            if !parent.as_os_str().is_empty() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+        }
+        if let Ok(text) = serde_json::to_string_pretty(&report) {
+            let _ = std::fs::write(&profile.out_path, text);
+        }
     }
 
     fn install_globals(&mut self, program: &Program) -> Result<(), RuntimeError> {
@@ -706,6 +815,24 @@ impl VM {
             "stringify".to_string(),
             Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
                 name: "json.stringify".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        json_record.insert(
+            "parse_many".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "json.parse_many".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        json_record.insert(
+            "stringify_many".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "json.stringify_many".to_string(),
                 arity: 1,
                 kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
                 bound: None,
@@ -1472,14 +1599,18 @@ impl VM {
             let base = frame_view.base;
             let caller_sp = frame_view.caller_sp;
             let func = &program.functions[func_index as usize];
-            let trace_frames = self.stack_trace(program, ip);
-            let trace = |err: RuntimeError| err.with_frames(trace_frames.clone());
+            let trace = |vm: &VM, err: RuntimeError| err.with_frames(vm.stack_trace(program, ip));
             if ip >= func.chunk.code.len() {
-                return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                    "Instruction pointer out of bounds",
-                )));
+                return TaskRunOutcome::Errored(trace(
+                    self,
+                    RuntimeError::new("Instruction pointer out of bounds"),
+                ));
             }
             let instr = func.chunk.code[ip].clone();
+            if let Some(profile) = self.bench_profile.as_mut() {
+                profile.counters.opcode_dispatch =
+                    profile.counters.opcode_dispatch.saturating_add(1);
+            }
             if self.trace {
                 println!(
                     "[frame {} ip {}] {:?} | stack {:?}",
@@ -1491,13 +1622,93 @@ impl VM {
             let mut update_ip = true;
             match instr {
                 Instruction::Const(idx) => {
-                    let v = match self
-                        .constant_to_value(&func.chunk.constants[idx as usize], program)
-                    {
-                        Ok(v) => v,
-                        Err(err) => return TaskRunOutcome::Errored(trace(err)),
-                    };
-                    self.stack.push(v);
+                    // Fold "Const(Int) + next arithmetic/compare op" into a single step when
+                    // lhs is already on top of the stack.
+                    let mut fast_path_taken = false;
+                    if let Some(Constant::Int(rhs)) = func.chunk.constants.get(idx as usize) {
+                        if let Some(Value::Int(lhs)) = self.stack.last().cloned() {
+                            if let Some(next_instr) = func.chunk.code.get(ip + 1) {
+                                let maybe_value = match next_instr {
+                                    Instruction::Add => Some(Value::Int(lhs.wrapping_add(*rhs))),
+                                    Instruction::Sub => Some(Value::Int(lhs.wrapping_sub(*rhs))),
+                                    Instruction::Mul => Some(Value::Int(lhs.wrapping_mul(*rhs))),
+                                    Instruction::Div => {
+                                        if *rhs == 0 {
+                                            return TaskRunOutcome::Errored(trace(
+                                                self,
+                                                RuntimeError::new("Division by zero"),
+                                            ));
+                                        }
+                                        let value = if lhs == i64::MIN && *rhs == -1 {
+                                            i64::MIN
+                                        } else {
+                                            lhs / *rhs
+                                        };
+                                        Some(Value::Int(value))
+                                    }
+                                    Instruction::Mod => {
+                                        if *rhs == 0 {
+                                            return TaskRunOutcome::Errored(trace(
+                                                self,
+                                                RuntimeError::new("Modulo by zero"),
+                                            ));
+                                        }
+                                        let value = if lhs == i64::MIN && *rhs == -1 {
+                                            0
+                                        } else {
+                                            lhs % *rhs
+                                        };
+                                        Some(Value::Int(value))
+                                    }
+                                    Instruction::Eq => Some(Value::Bool(lhs == *rhs)),
+                                    Instruction::Neq => Some(Value::Bool(lhs != *rhs)),
+                                    Instruction::Lt => Some(Value::Bool(lhs < *rhs)),
+                                    Instruction::Gt => Some(Value::Bool(lhs > *rhs)),
+                                    Instruction::Le => Some(Value::Bool(lhs <= *rhs)),
+                                    Instruction::Ge => Some(Value::Bool(lhs >= *rhs)),
+                                    _ => None,
+                                };
+                                if let Some(value) = maybe_value {
+                                    self.stack.pop();
+                                    self.stack.push(value);
+                                    next_ip = ip + 2;
+                                    if let Some(profile) = self.bench_profile.as_mut() {
+                                        match next_instr {
+                                            Instruction::Add
+                                            | Instruction::Sub
+                                            | Instruction::Mul
+                                            | Instruction::Div
+                                            | Instruction::Mod => {
+                                                profile.counters.arithmetic_ops = profile
+                                                    .counters
+                                                    .arithmetic_ops
+                                                    .saturating_add(1);
+                                            }
+                                            _ => {
+                                                profile.counters.compare_ops =
+                                                    profile.counters.compare_ops.saturating_add(1);
+                                            }
+                                        }
+                                    }
+                                    fast_path_taken = true;
+                                }
+                            }
+                        }
+                    }
+
+                    if !fast_path_taken {
+                        let v = match &func.chunk.constants[idx as usize] {
+                            Constant::Int(i) => Value::Int(*i),
+                            Constant::Float(f) => Value::Float(*f),
+                            Constant::Bool(b) => Value::Bool(*b),
+                            Constant::Null => Value::Null,
+                            other => match self.constant_to_value(other, program) {
+                                Ok(v) => v,
+                                Err(err) => return TaskRunOutcome::Errored(trace(self, err)),
+                            },
+                        };
+                        self.stack.push(v);
+                    }
                 }
                 Instruction::Pop => {
                     self.stack.pop();
@@ -1506,37 +1717,200 @@ impl VM {
                     let val = match self.stack.pop() {
                         Some(val) => val,
                         None => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Stack underflow",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Stack underflow"),
+                            ))
                         }
                     };
                     let slot = idx as usize;
                     if slot >= self.globals.len() {
-                        return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                            "Global not found",
-                        )));
+                        return TaskRunOutcome::Errored(trace(
+                            self,
+                            RuntimeError::new("Global not found"),
+                        ));
                     }
                     self.globals[slot] = val;
                 }
                 Instruction::LoadLocal(idx) => {
-                    let val = match self.stack.get(base + idx as usize).cloned() {
-                        Some(val) => val,
-                        None => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "LoadLocal out of range",
-                            )))
+                    let slot = base + idx as usize;
+                    if slot >= self.stack.len() {
+                        return TaskRunOutcome::Errored(trace(
+                            self,
+                            RuntimeError::new("LoadLocal out of range"),
+                        ));
+                    }
+
+                    // Numeric super-instructions for loop-heavy workloads.
+                    let mut fast_path_taken = false;
+                    if let Value::Int(local_int) = self.stack[slot] {
+                        let const_int = |const_idx: u16| -> Option<i64> {
+                            match func.chunk.constants.get(const_idx as usize) {
+                                Some(Constant::Int(i)) => Some(*i),
+                                _ => None,
+                            }
+                        };
+
+                        if let (
+                            Some(Instruction::Const(const_idx)),
+                            Some(Instruction::Add),
+                            Some(Instruction::StoreLocal(target)),
+                        ) = (
+                            func.chunk.code.get(ip + 1),
+                            func.chunk.code.get(ip + 2),
+                            func.chunk.code.get(ip + 3),
+                        ) {
+                            if *target == idx {
+                                if let Some(rhs) = const_int(*const_idx) {
+                                    self.stack[slot] = Value::Int(local_int.wrapping_add(rhs));
+                                    next_ip = ip + 4;
+                                    if let Some(profile) = self.bench_profile.as_mut() {
+                                        profile.counters.arithmetic_ops =
+                                            profile.counters.arithmetic_ops.saturating_add(1);
+                                    }
+                                    fast_path_taken = true;
+                                }
+                            }
                         }
-                    };
-                    self.stack.push(val);
+
+                        if !fast_path_taken {
+                            if let (
+                                Some(Instruction::Const(const_idx)),
+                                Some(Instruction::Sub),
+                                Some(Instruction::StoreLocal(target)),
+                            ) = (
+                                func.chunk.code.get(ip + 1),
+                                func.chunk.code.get(ip + 2),
+                                func.chunk.code.get(ip + 3),
+                            ) {
+                                if *target == idx {
+                                    if let Some(rhs) = const_int(*const_idx) {
+                                        self.stack[slot] = Value::Int(local_int.wrapping_sub(rhs));
+                                        next_ip = ip + 4;
+                                        if let Some(profile) = self.bench_profile.as_mut() {
+                                            profile.counters.arithmetic_ops =
+                                                profile.counters.arithmetic_ops.saturating_add(1);
+                                        }
+                                        fast_path_taken = true;
+                                    }
+                                }
+                            }
+                        }
+
+                        if !fast_path_taken {
+                            if let (Some(Instruction::Const(const_idx)), Some(Instruction::Mul)) =
+                                (func.chunk.code.get(ip + 1), func.chunk.code.get(ip + 2))
+                            {
+                                if let Some(rhs) = const_int(*const_idx) {
+                                    self.stack.push(Value::Int(local_int.wrapping_mul(rhs)));
+                                    next_ip = ip + 3;
+                                    if let Some(profile) = self.bench_profile.as_mut() {
+                                        profile.counters.arithmetic_ops =
+                                            profile.counters.arithmetic_ops.saturating_add(1);
+                                    }
+                                    fast_path_taken = true;
+                                }
+                            }
+                        }
+
+                        if !fast_path_taken {
+                            if let (Some(Instruction::Const(const_idx)), Some(Instruction::Div)) =
+                                (func.chunk.code.get(ip + 1), func.chunk.code.get(ip + 2))
+                            {
+                                if let Some(rhs) = const_int(*const_idx) {
+                                    if rhs == 0 {
+                                        return TaskRunOutcome::Errored(trace(
+                                            self,
+                                            RuntimeError::new("Division by zero"),
+                                        ));
+                                    }
+                                    let result = if local_int == i64::MIN && rhs == -1 {
+                                        i64::MIN
+                                    } else {
+                                        local_int / rhs
+                                    };
+                                    self.stack.push(Value::Int(result));
+                                    next_ip = ip + 3;
+                                    if let Some(profile) = self.bench_profile.as_mut() {
+                                        profile.counters.arithmetic_ops =
+                                            profile.counters.arithmetic_ops.saturating_add(1);
+                                    }
+                                    fast_path_taken = true;
+                                }
+                            }
+                        }
+
+                        if !fast_path_taken {
+                            if let (Some(Instruction::Const(const_idx)), Some(Instruction::Add)) =
+                                (func.chunk.code.get(ip + 1), func.chunk.code.get(ip + 2))
+                            {
+                                if let Some(rhs) = const_int(*const_idx) {
+                                    self.stack.push(Value::Int(local_int.wrapping_add(rhs)));
+                                    next_ip = ip + 3;
+                                    if let Some(profile) = self.bench_profile.as_mut() {
+                                        profile.counters.arithmetic_ops =
+                                            profile.counters.arithmetic_ops.saturating_add(1);
+                                    }
+                                    fast_path_taken = true;
+                                }
+                            }
+                        }
+
+                        if !fast_path_taken {
+                            if let (Some(Instruction::Const(const_idx)), Some(Instruction::Sub)) =
+                                (func.chunk.code.get(ip + 1), func.chunk.code.get(ip + 2))
+                            {
+                                if let Some(rhs) = const_int(*const_idx) {
+                                    self.stack.push(Value::Int(local_int.wrapping_sub(rhs)));
+                                    next_ip = ip + 3;
+                                    if let Some(profile) = self.bench_profile.as_mut() {
+                                        profile.counters.arithmetic_ops =
+                                            profile.counters.arithmetic_ops.saturating_add(1);
+                                    }
+                                    fast_path_taken = true;
+                                }
+                            }
+                        }
+
+                        if !fast_path_taken {
+                            if let (Some(Instruction::Const(const_idx)), Some(cmp_instr)) =
+                                (func.chunk.code.get(ip + 1), func.chunk.code.get(ip + 2))
+                            {
+                                if let Some(rhs) = const_int(*const_idx) {
+                                    let cmp_result = match cmp_instr {
+                                        Instruction::Lt => Some(local_int < rhs),
+                                        Instruction::Gt => Some(local_int > rhs),
+                                        Instruction::Le => Some(local_int <= rhs),
+                                        Instruction::Ge => Some(local_int >= rhs),
+                                        _ => None,
+                                    };
+                                    if let Some(value) = cmp_result {
+                                        self.stack.push(Value::Bool(value));
+                                        next_ip = ip + 3;
+                                        if let Some(profile) = self.bench_profile.as_mut() {
+                                            profile.counters.compare_ops =
+                                                profile.counters.compare_ops.saturating_add(1);
+                                        }
+                                        fast_path_taken = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if !fast_path_taken {
+                        let val = self.stack[slot].clone();
+                        self.stack.push(val);
+                    }
                 }
                 Instruction::StoreLocal(idx) => {
                     let val = match self.stack.pop() {
                         Some(val) => val,
                         None => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Stack underflow",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Stack underflow"),
+                            ))
                         }
                     };
                     let slot = base + idx as usize;
@@ -1546,30 +1920,193 @@ impl VM {
                     self.stack[slot] = val;
                 }
                 Instruction::LoadGlobal(idx) => {
-                    let v = match self.globals.get(idx as usize).cloned() {
-                        Some(v) => v,
-                        None => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Global not found",
-                            )))
+                    let slot = idx as usize;
+                    if slot >= self.globals.len() {
+                        return TaskRunOutcome::Errored(trace(
+                            self,
+                            RuntimeError::new("Global not found"),
+                        ));
+                    }
+
+                    let mut fast_path_taken = false;
+                    if let Value::Int(global_int_ref) = &self.globals[slot] {
+                        let global_int = *global_int_ref;
+                        let const_int = |const_idx: u16| -> Option<i64> {
+                            match func.chunk.constants.get(const_idx as usize) {
+                                Some(Constant::Int(i)) => Some(*i),
+                                _ => None,
+                            }
+                        };
+
+                        if let (
+                            Some(Instruction::Const(const_idx)),
+                            Some(Instruction::Add),
+                            Some(Instruction::StoreGlobal(target)),
+                        ) = (
+                            func.chunk.code.get(ip + 1),
+                            func.chunk.code.get(ip + 2),
+                            func.chunk.code.get(ip + 3),
+                        ) {
+                            if *target == idx {
+                                if let Some(rhs) = const_int(*const_idx) {
+                                    self.globals[slot] = Value::Int(global_int.wrapping_add(rhs));
+                                    next_ip = ip + 4;
+                                    if let Some(profile) = self.bench_profile.as_mut() {
+                                        profile.counters.arithmetic_ops =
+                                            profile.counters.arithmetic_ops.saturating_add(1);
+                                    }
+                                    fast_path_taken = true;
+                                }
+                            }
                         }
-                    };
-                    self.stack.push(v);
+
+                        if !fast_path_taken {
+                            if let (
+                                Some(Instruction::Const(const_idx)),
+                                Some(Instruction::Sub),
+                                Some(Instruction::StoreGlobal(target)),
+                            ) = (
+                                func.chunk.code.get(ip + 1),
+                                func.chunk.code.get(ip + 2),
+                                func.chunk.code.get(ip + 3),
+                            ) {
+                                if *target == idx {
+                                    if let Some(rhs) = const_int(*const_idx) {
+                                        self.globals[slot] =
+                                            Value::Int(global_int.wrapping_sub(rhs));
+                                        next_ip = ip + 4;
+                                        if let Some(profile) = self.bench_profile.as_mut() {
+                                            profile.counters.arithmetic_ops =
+                                                profile.counters.arithmetic_ops.saturating_add(1);
+                                        }
+                                        fast_path_taken = true;
+                                    }
+                                }
+                            }
+                        }
+
+                        if !fast_path_taken {
+                            if let (Some(Instruction::Const(const_idx)), Some(Instruction::Mul)) =
+                                (func.chunk.code.get(ip + 1), func.chunk.code.get(ip + 2))
+                            {
+                                if let Some(rhs) = const_int(*const_idx) {
+                                    self.stack.push(Value::Int(global_int.wrapping_mul(rhs)));
+                                    next_ip = ip + 3;
+                                    if let Some(profile) = self.bench_profile.as_mut() {
+                                        profile.counters.arithmetic_ops =
+                                            profile.counters.arithmetic_ops.saturating_add(1);
+                                    }
+                                    fast_path_taken = true;
+                                }
+                            }
+                        }
+
+                        if !fast_path_taken {
+                            if let (Some(Instruction::Const(const_idx)), Some(Instruction::Div)) =
+                                (func.chunk.code.get(ip + 1), func.chunk.code.get(ip + 2))
+                            {
+                                if let Some(rhs) = const_int(*const_idx) {
+                                    if rhs == 0 {
+                                        return TaskRunOutcome::Errored(trace(
+                                            self,
+                                            RuntimeError::new("Division by zero"),
+                                        ));
+                                    }
+                                    let result = if global_int == i64::MIN && rhs == -1 {
+                                        i64::MIN
+                                    } else {
+                                        global_int / rhs
+                                    };
+                                    self.stack.push(Value::Int(result));
+                                    next_ip = ip + 3;
+                                    if let Some(profile) = self.bench_profile.as_mut() {
+                                        profile.counters.arithmetic_ops =
+                                            profile.counters.arithmetic_ops.saturating_add(1);
+                                    }
+                                    fast_path_taken = true;
+                                }
+                            }
+                        }
+
+                        if !fast_path_taken {
+                            if let (Some(Instruction::Const(const_idx)), Some(Instruction::Add)) =
+                                (func.chunk.code.get(ip + 1), func.chunk.code.get(ip + 2))
+                            {
+                                if let Some(rhs) = const_int(*const_idx) {
+                                    self.stack.push(Value::Int(global_int.wrapping_add(rhs)));
+                                    next_ip = ip + 3;
+                                    if let Some(profile) = self.bench_profile.as_mut() {
+                                        profile.counters.arithmetic_ops =
+                                            profile.counters.arithmetic_ops.saturating_add(1);
+                                    }
+                                    fast_path_taken = true;
+                                }
+                            }
+                        }
+
+                        if !fast_path_taken {
+                            if let (Some(Instruction::Const(const_idx)), Some(Instruction::Sub)) =
+                                (func.chunk.code.get(ip + 1), func.chunk.code.get(ip + 2))
+                            {
+                                if let Some(rhs) = const_int(*const_idx) {
+                                    self.stack.push(Value::Int(global_int.wrapping_sub(rhs)));
+                                    next_ip = ip + 3;
+                                    if let Some(profile) = self.bench_profile.as_mut() {
+                                        profile.counters.arithmetic_ops =
+                                            profile.counters.arithmetic_ops.saturating_add(1);
+                                    }
+                                    fast_path_taken = true;
+                                }
+                            }
+                        }
+
+                        if !fast_path_taken {
+                            if let (Some(Instruction::Const(const_idx)), Some(cmp_instr)) =
+                                (func.chunk.code.get(ip + 1), func.chunk.code.get(ip + 2))
+                            {
+                                if let Some(rhs) = const_int(*const_idx) {
+                                    let cmp_result = match cmp_instr {
+                                        Instruction::Lt => Some(global_int < rhs),
+                                        Instruction::Gt => Some(global_int > rhs),
+                                        Instruction::Le => Some(global_int <= rhs),
+                                        Instruction::Ge => Some(global_int >= rhs),
+                                        _ => None,
+                                    };
+                                    if let Some(value) = cmp_result {
+                                        self.stack.push(Value::Bool(value));
+                                        next_ip = ip + 3;
+                                        if let Some(profile) = self.bench_profile.as_mut() {
+                                            profile.counters.compare_ops =
+                                                profile.counters.compare_ops.saturating_add(1);
+                                        }
+                                        fast_path_taken = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if !fast_path_taken {
+                        let v = self.globals[slot].clone();
+                        self.stack.push(v);
+                    }
                 }
                 Instruction::StoreGlobal(idx) => {
                     let val = match self.stack.pop() {
                         Some(val) => val,
                         None => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Stack underflow",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Stack underflow"),
+                            ))
                         }
                     };
                     let slot = idx as usize;
                     if slot >= self.globals.len() {
-                        return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                            "Global not found",
-                        )));
+                        return TaskRunOutcome::Errored(trace(
+                            self,
+                            RuntimeError::new("Global not found"),
+                        ));
                     }
                     self.globals[slot] = val;
                 }
@@ -1587,57 +2124,154 @@ impl VM {
                     let b = match self.stack.pop() {
                         Some(val) => val,
                         None => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Stack underflow",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Stack underflow"),
+                            ))
                         }
                     };
                     let a = match self.stack.pop() {
                         Some(val) => val,
                         None => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Stack underflow",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Stack underflow"),
+                            ))
                         }
                     };
+                    if let Some(profile) = self.bench_profile.as_mut() {
+                        match instr {
+                            Instruction::Add
+                            | Instruction::Sub
+                            | Instruction::Mul
+                            | Instruction::Div
+                            | Instruction::Mod => {
+                                profile.counters.arithmetic_ops =
+                                    profile.counters.arithmetic_ops.saturating_add(1);
+                            }
+                            _ => {
+                                profile.counters.compare_ops =
+                                    profile.counters.compare_ops.saturating_add(1);
+                            }
+                        }
+                    }
                     let result = match instr {
-                        Instruction::Add => match numeric_add(a, b) {
-                            Ok(v) => v,
-                            Err(err) => return TaskRunOutcome::Errored(trace(err)),
+                        Instruction::Add => match (a, b) {
+                            (Value::Int(x), Value::Int(y)) => Value::Int(x.wrapping_add(y)),
+                            (Value::Int(x), Value::Float(y)) => Value::Float((x as f64) + y),
+                            (Value::Float(x), Value::Int(y)) => Value::Float(x + (y as f64)),
+                            (Value::Float(x), Value::Float(y)) => Value::Float(x + y),
+                            _ => {
+                                return TaskRunOutcome::Errored(trace(
+                                    self,
+                                    RuntimeError::new("Add expects numbers"),
+                                ))
+                            }
                         },
-                        Instruction::Sub => match numeric_sub(a, b) {
-                            Ok(v) => v,
-                            Err(err) => return TaskRunOutcome::Errored(trace(err)),
+                        Instruction::Sub => match (a, b) {
+                            (Value::Int(x), Value::Int(y)) => Value::Int(x.wrapping_sub(y)),
+                            (Value::Int(x), Value::Float(y)) => Value::Float((x as f64) - y),
+                            (Value::Float(x), Value::Int(y)) => Value::Float(x - (y as f64)),
+                            (Value::Float(x), Value::Float(y)) => Value::Float(x - y),
+                            _ => {
+                                return TaskRunOutcome::Errored(trace(
+                                    self,
+                                    RuntimeError::new("Sub expects numbers"),
+                                ))
+                            }
                         },
-                        Instruction::Mul => match numeric_mul(a, b) {
-                            Ok(v) => v,
-                            Err(err) => return TaskRunOutcome::Errored(trace(err)),
+                        Instruction::Mul => match (a, b) {
+                            (Value::Int(x), Value::Int(y)) => Value::Int(x.wrapping_mul(y)),
+                            (Value::Int(x), Value::Float(y)) => Value::Float((x as f64) * y),
+                            (Value::Float(x), Value::Int(y)) => Value::Float(x * (y as f64)),
+                            (Value::Float(x), Value::Float(y)) => Value::Float(x * y),
+                            _ => {
+                                return TaskRunOutcome::Errored(trace(
+                                    self,
+                                    RuntimeError::new("Mul expects numbers"),
+                                ))
+                            }
                         },
-                        Instruction::Div => match numeric_div(a, b) {
-                            Ok(v) => v,
-                            Err(err) => return TaskRunOutcome::Errored(trace(err)),
+                        Instruction::Div => match (a, b) {
+                            (Value::Int(_), Value::Int(0)) => {
+                                return TaskRunOutcome::Errored(trace(
+                                    self,
+                                    RuntimeError::new("Division by zero"),
+                                ))
+                            }
+                            (Value::Int(x), Value::Int(y)) => {
+                                if x == i64::MIN && y == -1 {
+                                    Value::Int(i64::MIN)
+                                } else {
+                                    Value::Int(x / y)
+                                }
+                            }
+                            (Value::Int(_), Value::Float(0.0)) => {
+                                return TaskRunOutcome::Errored(trace(
+                                    self,
+                                    RuntimeError::new("Division by zero"),
+                                ))
+                            }
+                            (Value::Float(_), Value::Int(0)) => {
+                                return TaskRunOutcome::Errored(trace(
+                                    self,
+                                    RuntimeError::new("Division by zero"),
+                                ))
+                            }
+                            (Value::Float(_), Value::Float(0.0)) => {
+                                return TaskRunOutcome::Errored(trace(
+                                    self,
+                                    RuntimeError::new("Division by zero"),
+                                ))
+                            }
+                            (Value::Int(x), Value::Float(y)) => Value::Float((x as f64) / y),
+                            (Value::Float(x), Value::Int(y)) => Value::Float(x / (y as f64)),
+                            (Value::Float(x), Value::Float(y)) => Value::Float(x / y),
+                            _ => {
+                                return TaskRunOutcome::Errored(trace(
+                                    self,
+                                    RuntimeError::new("Div expects numbers"),
+                                ))
+                            }
                         },
-                        Instruction::Mod => match numeric_mod(a, b) {
-                            Ok(v) => v,
-                            Err(err) => return TaskRunOutcome::Errored(trace(err)),
+                        Instruction::Mod => match (a, b) {
+                            (Value::Int(_), Value::Int(0)) => {
+                                return TaskRunOutcome::Errored(trace(
+                                    self,
+                                    RuntimeError::new("Modulo by zero"),
+                                ))
+                            }
+                            (Value::Int(x), Value::Int(y)) => {
+                                if x == i64::MIN && y == -1 {
+                                    Value::Int(0)
+                                } else {
+                                    Value::Int(x % y)
+                                }
+                            }
+                            _ => {
+                                return TaskRunOutcome::Errored(trace(
+                                    self,
+                                    RuntimeError::new("Mod expects Int"),
+                                ))
+                            }
                         },
                         Instruction::Eq => Value::Bool(a == b),
                         Instruction::Neq => Value::Bool(a != b),
                         Instruction::Lt => match compare_lt(a, b) {
                             Ok(v) => v,
-                            Err(err) => return TaskRunOutcome::Errored(trace(err)),
+                            Err(err) => return TaskRunOutcome::Errored(trace(self, err)),
                         },
                         Instruction::Gt => match compare_gt(a, b) {
                             Ok(v) => v,
-                            Err(err) => return TaskRunOutcome::Errored(trace(err)),
+                            Err(err) => return TaskRunOutcome::Errored(trace(self, err)),
                         },
                         Instruction::Le => match compare_le(a, b) {
                             Ok(v) => v,
-                            Err(err) => return TaskRunOutcome::Errored(trace(err)),
+                            Err(err) => return TaskRunOutcome::Errored(trace(self, err)),
                         },
                         Instruction::Ge => match compare_ge(a, b) {
                             Ok(v) => v,
-                            Err(err) => return TaskRunOutcome::Errored(trace(err)),
+                            Err(err) => return TaskRunOutcome::Errored(trace(self, err)),
                         },
                         _ => unreachable!(),
                     };
@@ -1647,18 +2281,20 @@ impl VM {
                     let v = match self.stack.pop() {
                         Some(val) => val,
                         None => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Stack underflow",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Stack underflow"),
+                            ))
                         }
                     };
                     let result = match v {
                         Value::Int(i) => Value::Int(-i),
                         Value::Float(f) => Value::Float(-f),
                         _ => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Neg expects number",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Neg expects number"),
+                            ))
                         }
                     };
                     self.stack.push(result);
@@ -1667,9 +2303,10 @@ impl VM {
                     let v = match self.stack.pop() {
                         Some(val) => val,
                         None => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Stack underflow",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Stack underflow"),
+                            ))
                         }
                     };
                     let b = v.is_truthy();
@@ -1682,9 +2319,10 @@ impl VM {
                     let cond = match self.stack.pop() {
                         Some(val) => val,
                         None => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Stack underflow",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Stack underflow"),
+                            ))
                         }
                     };
                     if !cond.is_truthy() {
@@ -1697,32 +2335,36 @@ impl VM {
                         let value = match self.stack.pop() {
                             Some(val) => val,
                             None => {
-                                return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                    "Stack underflow",
-                                )))
+                                return TaskRunOutcome::Errored(trace(
+                                    self,
+                                    RuntimeError::new("Stack underflow"),
+                                ))
                             }
                         };
                         let key = match self.stack.pop() {
                             Some(val) => val,
                             None => {
-                                return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                    "Stack underflow",
-                                )))
+                                return TaskRunOutcome::Errored(trace(
+                                    self,
+                                    RuntimeError::new("Stack underflow"),
+                                ))
                             }
                         };
                         let key = match key {
                             Value::Obj(obj) => match obj.as_obj() {
                                 Obj::String(s) => s.clone(),
                                 _ => {
-                                    return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                        "Record key must be string",
-                                    )))
+                                    return TaskRunOutcome::Errored(trace(
+                                        self,
+                                        RuntimeError::new("Record key must be string"),
+                                    ))
                                 }
                             },
                             _ => {
-                                return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                    "Record key must be string",
-                                )))
+                                return TaskRunOutcome::Errored(trace(
+                                    self,
+                                    RuntimeError::new("Record key must be string"),
+                                ))
                             }
                         };
                         map.insert(key, value);
@@ -1735,9 +2377,10 @@ impl VM {
                         let value = match self.stack.pop() {
                             Some(val) => val,
                             None => {
-                                return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                    "Stack underflow",
-                                )))
+                                return TaskRunOutcome::Errored(trace(
+                                    self,
+                                    RuntimeError::new("Stack underflow"),
+                                ))
                             }
                         };
                         values.push(value);
@@ -1750,17 +2393,19 @@ impl VM {
                     let target = match self.stack.pop() {
                         Some(val) => val,
                         None => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Stack underflow",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Stack underflow"),
+                            ))
                         }
                     };
                     let name = match &func.chunk.constants[name_idx as usize] {
                         Constant::String(s) => s.clone(),
                         _ => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Field name must be string constant",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Field name must be string constant"),
+                            ))
                         }
                     };
                     let value = match target.clone() {
@@ -1782,18 +2427,21 @@ impl VM {
                                             val
                                         } else {
                                             return TaskRunOutcome::Errored(trace(
+                                                self,
                                                 RuntimeError::new("Unknown field"),
                                             ));
                                         }
                                     } else {
-                                        return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                            "Unknown field",
-                                        )));
+                                        return TaskRunOutcome::Errored(trace(
+                                            self,
+                                            RuntimeError::new("Unknown field"),
+                                        ));
                                     }
                                 } else {
-                                    return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                        "Unknown field",
-                                    )));
+                                    return TaskRunOutcome::Errored(trace(
+                                        self,
+                                        RuntimeError::new("Unknown field"),
+                                    ));
                                 }
                             }
                             Obj::TcpListener(_) => match name.as_str() {
@@ -1801,9 +2449,10 @@ impl VM {
                                 "port" => self.bound_native("net.listener.port", 0, target),
                                 "close" => self.bound_native("net.listener.close", 0, target),
                                 _ => {
-                                    return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                        "Unknown field",
-                                    )))
+                                    return TaskRunOutcome::Errored(trace(
+                                        self,
+                                        RuntimeError::new("Unknown field"),
+                                    ))
                                 }
                             },
                             Obj::TcpConnection(_) => match name.as_str() {
@@ -1812,9 +2461,10 @@ impl VM {
                                 "write" => self.bound_native("net.write", 1, target),
                                 "close" => self.bound_native("net.close", 0, target),
                                 _ => {
-                                    return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                        "Unknown field",
-                                    )))
+                                    return TaskRunOutcome::Errored(trace(
+                                        self,
+                                        RuntimeError::new("Unknown field"),
+                                    ))
                                 }
                             },
                             Obj::Tokenizer(_) => match name.as_str() {
@@ -1822,29 +2472,33 @@ impl VM {
                                 "decode" => self.bound_native("tokenizer.decode", 1, target),
                                 "save" => self.bound_native("tokenizer.save", 1, target),
                                 _ => {
-                                    return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                        "Unknown field",
-                                    )))
+                                    return TaskRunOutcome::Errored(trace(
+                                        self,
+                                        RuntimeError::new("Unknown field"),
+                                    ))
                                 }
                             },
                             Obj::DatasetStream(_) => match name.as_str() {
                                 "next_batch" => self.bound_native("dataset.next_batch", 0, target),
                                 _ => {
-                                    return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                        "Unknown field",
-                                    )))
+                                    return TaskRunOutcome::Errored(trace(
+                                        self,
+                                        RuntimeError::new("Unknown field"),
+                                    ))
                                 }
                             },
                             _ => {
-                                return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                    "Field access expects record",
-                                )))
+                                return TaskRunOutcome::Errored(trace(
+                                    self,
+                                    RuntimeError::new("Field access expects record"),
+                                ))
                             }
                         },
                         _ => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Field access expects record",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Field access expects record"),
+                            ))
                         }
                     };
                     self.stack.push(value);
@@ -1853,56 +2507,63 @@ impl VM {
                     let index = match self.stack.pop() {
                         Some(val) => val,
                         None => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Stack underflow",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Stack underflow"),
+                            ))
                         }
                     };
                     let target = match self.stack.pop() {
                         Some(val) => val,
                         None => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Stack underflow",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Stack underflow"),
+                            ))
                         }
                     };
                     let idx = match index {
                         Value::Int(i) => i,
                         _ => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Index expects Int",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Index expects Int"),
+                            ))
                         }
                     };
                     let value = match target {
                         Value::Obj(obj) => match obj.as_obj() {
                             Obj::List(items) => {
                                 if idx < 0 {
-                                    return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                        "Index out of range",
-                                    )));
+                                    return TaskRunOutcome::Errored(trace(
+                                        self,
+                                        RuntimeError::new("Index out of range"),
+                                    ));
                                 }
                                 let items = items.borrow();
                                 let idx = idx as usize;
                                 match items.get(idx).cloned() {
                                     Some(val) => val,
                                     None => {
-                                        return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                            "Index out of range",
-                                        )))
+                                        return TaskRunOutcome::Errored(trace(
+                                            self,
+                                            RuntimeError::new("Index out of range"),
+                                        ))
                                     }
                                 }
                             }
                             _ => {
-                                return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                    "Indexing expects a list",
-                                )))
+                                return TaskRunOutcome::Errored(trace(
+                                    self,
+                                    RuntimeError::new("Indexing expects a list"),
+                                ))
                             }
                         },
                         _ => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Indexing expects a list",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Indexing expects a list"),
+                            ))
                         }
                     };
                     self.stack.push(value);
@@ -1911,25 +2572,28 @@ impl VM {
                     let value = match self.stack.pop() {
                         Some(val) => val,
                         None => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Stack underflow",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Stack underflow"),
+                            ))
                         }
                     };
                     let target = match self.stack.pop() {
                         Some(val) => val,
                         None => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Stack underflow",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Stack underflow"),
+                            ))
                         }
                     };
                     let name = match &func.chunk.constants[name_idx as usize] {
                         Constant::String(s) => s.clone(),
                         _ => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Field name must be string constant",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Field name must be string constant"),
+                            ))
                         }
                     };
                     match target {
@@ -1938,15 +2602,17 @@ impl VM {
                                 map.borrow_mut().insert(name, value);
                             }
                             _ => {
-                                return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                    "Field assignment expects record",
-                                )))
+                                return TaskRunOutcome::Errored(trace(
+                                    self,
+                                    RuntimeError::new("Field assignment expects record"),
+                                ))
                             }
                         },
                         _ => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Field assignment expects record",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Field assignment expects record"),
+                            ))
                         }
                     }
                 }
@@ -1954,62 +2620,70 @@ impl VM {
                     let value = match self.stack.pop() {
                         Some(val) => val,
                         None => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Stack underflow",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Stack underflow"),
+                            ))
                         }
                     };
                     let index = match self.stack.pop() {
                         Some(val) => val,
                         None => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Stack underflow",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Stack underflow"),
+                            ))
                         }
                     };
                     let target = match self.stack.pop() {
                         Some(val) => val,
                         None => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Stack underflow",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Stack underflow"),
+                            ))
                         }
                     };
                     let idx = match index {
                         Value::Int(i) => i,
                         _ => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Index expects Int",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Index expects Int"),
+                            ))
                         }
                     };
                     match target {
                         Value::Obj(obj) => match obj.as_obj() {
                             Obj::List(items) => {
                                 if idx < 0 {
-                                    return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                        "Index out of range",
-                                    )));
+                                    return TaskRunOutcome::Errored(trace(
+                                        self,
+                                        RuntimeError::new("Index out of range"),
+                                    ));
                                 }
                                 let mut items = items.borrow_mut();
                                 let idx = idx as usize;
                                 if idx >= items.len() {
-                                    return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                        "Index out of range",
-                                    )));
+                                    return TaskRunOutcome::Errored(trace(
+                                        self,
+                                        RuntimeError::new("Index out of range"),
+                                    ));
                                 }
                                 items[idx] = value;
                             }
                             _ => {
-                                return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                    "Index assignment expects list",
-                                )))
+                                return TaskRunOutcome::Errored(trace(
+                                    self,
+                                    RuntimeError::new("Index assignment expects list"),
+                                ))
                             }
                         },
                         _ => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Index assignment expects list",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Index assignment expects list"),
+                            ))
                         }
                     }
                 }
@@ -2018,7 +2692,7 @@ impl VM {
                         caller.ip = next_ip;
                     }
                     if let Err(err) = self.call_value(program, argc as usize) {
-                        return TaskRunOutcome::Errored(trace(err));
+                        return TaskRunOutcome::Errored(trace(self, err));
                     }
                     if self.yield_now {
                         self.yield_now = false;
@@ -2038,16 +2712,18 @@ impl VM {
                     let value = match self.stack.pop() {
                         Some(val) => val,
                         None => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Stack underflow",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Stack underflow"),
+                            ))
                         }
                     };
                     match value {
                         Value::Null => {
-                            return TaskRunOutcome::Errored(trace(RuntimeError::new(
-                                "Tried to unwrap none",
-                            )))
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Tried to unwrap none"),
+                            ))
                         }
                         _ => self.stack.push(value),
                     }
@@ -2125,6 +2801,10 @@ impl VM {
                         let mut args: Vec<Value> = self.stack[args_start..].to_vec();
                         if let Some(bound) = nf.bound.clone() {
                             args.insert(0, bound);
+                        }
+                        if let Some(profile) = self.bench_profile.as_mut() {
+                            profile.counters.native_calls =
+                                profile.counters.native_calls.saturating_add(1);
                         }
                         if nf.name == "policy.register" {
                             self.stack.truncate(callee_index);
@@ -2595,6 +3275,25 @@ impl VM {
                             self.stack.push(text);
                             return Ok(());
                         }
+                        if nf.name == "json.parse_many" {
+                            let value = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("parse_many expects values"))?;
+                            self.stack.truncate(callee_index);
+                            let parsed = self.json_parse_many(value)?;
+                            self.stack.push(parsed);
+                            return Ok(());
+                        }
+                        if nf.name == "json.stringify_many" {
+                            let value = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("stringify_many expects values")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let text = self.json_stringify_many(value)?;
+                            self.stack.push(text);
+                            return Ok(());
+                        }
                         if nf.name == "bootstrap.format" {
                             let value = args
                                 .first()
@@ -2958,8 +3657,15 @@ impl VM {
             "process_exit" => {
                 capability = Some(vec!["process".to_string(), "exit".to_string()]);
             }
-            "db_sqlite_open" | "db_sqlite_exec" | "db_sqlite_close" | "db_postgres_open"
-            | "db_postgres_exec" | "db_postgres_close" => {
+            "db_sqlite_open"
+            | "db_sqlite_exec"
+            | "db_sqlite_exec_many"
+            | "db_sqlite_transaction_begin"
+            | "db_sqlite_transaction_commit"
+            | "db_sqlite_close"
+            | "db_postgres_open"
+            | "db_postgres_exec"
+            | "db_postgres_close" => {
                 capability = Some(vec!["db".to_string(), "write".to_string()]);
             }
             "db_sqlite_query" | "db_postgres_query" => {
@@ -4988,6 +5694,93 @@ impl VM {
         let text =
             serde_json::to_string(&json).map_err(|err| RuntimeError::new(&err.to_string()))?;
         Ok(string_value(&text))
+    }
+
+    fn json_parse_many(&self, values: Value) -> Result<Value, RuntimeError> {
+        match values {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::List(list) => {
+                    let items = list.borrow().clone();
+                    let mut out = Vec::with_capacity(items.len());
+                    for value in items {
+                        out.push(self.json_parse(value)?);
+                    }
+                    Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(out)))))
+                }
+                Obj::Record(map) => {
+                    let map = map.borrow();
+                    let value = map
+                        .get("value")
+                        .cloned()
+                        .ok_or_else(|| RuntimeError::new("json.parse_many record missing value"))?;
+                    let count = map
+                        .get("count")
+                        .ok_or_else(|| RuntimeError::new("json.parse_many record missing count"))?;
+                    let count = match count {
+                        Value::Int(i) if *i >= 0 => *i as usize,
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "json.parse_many record count must be Int >= 0",
+                            ));
+                        }
+                    };
+                    let mut out = Vec::with_capacity(count);
+                    for _ in 0..count {
+                        out.push(self.json_parse(value.clone())?);
+                    }
+                    Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(out)))))
+                }
+                _ => Err(RuntimeError::new(
+                    "json.parse_many expects List[String] or { value, count } record",
+                )),
+            },
+            _ => Err(RuntimeError::new(
+                "json.parse_many expects List[String] or { value, count } record",
+            )),
+        }
+    }
+
+    fn json_stringify_many(&self, values: Value) -> Result<Value, RuntimeError> {
+        match values {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::List(list) => {
+                    let items = list.borrow().clone();
+                    let mut out = Vec::with_capacity(items.len());
+                    for value in items {
+                        out.push(self.json_stringify(value)?);
+                    }
+                    Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(out)))))
+                }
+                Obj::Record(map) => {
+                    let map = map.borrow();
+                    let value = map.get("value").cloned().ok_or_else(|| {
+                        RuntimeError::new("json.stringify_many record missing value")
+                    })?;
+                    let count = map.get("count").ok_or_else(|| {
+                        RuntimeError::new("json.stringify_many record missing count")
+                    })?;
+                    let count = match count {
+                        Value::Int(i) if *i >= 0 => *i as usize,
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "json.stringify_many record count must be Int >= 0",
+                            ));
+                        }
+                    };
+                    let mut out = Vec::with_capacity(count);
+                    for _ in 0..count {
+                        out.push(self.json_stringify(value.clone())?);
+                    }
+                    Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(out)))))
+                }
+                _ => Err(RuntimeError::new(
+                    "json.stringify_many expects List or { value, count } record",
+                )),
+            },
+            _ => Err(RuntimeError::new(
+                "json.stringify_many expects List or { value, count } record",
+            )),
+        }
     }
 
     fn tool_invoke(&self, tool_name: Value, tool_args: Value) -> Result<Value, RuntimeError> {
@@ -7097,67 +7890,6 @@ fn domain_from_url(url: &str) -> Option<String> {
         None
     } else {
         Some(host.to_string())
-    }
-}
-
-fn numeric_add(a: Value, b: Value) -> Result<Value, RuntimeError> {
-    match (a, b) {
-        (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x.wrapping_add(y))),
-        (Value::Int(x), Value::Float(y)) => Ok(Value::Float((x as f64) + y)),
-        (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x + (y as f64))),
-        (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x + y)),
-        _ => Err(RuntimeError::new("Operands must be numbers")),
-    }
-}
-
-fn numeric_sub(a: Value, b: Value) -> Result<Value, RuntimeError> {
-    match (a, b) {
-        (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x.wrapping_sub(y))),
-        (Value::Int(x), Value::Float(y)) => Ok(Value::Float((x as f64) - y)),
-        (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x - (y as f64))),
-        (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x - y)),
-        _ => Err(RuntimeError::new("Operands must be numbers")),
-    }
-}
-
-fn numeric_mul(a: Value, b: Value) -> Result<Value, RuntimeError> {
-    match (a, b) {
-        (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x.wrapping_mul(y))),
-        (Value::Int(x), Value::Float(y)) => Ok(Value::Float((x as f64) * y)),
-        (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x * (y as f64))),
-        (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x * y)),
-        _ => Err(RuntimeError::new("Operands must be numbers")),
-    }
-}
-
-fn numeric_div(a: Value, b: Value) -> Result<Value, RuntimeError> {
-    match (a, b) {
-        (Value::Int(_), Value::Int(0)) => Err(RuntimeError::new("Division by zero")),
-        (Value::Int(x), Value::Int(y)) => {
-            if x == i64::MIN && y == -1 {
-                Ok(Value::Int(i64::MIN))
-            } else {
-                Ok(Value::Int(x / y))
-            }
-        }
-        (Value::Int(x), Value::Float(y)) => Ok(Value::Float((x as f64) / y)),
-        (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x / (y as f64))),
-        (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x / y)),
-        _ => Err(RuntimeError::new("Operands must be numbers")),
-    }
-}
-
-fn numeric_mod(a: Value, b: Value) -> Result<Value, RuntimeError> {
-    match (a, b) {
-        (Value::Int(_), Value::Int(0)) => Err(RuntimeError::new("Modulo by zero")),
-        (Value::Int(x), Value::Int(y)) => {
-            if x == i64::MIN && y == -1 {
-                Ok(Value::Int(0))
-            } else {
-                Ok(Value::Int(x % y))
-            }
-        }
-        _ => Err(RuntimeError::new("Modulo expects integers")),
     }
 }
 

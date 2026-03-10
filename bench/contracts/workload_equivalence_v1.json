@@ -1,0 +1,51 @@
+﻿{
+  "schema_version": 1,
+  "required_fields": [
+    "enkai_work_units",
+    "python_work_units",
+    "enkai_payload_bytes",
+    "python_payload_bytes",
+    "enkai_batching_mode",
+    "python_batching_mode",
+    "enkai_warmup_policy",
+    "python_warmup_policy"
+  ],
+  "positive_integer_fields": [
+    "enkai_work_units",
+    "python_work_units",
+    "enkai_payload_bytes",
+    "python_payload_bytes"
+  ],
+  "equal_pairs": [
+    ["enkai_work_units", "python_work_units"],
+    ["enkai_payload_bytes", "python_payload_bytes"],
+    ["enkai_batching_mode", "python_batching_mode"],
+    ["enkai_warmup_policy", "python_warmup_policy"]
+  ],
+  "allowed_values": {
+    "enkai_batching_mode": [
+      "loop_scalar",
+      "loop_batch",
+      "transaction_batch",
+      "cli_single_shot",
+      "steady_state_loop"
+    ],
+    "python_batching_mode": [
+      "loop_scalar",
+      "loop_batch",
+      "transaction_batch",
+      "cli_single_shot",
+      "steady_state_loop"
+    ],
+    "enkai_warmup_policy": [
+      "suite_default",
+      "none",
+      "case_default"
+    ],
+    "python_warmup_policy": [
+      "suite_default",
+      "none",
+      "case_default"
+    ]
+  }
+}

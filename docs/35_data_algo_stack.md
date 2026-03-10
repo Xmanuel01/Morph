@@ -1,4 +1,4 @@
-# 35. Data + Algorithm Stack (v2.2.0)
+# 35. Data + Algorithm Stack (v2.3.0)
 
 Enkai ships additive std modules for data analysis and algorithm development.
 

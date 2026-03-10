@@ -35,3 +35,21 @@ fn json_parse_invalid_errors() {
     let result = run_value(source);
     assert!(result.is_err());
 }
+
+#[test]
+fn json_parse_many_stringify_many_roundtrip() {
+    let source = "let rows := json.parse_many([\"{\\\"a\\\":1}\",\"{\\\"b\\\":2}\"])\n\
+                  let texts := json.stringify_many(rows)\n\
+                  return texts[1]\n";
+    let value = run_value(source).expect("run");
+    let out = match value {
+        enkairt::Value::Obj(obj) => match obj.as_obj() {
+            enkairt::object::Obj::String(s) => s.clone(),
+            _ => panic!("expected string"),
+        },
+        _ => panic!("expected string"),
+    };
+    let parsed: serde_json::Value = serde_json::from_str(&out).expect("json");
+    let expected: serde_json::Value = serde_json::from_str("{\"b\":2}").expect("expected");
+    assert_eq!(parsed, expected);
+}

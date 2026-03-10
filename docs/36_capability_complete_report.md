@@ -1,6 +1,6 @@
-# 36. Capability-Complete Report (v2.2.0)
+# 36. Capability-Complete Report (v2.3.0)
 
-This document defines the objective release evidence contract for the `v2.2.0`
+This document defines the objective release evidence contract for the `v2.3.0`
 stability cut.
 
 ## Goal
@@ -24,15 +24,18 @@ Core categories:
   - release archive
   - checksum
   - SBOM
-  - benchmark target result (`benchmark_official_v<version_token>_<platform>.json`)
+  - benchmark target result (`benchmark_official_<suite>_<platform>.json`)
 - `selfhost/`:
   - `litec_selfhost_ci_report.json`
   - `litec_replace_check_report.json`
   - `litec_mainline_ci_report.json`
+  - `litec_release_ci_report.json`
 - `contracts/`:
   - `backend_api_v1.snapshot.json`
   - `sdk_api_v1.snapshot.json`
   - `conversation_state_v1.schema.json`
+- `readiness/`:
+  - `production.json` (`readiness/production.json`)
 - `gpu/` (mandatory for full sign-off):
   - `single_gpu.log`, `single_gpu_evidence.json`
   - `multi_gpu.log`, `multi_gpu_evidence.json`
@@ -58,6 +61,6 @@ Outputs:
 
 The RC wrappers for the current line are:
 
-- `scripts/v2_2_0_rc_pipeline.ps1`
-- `scripts/v2_2_0_rc_pipeline.sh`
+- `scripts/v2_3_0_rc_pipeline.ps1`
+- `scripts/v2_3_0_rc_pipeline.sh`
 

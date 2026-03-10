@@ -22,10 +22,12 @@ Note:
 - [ ] `powershell -ExecutionPolicy Bypass -File scripts/check_docs_consistency.ps1` (Windows)
 - [ ] Frontend/serve contract snapshot test:
   - `cargo test -p enkai --bin enkai frontend::tests::contract_snapshots_match_reference_files`
-- [ ] Benchmark target gate (v2.2.0 bounded suite):
-  - `enkai bench run --suite official_v2_2_0 --baseline python --iterations 2 --warmup 1 --machine-profile bench/machines/linux_ref.json --output bench/results/official_v2_2_0.linux.json --target-speedup 5 --target-memory 5 --enforce-target`
-  - Optional strict per-case mode:
-    - add `--enforce-all-cases`
+- [ ] Production readiness report (non-GPU gate bundle):
+  - `enkai readiness check --profile production --json --output artifacts/readiness/production.json`
+- [ ] Benchmark target gate (official bounded suite):
+  - `enkai bench run --suite official_v2_3_0_matrix --baseline python --iterations 2 --warmup 1 --machine-profile bench/machines/linux_ref.json --output bench/results/official_v2_3_0_matrix.linux.json --target-speedup 15 --target-memory 5 --enforce-target --enforce-class-targets --class-targets bench/suites/official_v2_3_0_targets.json`
+  - Fairness-only precheck:
+    - `enkai bench run --suite official_v2_3_0_matrix --baseline python --fairness-check-only --output bench/results/official_v2_3_0_fairness.json`
 - [ ] Version-neutral release pipeline:
   - `powershell -ExecutionPolicy Bypass -File scripts/release_pipeline.ps1`
   - or `sh scripts/release_pipeline.sh`
@@ -42,6 +44,10 @@ Note:
     - `artifacts/selfhost/litec_selfhost_ci_report.json`
     - `artifacts/selfhost/litec_replace_check_report.json`
     - `artifacts/selfhost/litec_mainline_ci_report.json`
+- [ ] Self-host consolidated release gate:
+  - `enkai litec release-ci enkai/tools/bootstrap/selfhost_corpus --triage-dir artifacts/selfhost`
+  - expected triage artifact:
+    - `artifacts/selfhost/litec_release_ci_report.json`
 - [ ] Self-host Stage0 fallback gate:
   - `enkai litec selfhost-ci enkai/tools/bootstrap/selfhost_corpus`
 - [ ] Self-host replacement-readiness gate:

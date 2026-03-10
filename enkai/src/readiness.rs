@@ -1,0 +1,386 @@
+use std::env;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Deserialize)]
+struct ReadinessManifest {
+    schema_version: u32,
+    profile: String,
+    checks: Vec<ReadinessCheckSpec>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ReadinessCheckSpec {
+    id: String,
+    description: String,
+    command: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ReadinessCheckArgs {
+    profile: String,
+    json: bool,
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ReadinessReport {
+    schema_version: u32,
+    profile: String,
+    language_version: String,
+    cli_version: String,
+    started_unix_ms: u128,
+    finished_unix_ms: u128,
+    all_passed: bool,
+    checks: Vec<ReadinessCheckReport>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ReadinessCheckReport {
+    id: String,
+    description: String,
+    command: Vec<String>,
+    success: bool,
+    exit_code: i32,
+    duration_ms: u128,
+}
+
+pub fn print_readiness_usage() {
+    eprintln!("  enkai readiness check [--profile production] [--json] [--output <file>]");
+}
+
+pub fn readiness_command(args: &[String]) -> i32 {
+    if args.is_empty() {
+        print_readiness_usage();
+        return 1;
+    }
+    match args[0].as_str() {
+        "check" => readiness_check_command(&args[1..]),
+        _ => {
+            eprintln!("enkai readiness: unknown subcommand '{}'", args[0]);
+            print_readiness_usage();
+            1
+        }
+    }
+}
+
+fn readiness_check_command(args: &[String]) -> i32 {
+    let parsed = match parse_check_args(args) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            eprintln!("enkai readiness check: {}", err);
+            print_readiness_usage();
+            return 1;
+        }
+    };
+    let manifest = match load_manifest(&parsed.profile) {
+        Ok(manifest) => manifest,
+        Err(err) => {
+            eprintln!("enkai readiness check: {}", err);
+            return 1;
+        }
+    };
+
+    let started_unix_ms = unix_millis();
+    let workspace = workspace_root();
+    let mut check_reports = Vec::with_capacity(manifest.checks.len());
+
+    for check in &manifest.checks {
+        println!(
+            "[readiness] [{}] {}",
+            check.id.trim(),
+            check.description.trim()
+        );
+        let report = run_check(&workspace, check);
+        let status = if report.success { "PASS" } else { "FAIL" };
+        println!(
+            "[readiness] {} {} ({} ms, exit={})",
+            status, report.id, report.duration_ms, report.exit_code
+        );
+        check_reports.push(report);
+    }
+
+    let finished_unix_ms = unix_millis();
+    let all_passed = check_reports.iter().all(|check| check.success);
+    let report = ReadinessReport {
+        schema_version: manifest.schema_version,
+        profile: manifest.profile,
+        language_version: env!("ENKAI_LANG_VERSION").to_string(),
+        cli_version: env!("CARGO_PKG_VERSION").to_string(),
+        started_unix_ms,
+        finished_unix_ms,
+        all_passed,
+        checks: check_reports,
+    };
+
+    let json = match serde_json::to_string_pretty(&report) {
+        Ok(json) => json,
+        Err(err) => {
+            eprintln!(
+                "enkai readiness check: failed to serialize readiness report: {}",
+                err
+            );
+            return 1;
+        }
+    };
+
+    if let Some(path) = parsed.output.as_ref() {
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                if let Err(err) = fs::create_dir_all(parent) {
+                    eprintln!(
+                        "enkai readiness check: failed to create output directory {}: {}",
+                        parent.display(),
+                        err
+                    );
+                    return 1;
+                }
+            }
+        }
+        if let Err(err) = fs::write(path, json.as_bytes()) {
+            eprintln!(
+                "enkai readiness check: failed to write report {}: {}",
+                path.display(),
+                err
+            );
+            return 1;
+        }
+        println!("[readiness] report written: {}", path.display());
+    }
+
+    if parsed.json {
+        println!("{}", json);
+    }
+
+    if all_passed {
+        println!("[readiness] profile '{}' passed", parsed.profile);
+        0
+    } else {
+        eprintln!("[readiness] profile '{}' has failed checks", parsed.profile);
+        1
+    }
+}
+
+fn parse_check_args(args: &[String]) -> Result<ReadinessCheckArgs, String> {
+    let mut parsed = ReadinessCheckArgs {
+        profile: "production".to_string(),
+        json: false,
+        output: None,
+    };
+    let mut idx = 0usize;
+    while idx < args.len() {
+        match args[idx].as_str() {
+            "--profile" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err("--profile requires a value".to_string());
+                }
+                parsed.profile = args[idx].trim().to_string();
+                if parsed.profile.is_empty() {
+                    return Err("--profile cannot be empty".to_string());
+                }
+            }
+            "--json" => {
+                parsed.json = true;
+            }
+            "--output" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err("--output requires a value".to_string());
+                }
+                parsed.output = Some(PathBuf::from(args[idx].trim()));
+            }
+            unknown => {
+                return Err(format!("unknown option '{}'", unknown));
+            }
+        }
+        idx += 1;
+    }
+    Ok(parsed)
+}
+
+fn load_manifest(profile: &str) -> Result<ReadinessManifest, String> {
+    if profile != "production" {
+        return Err(format!(
+            "unsupported profile '{}'; expected 'production'",
+            profile
+        ));
+    }
+    let manifest: ReadinessManifest = serde_json::from_str(include_str!(
+        "../contracts/readiness_production_v2_3_0.json"
+    ))
+    .map_err(|err| format!("failed to parse readiness manifest: {}", err))?;
+    Ok(manifest)
+}
+
+fn run_check(workspace: &Path, check: &ReadinessCheckSpec) -> ReadinessCheckReport {
+    if check.command.is_empty() {
+        return ReadinessCheckReport {
+            id: check.id.clone(),
+            description: check.description.clone(),
+            command: check.command.clone(),
+            success: false,
+            exit_code: 1,
+            duration_ms: 0,
+        };
+    }
+
+    let resolved = resolve_command_tokens(&check.command);
+    let mut command = Command::new(&resolved[0]);
+    if resolved.len() > 1 {
+        command.args(&resolved[1..]);
+    }
+    command.current_dir(workspace);
+
+    let started = Instant::now();
+    let status = command.status();
+    let duration_ms = started.elapsed().as_millis();
+
+    match status {
+        Ok(status) => ReadinessCheckReport {
+            id: check.id.clone(),
+            description: check.description.clone(),
+            command: check.command.clone(),
+            success: status.success(),
+            exit_code: status.code().unwrap_or(1),
+            duration_ms,
+        },
+        Err(err) => ReadinessCheckReport {
+            id: check.id.clone(),
+            description: check.description.clone(),
+            command: vec![
+                format!("{} (launch failed)", resolved.join(" ")),
+                err.to_string(),
+            ],
+            success: false,
+            exit_code: 1,
+            duration_ms,
+        },
+    }
+}
+
+fn resolve_command_tokens(command: &[String]) -> Vec<String> {
+    if command.is_empty() {
+        return Vec::new();
+    }
+    let current_exe = env::current_exe()
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "enkai".to_string());
+    let python_command = resolve_python_command();
+    let mut out = Vec::with_capacity(command.len());
+    for (index, token) in command.iter().enumerate() {
+        if token == "${PYTHON}" {
+            match python_command.as_ref() {
+                Some(cmd) => out.extend(cmd.iter().cloned()),
+                None => out.push("python".to_string()),
+            }
+            continue;
+        }
+        let mut resolved = token.replace("${ENKAI_BIN}", &current_exe);
+        if index == 0 && resolved == "enkai" {
+            resolved = current_exe.clone();
+        }
+        out.push(resolved);
+    }
+    out
+}
+
+fn resolve_python_command() -> Option<Vec<String>> {
+    let candidates = if cfg!(windows) {
+        vec![
+            vec!["py".to_string(), "-3".to_string()],
+            vec!["python".to_string()],
+            vec!["python3".to_string()],
+        ]
+    } else {
+        vec![
+            vec!["python3".to_string()],
+            vec!["python".to_string()],
+            vec!["py".to_string(), "-3".to_string()],
+        ]
+    };
+    candidates
+        .into_iter()
+        .find(|candidate| command_available(candidate))
+}
+
+fn command_available(command: &[String]) -> bool {
+    if command.is_empty() {
+        return false;
+    }
+    let mut probe = Command::new(&command[0]);
+    if command.len() > 1 {
+        probe.args(&command[1..]);
+    }
+    match probe
+        .arg("-c")
+        .arg("import sys; sys.stdout.write(sys.version)")
+        .output()
+    {
+        Ok(output) => output.status.success(),
+        Err(_) => false,
+    }
+}
+
+fn workspace_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .canonicalize()
+        .unwrap_or_else(|_| Path::new(env!("CARGO_MANIFEST_DIR")).join(".."))
+}
+
+fn unix_millis() -> u128 {
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_millis(),
+        Err(_) => 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_check_args_defaults() {
+        let parsed = parse_check_args(&[]).expect("parse");
+        assert_eq!(parsed.profile, "production");
+        assert!(!parsed.json);
+        assert!(parsed.output.is_none());
+    }
+
+    #[test]
+    fn parse_check_args_overrides() {
+        let parsed = parse_check_args(&[
+            "--profile".to_string(),
+            "production".to_string(),
+            "--json".to_string(),
+            "--output".to_string(),
+            "artifacts/readiness.json".to_string(),
+        ])
+        .expect("parse");
+        assert_eq!(parsed.profile, "production");
+        assert!(parsed.json);
+        assert_eq!(
+            parsed.output,
+            Some(PathBuf::from("artifacts/readiness.json"))
+        );
+    }
+
+    #[test]
+    fn parse_check_args_rejects_unknown_option() {
+        let err = parse_check_args(&["--nope".to_string()]).expect_err("unknown");
+        assert!(err.contains("unknown option"));
+    }
+
+    #[test]
+    fn load_manifest_production_profile() {
+        let manifest = load_manifest("production").expect("manifest");
+        assert_eq!(manifest.schema_version, 1);
+        assert_eq!(manifest.profile, "production");
+        assert!(!manifest.checks.is_empty());
+    }
+}

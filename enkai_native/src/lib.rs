@@ -252,6 +252,25 @@ pub extern "C" fn hash_sha256(ptr: *const u8, len: usize) -> FfiSlice {
 }
 
 #[no_mangle]
+pub extern "C" fn hash_sha256_many(ptr: *const u8, len: usize, count: i64) -> FfiSlice {
+    let bytes = match slice_from_raw(ptr, len) {
+        Some(bytes) => bytes,
+        None => return null_slice(),
+    };
+    if count <= 0 {
+        return make_slice(Vec::new());
+    }
+    let repeat = count as usize;
+    let mut out = Vec::with_capacity(repeat.saturating_mul(32));
+    for _ in 0..repeat {
+        let mut hasher = Sha256::new();
+        hasher.update(bytes);
+        out.extend_from_slice(&hasher.finalize());
+    }
+    make_slice(out)
+}
+
+#[no_mangle]
 pub extern "C" fn env_get(key_ptr: *const u8, key_len: usize) -> FfiSlice {
     let key = match string_from_raw(key_ptr, key_len) {
         Some(key) => key,
@@ -667,6 +686,81 @@ pub extern "C" fn db_sqlite_exec(handle: i64, sql_ptr: *const u8, sql_len: usize
         Ok(_) => conn.changes() as i64,
         Err(_) => -1,
     }
+}
+
+#[no_mangle]
+pub extern "C" fn db_sqlite_transaction_begin(handle: i64) -> u8 {
+    if handle <= 0 {
+        return 0;
+    }
+    let mut table = match db_table().lock() {
+        Ok(table) => table,
+        Err(_) => return 0,
+    };
+    let conn = match table.get_mut(&handle) {
+        Some(conn) => conn,
+        None => return 0,
+    };
+    match conn.execute_batch("BEGIN IMMEDIATE TRANSACTION") {
+        Ok(_) => 1,
+        Err(_) => 0,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn db_sqlite_transaction_commit(handle: i64) -> u8 {
+    if handle <= 0 {
+        return 0;
+    }
+    let mut table = match db_table().lock() {
+        Ok(table) => table,
+        Err(_) => return 0,
+    };
+    let conn = match table.get_mut(&handle) {
+        Some(conn) => conn,
+        None => return 0,
+    };
+    match conn.execute_batch("COMMIT") {
+        Ok(_) => 1,
+        Err(_) => 0,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn db_sqlite_exec_many(
+    handle: i64,
+    sql_ptr: *const u8,
+    sql_len: usize,
+    count: i64,
+) -> i64 {
+    if handle <= 0 || count < 0 {
+        return -1;
+    }
+    let sql = match string_from_raw(sql_ptr, sql_len) {
+        Some(sql) => sql,
+        None => return -1,
+    };
+    let mut table = match db_table().lock() {
+        Ok(table) => table,
+        Err(_) => return -1,
+    };
+    let conn = match table.get_mut(&handle) {
+        Some(conn) => conn,
+        None => return -1,
+    };
+    let mut stmt = match conn.prepare(&sql) {
+        Ok(stmt) => stmt,
+        Err(_) => return -1,
+    };
+    let mut total = 0i64;
+    for _ in 0..(count as usize) {
+        let changed = match stmt.execute([]) {
+            Ok(changed) => changed as i64,
+            Err(_) => return -1,
+        };
+        total = total.saturating_add(changed);
+    }
+    total
 }
 
 #[no_mangle]
@@ -3055,6 +3149,55 @@ mod tests {
         assert_eq!(std::str::from_utf8(text).unwrap(), value);
         unsafe { enkai_free(out.ptr, out.len) };
         assert_eq!(env_remove(key.as_ptr(), key.len()), 1);
+    }
+
+    #[test]
+    fn hash_sha256_many_returns_concatenated_digests() {
+        let payload = b"enkai";
+        let out = hash_sha256_many(payload.as_ptr(), payload.len(), 4);
+        assert_eq!(out.len, 32 * 4);
+        unsafe { enkai_free(out.ptr, out.len) };
+    }
+
+    #[test]
+    fn sqlite_exec_many_transaction_roundtrip() {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "enkai_native_sqlite_exec_many_{}_{}.sqlite",
+            std::process::id(),
+            next_db_handle()
+        ));
+        let path_text = path.to_string_lossy().to_string();
+        let handle = db_sqlite_open(path_text.as_ptr(), path_text.len());
+        assert!(handle > 0);
+
+        let create = "create table if not exists items(id integer primary key, name text)";
+        assert_eq!(db_sqlite_exec(handle, create.as_ptr(), create.len()), 0);
+        assert_eq!(db_sqlite_transaction_begin(handle), 1);
+
+        let insert = "insert into items(name) values ('row')";
+        assert_eq!(
+            db_sqlite_exec_many(handle, insert.as_ptr(), insert.len(), 5),
+            5
+        );
+        assert_eq!(db_sqlite_transaction_commit(handle), 1);
+
+        let query = "select count(*) as c from items";
+        let out = db_sqlite_query(handle, query.as_ptr(), query.len());
+        let raw = unsafe { std::slice::from_raw_parts(out.ptr, out.len) };
+        let text = std::str::from_utf8(raw).unwrap();
+        let value: serde_json::Value = serde_json::from_str(text).unwrap();
+        assert_eq!(
+            value
+                .as_array()
+                .and_then(|rows| rows.first())
+                .and_then(|row| row.get("c"))
+                .and_then(|cell| cell.as_i64()),
+            Some(5)
+        );
+        unsafe { enkai_free(out.ptr, out.len) };
+        assert_eq!(db_sqlite_close(handle), 1);
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
