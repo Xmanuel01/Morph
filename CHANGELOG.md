@@ -8,6 +8,21 @@
 ### Breaking changes
 - None.
 
+## v2.3.2
+
+### Highlights
+- Advanced patch line to `v2.3.2` with additive compatibility (no contract removals).
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_3_2_rc_pipeline.ps1`
+  - `scripts/v2_3_2_rc_pipeline.sh`
+
+### Fixes
+- Hardened benchmark gate reliability by stabilizing VM compute benchmark workload envelope for class-target enforcement.
+- Synced docs/spec/release metadata and version surfaces to `v2.3.2`.
+
+### Breaking changes
+- None.
+
 ## v2.3.1
 
 ### Highlights
