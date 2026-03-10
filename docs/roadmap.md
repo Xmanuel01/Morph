@@ -2,9 +2,16 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.3.0.
-- v2.2.x is additive/integration work in progress (no contract-breaking removals).
+- Current production release line is v2.3.1.
+- v2.3.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v2.3.1 (in progress)
+- Patch-line stabilization after v2.3.0 cut:
+  - release checklist synchronization and docs/spec consistency
+  - benchmark class-gate reliability on pinned reference environments
+  - readiness and evidence pipeline hardening
+  - GPU evidence runbook continuity (operator-run)
 
 v2.3.0 (done)
 - Advanced workspace + contract version line to `v2.3.0`.

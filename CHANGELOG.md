@@ -8,6 +8,24 @@
 ### Breaking changes
 - None.
 
+## v2.3.1
+
+### Highlights
+- Advanced patch line to `v2.3.1` with additive compatibility (no contract removals).
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_3_1_rc_pipeline.ps1`
+  - `scripts/v2_3_1_rc_pipeline.sh`
+
+### Fixes
+- Stabilized VM compute benchmark case for class-gate consistency:
+  - `bench/enkai/kernel_numeric.enk`
+  - `bench/python/kernel_numeric.py`
+  - `bench/suites/official_v2_3_0_vm_compute.json`
+- Synced docs/release metadata to `v2.3.1` baseline.
+
+### Breaking changes
+- None.
+
 ## v2.3.0
 
 ### Highlights
