@@ -8,6 +8,20 @@
 ### Breaking changes
 - None.
 
+## v2.3.4
+
+### Highlights
+- Advanced patch line to `v2.3.4` with additive compatibility (no contract removals).
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_3_4_rc_pipeline.ps1`
+  - `scripts/v2_3_4_rc_pipeline.sh`
+
+### Fixes
+- Synced docs/spec/release metadata and version surfaces to `v2.3.4`.
+
+### Breaking changes
+- None.
+
 ## v2.3.3
 
 ### Highlights
