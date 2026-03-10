@@ -71,10 +71,12 @@ def has_exact(paths: list[str], suffix: str) -> bool:
 
 def build_checks(version: str, copied_paths: list[str], require_gpu: bool) -> list[CheckResult]:
     checks: list[CheckResult] = []
+    archive_prefix = f"/dist/enkai-{version}-"
+    sbom_prefix = f"/dist/sbom-{version}-"
 
     archive = first_match(
         copied_paths,
-        lambda path: "/dist/enkai-" in path and (path.endswith(".zip") or path.endswith(".tar.gz")),
+        lambda path: archive_prefix in path and (path.endswith(".zip") or path.endswith(".tar.gz")),
     )
     checks.append(
         CheckResult(
@@ -82,12 +84,12 @@ def build_checks(version: str, copied_paths: list[str], require_gpu: bool) -> li
             description="Release archive is present",
             required=True,
             passed=archive is not None,
-            details=archive or "missing dist/enkai-<version>-<os>-<arch>.zip|tar.gz",
+            details=archive or f"missing dist/enkai-{version}-<os>-<arch>.zip|tar.gz",
         )
     )
 
     checksum = first_match(
-        copied_paths, lambda path: "/dist/enkai-" in path and path.endswith(".sha256")
+        copied_paths, lambda path: archive_prefix in path and path.endswith(".sha256")
     )
     checks.append(
         CheckResult(
@@ -95,18 +97,19 @@ def build_checks(version: str, copied_paths: list[str], require_gpu: bool) -> li
             description="Release checksum is present",
             required=True,
             passed=checksum is not None,
-            details=checksum or "missing dist/enkai-<version>-<os>-<arch>.<ext>.sha256",
+            details=checksum
+            or f"missing dist/enkai-{version}-<os>-<arch>.<ext>.sha256",
         )
     )
 
-    sbom = first_match(copied_paths, lambda path: "/dist/sbom-" in path and path.endswith(".json"))
+    sbom = first_match(copied_paths, lambda path: sbom_prefix in path and path.endswith(".json"))
     checks.append(
         CheckResult(
             id="sbom",
             description="SBOM artifact is present",
             required=True,
             passed=sbom is not None,
-            details=sbom or "missing dist/sbom-<version>-<os>-<arch>.json",
+            details=sbom or f"missing dist/sbom-{version}-<os>-<arch>.json",
         )
     )
 

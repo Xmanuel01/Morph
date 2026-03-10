@@ -2,16 +2,54 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.3.5.
-- v2.3.x remains additive/integration work (no contract-breaking removals).
+- Current production release line is v2.4.0.
+- v2.4.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
 
-v2.3.5 (in progress)
-- Patch-line stabilization after v2.3.4 cut:
+v2.4.0 (in progress)
+- Minor-line cut after v2.3.9:
   - release checklist synchronization and docs/spec consistency
   - benchmark class-gate reliability on pinned reference environments
-  - readiness and evidence pipeline hardening
+  - release evidence integrity hardening for version-scoped archive/SBOM checks
   - GPU evidence runbook continuity (operator-run)
+
+v2.3.9 (done)
+- Advanced patch line to `v2.3.9` with additive compatibility and no contract removals.
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_3_9_rc_pipeline.ps1`
+  - `scripts/v2_3_9_rc_pipeline.sh`
+- Synced docs/spec/release metadata and version surfaces to `v2.3.9`.
+
+v2.3.8 (done)
+- Advanced patch line to `v2.3.8` with additive compatibility and no contract removals.
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_3_8_rc_pipeline.ps1`
+  - `scripts/v2_3_8_rc_pipeline.sh`
+- Synced docs/spec/release metadata and version surfaces to `v2.3.8`.
+
+v2.3.7 (done)
+- Advanced patch line to `v2.3.7` with additive compatibility and no contract removals.
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_3_7_rc_pipeline.ps1`
+  - `scripts/v2_3_7_rc_pipeline.sh`
+- Hardened release evidence and capability reporting:
+  - `scripts/collect_release_evidence.py` archives version-scoped dist artifacts.
+  - `scripts/generate_capability_report.py` validates version-scoped archive/checksum/SBOM evidence.
+- Synced docs/spec/release metadata and version surfaces to `v2.3.7`.
+
+v2.3.6 (done)
+- Advanced patch line to `v2.3.6` with additive compatibility and no contract removals.
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_3_6_rc_pipeline.ps1`
+  - `scripts/v2_3_6_rc_pipeline.sh`
+- Synced docs/spec/release metadata and version surfaces to `v2.3.6`.
+
+v2.3.5 (done)
+- Advanced patch line to `v2.3.5` with additive compatibility and no contract removals.
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_3_5_rc_pipeline.ps1`
+  - `scripts/v2_3_5_rc_pipeline.sh`
+- Synced docs/spec/release metadata and version surfaces to `v2.3.5`.
 
 v2.3.4 (done)
 - Advanced patch line to `v2.3.4` with additive compatibility and no contract removals.

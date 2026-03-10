@@ -8,6 +8,82 @@
 ### Breaking changes
 - None.
 
+## v2.4.0
+
+### Highlights
+- Advanced minor line to `v2.4.0` with additive compatibility (no contract removals).
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_4_0_rc_pipeline.ps1`
+  - `scripts/v2_4_0_rc_pipeline.sh`
+
+### Fixes
+- Synced docs/spec/release metadata and version surfaces to `v2.4.0`.
+
+### Breaking changes
+- None.
+
+## v2.3.9
+
+### Highlights
+- Advanced patch line to `v2.3.9` with additive compatibility (no contract removals).
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_3_9_rc_pipeline.ps1`
+  - `scripts/v2_3_9_rc_pipeline.sh`
+
+### Fixes
+- Synced docs/spec/release metadata and version surfaces to `v2.3.9`.
+
+### Breaking changes
+- None.
+
+## v2.3.8
+
+### Highlights
+- Advanced patch line to `v2.3.8` with additive compatibility (no contract removals).
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_3_8_rc_pipeline.ps1`
+  - `scripts/v2_3_8_rc_pipeline.sh`
+
+### Fixes
+- Hardened release evidence + capability report integrity for version-scoped dist artifacts:
+  - `scripts/collect_release_evidence.py` now archives only `enkai-2.3.8-*`/`sbom-2.3.8-*` artifacts (plus benchmark evidence).
+  - `scripts/generate_capability_report.py` now validates current-version archive/checksum/SBOM paths.
+- Synced docs/spec/release metadata and version surfaces to `v2.3.8`.
+
+### Breaking changes
+- None.
+
+## v2.3.7
+
+### Highlights
+- Advanced patch line to `v2.3.7` with additive compatibility (no contract removals).
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_3_7_rc_pipeline.ps1`
+  - `scripts/v2_3_7_rc_pipeline.sh`
+
+### Fixes
+- Synced docs/spec/release metadata and version surfaces to `v2.3.7`.
+- Hardened release evidence packaging/reporting so capability checks are version-scoped:
+  - `scripts/collect_release_evidence.py` now archives only current-version package/SBOM artifacts (plus benchmark evidence).
+  - `scripts/generate_capability_report.py` now validates current-version archive/checksum/SBOM paths.
+
+### Breaking changes
+- None.
+
+## v2.3.6
+
+### Highlights
+- Advanced patch line to `v2.3.6` with additive compatibility (no contract removals).
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_3_6_rc_pipeline.ps1`
+  - `scripts/v2_3_6_rc_pipeline.sh`
+
+### Fixes
+- Synced docs/spec/release metadata and version surfaces to `v2.3.6`.
+
+### Breaking changes
+- None.
+
 ## v2.3.5
 
 ### Highlights

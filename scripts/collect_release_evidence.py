@@ -119,20 +119,39 @@ def ensure_required_files(directory: pathlib.Path, required: list[str], label: s
     return [directory / name for name in required]
 
 
-def validate_dist_artifacts(dist_files: list[pathlib.Path]) -> None:
+def include_dist_file(path: pathlib.Path, version: str) -> bool:
+    name = path.name
+    if name.startswith("enkai-"):
+        return name.startswith(f"enkai-{version}-")
+    if name.startswith("sbom-"):
+        return name.startswith(f"sbom-{version}-")
+    if name.startswith("benchmark_official_") and name.endswith(".json"):
+        return True
+    return False
+
+
+def validate_dist_artifacts_for_version(dist_files: list[pathlib.Path], version: str) -> None:
     names = [file.name for file in dist_files if file.is_file()]
-    has_archive = any(name.startswith("enkai-") and (name.endswith(".zip") or name.endswith(".tar.gz")) for name in names)
-    has_checksum = any(name.startswith("enkai-") and name.endswith(".sha256") for name in names)
-    has_sbom = any(name.startswith("sbom-") and name.endswith(".json") for name in names)
+    has_archive = any(
+        name.startswith(f"enkai-{version}-")
+        and (name.endswith(".zip") or name.endswith(".tar.gz"))
+        for name in names
+    )
+    has_checksum = any(
+        name.startswith(f"enkai-{version}-") and name.endswith(".sha256") for name in names
+    )
+    has_sbom = any(name.startswith(f"sbom-{version}-") and name.endswith(".json") for name in names)
     has_bench = any(re.match(r"benchmark_official_.*\.json$", name) for name in names)
 
     missing: list[str] = []
     if not has_archive:
-        missing.append("release archive (enkai-<version>-<os>-<arch>.zip|tar.gz)")
+        missing.append(
+            f"release archive (enkai-{version}-<os>-<arch>.zip|tar.gz)"
+        )
     if not has_checksum:
-        missing.append("release checksum (.sha256)")
+        missing.append(f"release checksum for enkai-{version}-* (.sha256)")
     if not has_sbom:
-        missing.append("SBOM (sbom-<version>-<os>-<arch>.json)")
+        missing.append(f"SBOM (sbom-{version}-<os>-<arch>.json)")
     if not has_bench:
         missing.append("benchmark evidence (benchmark_official_*.json)")
     if missing:
@@ -173,9 +192,13 @@ def main() -> int:
 
     dist_files: list[pathlib.Path] = []
     if dist_dir.is_dir():
-        dist_files = sorted(path for path in dist_dir.glob("*") if path.is_file())
+        dist_files = sorted(
+            path
+            for path in dist_dir.glob("*")
+            if path.is_file() and include_dist_file(path, version)
+        )
         if args.strict:
-            validate_dist_artifacts(dist_files)
+            validate_dist_artifacts_for_version(dist_files, version)
         file_rows.extend(copy_files(root, dist_dir, out_root / "dist", "dist", dist_files))
     elif args.strict:
         raise RuntimeError(f"dist directory not found for strict evidence mode: {dist_dir}")
