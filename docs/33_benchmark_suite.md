@@ -35,6 +35,8 @@ Profile a single case with VM/native counters:
   - `bench/suites/official_v2_3_0_cli_workflows.json`
   - `bench/suites/official_v2_3_0_ai_data_workflows.json`
   - `bench/suites/official_v2_3_0_matrix.json`
+- AI optimization sweep matrix (includes official matrix + training/inference/algorithm kernels):
+  - `bench/suites/ai_full_v2_4_0.json`
 - Class targets: `bench/suites/official_v2_3_0_targets.json`
 - Fairness contract: `bench/contracts/workload_equivalence_v1.json`
 - Frozen baseline: `bench/baselines/v2_2_0/pre_recovery_baseline.json`
@@ -79,3 +81,10 @@ For release blocking in v2.3.0:
 - memory reduction floor is enforced per case
 
 No universal cross-hardware claim is implied.
+
+## AI Optimization Sweep
+
+Use this suite to rank optimization priorities across AI-related workloads:
+
+- `enkai bench run --suite ai_full_v2_4_0 --baseline python --iterations 2 --warmup 1 --machine-profile bench/machines/windows_ref.json --output bench/results/ai_full_v2_4_0.windows.json`
+- `enkai bench profile --suite ai_full_v2_4_0 --case <id> --output bench/results/profiles/<id>.json`

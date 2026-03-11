@@ -455,6 +455,91 @@ impl VM {
         }
     }
 
+    fn try_fast_numeric_binary(
+        op: &Instruction,
+        left: &Value,
+        right: &Value,
+    ) -> Result<Option<Value>, RuntimeError> {
+        let out = match op {
+            Instruction::Add => match (left, right) {
+                (Value::Int(x), Value::Int(y)) => Some(Value::Int(x.wrapping_add(*y))),
+                (Value::Int(x), Value::Float(y)) => Some(Value::Float((*x as f64) + *y)),
+                (Value::Float(x), Value::Int(y)) => Some(Value::Float(*x + (*y as f64))),
+                (Value::Float(x), Value::Float(y)) => Some(Value::Float(*x + *y)),
+                _ => None,
+            },
+            Instruction::Sub => match (left, right) {
+                (Value::Int(x), Value::Int(y)) => Some(Value::Int(x.wrapping_sub(*y))),
+                (Value::Int(x), Value::Float(y)) => Some(Value::Float((*x as f64) - *y)),
+                (Value::Float(x), Value::Int(y)) => Some(Value::Float(*x - (*y as f64))),
+                (Value::Float(x), Value::Float(y)) => Some(Value::Float(*x - *y)),
+                _ => None,
+            },
+            Instruction::Mul => match (left, right) {
+                (Value::Int(x), Value::Int(y)) => Some(Value::Int(x.wrapping_mul(*y))),
+                (Value::Int(x), Value::Float(y)) => Some(Value::Float((*x as f64) * *y)),
+                (Value::Float(x), Value::Int(y)) => Some(Value::Float(*x * (*y as f64))),
+                (Value::Float(x), Value::Float(y)) => Some(Value::Float(*x * *y)),
+                _ => None,
+            },
+            Instruction::Div => match (left, right) {
+                (Value::Int(_), Value::Int(0)) => {
+                    return Err(RuntimeError::new("Division by zero"));
+                }
+                (Value::Int(x), Value::Int(y)) => {
+                    if *x == i64::MIN && *y == -1 {
+                        Some(Value::Int(i64::MIN))
+                    } else {
+                        Some(Value::Int(*x / *y))
+                    }
+                }
+                (Value::Int(_), Value::Float(v)) if *v == 0.0 => {
+                    return Err(RuntimeError::new("Division by zero"));
+                }
+                (Value::Float(_), Value::Int(0)) => {
+                    return Err(RuntimeError::new("Division by zero"));
+                }
+                (Value::Float(_), Value::Float(v)) if *v == 0.0 => {
+                    return Err(RuntimeError::new("Division by zero"));
+                }
+                (Value::Int(x), Value::Float(y)) => Some(Value::Float((*x as f64) / *y)),
+                (Value::Float(x), Value::Int(y)) => Some(Value::Float(*x / (*y as f64))),
+                (Value::Float(x), Value::Float(y)) => Some(Value::Float(*x / *y)),
+                _ => None,
+            },
+            Instruction::Lt => match (left, right) {
+                (Value::Int(x), Value::Int(y)) => Some(Value::Bool(x < y)),
+                (Value::Int(x), Value::Float(y)) => Some(Value::Bool((*x as f64) < *y)),
+                (Value::Float(x), Value::Int(y)) => Some(Value::Bool(*x < (*y as f64))),
+                (Value::Float(x), Value::Float(y)) => Some(Value::Bool(*x < *y)),
+                _ => None,
+            },
+            Instruction::Gt => match (left, right) {
+                (Value::Int(x), Value::Int(y)) => Some(Value::Bool(x > y)),
+                (Value::Int(x), Value::Float(y)) => Some(Value::Bool((*x as f64) > *y)),
+                (Value::Float(x), Value::Int(y)) => Some(Value::Bool(*x > (*y as f64))),
+                (Value::Float(x), Value::Float(y)) => Some(Value::Bool(*x > *y)),
+                _ => None,
+            },
+            Instruction::Le => match (left, right) {
+                (Value::Int(x), Value::Int(y)) => Some(Value::Bool(x <= y)),
+                (Value::Int(x), Value::Float(y)) => Some(Value::Bool((*x as f64) <= *y)),
+                (Value::Float(x), Value::Int(y)) => Some(Value::Bool(*x <= (*y as f64))),
+                (Value::Float(x), Value::Float(y)) => Some(Value::Bool(*x <= *y)),
+                _ => None,
+            },
+            Instruction::Ge => match (left, right) {
+                (Value::Int(x), Value::Int(y)) => Some(Value::Bool(x >= y)),
+                (Value::Int(x), Value::Float(y)) => Some(Value::Bool((*x as f64) >= *y)),
+                (Value::Float(x), Value::Int(y)) => Some(Value::Bool(*x >= (*y as f64))),
+                (Value::Float(x), Value::Float(y)) => Some(Value::Bool(*x >= *y)),
+                _ => None,
+            },
+            _ => None,
+        };
+        Ok(out)
+    }
+
     fn install_globals(&mut self, program: &Program) -> Result<(), RuntimeError> {
         self.globals = Vec::with_capacity(program.globals.len());
         for name in &program.globals {
@@ -1697,6 +1782,61 @@ impl VM {
                     }
 
                     if !fast_path_taken {
+                        if let Some(Constant::Float(rhs)) = func.chunk.constants.get(idx as usize) {
+                            if let Some(Value::Float(lhs)) = self.stack.last().cloned() {
+                                if let Some(next_instr) = func.chunk.code.get(ip + 1) {
+                                    let maybe_value = match next_instr {
+                                        Instruction::Add => Some(Value::Float(lhs + *rhs)),
+                                        Instruction::Sub => Some(Value::Float(lhs - *rhs)),
+                                        Instruction::Mul => Some(Value::Float(lhs * *rhs)),
+                                        Instruction::Div => {
+                                            if *rhs == 0.0 {
+                                                return TaskRunOutcome::Errored(trace(
+                                                    self,
+                                                    RuntimeError::new("Division by zero"),
+                                                ));
+                                            }
+                                            Some(Value::Float(lhs / *rhs))
+                                        }
+                                        Instruction::Eq => Some(Value::Bool(lhs == *rhs)),
+                                        Instruction::Neq => Some(Value::Bool(lhs != *rhs)),
+                                        Instruction::Lt => Some(Value::Bool(lhs < *rhs)),
+                                        Instruction::Gt => Some(Value::Bool(lhs > *rhs)),
+                                        Instruction::Le => Some(Value::Bool(lhs <= *rhs)),
+                                        Instruction::Ge => Some(Value::Bool(lhs >= *rhs)),
+                                        _ => None,
+                                    };
+                                    if let Some(value) = maybe_value {
+                                        self.stack.pop();
+                                        self.stack.push(value);
+                                        next_ip = ip + 2;
+                                        if let Some(profile) = self.bench_profile.as_mut() {
+                                            match next_instr {
+                                                Instruction::Add
+                                                | Instruction::Sub
+                                                | Instruction::Mul
+                                                | Instruction::Div => {
+                                                    profile.counters.arithmetic_ops = profile
+                                                        .counters
+                                                        .arithmetic_ops
+                                                        .saturating_add(1);
+                                                }
+                                                _ => {
+                                                    profile.counters.compare_ops = profile
+                                                        .counters
+                                                        .compare_ops
+                                                        .saturating_add(1);
+                                                }
+                                            }
+                                        }
+                                        fast_path_taken = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if !fast_path_taken {
                         let v = match &func.chunk.constants[idx as usize] {
                             Constant::Int(i) => Value::Int(*i),
                             Constant::Float(f) => Value::Float(*f),
@@ -1899,6 +2039,226 @@ impl VM {
                     }
 
                     if !fast_path_taken {
+                        if let Value::Float(local_float) = self.stack[slot] {
+                            let const_float = |const_idx: u16| -> Option<f64> {
+                                match func.chunk.constants.get(const_idx as usize) {
+                                    Some(Constant::Float(v)) => Some(*v),
+                                    _ => None,
+                                }
+                            };
+
+                            if let (
+                                Some(Instruction::Const(const_idx)),
+                                Some(Instruction::Add),
+                                Some(Instruction::StoreLocal(target)),
+                            ) = (
+                                func.chunk.code.get(ip + 1),
+                                func.chunk.code.get(ip + 2),
+                                func.chunk.code.get(ip + 3),
+                            ) {
+                                if *target == idx {
+                                    if let Some(rhs) = const_float(*const_idx) {
+                                        self.stack[slot] = Value::Float(local_float + rhs);
+                                        next_ip = ip + 4;
+                                        if let Some(profile) = self.bench_profile.as_mut() {
+                                            profile.counters.arithmetic_ops =
+                                                profile.counters.arithmetic_ops.saturating_add(1);
+                                        }
+                                        fast_path_taken = true;
+                                    }
+                                }
+                            }
+
+                            if !fast_path_taken {
+                                if let (
+                                    Some(Instruction::Const(const_idx)),
+                                    Some(Instruction::Sub),
+                                    Some(Instruction::StoreLocal(target)),
+                                ) = (
+                                    func.chunk.code.get(ip + 1),
+                                    func.chunk.code.get(ip + 2),
+                                    func.chunk.code.get(ip + 3),
+                                ) {
+                                    if *target == idx {
+                                        if let Some(rhs) = const_float(*const_idx) {
+                                            self.stack[slot] = Value::Float(local_float - rhs);
+                                            next_ip = ip + 4;
+                                            if let Some(profile) = self.bench_profile.as_mut() {
+                                                profile.counters.arithmetic_ops = profile
+                                                    .counters
+                                                    .arithmetic_ops
+                                                    .saturating_add(1);
+                                            }
+                                            fast_path_taken = true;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if !fast_path_taken {
+                                if let (
+                                    Some(Instruction::Const(const_idx)),
+                                    Some(Instruction::Mul),
+                                    Some(Instruction::StoreLocal(target)),
+                                ) = (
+                                    func.chunk.code.get(ip + 1),
+                                    func.chunk.code.get(ip + 2),
+                                    func.chunk.code.get(ip + 3),
+                                ) {
+                                    if *target == idx {
+                                        if let Some(rhs) = const_float(*const_idx) {
+                                            self.stack[slot] = Value::Float(local_float * rhs);
+                                            next_ip = ip + 4;
+                                            if let Some(profile) = self.bench_profile.as_mut() {
+                                                profile.counters.arithmetic_ops = profile
+                                                    .counters
+                                                    .arithmetic_ops
+                                                    .saturating_add(1);
+                                            }
+                                            fast_path_taken = true;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if !fast_path_taken {
+                                if let (
+                                    Some(Instruction::Const(const_idx)),
+                                    Some(Instruction::Div),
+                                    Some(Instruction::StoreLocal(target)),
+                                ) = (
+                                    func.chunk.code.get(ip + 1),
+                                    func.chunk.code.get(ip + 2),
+                                    func.chunk.code.get(ip + 3),
+                                ) {
+                                    if *target == idx {
+                                        if let Some(rhs) = const_float(*const_idx) {
+                                            if rhs == 0.0 {
+                                                return TaskRunOutcome::Errored(trace(
+                                                    self,
+                                                    RuntimeError::new("Division by zero"),
+                                                ));
+                                            }
+                                            self.stack[slot] = Value::Float(local_float / rhs);
+                                            next_ip = ip + 4;
+                                            if let Some(profile) = self.bench_profile.as_mut() {
+                                                profile.counters.arithmetic_ops = profile
+                                                    .counters
+                                                    .arithmetic_ops
+                                                    .saturating_add(1);
+                                            }
+                                            fast_path_taken = true;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if !fast_path_taken {
+                                if let (
+                                    Some(Instruction::Const(const_idx)),
+                                    Some(Instruction::Mul),
+                                ) = (func.chunk.code.get(ip + 1), func.chunk.code.get(ip + 2))
+                                {
+                                    if let Some(rhs) = const_float(*const_idx) {
+                                        self.stack.push(Value::Float(local_float * rhs));
+                                        next_ip = ip + 3;
+                                        if let Some(profile) = self.bench_profile.as_mut() {
+                                            profile.counters.arithmetic_ops =
+                                                profile.counters.arithmetic_ops.saturating_add(1);
+                                        }
+                                        fast_path_taken = true;
+                                    }
+                                }
+                            }
+
+                            if !fast_path_taken {
+                                if let (
+                                    Some(Instruction::Const(const_idx)),
+                                    Some(Instruction::Div),
+                                ) = (func.chunk.code.get(ip + 1), func.chunk.code.get(ip + 2))
+                                {
+                                    if let Some(rhs) = const_float(*const_idx) {
+                                        if rhs == 0.0 {
+                                            return TaskRunOutcome::Errored(trace(
+                                                self,
+                                                RuntimeError::new("Division by zero"),
+                                            ));
+                                        }
+                                        self.stack.push(Value::Float(local_float / rhs));
+                                        next_ip = ip + 3;
+                                        if let Some(profile) = self.bench_profile.as_mut() {
+                                            profile.counters.arithmetic_ops =
+                                                profile.counters.arithmetic_ops.saturating_add(1);
+                                        }
+                                        fast_path_taken = true;
+                                    }
+                                }
+                            }
+
+                            if !fast_path_taken {
+                                if let (
+                                    Some(Instruction::Const(const_idx)),
+                                    Some(Instruction::Add),
+                                ) = (func.chunk.code.get(ip + 1), func.chunk.code.get(ip + 2))
+                                {
+                                    if let Some(rhs) = const_float(*const_idx) {
+                                        self.stack.push(Value::Float(local_float + rhs));
+                                        next_ip = ip + 3;
+                                        if let Some(profile) = self.bench_profile.as_mut() {
+                                            profile.counters.arithmetic_ops =
+                                                profile.counters.arithmetic_ops.saturating_add(1);
+                                        }
+                                        fast_path_taken = true;
+                                    }
+                                }
+                            }
+
+                            if !fast_path_taken {
+                                if let (
+                                    Some(Instruction::Const(const_idx)),
+                                    Some(Instruction::Sub),
+                                ) = (func.chunk.code.get(ip + 1), func.chunk.code.get(ip + 2))
+                                {
+                                    if let Some(rhs) = const_float(*const_idx) {
+                                        self.stack.push(Value::Float(local_float - rhs));
+                                        next_ip = ip + 3;
+                                        if let Some(profile) = self.bench_profile.as_mut() {
+                                            profile.counters.arithmetic_ops =
+                                                profile.counters.arithmetic_ops.saturating_add(1);
+                                        }
+                                        fast_path_taken = true;
+                                    }
+                                }
+                            }
+
+                            if !fast_path_taken {
+                                if let (Some(Instruction::Const(const_idx)), Some(cmp_instr)) =
+                                    (func.chunk.code.get(ip + 1), func.chunk.code.get(ip + 2))
+                                {
+                                    if let Some(rhs) = const_float(*const_idx) {
+                                        let cmp_result = match cmp_instr {
+                                            Instruction::Lt => Some(local_float < rhs),
+                                            Instruction::Gt => Some(local_float > rhs),
+                                            Instruction::Le => Some(local_float <= rhs),
+                                            Instruction::Ge => Some(local_float >= rhs),
+                                            _ => None,
+                                        };
+                                        if let Some(value) = cmp_result {
+                                            self.stack.push(Value::Bool(value));
+                                            next_ip = ip + 3;
+                                            if let Some(profile) = self.bench_profile.as_mut() {
+                                                profile.counters.compare_ops =
+                                                    profile.counters.compare_ops.saturating_add(1);
+                                            }
+                                            fast_path_taken = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if !fast_path_taken {
                         let val = self.stack[slot].clone();
                         self.stack.push(val);
                     }
@@ -1929,6 +2289,60 @@ impl VM {
                     }
 
                     let mut fast_path_taken = false;
+                    if let (Some(Instruction::LoadGlobal(rhs_idx)), Some(op_instr)) =
+                        (func.chunk.code.get(ip + 1), func.chunk.code.get(ip + 2))
+                    {
+                        if matches!(
+                            op_instr,
+                            Instruction::Add
+                                | Instruction::Sub
+                                | Instruction::Mul
+                                | Instruction::Div
+                                | Instruction::Lt
+                                | Instruction::Gt
+                                | Instruction::Le
+                                | Instruction::Ge
+                        ) {
+                            let rhs_slot = *rhs_idx as usize;
+                            if rhs_slot < self.globals.len() {
+                                match Self::try_fast_numeric_binary(
+                                    op_instr,
+                                    &self.globals[slot],
+                                    &self.globals[rhs_slot],
+                                ) {
+                                    Ok(Some(value)) => {
+                                        self.stack.push(value);
+                                        next_ip = ip + 3;
+                                        if let Some(profile) = self.bench_profile.as_mut() {
+                                            match op_instr {
+                                                Instruction::Add
+                                                | Instruction::Sub
+                                                | Instruction::Mul
+                                                | Instruction::Div => {
+                                                    profile.counters.arithmetic_ops = profile
+                                                        .counters
+                                                        .arithmetic_ops
+                                                        .saturating_add(1);
+                                                }
+                                                _ => {
+                                                    profile.counters.compare_ops = profile
+                                                        .counters
+                                                        .compare_ops
+                                                        .saturating_add(1);
+                                                }
+                                            }
+                                        }
+                                        fast_path_taken = true;
+                                    }
+                                    Ok(None) => {}
+                                    Err(err) => {
+                                        return TaskRunOutcome::Errored(trace(self, err));
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     if let Value::Int(global_int_ref) = &self.globals[slot] {
                         let global_int = *global_int_ref;
                         let const_int = |const_idx: u16| -> Option<i64> {
@@ -2080,6 +2494,227 @@ impl VM {
                                                 profile.counters.compare_ops.saturating_add(1);
                                         }
                                         fast_path_taken = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if !fast_path_taken {
+                        if let Value::Float(global_float_ref) = &self.globals[slot] {
+                            let global_float = *global_float_ref;
+                            let const_float = |const_idx: u16| -> Option<f64> {
+                                match func.chunk.constants.get(const_idx as usize) {
+                                    Some(Constant::Float(v)) => Some(*v),
+                                    _ => None,
+                                }
+                            };
+
+                            if let (
+                                Some(Instruction::Const(const_idx)),
+                                Some(Instruction::Add),
+                                Some(Instruction::StoreGlobal(target)),
+                            ) = (
+                                func.chunk.code.get(ip + 1),
+                                func.chunk.code.get(ip + 2),
+                                func.chunk.code.get(ip + 3),
+                            ) {
+                                if *target == idx {
+                                    if let Some(rhs) = const_float(*const_idx) {
+                                        self.globals[slot] = Value::Float(global_float + rhs);
+                                        next_ip = ip + 4;
+                                        if let Some(profile) = self.bench_profile.as_mut() {
+                                            profile.counters.arithmetic_ops =
+                                                profile.counters.arithmetic_ops.saturating_add(1);
+                                        }
+                                        fast_path_taken = true;
+                                    }
+                                }
+                            }
+
+                            if !fast_path_taken {
+                                if let (
+                                    Some(Instruction::Const(const_idx)),
+                                    Some(Instruction::Sub),
+                                    Some(Instruction::StoreGlobal(target)),
+                                ) = (
+                                    func.chunk.code.get(ip + 1),
+                                    func.chunk.code.get(ip + 2),
+                                    func.chunk.code.get(ip + 3),
+                                ) {
+                                    if *target == idx {
+                                        if let Some(rhs) = const_float(*const_idx) {
+                                            self.globals[slot] = Value::Float(global_float - rhs);
+                                            next_ip = ip + 4;
+                                            if let Some(profile) = self.bench_profile.as_mut() {
+                                                profile.counters.arithmetic_ops = profile
+                                                    .counters
+                                                    .arithmetic_ops
+                                                    .saturating_add(1);
+                                            }
+                                            fast_path_taken = true;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if !fast_path_taken {
+                                if let (
+                                    Some(Instruction::Const(const_idx)),
+                                    Some(Instruction::Mul),
+                                    Some(Instruction::StoreGlobal(target)),
+                                ) = (
+                                    func.chunk.code.get(ip + 1),
+                                    func.chunk.code.get(ip + 2),
+                                    func.chunk.code.get(ip + 3),
+                                ) {
+                                    if *target == idx {
+                                        if let Some(rhs) = const_float(*const_idx) {
+                                            self.globals[slot] = Value::Float(global_float * rhs);
+                                            next_ip = ip + 4;
+                                            if let Some(profile) = self.bench_profile.as_mut() {
+                                                profile.counters.arithmetic_ops = profile
+                                                    .counters
+                                                    .arithmetic_ops
+                                                    .saturating_add(1);
+                                            }
+                                            fast_path_taken = true;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if !fast_path_taken {
+                                if let (
+                                    Some(Instruction::Const(const_idx)),
+                                    Some(Instruction::Div),
+                                    Some(Instruction::StoreGlobal(target)),
+                                ) = (
+                                    func.chunk.code.get(ip + 1),
+                                    func.chunk.code.get(ip + 2),
+                                    func.chunk.code.get(ip + 3),
+                                ) {
+                                    if *target == idx {
+                                        if let Some(rhs) = const_float(*const_idx) {
+                                            if rhs == 0.0 {
+                                                return TaskRunOutcome::Errored(trace(
+                                                    self,
+                                                    RuntimeError::new("Division by zero"),
+                                                ));
+                                            }
+                                            self.globals[slot] = Value::Float(global_float / rhs);
+                                            next_ip = ip + 4;
+                                            if let Some(profile) = self.bench_profile.as_mut() {
+                                                profile.counters.arithmetic_ops = profile
+                                                    .counters
+                                                    .arithmetic_ops
+                                                    .saturating_add(1);
+                                            }
+                                            fast_path_taken = true;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if !fast_path_taken {
+                                if let (
+                                    Some(Instruction::Const(const_idx)),
+                                    Some(Instruction::Mul),
+                                ) = (func.chunk.code.get(ip + 1), func.chunk.code.get(ip + 2))
+                                {
+                                    if let Some(rhs) = const_float(*const_idx) {
+                                        self.stack.push(Value::Float(global_float * rhs));
+                                        next_ip = ip + 3;
+                                        if let Some(profile) = self.bench_profile.as_mut() {
+                                            profile.counters.arithmetic_ops =
+                                                profile.counters.arithmetic_ops.saturating_add(1);
+                                        }
+                                        fast_path_taken = true;
+                                    }
+                                }
+                            }
+
+                            if !fast_path_taken {
+                                if let (
+                                    Some(Instruction::Const(const_idx)),
+                                    Some(Instruction::Div),
+                                ) = (func.chunk.code.get(ip + 1), func.chunk.code.get(ip + 2))
+                                {
+                                    if let Some(rhs) = const_float(*const_idx) {
+                                        if rhs == 0.0 {
+                                            return TaskRunOutcome::Errored(trace(
+                                                self,
+                                                RuntimeError::new("Division by zero"),
+                                            ));
+                                        }
+                                        self.stack.push(Value::Float(global_float / rhs));
+                                        next_ip = ip + 3;
+                                        if let Some(profile) = self.bench_profile.as_mut() {
+                                            profile.counters.arithmetic_ops =
+                                                profile.counters.arithmetic_ops.saturating_add(1);
+                                        }
+                                        fast_path_taken = true;
+                                    }
+                                }
+                            }
+
+                            if !fast_path_taken {
+                                if let (
+                                    Some(Instruction::Const(const_idx)),
+                                    Some(Instruction::Add),
+                                ) = (func.chunk.code.get(ip + 1), func.chunk.code.get(ip + 2))
+                                {
+                                    if let Some(rhs) = const_float(*const_idx) {
+                                        self.stack.push(Value::Float(global_float + rhs));
+                                        next_ip = ip + 3;
+                                        if let Some(profile) = self.bench_profile.as_mut() {
+                                            profile.counters.arithmetic_ops =
+                                                profile.counters.arithmetic_ops.saturating_add(1);
+                                        }
+                                        fast_path_taken = true;
+                                    }
+                                }
+                            }
+
+                            if !fast_path_taken {
+                                if let (
+                                    Some(Instruction::Const(const_idx)),
+                                    Some(Instruction::Sub),
+                                ) = (func.chunk.code.get(ip + 1), func.chunk.code.get(ip + 2))
+                                {
+                                    if let Some(rhs) = const_float(*const_idx) {
+                                        self.stack.push(Value::Float(global_float - rhs));
+                                        next_ip = ip + 3;
+                                        if let Some(profile) = self.bench_profile.as_mut() {
+                                            profile.counters.arithmetic_ops =
+                                                profile.counters.arithmetic_ops.saturating_add(1);
+                                        }
+                                        fast_path_taken = true;
+                                    }
+                                }
+                            }
+
+                            if !fast_path_taken {
+                                if let (Some(Instruction::Const(const_idx)), Some(cmp_instr)) =
+                                    (func.chunk.code.get(ip + 1), func.chunk.code.get(ip + 2))
+                                {
+                                    if let Some(rhs) = const_float(*const_idx) {
+                                        let cmp_result = match cmp_instr {
+                                            Instruction::Lt => Some(global_float < rhs),
+                                            Instruction::Gt => Some(global_float > rhs),
+                                            Instruction::Le => Some(global_float <= rhs),
+                                            Instruction::Ge => Some(global_float >= rhs),
+                                            _ => None,
+                                        };
+                                        if let Some(value) = cmp_result {
+                                            self.stack.push(Value::Bool(value));
+                                            next_ip = ip + 3;
+                                            if let Some(profile) = self.bench_profile.as_mut() {
+                                                profile.counters.compare_ops =
+                                                    profile.counters.compare_ops.saturating_add(1);
+                                            }
+                                            fast_path_taken = true;
+                                        }
                                     }
                                 }
                             }

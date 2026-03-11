@@ -423,11 +423,13 @@ fn std_algo_extended_helpers() {
     copy_std_modules(temp.path());
     let source = "import std::algo\n\
         let topk := algo.top_k_ints([9, 1, 7, 3, 8], 3)\n\
+        let top_sum := algo.top_k_sum_repeat([9, 1, 7, 3, 8], 3, 4)\n\
         let merged := algo.merge_sorted_ints([1, 3, 5], [2, 4, 6])\n\
         let left_counts := json.parse(\"{\\\"red\\\":2,\\\"blue\\\":1}\")\n\
         let right_counts := json.parse(\"{\\\"red\\\":3,\\\"green\\\":4}\")\n\
         let counts := algo.merge_count_maps(left_counts, right_counts)\n\
-        topk != [] and merged != [] and counts.red == 5 and counts.green == 4\n";
+        let split_sum := algo.split_test_count_repeat(12, 0.25, 99, 1, 10)\n\
+        topk != [] and top_sum == 96 and merged != [] and counts.red == 5 and counts.green == 4 and split_sum == 30\n";
     let value = run_package(temp.path(), "main.enk", source).expect("run");
     assert_eq!(value, Value::Bool(true));
 }

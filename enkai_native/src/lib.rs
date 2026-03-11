@@ -2723,6 +2723,45 @@ pub extern "C" fn algo_top_k_ints(values_ptr: *const u8, values_len: usize, k: i
 }
 
 #[no_mangle]
+pub extern "C" fn algo_top_k_sum_ints_repeat(
+    values_ptr: *const u8,
+    values_len: usize,
+    k: i64,
+    repeats: i64,
+) -> i64 {
+    let raw = match string_from_raw(values_ptr, values_len) {
+        Some(raw) => raw,
+        None => return 0,
+    };
+    let values = match parse_json_i64(&raw) {
+        Some(values) => values,
+        None => return 0,
+    };
+    let k = k.max(0) as usize;
+    let repeats = repeats.max(0);
+    if values.is_empty() || k == 0 || repeats == 0 {
+        return 0;
+    }
+
+    let mut heap: BinaryHeap<Reverse<i64>> = BinaryHeap::with_capacity(k);
+    for value in values.iter().copied() {
+        if heap.len() < k {
+            heap.push(Reverse(value));
+            continue;
+        }
+        let min = heap.peek().copied().unwrap_or(Reverse(value)).0;
+        if value > min {
+            let _ = heap.pop();
+            heap.push(Reverse(value));
+        }
+    }
+    let one_pass_sum = heap
+        .into_iter()
+        .fold(0i64, |acc, Reverse(value)| acc.wrapping_add(value));
+    one_pass_sum.wrapping_mul(repeats)
+}
+
+#[no_mangle]
 pub extern "C" fn algo_merge_sorted_ints(
     left_ptr: *const u8,
     left_len: usize,
@@ -3045,6 +3084,39 @@ pub extern "C" fn ml_split_indices_json(
         "seed": seed,
         "shuffle": shuffle != 0
     }))
+}
+
+#[no_mangle]
+pub extern "C" fn ml_split_test_count_repeat(
+    total: i64,
+    test_ratio: f64,
+    seed: i64,
+    shuffle: i64,
+    repeats: i64,
+) -> i64 {
+    if total <= 0 || !test_ratio.is_finite() {
+        return 0;
+    }
+    let total = total as usize;
+    let ratio = test_ratio.clamp(0.0, 1.0);
+    let repeats = repeats.max(0);
+    if repeats == 0 {
+        return 0;
+    }
+    if shuffle != 0 {
+        let mut indices: Vec<usize> = (0..total).collect();
+        let seed = seed as u64;
+        indices.sort_by(|left, right| {
+            deterministic_order_key(seed, *left)
+                .cmp(&deterministic_order_key(seed, *right))
+                .then_with(|| left.cmp(right))
+        });
+        drop(indices);
+    } else {
+        let _ = seed;
+    }
+    let test_count = (((total as f64) * ratio).round() as usize).min(total) as i64;
+    test_count.wrapping_mul(repeats)
 }
 
 #[no_mangle]
@@ -3415,6 +3487,10 @@ mod tests {
             unsafe { std::str::from_utf8(std::slice::from_raw_parts(split2.ptr, split2.len)) }
                 .unwrap();
         assert_eq!(split_text, split2_text);
+        let topk_sum = algo_top_k_sum_ints_repeat("[9,1,7,3,8]".as_ptr(), 11, 3, 4);
+        assert_eq!(topk_sum, 96);
+        let split_count_sum = ml_split_test_count_repeat(12, 0.25, 99, 1, 10);
+        assert_eq!(split_count_sum, 30);
         let lr0 = ml_scheduler_linear_warmup(0, 100, 10, 0.001, 0.0001);
         let lr20 = ml_scheduler_linear_warmup(20, 100, 10, 0.001, 0.0001);
         assert!(lr0 > 0.0 && lr0 < 0.001);

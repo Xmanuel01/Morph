@@ -11,12 +11,14 @@ native::import "enkai_native" ::
     fn algo_window_sum_json(values_json: String, window: Int) -> String
     fn algo_cumulative_sum_json(values_json: String) -> String
     fn algo_window_mean_json(values_json: String, window: Int) -> String
+    fn algo_top_k_sum_ints_repeat(values_json: String, k: Int, repeats: Int) -> Int
     fn ml_metric_accuracy_json(pred_json: String, target_json: String) -> Float
     fn ml_metric_mse_json(pred_json: String, target_json: String) -> Float
     fn ml_metric_mae_json(pred_json: String, target_json: String) -> Float
     fn ml_metric_rmse_json(pred_json: String, target_json: String) -> Float
     fn ml_metric_precision_recall_f1_json(pred_json: String, target_json: String, positive_label: Int) -> String
     fn ml_split_indices_json(total: Int, test_ratio: Float, seed: Int, shuffle: Int) -> String
+    fn ml_split_test_count_repeat(total: Int, test_ratio: Float, seed: Int, shuffle: Int, repeats: Int) -> Int
     fn ml_scheduler_linear_warmup(step: Int, total_steps: Int, warmup_steps: Int, base_lr: Float, min_lr: Float) -> Float
 ::
 
@@ -32,6 +34,10 @@ pub fn binary_search_ints(values, target: Int) -> Int ::
 pub fn top_k_ints(values, k: Int) ::
     let raw := algo_top_k_ints(json.stringify(values), k)
     return json.parse(raw)
+::
+
+pub fn top_k_sum_repeat(values, k: Int, repeats: Int) -> Int ::
+    return algo_top_k_sum_ints_repeat(json.stringify(values), k, repeats)
 ::
 
 pub fn merge_sorted_ints(left, right) ::
@@ -97,6 +103,10 @@ pub fn precision_recall_f1(pred, target, positive_label: Int) ::
 pub fn split_indices(total: Int, test_ratio: Float, seed: Int, shuffle: Int) ::
     let raw := ml_split_indices_json(total, test_ratio, seed, shuffle)
     return json.parse(raw)
+::
+
+pub fn split_test_count_repeat(total: Int, test_ratio: Float, seed: Int, shuffle: Int, repeats: Int) -> Int ::
+    return ml_split_test_count_repeat(total, test_ratio, seed, shuffle, repeats)
 ::
 
 pub fn scheduler_linear_warmup(

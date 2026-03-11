@@ -37,14 +37,27 @@ def split_indices(total: int, ratio: float, seed: int) -> dict[str, object]:
     }
 
 
+def top_k_sum_repeat(values: list[int], k: int, repeats: int) -> int:
+    checksum = 0
+    for _ in range(repeats):
+        checksum += sum(top_k_ints(values, k))
+    return checksum
+
+
+def split_test_count_repeat(total: int, ratio: float, seed: int, repeats: int) -> int:
+    checksum = 0
+    for _ in range(repeats):
+        checksum += int(split_indices(total, ratio, seed)["test_count"])
+    return checksum
+
+
 def run() -> int:
-    for _ in range(20_000):
-        top = top_k_ints([9, 1, 8, 2, 7, 3, 6, 4, 5], 4)
-        split = split_indices(20, 0.2, 42)
-        if top == []:
-            return 1
-        if split["test_count"] != 4:
-            return 1
+    top_sum = top_k_sum_repeat([9, 1, 8, 2, 7, 3, 6, 4, 5], 4, 20_000)
+    split_sum = split_test_count_repeat(20, 0.2, 42, 20_000)
+    if top_sum <= 0:
+        return 1
+    if split_sum != 80_000:
+        return 1
     return 0
 
 

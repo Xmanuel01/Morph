@@ -1,0 +1,81 @@
+{
+  "suite": "ai_full_v2_4_0",
+  "description": "Comprehensive AI-focused benchmark matrix for optimization planning",
+  "includes": [
+    "official_v2_3_0_matrix"
+  ],
+  "cases": [
+    {
+      "id": "train_step_kernel",
+      "class": "ai_training_inference",
+      "description": "Gradient-descent style scalar training loop",
+      "enkai_command": [
+        "${ENKAI_BIN}",
+        "run",
+        "bench/enkai/kernel_train_step.enk"
+      ],
+      "python_command": [
+        "${PYTHON_EXE}",
+        "bench/python/kernel_train_step.py"
+      ],
+      "equivalence": {
+        "enkai_work_units": 250000,
+        "python_work_units": 250000,
+        "enkai_payload_bytes": 24,
+        "python_payload_bytes": 24,
+        "enkai_batching_mode": "loop_scalar",
+        "python_batching_mode": "loop_scalar",
+        "enkai_warmup_policy": "suite_default",
+        "python_warmup_policy": "suite_default"
+      }
+    },
+    {
+      "id": "inference_kernel",
+      "class": "ai_training_inference",
+      "description": "Autoregressive-style token loop",
+      "enkai_command": [
+        "${ENKAI_BIN}",
+        "run",
+        "bench/enkai/kernel_inference.enk"
+      ],
+      "python_command": [
+        "${PYTHON_EXE}",
+        "bench/python/kernel_inference.py"
+      ],
+      "equivalence": {
+        "enkai_work_units": 500000,
+        "python_work_units": 500000,
+        "enkai_payload_bytes": 8,
+        "python_payload_bytes": 8,
+        "enkai_batching_mode": "loop_scalar",
+        "python_batching_mode": "loop_scalar",
+        "enkai_warmup_policy": "suite_default",
+        "python_warmup_policy": "suite_default"
+      }
+    },
+    {
+      "id": "algo_stack_kernel",
+      "class": "ai_algorithm_workflows",
+      "description": "Algorithm + ML utility helper throughput (bulk bridge path)",
+      "enkai_command": [
+        "${ENKAI_BIN}",
+        "run",
+        "bench/enkai/kernel_algo_suite.enk"
+      ],
+      "python_command": [
+        "${PYTHON_EXE}",
+        "bench/python/kernel_algo_suite.py"
+      ],
+      "equivalence": {
+        "enkai_work_units": 20000,
+        "python_work_units": 20000,
+        "enkai_payload_bytes": 72,
+        "python_payload_bytes": 72,
+        "enkai_batching_mode": "loop_batch",
+        "python_batching_mode": "loop_batch",
+        "enkai_warmup_policy": "suite_default",
+        "python_warmup_policy": "suite_default"
+      }
+    }
+  ]
+}
