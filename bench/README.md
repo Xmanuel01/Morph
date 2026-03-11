@@ -1,52 +1,52 @@
-# Enkai Benchmark Harness (v2.2.0)
+# Enkai Benchmark Harness (Official v2.3.0 Class Matrix)
 
-This harness provides reproducible Enkai-vs-Python benchmarks with structured JSON output.
+This harness provides reproducible Enkai-vs-Python benchmarking with strict fairness checks and
+class-based gating.
 
-## Command
+## Core Commands
 
-- `enkai bench run --suite <name> --baseline python --output <file>`
+- Run suite:
+  - `enkai bench run --suite <name> --baseline python --output <file>`
+- Fairness-only precheck:
+  - `enkai bench run --suite official_v2_3_0_matrix --baseline python --fairness-check-only --output bench/results/fairness.json`
+- Release target gate:
+  - `enkai bench run --suite official_v2_3_0_matrix --baseline python --iterations 2 --warmup 1 --machine-profile bench/machines/windows_ref.json --target-speedup 15 --target-memory 5 --enforce-target --enforce-class-targets --class-targets bench/suites/official_v2_3_0_targets.json --output bench/results/official_v2_3_0_matrix.windows.json`
+- Per-case profiler output:
+  - `enkai bench profile --case <id> --output bench/results/profiles/<id>.json`
 
-Official suite for v2.2.0:
-- `enkai bench run --suite official_v2_2_0 --baseline python --output bench/results/official_v2_2_0.json`
+## Official Assets
 
-## Suites
+- Official matrix suite:
+  - `bench/suites/official_v2_3_0_matrix.json`
+- Class suites:
+  - `bench/suites/official_v2_3_0_vm_compute.json`
+  - `bench/suites/official_v2_3_0_native_bridge.json`
+  - `bench/suites/official_v2_3_0_cli_workflows.json`
+  - `bench/suites/official_v2_3_0_ai_data_workflows.json`
+- Class target thresholds:
+  - `bench/suites/official_v2_3_0_targets.json`
+- Workload-equivalence contract:
+  - `bench/contracts/workload_equivalence_v1.json`
+- Frozen pre-recovery baseline:
+  - `bench/baselines/v2_2_0/pre_recovery_baseline.json`
 
-- `bench/suites/core.json`: deterministic numeric/json/hash kernels.
-- `bench/suites/train_step.json`: training-step style throughput kernel.
-- `bench/suites/inference.json`: inference token-loop throughput kernel.
-- `bench/suites/tokenizer_dataset.json`: tokenizer + dataset CLI throughput.
-- `bench/suites/http_serving.json`: serving request-loop throughput.
-- `bench/suites/db_ops.json`: SQLite throughput.
-- `bench/suites/algorithm_kernels.json`: algorithm + ML utility stack throughput.
-- `bench/suites/official_v2_1_0.json`: historical baseline suite.
-- `bench/suites/official_v2_2_0.json`: current normative suite.
+## Output Contract
 
-## Output Schema
+Benchmark reports use `schema_version: 2` and include:
+- suite + machine profile metadata
+- fairness contract status
+- per-case Enkai/Python samples and deltas
+- per-case pass/fail
+- class summaries + class gate failures
+- summary gate status
 
-`schema_version: 1` report includes:
-- suite metadata
-- per-case Enkai and Python sample series
-- per-case deltas (`speedup_pct`, `memory_reduction_pct`)
-- summary medians and pass/fail status
+## Pinned Environments
 
-## Target Policy
-
-For bounded performance claims, use:
-
-- `--target-speedup 5 --target-memory 5 --enforce-target`
-
-This enforces >=5% median speedup and >=5% median memory reduction on the suite.
-For strict per-case target enforcement, add:
-
-- `--enforce-all-cases`
-
-## Machine Profiles
-
-Use pinned host manifests for bounded claim reporting:
+Use pinned reference machine profiles for bounded claims:
 - `bench/machines/linux_ref.json`
 - `bench/machines/windows_ref.json`
 
-The performance claim in v2.1.x is bounded to:
-- the official suite definition (`official_v2_2_0`)
-- pinned machine profile manifests
-- recorded report artifacts under `bench/results/*.json`
+For release sign-off, benchmark claims are bounded to:
+- the official v2.3.0 class matrix suite
+- pinned machine profiles
+- archived result artifacts in `bench/results/*.json` and release evidence under `artifacts/release/`

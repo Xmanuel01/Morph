@@ -69,7 +69,94 @@ def has_exact(paths: list[str], suffix: str) -> bool:
     return False
 
 
-def build_checks(version: str, copied_paths: list[str], require_gpu: bool) -> list[CheckResult]:
+def validate_benchmark_report(path: pathlib.Path) -> tuple[bool, str]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as err:  # pragma: no cover - defensive parse guard
+        return False, f"{path.name}: invalid JSON ({err})"
+
+    if not isinstance(payload, dict):
+        return False, f"{path.name}: report root must be object"
+    if int(payload.get("schema_version", 0)) < 2:
+        return False, f"{path.name}: schema_version must be >= 2"
+
+    summary = payload.get("summary")
+    if not isinstance(summary, dict):
+        return False, f"{path.name}: summary object missing"
+    if not bool(summary.get("pass", False)):
+        return False, f"{path.name}: summary.pass is false"
+    if int(summary.get("case_fail_count", 0)) != 0:
+        return False, f"{path.name}: case_fail_count is non-zero"
+    if not bool(summary.get("enforce_class_targets", False)):
+        return False, f"{path.name}: enforce_class_targets must be true"
+    if float(summary.get("target_speedup_pct", 0.0)) < 15.0:
+        return False, f"{path.name}: target_speedup_pct must be >= 15"
+    if float(summary.get("target_memory_pct", 0.0)) < 5.0:
+        return False, f"{path.name}: target_memory_pct must be >= 5"
+
+    class_summaries = summary.get("class_summaries")
+    if not isinstance(class_summaries, dict):
+        return False, f"{path.name}: class_summaries missing"
+    required_classes = {
+        "vm_compute",
+        "native_bridge",
+        "cli_workflows",
+        "ai_data_workflows",
+    }
+    missing_classes = sorted(required_classes.difference(class_summaries.keys()))
+    if missing_classes:
+        return False, f"{path.name}: missing class summaries for {', '.join(missing_classes)}"
+
+    class_gate_failures = summary.get("class_gate_failures")
+    if isinstance(class_gate_failures, list):
+        if class_gate_failures:
+            return False, f"{path.name}: class_gate_failures is non-empty"
+    elif isinstance(class_gate_failures, dict):
+        if class_gate_failures:
+            return False, f"{path.name}: class_gate_failures is non-empty"
+    else:
+        return False, f"{path.name}: class_gate_failures must be list or object"
+
+    cases = payload.get("cases")
+    if not isinstance(cases, list) or not cases:
+        return False, f"{path.name}: cases list missing or empty"
+    for case in cases:
+        if not isinstance(case, dict):
+            return False, f"{path.name}: case entries must be objects"
+        case_id = str(case.get("id", "<unknown>"))
+        if not bool(case.get("pass", False)):
+            return False, f"{path.name}: case {case_id} did not pass"
+        delta = case.get("delta")
+        if not isinstance(delta, dict):
+            return False, f"{path.name}: case {case_id} missing delta"
+        speedup = float(delta.get("speedup_pct", 0.0))
+        memory = float(delta.get("memory_reduction_pct", 0.0))
+        if speedup < 15.0:
+            return False, f"{path.name}: case {case_id} speedup {speedup:.2f}% < 15.00%"
+        if memory < 5.0:
+            return False, f"{path.name}: case {case_id} memory reduction {memory:.2f}% < 5.00%"
+
+    return True, path.name
+
+
+def select_benchmark_report_paths(root: pathlib.Path, copied_paths: list[str]) -> list[pathlib.Path]:
+    bench_regex = re.compile(r"/dist/benchmark_official_[^/]+\.json$")
+    benchmark_paths: list[pathlib.Path] = []
+    for path in copied_paths:
+        if bench_regex.search(path):
+            benchmark_paths.append(root / path)
+    benchmark_paths.sort(
+        key=lambda p: (0 if "benchmark_official_v2_3_0_matrix_" in p.name else 1, p.name)
+    )
+    return benchmark_paths
+
+
+def build_checks(
+    root: pathlib.Path,
+    version: str,
+    copied_paths: list[str],
+    require_gpu: bool,
+) -> list[CheckResult]:
     checks: list[CheckResult] = []
     archive_prefix = f"/dist/enkai-{version}-"
     sbom_prefix = f"/dist/sbom-{version}-"
@@ -113,15 +200,46 @@ def build_checks(version: str, copied_paths: list[str], require_gpu: bool) -> li
         )
     )
 
-    bench_regex = re.compile(r"/dist/benchmark_official_[^/]+\.json$")
-    bench = first_match(copied_paths, lambda path: bool(bench_regex.search(path)))
+    benchmark_paths = select_benchmark_report_paths(root, copied_paths)
+    bench = str(benchmark_paths[0].relative_to(root)) if benchmark_paths else None
+    benchmark_valid = False
+    benchmark_detail = "missing dist/benchmark_official_<suite>_<platform>.json"
+    if benchmark_paths:
+        errors: list[str] = []
+        for report_path in benchmark_paths:
+            valid, detail = validate_benchmark_report(report_path)
+            if valid:
+                benchmark_valid = True
+                benchmark_detail = str(report_path.relative_to(root))
+                break
+            errors.append(detail)
+        if not benchmark_valid:
+            benchmark_detail = "; ".join(errors)
     checks.append(
         CheckResult(
             id="benchmark_target",
             description="Official benchmark target evidence is present",
             required=True,
-            passed=bench is not None,
-            details=bench or "missing dist/benchmark_official_<suite>_<platform>.json",
+            passed=benchmark_valid,
+            details=benchmark_detail if bench is not None else benchmark_detail,
+        )
+    )
+
+    has_linux_bench = any("_linux.json" in path.name for path in benchmark_paths)
+    has_windows_bench = any("_windows.json" in path.name for path in benchmark_paths)
+    checks.append(
+        CheckResult(
+            id="benchmark_cross_platform_visibility",
+            description="Benchmark evidence includes both Linux and Windows artifacts",
+            required=False,
+            passed=has_linux_bench and has_windows_bench,
+            details=(
+                "linux+windows benchmark artifacts present"
+                if has_linux_bench and has_windows_bench
+                else (
+                    f"linux_present={has_linux_bench}, windows_present={has_windows_bench}"
+                )
+            ),
         )
     )
 
@@ -249,7 +367,7 @@ def main() -> int:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     copied_paths = [normalize(entry.get("copied_to", "")) for entry in manifest.get("files", [])]
 
-    checks = build_checks(version, copied_paths, args.require_gpu)
+    checks = build_checks(root, version, copied_paths, args.require_gpu)
     required_checks = [check for check in checks if check.required]
     passed_required = sum(1 for check in required_checks if check.passed)
     failed_required = [check for check in required_checks if not check.passed]

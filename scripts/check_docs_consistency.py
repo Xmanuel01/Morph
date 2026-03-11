@@ -81,6 +81,10 @@ def main() -> int:
         failures.append("docs/RELEASE_CHECKLIST.md missing litec release-ci gate")
     if "official_v2_3_0_matrix" not in release_checklist:
         failures.append("docs/RELEASE_CHECKLIST.md missing official_v2_3_0_matrix benchmark gate")
+    if "bench/machines/linux_ref.json" not in release_checklist:
+        failures.append("docs/RELEASE_CHECKLIST.md missing linux_ref benchmark gate")
+    if "bench/machines/windows_ref.json" not in release_checklist:
+        failures.append("docs/RELEASE_CHECKLIST.md missing windows_ref benchmark gate")
     if "--enforce-class-targets --class-targets bench/suites/official_v2_3_0_targets.json" not in release_checklist:
         failures.append("docs/RELEASE_CHECKLIST.md missing class-target benchmark enforcement gate")
     if "--fairness-check-only" not in release_checklist:
@@ -130,6 +134,17 @@ def main() -> int:
             failures.append("docs/33_benchmark_suite.md missing official_v2_3_0_matrix reference")
         if "workload_equivalence_v1.json" not in benchmark_text:
             failures.append("docs/33_benchmark_suite.md missing workload equivalence contract reference")
+    bench_readme = ROOT / "bench/README.md"
+    if not bench_readme.is_file():
+        failures.append("missing bench/README.md")
+    else:
+        bench_readme_text = bench_readme.read_text(encoding="utf-8")
+        if "official_v2_3_0_matrix" not in bench_readme_text:
+            failures.append("bench/README.md missing official_v2_3_0_matrix reference")
+        if "--enforce-class-targets" not in bench_readme_text:
+            failures.append("bench/README.md missing class-target enforcement reference")
+        if "workload_equivalence_v1.json" not in bench_readme_text:
+            failures.append("bench/README.md missing workload equivalence contract reference")
 
     required_snapshots = [
         ROOT / "enkai/contracts/backend_api_v1.snapshot.json",

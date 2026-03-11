@@ -26,8 +26,11 @@ Note:
   - `enkai readiness check --profile production --json --output artifacts/readiness/production.json`
 - [ ] Benchmark target gate (official bounded suite):
   - `enkai bench run --suite official_v2_3_0_matrix --baseline python --iterations 2 --warmup 1 --machine-profile bench/machines/linux_ref.json --output bench/results/official_v2_3_0_matrix.linux.json --target-speedup 15 --target-memory 5 --enforce-target --enforce-class-targets --class-targets bench/suites/official_v2_3_0_targets.json`
+  - `enkai bench run --suite official_v2_3_0_matrix --baseline python --iterations 2 --warmup 1 --machine-profile bench/machines/windows_ref.json --output bench/results/official_v2_3_0_matrix.windows.json --target-speedup 15 --target-memory 5 --enforce-target --enforce-class-targets --class-targets bench/suites/official_v2_3_0_targets.json`
   - Fairness-only precheck:
     - `enkai bench run --suite official_v2_3_0_matrix --baseline python --fairness-check-only --output bench/results/official_v2_3_0_fairness.json`
+  - Release evidence expectation:
+    - archive both Linux and Windows matrix artifacts when available (CI matrix is normative for cross-platform sign-off).
 - [ ] Version-neutral release pipeline:
   - `powershell -ExecutionPolicy Bypass -File scripts/release_pipeline.ps1`
   - or `sh scripts/release_pipeline.sh`
