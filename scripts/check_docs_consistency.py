@@ -77,6 +77,8 @@ def main() -> int:
         failures.append("docs/RELEASE_CHECKLIST.md missing scripts/generate_capability_report.py")
     if "enkai readiness check --profile production" not in release_checklist:
         failures.append("docs/RELEASE_CHECKLIST.md missing readiness command gate")
+    if "enkai readiness check --profile full_platform" not in release_checklist:
+        failures.append("docs/RELEASE_CHECKLIST.md missing full_platform readiness gate")
     if "enkai litec release-ci" not in release_checklist:
         failures.append("docs/RELEASE_CHECKLIST.md missing litec release-ci gate")
     if "official_v2_3_0_matrix" not in release_checklist:
@@ -151,6 +153,8 @@ def main() -> int:
         ROOT / "enkai/contracts/sdk_api_v1.snapshot.json",
         ROOT / "enkai/contracts/conversation_state_v1.schema.json",
         ROOT / "enkai/contracts/readiness_production_v2_3_0.json",
+        ROOT / "enkai/contracts/readiness_full_platform_v2_5_0.json",
+        ROOT / "enkai/contracts/full_platform_release_blockers_v2_5_0.json",
     ]
     for snapshot in required_snapshots:
         if not snapshot.is_file():

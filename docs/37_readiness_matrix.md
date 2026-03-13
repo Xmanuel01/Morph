@@ -1,33 +1,40 @@
-# 37. Production Readiness Matrix (v2.3.0 target)
+# 37. Production Readiness Matrix (v2.5.0 full-platform line)
 
 This matrix defines the objective sign-off contract for "production-ready" in the
-`v2.2.1 -> v2.3.0` cycle.
+`v2.5.0 -> v2.9.0` cycle.
 
-Bounded production envelope:
-- single-node deployment (`Docker` + `systemd`) for backend/fullstack scaffolds
-- 1-2 GPU training/serving path
-- local filesystem model registry
+Full-platform production envelope:
+- single-node and multi-node training/serving validation paths
+- web + mobile frontend contract targets
+- multi-engine DB core gates
+- bootstrap mainline default with Stage0 emergency fallback lane
+- signed remote registry + local cache lifecycle contract
 - VM runtime as normative execution contract
 
-## Non-GPU Readiness Gate Bundle
+## Non-Hardware Readiness Gate Bundle
 
 Run:
 
-`enkai readiness check --profile production --json --output artifacts/readiness/production.json`
+`enkai readiness check --profile full_platform --json --output artifacts/readiness/full_platform.json`
 
 Manifest:
-- `enkai/contracts/readiness_production_v2_3_0.json`
+- `enkai/contracts/readiness_full_platform_v2_5_0.json`
+- release blocker matrix:
+  - `enkai/contracts/full_platform_release_blockers_v2_5_0.json`
 
 The command executes a deterministic gate bundle:
 - format/lint/test
 - docs/spec consistency
-- frontend/backend contract snapshot test
+- frontend/backend contract snapshot tests
+- backend HTTP contract smoke
+- LLM runtime smoke
+- DB core smoke
 - bootstrap mainline + Stage0 fallback lanes
-- benchmark fairness smoke (`official_v2_3_0_matrix`, workload-equivalence contract)
+- benchmark fairness + target smoke enforcement (`official_v2_3_0_matrix`, workload-equivalence contract)
 
 ## GPU Evidence (Release Blocking)
 
-`v2.3.0` release sign-off requires operator evidence and verifier pass:
+`v2.9.0` release sign-off requires operator evidence and verifier pass:
 - single-GPU stability evidence
 - 2-GPU loss/grad parity evidence
 - 4-GPU soak evidence
@@ -39,6 +46,6 @@ Verification:
 ## Sign-Off Rule
 
 A release is marked "production-ready" only when:
-- non-GPU readiness bundle is green, and
+- full-platform non-hardware readiness bundle is green, and
 - RC/release artifact gates are green, and
 - GPU evidence package is present and verifier-clean.

@@ -1,0 +1,150 @@
+{
+  "schema_version": 1,
+  "profile": "full_platform",
+  "checks": [
+    {
+      "id": "fmt",
+      "description": "Rust formatting gate",
+      "command": ["cargo", "fmt", "--all", "--check"]
+    },
+    {
+      "id": "clippy",
+      "description": "Workspace lint gate",
+      "command": ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]
+    },
+    {
+      "id": "test",
+      "description": "Workspace unit/integration tests",
+      "command": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--",
+        "--skip",
+        "http_server_handles_concurrent_requests"
+      ]
+    },
+    {
+      "id": "docs-consistency",
+      "description": "Docs/spec/contract consistency check",
+      "command": ["${PYTHON}", "scripts/check_docs_consistency.py"]
+    },
+    {
+      "id": "frontend-contract",
+      "description": "Frontend/backend contract snapshot test",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "enkai",
+        "--bin",
+        "enkai",
+        "frontend::tests::contract_snapshots_match_reference_files"
+      ]
+    },
+    {
+      "id": "backend-http-contract",
+      "description": "Backend HTTP contract smoke test",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "enkairt",
+        "--test",
+        "http",
+        "http_get_roundtrip"
+      ]
+    },
+    {
+      "id": "llm-runtime-smoke",
+      "description": "LLM tensor/runtime smoke test",
+      "command": ["cargo", "test", "-p", "enkai_tensor", "--test", "tinylm_smoke"]
+    },
+    {
+      "id": "db-core-smoke",
+      "description": "Database core smoke test (SQLite/native)",
+      "command": ["cargo", "test", "-p", "enkai_native", "sqlite_exec_many_transaction_roundtrip"]
+    },
+    {
+      "id": "selfhost-mainline",
+      "description": "Bootstrap self-host mainline lane",
+      "command": [
+        "enkai",
+        "litec",
+        "mainline-ci",
+        "enkai/tools/bootstrap/selfhost_corpus",
+        "--triage-dir",
+        "artifacts/selfhost"
+      ]
+    },
+    {
+      "id": "selfhost-stage0-fallback",
+      "description": "Bootstrap Stage0 fallback lane",
+      "command": [
+        "enkai",
+        "litec",
+        "selfhost-ci",
+        "enkai/tools/bootstrap/selfhost_corpus"
+      ]
+    },
+    {
+      "id": "benchmark-build-release",
+      "description": "Build release Enkai binary for benchmark gates",
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "enkai",
+        "--release"
+      ]
+    },
+    {
+      "id": "benchmark-fairness",
+      "description": "Benchmark fairness contract gate",
+      "command": [
+        "enkai",
+        "bench",
+        "run",
+        "--suite",
+        "official_v2_3_0_matrix",
+        "--baseline",
+        "python",
+        "--iterations",
+        "1",
+        "--warmup",
+        "0",
+        "--fairness-check-only",
+        "--enkai-bin",
+        "${ENKAI_BIN}",
+        "--output",
+        "bench/results/full_platform_fairness.json"
+      ]
+    },
+    {
+      "id": "benchmark-target",
+      "description": "Benchmark target smoke gate",
+      "command": [
+        "enkai",
+        "bench",
+        "run",
+        "--suite",
+        "official_v2_3_0_matrix",
+        "--baseline",
+        "python",
+        "--iterations",
+        "2",
+        "--warmup",
+        "1",
+        "--target-speedup",
+        "5",
+        "--target-memory",
+        "5",
+        "--enforce-target",
+        "--enkai-bin",
+        "${ENKAI_BIN}",
+        "--output",
+        "bench/results/full_platform_targets_smoke.json"
+      ]
+    }
+  ]
+}

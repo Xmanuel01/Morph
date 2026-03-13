@@ -8,6 +8,29 @@
 ### Breaking changes
 - None.
 
+## v2.5.0
+
+### Highlights
+- Advanced minor line to `v2.5.0` with additive compatibility (no contract removals).
+- Added full-platform readiness profile support:
+  - `enkai readiness check --profile full_platform --json --output <file>`
+- Added v2.5 full-platform readiness contracts:
+  - `enkai/contracts/readiness_full_platform_v2_5_0.json`
+  - `enkai/contracts/full_platform_release_blockers_v2_5_0.json`
+- Updated CI readiness artifacts to publish:
+  - `artifacts/readiness/production.json`
+  - `artifacts/readiness/full_platform.json`
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_5_0_rc_pipeline.ps1`
+  - `scripts/v2_5_0_rc_pipeline.sh`
+
+### Fixes
+- Synced docs/spec/release metadata and version surfaces to `v2.5.0`.
+- Improved readiness command binary resolution with explicit `ENKAI_READINESS_ENKAI_BIN` override support and stable default behavior.
+
+### Breaking changes
+- None.
+
 ## v2.4.0
 
 ### Highlights

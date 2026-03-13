@@ -50,7 +50,9 @@ struct ReadinessCheckReport {
 }
 
 pub fn print_readiness_usage() {
-    eprintln!("  enkai readiness check [--profile production] [--json] [--output <file>]");
+    eprintln!(
+        "  enkai readiness check [--profile production|full_platform] [--json] [--output <file>]"
+    );
 }
 
 pub fn readiness_command(args: &[String]) -> i32 {
@@ -204,16 +206,18 @@ fn parse_check_args(args: &[String]) -> Result<ReadinessCheckArgs, String> {
 }
 
 fn load_manifest(profile: &str) -> Result<ReadinessManifest, String> {
-    if profile != "production" {
-        return Err(format!(
-            "unsupported profile '{}'; expected 'production'",
-            profile
-        ));
-    }
-    let manifest: ReadinessManifest = serde_json::from_str(include_str!(
-        "../contracts/readiness_production_v2_3_0.json"
-    ))
-    .map_err(|err| format!("failed to parse readiness manifest: {}", err))?;
+    let raw = match profile {
+        "production" => include_str!("../contracts/readiness_production_v2_3_0.json"),
+        "full_platform" => include_str!("../contracts/readiness_full_platform_v2_5_0.json"),
+        _ => {
+            return Err(format!(
+                "unsupported profile '{}'; expected 'production' or 'full_platform'",
+                profile
+            ));
+        }
+    };
+    let manifest: ReadinessManifest = serde_json::from_str(raw)
+        .map_err(|err| format!("failed to parse readiness manifest: {}", err))?;
     Ok(manifest)
 }
 
@@ -270,6 +274,7 @@ fn resolve_command_tokens(command: &[String]) -> Vec<String> {
     let current_exe = env::current_exe()
         .map(|path| path.to_string_lossy().to_string())
         .unwrap_or_else(|_| "enkai".to_string());
+    let resolved_enkai_bin = resolve_enkai_bin().unwrap_or_else(|| current_exe.clone());
     let python_command = resolve_python_command();
     let mut out = Vec::with_capacity(command.len());
     for (index, token) in command.iter().enumerate() {
@@ -280,13 +285,41 @@ fn resolve_command_tokens(command: &[String]) -> Vec<String> {
             }
             continue;
         }
-        let mut resolved = token.replace("${ENKAI_BIN}", &current_exe);
+        let mut resolved = token.replace("${ENKAI_BIN}", &resolved_enkai_bin);
         if index == 0 && resolved == "enkai" {
-            resolved = current_exe.clone();
+            resolved = resolved_enkai_bin.clone();
         }
         out.push(resolved);
     }
     out
+}
+
+fn resolve_enkai_bin() -> Option<String> {
+    if let Ok(path) = env::var("ENKAI_READINESS_ENKAI_BIN") {
+        let trimmed = path.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+
+    let release = if cfg!(windows) {
+        workspace_root()
+            .join("target")
+            .join("release")
+            .join("enkai.exe")
+    } else {
+        workspace_root()
+            .join("target")
+            .join("release")
+            .join("enkai")
+    };
+    if release.is_file() {
+        return Some(release.to_string_lossy().to_string());
+    }
+
+    env::current_exe()
+        .ok()
+        .map(|path| path.to_string_lossy().to_string())
 }
 
 fn resolve_python_command() -> Option<Vec<String>> {
@@ -356,13 +389,13 @@ mod tests {
     fn parse_check_args_overrides() {
         let parsed = parse_check_args(&[
             "--profile".to_string(),
-            "production".to_string(),
+            "full_platform".to_string(),
             "--json".to_string(),
             "--output".to_string(),
             "artifacts/readiness.json".to_string(),
         ])
         .expect("parse");
-        assert_eq!(parsed.profile, "production");
+        assert_eq!(parsed.profile, "full_platform");
         assert!(parsed.json);
         assert_eq!(
             parsed.output,
@@ -381,6 +414,14 @@ mod tests {
         let manifest = load_manifest("production").expect("manifest");
         assert_eq!(manifest.schema_version, 1);
         assert_eq!(manifest.profile, "production");
+        assert!(!manifest.checks.is_empty());
+    }
+
+    #[test]
+    fn load_manifest_full_platform_profile() {
+        let manifest = load_manifest("full_platform").expect("manifest");
+        assert_eq!(manifest.schema_version, 1);
+        assert_eq!(manifest.profile, "full_platform");
         assert!(!manifest.checks.is_empty());
     }
 }

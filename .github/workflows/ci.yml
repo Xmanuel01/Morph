@@ -55,11 +55,21 @@ jobs:
         run: |
           mkdir -p artifacts/readiness
           cargo run -p enkai -- readiness check --profile production --json --output artifacts/readiness/production.json
+      - name: Run full-platform readiness profile (non-hardware)
+        run: |
+          mkdir -p artifacts/readiness
+          cargo run -p enkai -- readiness check --profile full_platform --json --output artifacts/readiness/full_platform.json
       - name: Upload readiness report
         uses: actions/upload-artifact@v4
         with:
           name: readiness-production-report
           path: artifacts/readiness/production.json
+          if-no-files-found: error
+      - name: Upload full-platform readiness report
+        uses: actions/upload-artifact@v4
+        with:
+          name: readiness-full-platform-report
+          path: artifacts/readiness/full_platform.json
           if-no-files-found: error
 
   benchmark-smoke:

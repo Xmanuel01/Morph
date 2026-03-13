@@ -24,6 +24,11 @@ Note:
   - `cargo test -p enkai --bin enkai frontend::tests::contract_snapshots_match_reference_files`
 - [ ] Production readiness report (non-GPU gate bundle):
   - `enkai readiness check --profile production --json --output artifacts/readiness/production.json`
+- [ ] Full-platform readiness report (v2.5+ line):
+  - `enkai readiness check --profile full_platform --json --output artifacts/readiness/full_platform.json`
+  - readiness contract:
+    - `enkai/contracts/readiness_full_platform_v2_5_0.json`
+    - `enkai/contracts/full_platform_release_blockers_v2_5_0.json`
 - [ ] Benchmark target gate (official bounded suite):
   - `enkai bench run --suite official_v2_3_0_matrix --baseline python --iterations 2 --warmup 1 --machine-profile bench/machines/linux_ref.json --output bench/results/official_v2_3_0_matrix.linux.json --target-speedup 15 --target-memory 5 --enforce-target --enforce-class-targets --class-targets bench/suites/official_v2_3_0_targets.json`
   - `enkai bench run --suite official_v2_3_0_matrix --baseline python --iterations 2 --warmup 1 --machine-profile bench/machines/windows_ref.json --output bench/results/official_v2_3_0_matrix.windows.json --target-speedup 15 --target-memory 5 --enforce-target --enforce-class-targets --class-targets bench/suites/official_v2_3_0_targets.json`

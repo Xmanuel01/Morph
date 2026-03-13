@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "profile": "full_platform",
+  "version_line": "v2.5.0-v2.9.0",
+  "compatibility_policy": "additive_only_v2_x",
+  "release_blockers": {
+    "non_hardware": {
+      "readiness_profile": "full_platform",
+      "required_checks": [
+        "fmt",
+        "clippy",
+        "test",
+        "docs-consistency",
+        "frontend-contract",
+        "backend-http-contract",
+        "llm-runtime-smoke",
+        "db-core-smoke",
+        "selfhost-mainline",
+        "selfhost-stage0-fallback",
+        "benchmark-build-release",
+        "benchmark-fairness",
+        "benchmark-target"
+      ]
+    },
+    "hardware_evidence": {
+      "required": true,
+      "verifier_commands": [
+        "scripts/verify_gpu_gates.ps1",
+        "scripts/verify_gpu_gates.sh"
+      ],
+      "required_artifacts": [
+        "artifacts/gpu/single_gpu_evidence.json",
+        "artifacts/gpu/multi_gpu_evidence.json",
+        "artifacts/gpu/soak_4gpu_evidence.json"
+      ],
+      "required_gates": [
+        "single_gpu_stability",
+        "two_gpu_loss_grad_parity",
+        "four_gpu_soak"
+      ]
+    },
+    "release_evidence": {
+      "required_artifacts": [
+        "artifacts/readiness/full_platform.json",
+        "bench/results/full_platform_targets.json",
+        "artifacts/selfhost/litec_mainline_ci_report.json",
+        "artifacts/selfhost/litec_replace_check_report.json",
+        "artifacts/release/v<version>/manifest.json",
+        "artifacts/release/v<version>/capability_complete.json"
+      ]
+    }
+  }
+}

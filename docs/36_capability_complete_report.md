@@ -36,6 +36,7 @@ Core categories:
   - `conversation_state_v1.schema.json`
 - `readiness/`:
   - `production.json` (`readiness/production.json`)
+  - `full_platform.json` (`readiness/full_platform.json`) for v2.5+ full-platform line
 - `gpu/` (mandatory for full sign-off):
   - `single_gpu.log`, `single_gpu_evidence.json`
   - `multi_gpu.log`, `multi_gpu_evidence.json`

@@ -2,11 +2,27 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.4.0.
-- v2.4.x remains additive/integration work (no contract-breaking removals).
+- Current production release line is v2.5.0.
+- v2.5.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
 
-v2.4.0 (in progress)
+v2.5.0 (done)
+- Program contract freeze + readiness expansion for full-platform line:
+  - new readiness profile:
+    - `enkai readiness check --profile full_platform --json --output <file>`
+  - new readiness manifest:
+    - `enkai/contracts/readiness_full_platform_v2_5_0.json`
+  - machine-readable release blocker matrix:
+    - `enkai/contracts/full_platform_release_blockers_v2_5_0.json`
+- Expanded non-hardware gate bundle includes:
+  - frontend/backend/LLM/DB smoke gates
+  - bootstrap mainline + fallback gates
+  - benchmark fairness + class-target gates
+- Synced readiness docs/checklists:
+  - `docs/37_readiness_matrix.md`
+  - `docs/RELEASE_CHECKLIST.md`
+
+v2.4.0 (done)
 - Minor-line cut after v2.3.9:
   - release checklist synchronization and docs/spec consistency
   - benchmark class-gate reliability on pinned reference environments
