@@ -9,7 +9,7 @@ use std::time::Instant;
 use serde::Serialize;
 
 use crate::dataset::Batch;
-use crate::engine::{AmpConfig, ModelConfig};
+use crate::engine::{AmpConfig, DistConfig, ModelConfig};
 use crate::error::RuntimeError;
 
 #[derive(Debug, Clone, Copy)]
@@ -28,6 +28,8 @@ pub struct Backend {
     opt: Option<i64>,
     world_size: i32,
     rank: i32,
+    dist: DistConfig,
+    dist_seed: i64,
     device: Option<i64>,
     amp_scaler: Option<i64>,
     model_spec_json: Option<String>,
@@ -96,6 +98,7 @@ struct Symbols {
     amp_scaler_update: Option<unsafe extern "C" fn(i64, c_int) -> c_int>,
     autocast_enter: Option<unsafe extern "C" fn() -> c_int>,
     autocast_exit: Option<unsafe extern "C" fn() -> c_int>,
+    dist_config: Option<unsafe extern "C" fn(i64, i64, i64, i64) -> c_int>,
     dist_init: Option<unsafe extern "C" fn(i32, i32) -> c_int>,
     dist_allreduce: Option<unsafe extern "C" fn(*const c_char) -> c_int>,
     dist_shutdown: Option<unsafe extern "C" fn() -> c_int>,
@@ -177,6 +180,8 @@ impl Backend {
             opt: None,
             world_size: 1,
             rank: 0,
+            dist: DistConfig::default(),
+            dist_seed: 0,
             device: None,
             amp_scaler: None,
             model_spec_json: None,
@@ -373,7 +378,12 @@ impl Backend {
         self.opt = None;
         // Re-init dist rank/world_size if needed; keep current values.
         if self.world_size > 1 {
-            self.dist_init(self.world_size, self.rank)?;
+            self.configure_dist(
+                &self.dist.clone(),
+                self.world_size,
+                self.rank,
+                self.dist_seed,
+            )?;
         }
         Ok(())
     }
@@ -825,12 +835,14 @@ impl Backend {
 
     pub fn dist_init(&self, world_size: i32, rank: i32) -> Result<(), RuntimeError> {
         if world_size > 1 && !dist_env_enabled() {
-            return Err(RuntimeError::new(
+            return Err(RuntimeError::with_code(
+                "E_DIST_ENV_GATE",
                 "distributed mode requires ENKAI_ENABLE_DIST=1",
             ));
         }
         let Some(dist_init) = self.symbols.dist_init else {
-            return Err(RuntimeError::new(
+            return Err(RuntimeError::with_code(
+                "E_DIST_SYMBOL_MISSING",
                 "distributed backend symbols unavailable: enkai_dist_init missing; rebuild enkai_tensor with features \"torch,dist\" and set ENKAI_TENSOR_PATH",
             ));
         };
@@ -847,7 +859,8 @@ impl Backend {
             return Ok(());
         }
         let Some(dist_allreduce) = self.symbols.dist_allreduce else {
-            return Err(RuntimeError::new(
+            return Err(RuntimeError::with_code(
+                "E_DIST_SYMBOL_MISSING",
                 "distributed backend symbols unavailable: enkai_dist_allreduce_sum_multi missing; rebuild enkai_tensor with features \"torch,dist\" and set ENKAI_TENSOR_PATH",
             ));
         };
@@ -869,23 +882,67 @@ impl Backend {
         }
     }
 
-    pub fn configure_dist(&mut self, world_size: i32, rank: i32) -> Result<(), RuntimeError> {
+    pub fn configure_dist(
+        &mut self,
+        dist: &DistConfig,
+        world_size: i32,
+        rank: i32,
+        seed: i64,
+    ) -> Result<(), RuntimeError> {
         if world_size < 1 {
-            return Err(RuntimeError::new(
+            return Err(RuntimeError::with_code(
+                "E_DIST_INVALID_ARGS",
                 "distributed configuration invalid: world_size must be >= 1",
             ));
         }
         if rank < 0 || rank >= world_size {
-            return Err(RuntimeError::new(
+            return Err(RuntimeError::with_code(
+                "E_DIST_INVALID_ARGS",
                 "distributed configuration invalid: rank must satisfy 0 <= rank < world_size",
             ));
         }
+        let mapped_device = dist.device_map.get(rank as usize).copied().ok_or_else(|| {
+            RuntimeError::with_code(
+                "E_DIST_DEVICE_MAPPING",
+                "dist.device_map must include an entry for every rank",
+            )
+        })?;
         self.world_size = world_size;
         self.rank = rank;
+        self.dist = dist.clone();
+        self.dist_seed = seed;
         if world_size > 1 {
             if !dist_env_enabled() {
-                return Err(RuntimeError::new(
+                return Err(RuntimeError::with_code(
+                    "E_DIST_ENV_GATE",
                     "distributed mode requires ENKAI_ENABLE_DIST=1",
+                ));
+            }
+            if let Some(dist_config) = self.symbols.dist_config {
+                let attempts = dist.retry_budget.max(1);
+                let mut last_error = None;
+                for attempt in 1..=attempts {
+                    let rc = unsafe {
+                        dist_config(world_size as i64, rank as i64, mapped_device as i64, seed)
+                    };
+                    if rc == 0 {
+                        return Ok(());
+                    }
+                    last_error = Some(self.last_error());
+                    if attempt < attempts {
+                        let delay = std::time::Duration::from_millis((attempt as u64) * 50);
+                        std::thread::sleep(delay);
+                    }
+                }
+                let detail = last_error.map(|e| e.to_string()).unwrap_or_else(|| {
+                    "native backend returned an unknown dist init failure".to_string()
+                });
+                return Err(RuntimeError::with_code(
+                    "E_DIST_INIT_RETRY_EXHAUSTED",
+                    &format!(
+                        "distributed init failed after {} attempt(s) [topology={}, rendezvous={}]: {}",
+                        attempts, dist.topology, dist.rendezvous, detail
+                    ),
                 ));
             }
             self.dist_init(world_size, rank)?;
@@ -902,10 +959,9 @@ impl Backend {
             .to_string_lossy()
             .into_owned();
         if msg.is_empty() {
-            RuntimeError::new("native backend error")
-        } else {
-            RuntimeError::new(&msg)
+            return RuntimeError::new("native backend error");
         }
+        parse_native_runtime_error(&msg)
     }
 }
 
@@ -977,6 +1033,25 @@ fn dist_env_enabled() -> bool {
         Err(_) => false,
     }
 }
+
+fn parse_native_runtime_error(msg: &str) -> RuntimeError {
+    if let Some((raw_code, raw_detail)) = msg.split_once(':') {
+        let code = raw_code.trim();
+        let detail = raw_detail.trim();
+        if is_dist_error_code(code) && !detail.is_empty() {
+            return RuntimeError::with_code(code, detail);
+        }
+    }
+    RuntimeError::new(msg)
+}
+
+fn is_dist_error_code(code: &str) -> bool {
+    code.starts_with("E_DIST_")
+        || code.starts_with("E_CKPT_")
+        || code.starts_with("E_AMP_")
+        || code.starts_with("E_TOOL_")
+}
+
 unsafe fn load_symbols(lib: &Library) -> Result<Symbols, RuntimeError> {
     macro_rules! sym {
         ($name:literal, $ty:ty) => {{
@@ -1109,6 +1184,10 @@ unsafe fn load_symbols(lib: &Library) -> Result<Symbols, RuntimeError> {
         ),
         autocast_enter: sym_opt!(b"enkai_autocast_enter\0", unsafe extern "C" fn() -> c_int),
         autocast_exit: sym_opt!(b"enkai_autocast_exit\0", unsafe extern "C" fn() -> c_int),
+        dist_config: lib
+            .get::<unsafe extern "C" fn(i64, i64, i64, i64) -> c_int>(b"enkai_dist_config\0")
+            .ok()
+            .map(|s| *s),
         dist_init: lib
             .get::<unsafe extern "C" fn(i32, i32) -> c_int>(b"enkai_dist_init\0")
             .ok()
@@ -1166,4 +1245,25 @@ unsafe fn load_symbols(lib: &Library) -> Result<Symbols, RuntimeError> {
             unsafe extern "C" fn() -> *const c_char
         ),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_native_error_extracts_machine_code() {
+        let err = parse_native_runtime_error(
+            "E_DIST_ENV_GATE: distributed mode requires ENKAI_ENABLE_DIST=1",
+        );
+        assert_eq!(err.code(), Some("E_DIST_ENV_GATE"));
+        assert!(err.message.contains("ENKAI_ENABLE_DIST=1"));
+    }
+
+    #[test]
+    fn parse_native_error_preserves_plain_message() {
+        let err = parse_native_runtime_error("native backend error");
+        assert_eq!(err.code(), None);
+        assert_eq!(err.message, "native backend error");
+    }
 }

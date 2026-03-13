@@ -4,9 +4,9 @@ ENKAI PROGRAMMING LANGUAGE
 Overview
 Enkai is a programming language with block structure defined by :: tokens, a clean
 assignment operator (:=), and an AI-native roadmap (tools, agents, memory, policy).
-This repository contains the v2.5.1 implementation in Rust.
+This repository contains the v2.5.2 implementation in Rust.
 
-Status (v2.5.1)
+Status (v2.5.2)
 - Bytecode VM + globals + type-checking
 - Module system with public/private exports
 - CLI: run/bench/readiness/deploy/model/serve/new/sdk/check/fmt/fmt-lite/lint-lite/tokenizer-lite/dataset-lite/litec/build/test/train/pretrain/eval/migrate/doctor
@@ -28,8 +28,8 @@ Status (v2.5.1)
 - Bootstrap-lite/core toolchain path with `litec` stage0/stage1 bytecode equivalence checks, phase staging (`litec stage`), self-host CI corpus validation (`litec selfhost-ci`), and consolidated release lane (`litec release-ci`)
 - Self-host mainline CI lane with deterministic triage artifacts (`litec mainline-ci --triage-dir <dir>`) plus mandatory Stage0 fallback lane
 - Self-host replacement-readiness gate with Stage1/Stage2 fixed-point checks (`litec replace-check`)
-- Compatibility/deprecation governance and self-host fallback workflow docs for v2.5.1 release readiness
-- Version-neutral release pipeline, deterministic packaging, checksum verification, SBOM generation, and RC evidence-archive gates for v2.5.1 sign-off
+- Compatibility/deprecation governance and self-host fallback workflow docs for v2.5.2 release readiness
+- Version-neutral release pipeline, deterministic packaging, checksum verification, SBOM generation, and RC evidence-archive gates for v2.5.2 sign-off
 - Capability-complete release report generated from archived evidence:
   - `scripts/collect_release_evidence.py --strict`
   - `scripts/generate_capability_report.py --strict`
@@ -50,10 +50,16 @@ Status (v2.5.1)
   - deterministic suites under `bench/suites/`
   - machine profile manifests under `bench/machines/`
   - structured result artifacts under `bench/results/*.json`
-- Strict-contract enforcement in v2.5.1:
+- Strict-contract enforcement in v2.5.2:
   - `enkai train` / `enkai eval` enforce contract checks by default
   - explicit legacy recovery is gated: `--lenient-contracts` + `ENKAI_ALLOW_LEGACY_CONTRACTS=1`
   - readiness audit: `enkai doctor --json [--strict-contracts|--lenient]`
+- Additive distributed orchestration controls for multi-rank training:
+  - config fields: `dist.topology`, `dist.rendezvous`, `dist.retry_budget`, `dist.device_map`
+  - deterministic cluster planner commands:
+    - `enkai cluster validate <config.enk> [--json]`
+    - `enkai cluster plan <config.enk> [--json]`
+    - `enkai cluster run <config.enk> [--dry-run] [--json]`
 - Pretraining lifecycle metadata (additive):
   - `enkai pretrain <config.enk>` shares the train/eval config contract
   - writes `run_state.json`, `runs/index.jsonl`, and `checkpoint_lifecycle.json` under `checkpoint_dir`

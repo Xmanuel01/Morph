@@ -8,6 +8,31 @@
 ### Breaking changes
 - None.
 
+## v2.5.2
+
+### Highlights
+- Advanced minor line to `v2.5.2` with additive compatibility (no contract removals).
+- Added distributed orchestration contract fields to train/pretrain/eval config:
+  - `dist.topology`, `dist.rendezvous`, `dist.retry_budget`, `dist.device_map`
+- Added cluster orchestration CLI surface:
+  - `enkai cluster validate <config.enk> [--json]`
+  - `enkai cluster plan <config.enk> [--json]`
+  - `enkai cluster run <config.enk> [--dry-run] [--json]`
+- Added runtime distributed hardening:
+  - rank-device mapping enforcement via dist config
+  - retry-budgeted native distributed init path (`enkai_dist_config`) with stable machine-parseable error codes (`E_DIST_*`)
+  - deterministic fallback to legacy distributed init symbol when config symbol is unavailable
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_5_2_rc_pipeline.ps1`
+  - `scripts/v2_5_2_rc_pipeline.sh`
+
+### Fixes
+- Synced docs/spec/release metadata and version surfaces to `v2.5.2`.
+- Added distributed/cluster regression tests for orchestration parsing and planner validation.
+
+### Breaking changes
+- None.
+
 ## v2.5.1
 
 ### Highlights

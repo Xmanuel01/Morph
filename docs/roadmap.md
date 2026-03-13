@@ -2,9 +2,21 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.5.1.
+- Current production release line is v2.5.2.
 - v2.5.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v2.5.2 (done)
+- LLM distributed orchestration and failure-mode hardening:
+  - additive train config distributed orchestration fields:
+    - `dist.topology`, `dist.rendezvous`, `dist.retry_budget`, `dist.device_map`
+  - runtime distributed configuration now maps rank->device explicitly and supports
+    retry-budgeted init with stable machine-parseable error codes (`E_DIST_*`)
+  - added cluster command surface:
+    - `enkai cluster validate <config.enk> [--json]`
+    - `enkai cluster plan <config.enk> [--json]`
+    - `enkai cluster run <config.enk> [--dry-run] [--json]`
+  - added unit/regression coverage for distributed orchestration parsing and cluster planner behavior.
 
 v2.5.1 (done)
 - LLM runtime reliability hardening for single-node train/eval lifecycle:

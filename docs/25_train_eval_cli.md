@@ -23,6 +23,15 @@ Optional determinism:
 - `seed` (Int >= 0) controls model initialization and is also used to seed tokenizer
   training tie-breaks and dataset file shuffling for repeatable runs.
 
+Distributed orchestration (additive, backward compatible):
+- `world_size` (Int >= 1, default `1`)
+- `rank` (Int >= 0, default `0`)
+- `dist.topology` (`standalone|single-node|multi-node`)
+- `dist.rendezvous` (String; use `tcp://host:port` for `multi-node`)
+- `dist.retry_budget` (Int >= 0)
+- `dist.device_map` (String CSV like `"0,1"` or list of Ints)
+- For `world_size > 1`, set `ENKAI_ENABLE_DIST=1`.
+
 Optional model architecture fields (additive, backward compatible):
 - `model.preset`: `tinylm`, `gpt2-small`, `gpt2-medium`, `llama-7b`
 - `model.d_model`, `model.n_layers`, `model.n_heads`
@@ -58,6 +67,18 @@ Enkai eval config.enk
 ```
 
 Uses the latest checkpoint and computes average loss/perplexity.
+
+## Cluster orchestration helpers
+
+```
+enkai cluster validate config.enk [--json]
+enkai cluster plan config.enk [--json]
+enkai cluster run config.enk [--dry-run] [--json]
+```
+
+- `validate` checks config contract + distributed orchestration fields.
+- `plan` emits deterministic per-rank launch env/command plans.
+- `run` currently emits launch plans (operator launcher remains explicit).
 
 ## Common errors
 

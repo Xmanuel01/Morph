@@ -18,6 +18,7 @@ use enkai_runtime::{Value, VM};
 
 mod bench;
 mod bootstrap;
+mod cluster;
 mod deploy;
 mod frontend;
 mod migrate;
@@ -90,6 +91,7 @@ fn main() {
     let exit_code = match args[1].as_str() {
         "run" => run_command(&args[2..]),
         "serve" => serve_command(&args[2..]),
+        "cluster" => cluster::cluster_command(&args[2..]),
         "bench" => bench::bench_command(&args[2..]),
         "model" => model::model_command(&args[2..]),
         "new" => frontend::new_command(&args[2..]),
@@ -1027,6 +1029,7 @@ fn print_usage() {
     frontend::print_new_usage();
     frontend::print_sdk_usage();
     readiness::print_readiness_usage();
+    eprintln!("  enkai cluster <validate|plan|run> <config.enk> [--json] [--dry-run]");
     deploy::print_deploy_usage();
     bootstrap::print_usage();
     eprintln!("  enkai check <file|dir>");

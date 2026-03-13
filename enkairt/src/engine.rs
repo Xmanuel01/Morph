@@ -21,6 +21,7 @@ pub struct TrainConfig {
     pub log: LogConfig,
     pub world_size: usize,
     pub rank: usize,
+    pub dist: DistConfig,
     pub grad_accum_steps: usize,
     pub grad_clip_norm: Option<f64>,
     pub amp: AmpConfig,
@@ -36,9 +37,29 @@ impl TrainConfig {
             log,
             world_size: 1,
             rank: 0,
+            dist: DistConfig::default(),
             grad_accum_steps: 1,
             grad_clip_norm: None,
             amp: AmpConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DistConfig {
+    pub topology: String,
+    pub rendezvous: String,
+    pub retry_budget: usize,
+    pub device_map: Vec<usize>,
+}
+
+impl Default for DistConfig {
+    fn default() -> Self {
+        Self {
+            topology: "standalone".to_string(),
+            rendezvous: "env://".to_string(),
+            retry_budget: 3,
+            device_map: vec![0],
         }
     }
 }
@@ -242,8 +263,12 @@ pub fn init(cfg: TrainConfig) -> Result<Engine, RuntimeError> {
         ));
     }
     if e.cfg.world_size > 1 {
-        e.backend
-            .configure_dist(e.cfg.world_size as i32, e.cfg.rank as i32)?;
+        e.backend.configure_dist(
+            &e.cfg.dist,
+            e.cfg.world_size as i32,
+            e.cfg.rank as i32,
+            e.cfg.model.seed as i64,
+        )?;
     }
     if e.params.is_empty() {
         let params = e.backend.init_model(&e.cfg.model, e.cfg.data.seq_len)?;

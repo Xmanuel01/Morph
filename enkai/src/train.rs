@@ -25,8 +25,9 @@ use enkai_runtime::{
     engine::{
         checkpoint_load as rt_checkpoint_load, checkpoint_save as rt_checkpoint_save,
         eval_step as rt_eval_step, init, train_step as rt_train_step, AmpConfig as RtAmpConfig,
-        CheckpointConfig as RtCkptConfig, DataConfig as RtDataConfig, LogConfig as RtLogConfig,
-        ModelConfig as RtModelConfig, OptimConfig as RtOptimConfig, TrainConfig as RtTrainConfig,
+        CheckpointConfig as RtCkptConfig, DataConfig as RtDataConfig, DistConfig as RtDistConfig,
+        LogConfig as RtLogConfig, ModelConfig as RtModelConfig, OptimConfig as RtOptimConfig,
+        TrainConfig as RtTrainConfig,
     },
     Value, VM,
 };
@@ -60,6 +61,7 @@ struct TrainConfig {
     prefetch_batches: usize,
     world_size: usize,
     rank: usize,
+    dist: DistOrchestration,
     grad_accum_steps: usize,
     grad_clip_norm: Option<f32>,
     ema_decay: f32,
@@ -76,6 +78,29 @@ struct TrainConfig {
     retention_milestone_keep: usize,
     legacy_config: bool,
     strict_contracts: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+struct DistOrchestration {
+    topology: String,
+    rendezvous: String,
+    retry_budget: usize,
+    device_map: Vec<usize>,
+}
+
+impl DistOrchestration {
+    fn default_for(world_size: usize) -> Self {
+        Self {
+            topology: if world_size > 1 {
+                "single-node".to_string()
+            } else {
+                "standalone".to_string()
+            },
+            rendezvous: "env://".to_string(),
+            retry_budget: 3,
+            device_map: (0..world_size.max(1)).collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1725,8 +1750,9 @@ fn parse_train_config_inner(
     if backend == "cpu" && world_size > 1 {
         return Err("world_size > 1 requires backend = \"native\"".to_string());
     }
-    if backend == "native" && world_size > 1 && device == "cuda" {
-        device = format!("cuda:{}", rank);
+    let dist = parse_dist_orchestration(map, world_size, rank)?;
+    if backend == "native" && world_size > 1 && device.starts_with("cuda") {
+        device = format!("cuda:{}", dist.device_map[rank]);
     }
     validate_device(&device, &backend)?;
     let grad_accum_steps = record_usize_default(map, "grad_accum_steps", 1);
@@ -1830,6 +1856,7 @@ fn parse_train_config_inner(
         prefetch_batches,
         world_size,
         rank,
+        dist,
         grad_accum_steps,
         grad_clip_norm,
         ema_decay,
@@ -1902,6 +1929,15 @@ fn train_config_to_json(config: &TrainConfig) -> serde_json::Value {
         serde_json::json!(config.world_size),
     );
     map.insert("rank".to_string(), serde_json::json!(config.rank));
+    map.insert(
+        "dist".to_string(),
+        serde_json::json!({
+            "topology": config.dist.topology,
+            "rendezvous": config.dist.rendezvous,
+            "retry_budget": config.dist.retry_budget,
+            "device_map": config.dist.device_map,
+        }),
+    );
     map.insert(
         "grad_accum_steps".to_string(),
         serde_json::json!(config.grad_accum_steps),
@@ -2253,6 +2289,117 @@ fn parse_amp_config(
         }
     }
     Ok(amp)
+}
+
+fn parse_dist_orchestration(
+    map: &std::collections::HashMap<String, Value>,
+    world_size: usize,
+    rank: usize,
+) -> Result<DistOrchestration, String> {
+    let mut dist = DistOrchestration::default_for(world_size);
+    if let Some(value) = map.get("dist") {
+        let dmap = value_as_record(value)?;
+        dist.topology = record_string_default(&dmap, "topology", &dist.topology).to_lowercase();
+        dist.rendezvous = record_string_default(&dmap, "rendezvous", &dist.rendezvous);
+        dist.retry_budget = record_usize_default(&dmap, "retry_budget", dist.retry_budget);
+        if let Some(device_map_value) = dmap.get("device_map") {
+            dist.device_map = parse_device_map(device_map_value, world_size)?;
+        }
+    }
+
+    if world_size <= 1 {
+        dist.topology = "standalone".to_string();
+        dist.device_map = vec![0];
+        return Ok(dist);
+    }
+
+    if dist.topology != "single-node" && dist.topology != "multi-node" {
+        return Err(format!(
+            "dist.topology must be \"single-node\" or \"multi-node\" (found {})",
+            dist.topology
+        ));
+    }
+    if dist.rendezvous.trim().is_empty() {
+        return Err("dist.rendezvous must not be empty".to_string());
+    }
+    if dist.rendezvous.eq_ignore_ascii_case("env://") && dist.topology == "multi-node" {
+        return Err(
+            "dist.rendezvous cannot be env:// for multi-node topology; set tcp://<host>:<port>"
+                .to_string(),
+        );
+    }
+    if dist.device_map.len() != world_size {
+        return Err(format!(
+            "dist.device_map length mismatch: expected {}, found {}",
+            world_size,
+            dist.device_map.len()
+        ));
+    }
+    let mut seen = HashSet::new();
+    for (idx, device) in dist.device_map.iter().enumerate() {
+        if *device >= world_size {
+            return Err(format!(
+                "dist.device_map[{}] out of range (value {}, world_size {})",
+                idx, device, world_size
+            ));
+        }
+        if !seen.insert(*device) {
+            return Err(format!(
+                "dist.device_map has duplicate CUDA index {} (must be one-to-one per rank)",
+                device
+            ));
+        }
+    }
+    if rank >= dist.device_map.len() {
+        return Err(format!(
+            "rank {} out of range for dist.device_map length {}",
+            rank,
+            dist.device_map.len()
+        ));
+    }
+
+    Ok(dist)
+}
+
+fn parse_device_map(value: &Value, world_size: usize) -> Result<Vec<usize>, String> {
+    match value {
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::String(text) => parse_device_map_string(text, world_size),
+            Obj::List(list) => {
+                let mut out = Vec::with_capacity(list.borrow().len());
+                for entry in list.borrow().iter() {
+                    match entry {
+                        Value::Int(v) if *v >= 0 => out.push(*v as usize),
+                        _ => {
+                            return Err("dist.device_map list entries must be Int >= 0".to_string())
+                        }
+                    }
+                }
+                Ok(out)
+            }
+            _ => Err("dist.device_map must be String or List[Int]".to_string()),
+        },
+        _ => Err("dist.device_map must be String or List[Int]".to_string()),
+    }
+}
+
+fn parse_device_map_string(value: &str, world_size: usize) -> Result<Vec<usize>, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Ok((0..world_size.max(1)).collect());
+    }
+    trimmed
+        .split(',')
+        .map(|part| {
+            let token = part.trim();
+            token.parse::<usize>().map_err(|_| {
+                format!(
+                    "dist.device_map contains invalid index {:?}; expected comma-separated integers",
+                    token
+                )
+            })
+        })
+        .collect()
 }
 
 struct ModelPreset {
@@ -2950,6 +3097,12 @@ fn rt_config_from(config: &TrainConfig) -> RtTrainConfig {
         log: RtLogConfig::new(Path::new(&config.checkpoint_dir).to_path_buf()),
         world_size: config.world_size,
         rank: config.rank,
+        dist: RtDistConfig {
+            topology: config.dist.topology.clone(),
+            rendezvous: config.dist.rendezvous.clone(),
+            retry_budget: config.dist.retry_budget,
+            device_map: config.dist.device_map.clone(),
+        },
         grad_accum_steps: config.grad_accum_steps,
         grad_clip_norm: config.grad_clip_norm.map(|v| v as f64),
         amp: RtAmpConfig {
@@ -3831,6 +3984,100 @@ mod tests {
         let parsed = parse_train_config(&value).expect("dist gate enabled parse");
         assert_eq!(parsed.world_size, 2);
         assert_eq!(parsed.rank, 0);
+
+        if let Some(value) = prev {
+            std::env::set_var("ENKAI_ENABLE_DIST", value);
+        } else {
+            std::env::remove_var("ENKAI_ENABLE_DIST");
+        }
+    }
+
+    #[test]
+    fn distributed_parse_supports_orchestration_fields() {
+        let _env_guard = crate::env_guard();
+        let prev = std::env::var("ENKAI_ENABLE_DIST").ok();
+        std::env::set_var("ENKAI_ENABLE_DIST", "1");
+
+        let dir = tempdir().expect("tempdir");
+        let data = dir.path().join("dist_orch_data.txt");
+        fs::write(&data, "alpha beta gamma\ndelta epsilon").expect("write data");
+        let ckpt = dir.path().join("dist_orch_ckpt");
+        let config_path = dir.path().join("dist_orch_config.enk");
+        let config = serde_json::json!({
+            "config_version": 1,
+            "backend": "native",
+            "vocab_size": 8,
+            "hidden_size": 4,
+            "seq_len": 4,
+            "batch_size": 2,
+            "lr": 0.1,
+            "dataset_path": data.to_string_lossy(),
+            "checkpoint_dir": ckpt.to_string_lossy(),
+            "max_steps": 1,
+            "save_every": 1,
+            "log_every": 1,
+            "drop_remainder": false,
+            "world_size": 2,
+            "rank": 1,
+            "dist": {
+                "topology": "multi-node",
+                "rendezvous": "tcp://127.0.0.1:29500",
+                "retry_budget": 5,
+                "device_map": "1,0"
+            },
+            "tokenizer_train": { "path": data.to_string_lossy(), "vocab_size": 8 }
+        });
+        write_config(&config_path, &config).expect("write config");
+        let value = load_config_value(&config_path).expect("load config value");
+        let parsed = parse_train_config(&value).expect("dist parse");
+        assert_eq!(parsed.dist.topology, "multi-node");
+        assert_eq!(parsed.dist.rendezvous, "tcp://127.0.0.1:29500");
+        assert_eq!(parsed.dist.retry_budget, 5);
+        assert_eq!(parsed.dist.device_map, vec![1, 0]);
+        assert_eq!(parsed.model.device, "cuda:0");
+
+        if let Some(value) = prev {
+            std::env::set_var("ENKAI_ENABLE_DIST", value);
+        } else {
+            std::env::remove_var("ENKAI_ENABLE_DIST");
+        }
+    }
+
+    #[test]
+    fn distributed_parse_rejects_invalid_device_map_length() {
+        let _env_guard = crate::env_guard();
+        let prev = std::env::var("ENKAI_ENABLE_DIST").ok();
+        std::env::set_var("ENKAI_ENABLE_DIST", "1");
+
+        let dir = tempdir().expect("tempdir");
+        let data = dir.path().join("dist_bad_map_data.txt");
+        fs::write(&data, "alpha beta gamma\ndelta epsilon").expect("write data");
+        let ckpt = dir.path().join("dist_bad_map_ckpt");
+        let config_path = dir.path().join("dist_bad_map_config.enk");
+        let config = serde_json::json!({
+            "config_version": 1,
+            "backend": "native",
+            "vocab_size": 8,
+            "hidden_size": 4,
+            "seq_len": 4,
+            "batch_size": 2,
+            "lr": 0.1,
+            "dataset_path": data.to_string_lossy(),
+            "checkpoint_dir": ckpt.to_string_lossy(),
+            "max_steps": 1,
+            "world_size": 2,
+            "rank": 0,
+            "dist": {
+                "topology": "single-node",
+                "rendezvous": "env://",
+                "device_map": "0"
+            },
+            "tokenizer_train": { "path": data.to_string_lossy(), "vocab_size": 8 }
+        });
+        write_config(&config_path, &config).expect("write config");
+        let value = load_config_value(&config_path).expect("load config value");
+        let err = parse_train_config(&value).expect_err("invalid device map");
+        assert!(err.contains("dist.device_map length mismatch"));
 
         if let Some(value) = prev {
             std::env::set_var("ENKAI_ENABLE_DIST", value);

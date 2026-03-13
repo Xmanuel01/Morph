@@ -99,6 +99,17 @@
       ]
     },
     {
+      "id": "benchmark-build-native",
+      "description": "Build release native FFI library for benchmark gates",
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "enkai_native",
+        "--release"
+      ]
+    },
+    {
       "id": "benchmark-fairness",
       "description": "Benchmark fairness contract gate",
       "command": [
