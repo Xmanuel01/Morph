@@ -5,6 +5,12 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+
+const REMOTE_MANIFEST_FILE: &str = "remote.manifest.json";
+const REMOTE_SIGNATURE_FILE: &str = "remote.manifest.sig";
+const AUDIT_LOG_FILE: &str = "audit.log.jsonl";
+const SIGNING_KEY_ENV: &str = "ENKAI_MODEL_SIGNING_KEY";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ModelRegistry {
@@ -38,6 +44,70 @@ struct ServeLoadedVersion {
     loaded_at_ms: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RemoteArtifactManifest {
+    schema_version: u32,
+    name: String,
+    version: String,
+    status: String,
+    checkpoint_path: String,
+    source_registry: String,
+    pushed_ms: u64,
+    artifact_digest: String,
+    files: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RegistryAuditEvent {
+    schema_version: u32,
+    timestamp_ms: u64,
+    operation: String,
+    status: String,
+    model: String,
+    version: String,
+    registry_path: String,
+    remote_registry: Option<String>,
+    code: Option<String>,
+    detail: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ModelOpError {
+    code: &'static str,
+    message: String,
+}
+
+impl ModelOpError {
+    fn new(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct RemoteCommandArgs {
+    local_registry: PathBuf,
+    remote_registry: PathBuf,
+    model: String,
+    version: String,
+    verify_signature: bool,
+    fallback_local: bool,
+    sign: bool,
+}
+
+#[derive(Debug, Clone)]
+struct AuditAppend<'a> {
+    operation: &'a str,
+    status: &'a str,
+    model: &'a str,
+    version: &'a str,
+    remote_registry: Option<&'a Path>,
+    code: Option<&'a str>,
+    detail: Option<&'a str>,
+}
+
 pub fn model_command(args: &[String]) -> i32 {
     if args.is_empty() {
         print_model_usage();
@@ -49,6 +119,11 @@ pub fn model_command(args: &[String]) -> i32 {
         "load" => model_load(&args[1..]),
         "unload" => model_unload(&args[1..]),
         "loaded" => model_loaded(&args[1..]),
+        "push" => model_push_remote(&args[1..]),
+        "pull" => model_pull_remote(&args[1..]),
+        "promote-remote" => model_sync_remote_state("promote", &args[1..]),
+        "retire-remote" => model_sync_remote_state("retire", &args[1..]),
+        "rollback-remote" => model_sync_remote_state("rollback", &args[1..]),
         "promote" => model_promote_like("promote", &args[1..]),
         "retire" => model_retire(&args[1..]),
         "rollback" => model_promote_like("rollback", &args[1..]),
@@ -68,6 +143,21 @@ pub fn print_model_usage() {
     eprintln!("  enkai model load <registry_dir> <name> <version>");
     eprintln!("  enkai model unload <registry_dir> <name> <version>");
     eprintln!("  enkai model loaded <registry_dir> [name] [--json]");
+    eprintln!(
+        "  enkai model push <registry_dir> <name> <version> --registry <remote_registry_dir> [--sign]"
+    );
+    eprintln!(
+        "  enkai model pull <registry_dir> <name> <version> --registry <remote_registry_dir> [--verify-signature] [--fallback-local]"
+    );
+    eprintln!(
+        "  enkai model promote-remote <registry_dir> <name> <version> --registry <remote_registry_dir> [--verify-signature] [--fallback-local]"
+    );
+    eprintln!(
+        "  enkai model retire-remote <registry_dir> <name> <version> --registry <remote_registry_dir> [--verify-signature] [--fallback-local]"
+    );
+    eprintln!(
+        "  enkai model rollback-remote <registry_dir> <name> <version> --registry <remote_registry_dir> [--verify-signature] [--fallback-local]"
+    );
     eprintln!("  enkai model promote <registry_dir> <name> <version>");
     eprintln!("  enkai model retire <registry_dir> <name> <version>");
     eprintln!("  enkai model rollback <registry_dir> <name> <version>");
@@ -175,6 +265,18 @@ fn model_register(args: &[String]) -> i32 {
         eprintln!("enkai model register: {}", err);
         return 1;
     }
+    let _ = append_audit_event(
+        &registry_dir,
+        AuditAppend {
+            operation: "register",
+            status: "ok",
+            model: name,
+            version,
+            remote_registry: None,
+            code: None,
+            detail: None,
+        },
+    );
     println!(
         "registered model {} {} (checkpoint: {})",
         name,
@@ -303,6 +405,18 @@ fn model_promote_like(kind: &str, args: &[String]) -> i32 {
         eprintln!("enkai model {}: {}", kind, err);
         return 1;
     }
+    let _ = append_audit_event(
+        &registry_dir,
+        AuditAppend {
+            operation: kind,
+            status: "ok",
+            model: name,
+            version,
+            remote_registry: None,
+            code: None,
+            detail: None,
+        },
+    );
     println!("{}d model {} {}", kind, name, version);
     0
 }
@@ -366,6 +480,18 @@ fn model_load(args: &[String]) -> i32 {
         eprintln!("enkai model load: {}", err);
         return 1;
     }
+    let _ = append_audit_event(
+        &registry_dir,
+        AuditAppend {
+            operation: "load",
+            status: "ok",
+            model: name,
+            version,
+            remote_registry: None,
+            code: None,
+            detail: None,
+        },
+    );
     println!("loaded model {} {}", name, version);
     0
 }
@@ -407,6 +533,18 @@ fn model_unload(args: &[String]) -> i32 {
         eprintln!("enkai model unload: {}", err);
         return 1;
     }
+    let _ = append_audit_event(
+        &registry_dir,
+        AuditAppend {
+            operation: "unload",
+            status: "ok",
+            model: name,
+            version,
+            remote_registry: None,
+            code: None,
+            detail: None,
+        },
+    );
     println!("unloaded model {} {}", name, version);
     0
 }
@@ -493,6 +631,170 @@ fn model_loaded(args: &[String]) -> i32 {
     0
 }
 
+fn model_push_remote(args: &[String]) -> i32 {
+    let parsed = match parse_remote_args("push", args, true) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            eprintln!("enkai model push: {}", err);
+            return 1;
+        }
+    };
+    let result = push_remote_model(&parsed);
+    match result {
+        Ok(message) => {
+            println!("{}", message);
+            0
+        }
+        Err(err) => {
+            eprintln!("enkai model push [{}]: {}", err.code, err.message);
+            let _ = append_audit_event(
+                &parsed.local_registry,
+                AuditAppend {
+                    operation: "push_remote",
+                    status: "failed",
+                    model: &parsed.model,
+                    version: &parsed.version,
+                    remote_registry: Some(&parsed.remote_registry),
+                    code: Some(err.code),
+                    detail: Some(&err.message),
+                },
+            );
+            1
+        }
+    }
+}
+
+fn model_pull_remote(args: &[String]) -> i32 {
+    let parsed = match parse_remote_args("pull", args, false) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            eprintln!("enkai model pull: {}", err);
+            return 1;
+        }
+    };
+    match pull_remote_model(&parsed) {
+        Ok(message) => {
+            println!("{}", message);
+            0
+        }
+        Err(err) => {
+            if parsed.fallback_local
+                && has_local_model_version(&parsed.local_registry, &parsed.model, &parsed.version)
+            {
+                let detail = format!(
+                    "remote unavailable/invalid ({}: {}); using pinned local cache",
+                    err.code, err.message
+                );
+                let _ = append_audit_event(
+                    &parsed.local_registry,
+                    AuditAppend {
+                        operation: "pull_remote",
+                        status: "fallback_local",
+                        model: &parsed.model,
+                        version: &parsed.version,
+                        remote_registry: Some(&parsed.remote_registry),
+                        code: Some(err.code),
+                        detail: Some(&detail),
+                    },
+                );
+                println!("{}", detail);
+                return 0;
+            }
+            eprintln!("enkai model pull [{}]: {}", err.code, err.message);
+            let _ = append_audit_event(
+                &parsed.local_registry,
+                AuditAppend {
+                    operation: "pull_remote",
+                    status: "failed",
+                    model: &parsed.model,
+                    version: &parsed.version,
+                    remote_registry: Some(&parsed.remote_registry),
+                    code: Some(err.code),
+                    detail: Some(&err.message),
+                },
+            );
+            1
+        }
+    }
+}
+
+fn model_sync_remote_state(kind: &str, args: &[String]) -> i32 {
+    let parsed = match parse_remote_args(kind, args, false) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            eprintln!("enkai model {}-remote: {}", kind, err);
+            return 1;
+        }
+    };
+    match sync_remote_state_operation(kind, &parsed) {
+        Ok(message) => {
+            println!("{}", message);
+            0
+        }
+        Err(err) => {
+            if parsed.fallback_local
+                && has_local_model_version(&parsed.local_registry, &parsed.model, &parsed.version)
+            {
+                let rc = match kind {
+                    "promote" | "rollback" => model_promote_like(
+                        kind,
+                        &[
+                            parsed.local_registry.to_string_lossy().to_string(),
+                            parsed.model.clone(),
+                            parsed.version.clone(),
+                        ],
+                    ),
+                    "retire" => model_retire(&[
+                        parsed.local_registry.to_string_lossy().to_string(),
+                        parsed.model.clone(),
+                        parsed.version.clone(),
+                    ]),
+                    _ => 1,
+                };
+                if rc == 0 {
+                    let detail = format!(
+                        "remote sync degraded ({}: {}); applied {} to local cache only",
+                        err.code, err.message, kind
+                    );
+                    let operation = format!("{}_remote", kind);
+                    let _ = append_audit_event(
+                        &parsed.local_registry,
+                        AuditAppend {
+                            operation: &operation,
+                            status: "fallback_local",
+                            model: &parsed.model,
+                            version: &parsed.version,
+                            remote_registry: Some(&parsed.remote_registry),
+                            code: Some(err.code),
+                            detail: Some(&detail),
+                        },
+                    );
+                    println!("{}", detail);
+                    return 0;
+                }
+            }
+            eprintln!(
+                "enkai model {}-remote [{}]: {}",
+                kind, err.code, err.message
+            );
+            let operation = format!("{}_remote", kind);
+            let _ = append_audit_event(
+                &parsed.local_registry,
+                AuditAppend {
+                    operation: &operation,
+                    status: "failed",
+                    model: &parsed.model,
+                    version: &parsed.version,
+                    remote_registry: Some(&parsed.remote_registry),
+                    code: Some(err.code),
+                    detail: Some(&err.message),
+                },
+            );
+            1
+        }
+    }
+}
+
 fn model_retire(args: &[String]) -> i32 {
     if args.len() != 3 {
         eprintln!("Usage: enkai model retire <registry_dir> <name> <version>");
@@ -539,8 +841,860 @@ fn model_retire(args: &[String]) -> i32 {
         return 1;
     }
     let _ = unload_model_version(&registry_dir, name, version);
+    let _ = append_audit_event(
+        &registry_dir,
+        AuditAppend {
+            operation: "retire",
+            status: "ok",
+            model: name,
+            version,
+            remote_registry: None,
+            code: None,
+            detail: None,
+        },
+    );
     println!("retired model {} {}", name, version);
     0
+}
+
+fn parse_remote_args(
+    operation: &str,
+    args: &[String],
+    allow_sign: bool,
+) -> Result<RemoteCommandArgs, String> {
+    if args.len() < 5 {
+        return Err(format!(
+            "Usage: enkai model {} <registry_dir> <name> <version> --registry <remote_registry_dir>{}",
+            operation,
+            if allow_sign {
+                " [--sign] [--verify-signature] [--fallback-local]"
+            } else {
+                " [--verify-signature] [--fallback-local]"
+            }
+        ));
+    }
+    let local_registry = PathBuf::from(&args[0]);
+    let model = args[1].trim().to_string();
+    let version = args[2].trim().to_string();
+    if model.is_empty() || version.is_empty() {
+        return Err("name/version cannot be empty".to_string());
+    }
+
+    let mut remote_registry: Option<PathBuf> = None;
+    let mut verify_signature = false;
+    let mut fallback_local = false;
+    let mut sign = false;
+
+    let mut idx = 3usize;
+    while idx < args.len() {
+        match args[idx].as_str() {
+            "--registry" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err("--registry requires a value".to_string());
+                }
+                remote_registry = Some(PathBuf::from(&args[idx]));
+            }
+            "--verify-signature" => verify_signature = true,
+            "--fallback-local" => fallback_local = true,
+            "--sign" if allow_sign => sign = true,
+            unknown => {
+                return Err(format!("unknown option '{}'", unknown));
+            }
+        }
+        idx += 1;
+    }
+
+    let remote_registry =
+        remote_registry.ok_or_else(|| "missing --registry <remote_registry_dir>".to_string())?;
+
+    Ok(RemoteCommandArgs {
+        local_registry,
+        remote_registry,
+        model,
+        version,
+        verify_signature,
+        fallback_local,
+        sign,
+    })
+}
+
+fn push_remote_model(args: &RemoteCommandArgs) -> Result<String, ModelOpError> {
+    let local_registry = load_registry(&args.local_registry).map_err(|err| {
+        ModelOpError::new(
+            "E_MODEL_LOCAL_REGISTRY",
+            format!(
+                "failed to load local registry {}: {}",
+                args.local_registry.display(),
+                err
+            ),
+        )
+    })?;
+    let local_entry = local_registry.models.get(&args.model).ok_or_else(|| {
+        ModelOpError::new("E_MODEL_NOT_FOUND", "model not found in local registry")
+    })?;
+    let local_version_meta = local_entry.versions.get(&args.version).ok_or_else(|| {
+        ModelOpError::new(
+            "E_MODEL_VERSION_NOT_FOUND",
+            "model version not found in local registry",
+        )
+    })?;
+    let local_version_dir = args.local_registry.join(&args.model).join(&args.version);
+    ensure_model_version_dir(&local_version_dir, "local")?;
+    let manifest = build_remote_manifest(
+        &args.local_registry,
+        &args.model,
+        &args.version,
+        local_version_meta,
+        &local_version_dir,
+    )?;
+    let remote_version_dir = args.remote_registry.join(&args.model).join(&args.version);
+    fs::create_dir_all(&remote_version_dir).map_err(|err| {
+        ModelOpError::new(
+            "E_MODEL_REMOTE_IO",
+            format!(
+                "failed to create remote version directory {}: {}",
+                remote_version_dir.display(),
+                err
+            ),
+        )
+    })?;
+
+    if remote_version_dir.join(REMOTE_MANIFEST_FILE).is_file() {
+        let existing = load_remote_manifest(&remote_version_dir)?;
+        verify_remote_manifest_integrity(&remote_version_dir, &existing)?;
+        if existing.name != args.model || existing.version != args.version {
+            return Err(ModelOpError::new(
+                "E_MODEL_REMOTE_IMMUTABLE",
+                format!(
+                    "remote artifact manifest identity mismatch for {} {}",
+                    args.model, args.version
+                ),
+            ));
+        }
+        if existing.artifact_digest != manifest.artifact_digest {
+            return Err(ModelOpError::new(
+                "E_MODEL_REMOTE_IMMUTABLE",
+                format!(
+                    "remote artifact for {} {} already exists with different immutable digest",
+                    args.model, args.version
+                ),
+            ));
+        }
+    }
+
+    copy_required_version_files(&local_version_dir, &remote_version_dir)?;
+    write_remote_manifest(&remote_version_dir, &manifest, args.sign)?;
+
+    let mut remote_registry = load_registry(&args.remote_registry).map_err(|err| {
+        ModelOpError::new(
+            "E_MODEL_REMOTE_REGISTRY",
+            format!(
+                "failed to load remote registry {}: {}",
+                args.remote_registry.display(),
+                err
+            ),
+        )
+    })?;
+    let remote_entry = remote_registry
+        .models
+        .entry(args.model.clone())
+        .or_default();
+    let now = now_ms();
+    let created_ms = remote_entry
+        .versions
+        .get(&args.version)
+        .map(|item| item.created_ms)
+        .unwrap_or(now);
+    remote_entry.versions.insert(
+        args.version.clone(),
+        ModelVersion {
+            status: local_version_meta.status.clone(),
+            checkpoint_path: local_version_meta.checkpoint_path.clone(),
+            created_ms,
+            updated_ms: now,
+        },
+    );
+    if local_entry.active.as_deref() == Some(args.version.as_str()) || remote_entry.active.is_none()
+    {
+        remote_entry.active = Some(args.version.clone());
+        set_version_status(remote_entry, &args.version, "active");
+        fs::write(
+            args.remote_registry
+                .join(&args.model)
+                .join(".active_version"),
+            &args.version,
+        )
+        .map_err(|err| {
+            ModelOpError::new(
+                "E_MODEL_REMOTE_IO",
+                format!("failed to write remote active pointer: {}", err),
+            )
+        })?;
+    }
+    write_model_manifest_for_version(
+        &args.remote_registry,
+        &args.model,
+        &args.version,
+        remote_entry,
+    )
+    .map_err(|err| ModelOpError::new("E_MODEL_REMOTE_IO", err))?;
+    save_registry(&args.remote_registry, &remote_registry)
+        .map_err(|err| ModelOpError::new("E_MODEL_REMOTE_IO", err))?;
+
+    let _ = append_audit_event(
+        &args.local_registry,
+        AuditAppend {
+            operation: "push_remote",
+            status: "ok",
+            model: &args.model,
+            version: &args.version,
+            remote_registry: Some(&args.remote_registry),
+            code: None,
+            detail: None,
+        },
+    );
+    let _ = append_audit_event(
+        &args.remote_registry,
+        AuditAppend {
+            operation: "push_remote",
+            status: "ok",
+            model: &args.model,
+            version: &args.version,
+            remote_registry: Some(&args.local_registry),
+            code: None,
+            detail: None,
+        },
+    );
+    Ok(format!(
+        "pushed model {} {} to remote registry {}",
+        args.model,
+        args.version,
+        args.remote_registry.display()
+    ))
+}
+
+fn pull_remote_model(args: &RemoteCommandArgs) -> Result<String, ModelOpError> {
+    let remote_version_dir = args.remote_registry.join(&args.model).join(&args.version);
+    ensure_model_version_dir(&remote_version_dir, "remote")?;
+    maybe_verify_remote_manifest(
+        &remote_version_dir,
+        &args.model,
+        &args.version,
+        args.verify_signature,
+    )?;
+
+    let remote_registry = load_registry(&args.remote_registry).map_err(|err| {
+        ModelOpError::new(
+            "E_MODEL_REMOTE_REGISTRY",
+            format!(
+                "failed to load remote registry {}: {}",
+                args.remote_registry.display(),
+                err
+            ),
+        )
+    })?;
+    let remote_entry = remote_registry.models.get(&args.model).ok_or_else(|| {
+        ModelOpError::new("E_MODEL_NOT_FOUND", "model missing in remote registry")
+    })?;
+    let remote_meta = remote_entry.versions.get(&args.version).ok_or_else(|| {
+        ModelOpError::new(
+            "E_MODEL_VERSION_NOT_FOUND",
+            "model version missing in remote registry",
+        )
+    })?;
+    let local_version_dir = args.local_registry.join(&args.model).join(&args.version);
+    fs::create_dir_all(&local_version_dir).map_err(|err| {
+        ModelOpError::new(
+            "E_MODEL_LOCAL_IO",
+            format!(
+                "failed to create local version directory {}: {}",
+                local_version_dir.display(),
+                err
+            ),
+        )
+    })?;
+    copy_required_version_files(&remote_version_dir, &local_version_dir)?;
+    let _ = copy_optional_file(
+        &remote_version_dir.join(REMOTE_MANIFEST_FILE),
+        &local_version_dir.join(REMOTE_MANIFEST_FILE),
+    );
+    let _ = copy_optional_file(
+        &remote_version_dir.join(REMOTE_SIGNATURE_FILE),
+        &local_version_dir.join(REMOTE_SIGNATURE_FILE),
+    );
+
+    let mut local_registry = load_registry(&args.local_registry).map_err(|err| {
+        ModelOpError::new(
+            "E_MODEL_LOCAL_REGISTRY",
+            format!(
+                "failed to load local registry {}: {}",
+                args.local_registry.display(),
+                err
+            ),
+        )
+    })?;
+    let entry = local_registry.models.entry(args.model.clone()).or_default();
+    entry
+        .versions
+        .insert(args.version.clone(), remote_meta.clone());
+    if entry.active.is_none() && remote_entry.active.as_deref() == Some(args.version.as_str()) {
+        entry.active = Some(args.version.clone());
+        set_version_status(entry, &args.version, "active");
+        fs::write(
+            args.local_registry
+                .join(&args.model)
+                .join(".active_version"),
+            &args.version,
+        )
+        .map_err(|err| {
+            ModelOpError::new(
+                "E_MODEL_LOCAL_IO",
+                format!("failed to write local active pointer: {}", err),
+            )
+        })?;
+    }
+    write_model_manifest_for_version(&args.local_registry, &args.model, &args.version, entry)
+        .map_err(|err| ModelOpError::new("E_MODEL_LOCAL_IO", err))?;
+    save_registry(&args.local_registry, &local_registry)
+        .map_err(|err| ModelOpError::new("E_MODEL_LOCAL_IO", err))?;
+
+    let _ = append_audit_event(
+        &args.local_registry,
+        AuditAppend {
+            operation: "pull_remote",
+            status: "ok",
+            model: &args.model,
+            version: &args.version,
+            remote_registry: Some(&args.remote_registry),
+            code: None,
+            detail: None,
+        },
+    );
+    Ok(format!(
+        "pulled model {} {} from remote registry {}",
+        args.model,
+        args.version,
+        args.remote_registry.display()
+    ))
+}
+
+fn sync_remote_state_operation(
+    kind: &str,
+    args: &RemoteCommandArgs,
+) -> Result<String, ModelOpError> {
+    let remote_version_dir = args.remote_registry.join(&args.model).join(&args.version);
+    ensure_model_version_dir(&remote_version_dir, "remote")?;
+    maybe_verify_remote_manifest(
+        &remote_version_dir,
+        &args.model,
+        &args.version,
+        args.verify_signature,
+    )?;
+
+    let mut remote_registry = load_registry(&args.remote_registry).map_err(|err| {
+        ModelOpError::new(
+            "E_MODEL_REMOTE_REGISTRY",
+            format!(
+                "failed to load remote registry {}: {}",
+                args.remote_registry.display(),
+                err
+            ),
+        )
+    })?;
+    let remote_entry = remote_registry.models.get_mut(&args.model).ok_or_else(|| {
+        ModelOpError::new("E_MODEL_NOT_FOUND", "model missing in remote registry")
+    })?;
+    apply_state_transition(
+        kind,
+        &args.model,
+        &args.version,
+        remote_entry,
+        &args.remote_registry,
+    )?;
+    save_registry(&args.remote_registry, &remote_registry)
+        .map_err(|err| ModelOpError::new("E_MODEL_REMOTE_IO", err))?;
+
+    if !has_local_model_version(&args.local_registry, &args.model, &args.version) {
+        pull_remote_model(args)?;
+    }
+    let mut local_registry = load_registry(&args.local_registry).map_err(|err| {
+        ModelOpError::new(
+            "E_MODEL_LOCAL_REGISTRY",
+            format!(
+                "failed to load local registry {}: {}",
+                args.local_registry.display(),
+                err
+            ),
+        )
+    })?;
+    let local_entry = local_registry.models.get_mut(&args.model).ok_or_else(|| {
+        ModelOpError::new(
+            "E_MODEL_LOCAL_REGISTRY",
+            "model missing in local registry after sync pull",
+        )
+    })?;
+    apply_state_transition(
+        kind,
+        &args.model,
+        &args.version,
+        local_entry,
+        &args.local_registry,
+    )?;
+    save_registry(&args.local_registry, &local_registry)
+        .map_err(|err| ModelOpError::new("E_MODEL_LOCAL_IO", err))?;
+
+    let operation = format!("{}_remote", kind);
+    let _ = append_audit_event(
+        &args.local_registry,
+        AuditAppend {
+            operation: &operation,
+            status: "ok",
+            model: &args.model,
+            version: &args.version,
+            remote_registry: Some(&args.remote_registry),
+            code: None,
+            detail: None,
+        },
+    );
+    let _ = append_audit_event(
+        &args.remote_registry,
+        AuditAppend {
+            operation: &operation,
+            status: "ok",
+            model: &args.model,
+            version: &args.version,
+            remote_registry: Some(&args.local_registry),
+            code: None,
+            detail: None,
+        },
+    );
+    Ok(format!(
+        "{}d model {} {} on remote {} and local cache {}",
+        kind,
+        args.model,
+        args.version,
+        args.remote_registry.display(),
+        args.local_registry.display()
+    ))
+}
+
+fn apply_state_transition(
+    kind: &str,
+    model: &str,
+    version: &str,
+    entry: &mut ModelEntry,
+    registry_dir: &Path,
+) -> Result<(), ModelOpError> {
+    if !entry.versions.contains_key(version) {
+        return Err(ModelOpError::new(
+            "E_MODEL_VERSION_NOT_FOUND",
+            format!("model '{}' version '{}' not found", model, version),
+        ));
+    }
+    let now = now_ms();
+    match kind {
+        "promote" | "rollback" => {
+            entry.active = Some(version.to_string());
+            set_version_status(entry, version, "active");
+            fs::write(registry_dir.join(model).join(".active_version"), version).map_err(
+                |err| {
+                    ModelOpError::new(
+                        "E_MODEL_IO",
+                        format!("failed to write active version pointer: {}", err),
+                    )
+                },
+            )?;
+        }
+        "retire" => {
+            if let Some(meta) = entry.versions.get_mut(version) {
+                meta.status = "retired".to_string();
+                meta.updated_ms = now;
+            }
+            if entry.active.as_deref() == Some(version) {
+                entry.active = None;
+                let _ = fs::remove_file(registry_dir.join(model).join(".active_version"));
+            }
+            let _ = unload_model_version(registry_dir, model, version);
+        }
+        other => {
+            return Err(ModelOpError::new(
+                "E_MODEL_UNSUPPORTED_OPERATION",
+                format!("unsupported remote state operation '{}'", other),
+            ));
+        }
+    }
+    write_model_manifest_for_version(registry_dir, model, version, entry)
+        .map_err(|err| ModelOpError::new("E_MODEL_IO", err))?;
+    Ok(())
+}
+
+fn ensure_model_version_dir(path: &Path, label: &str) -> Result<(), ModelOpError> {
+    if !path.is_dir() {
+        return Err(ModelOpError::new(
+            "E_MODEL_VERSION_DIR_MISSING",
+            format!(
+                "{} model version directory not found: {}",
+                label,
+                path.display()
+            ),
+        ));
+    }
+    for file in ["model.meta.json", "checkpoint_path.txt"] {
+        let item = path.join(file);
+        if !item.is_file() {
+            return Err(ModelOpError::new(
+                "E_MODEL_VERSION_FILE_MISSING",
+                format!("{} model artifact missing: {}", label, item.display()),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn copy_required_version_files(src: &Path, dst: &Path) -> Result<(), ModelOpError> {
+    fs::create_dir_all(dst).map_err(|err| {
+        ModelOpError::new(
+            "E_MODEL_IO",
+            format!("failed to create {}: {}", dst.display(), err),
+        )
+    })?;
+    for file in ["model.meta.json", "checkpoint_path.txt"] {
+        let src_path = src.join(file);
+        let dst_path = dst.join(file);
+        fs::copy(&src_path, &dst_path).map_err(|err| {
+            ModelOpError::new(
+                "E_MODEL_IO",
+                format!(
+                    "failed to copy model artifact {} -> {}: {}",
+                    src_path.display(),
+                    dst_path.display(),
+                    err
+                ),
+            )
+        })?;
+    }
+    Ok(())
+}
+
+fn copy_optional_file(src: &Path, dst: &Path) -> Result<(), ModelOpError> {
+    if !src.is_file() {
+        return Ok(());
+    }
+    fs::copy(src, dst).map_err(|err| {
+        ModelOpError::new(
+            "E_MODEL_IO",
+            format!(
+                "failed to copy optional artifact {} -> {}: {}",
+                src.display(),
+                dst.display(),
+                err
+            ),
+        )
+    })?;
+    Ok(())
+}
+
+fn build_remote_manifest(
+    source_registry: &Path,
+    model: &str,
+    version: &str,
+    meta: &ModelVersion,
+    version_dir: &Path,
+) -> Result<RemoteArtifactManifest, ModelOpError> {
+    let mut files = BTreeMap::new();
+    let file = "checkpoint_path.txt";
+    let hash = file_sha256_hex(&version_dir.join(file))?;
+    files.insert(file.to_string(), hash);
+    let artifact_digest = artifact_digest(model, version, &meta.checkpoint_path, &files);
+    Ok(RemoteArtifactManifest {
+        schema_version: 1,
+        name: model.to_string(),
+        version: version.to_string(),
+        status: meta.status.clone(),
+        checkpoint_path: meta.checkpoint_path.clone(),
+        source_registry: source_registry.to_string_lossy().to_string(),
+        pushed_ms: now_ms(),
+        artifact_digest,
+        files,
+    })
+}
+
+fn artifact_digest(
+    model: &str,
+    version: &str,
+    checkpoint_path: &str,
+    files: &BTreeMap<String, String>,
+) -> String {
+    let payload = serde_json::json!({
+        "model": model,
+        "version": version,
+        "checkpoint_path": checkpoint_path,
+        "files": files,
+    });
+    sha256_hex(payload.to_string().as_bytes())
+}
+
+fn maybe_verify_remote_manifest(
+    version_dir: &Path,
+    model: &str,
+    version: &str,
+    verify_signature: bool,
+) -> Result<(), ModelOpError> {
+    let manifest_path = version_dir.join(REMOTE_MANIFEST_FILE);
+    if !manifest_path.is_file() {
+        if verify_signature {
+            verify_remote_manifest_signature(version_dir)?;
+        }
+        return Ok(());
+    }
+    if verify_signature {
+        verify_remote_manifest_signature(version_dir)?;
+    }
+    let manifest = load_remote_manifest(version_dir)?;
+    if manifest.name != model || manifest.version != version {
+        return Err(ModelOpError::new(
+            "E_MODEL_MANIFEST",
+            format!(
+                "manifest identity mismatch: expected {} {} but found {} {}",
+                model, version, manifest.name, manifest.version
+            ),
+        ));
+    }
+    verify_remote_manifest_integrity(version_dir, &manifest)
+}
+
+fn verify_remote_manifest_integrity(
+    version_dir: &Path,
+    manifest: &RemoteArtifactManifest,
+) -> Result<(), ModelOpError> {
+    if manifest.schema_version != 1 {
+        return Err(ModelOpError::new(
+            "E_MODEL_MANIFEST",
+            format!(
+                "unsupported remote manifest schema_version {} in {}",
+                manifest.schema_version,
+                version_dir.join(REMOTE_MANIFEST_FILE).display()
+            ),
+        ));
+    }
+    let file = "checkpoint_path.txt";
+    let expected = manifest.files.get(file).ok_or_else(|| {
+        ModelOpError::new(
+            "E_MODEL_MANIFEST",
+            format!(
+                "remote manifest {} missing file hash entry for {}",
+                version_dir.join(REMOTE_MANIFEST_FILE).display(),
+                file
+            ),
+        )
+    })?;
+    let actual = file_sha256_hex(&version_dir.join(file))?;
+    if actual != *expected {
+        return Err(ModelOpError::new(
+            "E_MODEL_MANIFEST",
+            format!(
+                "remote manifest file hash mismatch for {} (expected {}, got {})",
+                file, expected, actual
+            ),
+        ));
+    }
+    let pointer = fs::read_to_string(version_dir.join("checkpoint_path.txt")).map_err(|err| {
+        ModelOpError::new(
+            "E_MODEL_MANIFEST",
+            format!(
+                "failed to read {}: {}",
+                version_dir.join("checkpoint_path.txt").display(),
+                err
+            ),
+        )
+    })?;
+    if pointer.trim() != manifest.checkpoint_path.trim() {
+        return Err(ModelOpError::new(
+            "E_MODEL_MANIFEST",
+            format!(
+                "remote manifest checkpoint path mismatch for {}",
+                version_dir.join(REMOTE_MANIFEST_FILE).display()
+            ),
+        ));
+    }
+    let expected_digest = artifact_digest(
+        &manifest.name,
+        &manifest.version,
+        &manifest.checkpoint_path,
+        &manifest.files,
+    );
+    if manifest.artifact_digest != expected_digest {
+        return Err(ModelOpError::new(
+            "E_MODEL_MANIFEST",
+            format!(
+                "remote manifest digest mismatch in {}",
+                version_dir.join(REMOTE_MANIFEST_FILE).display()
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn write_remote_manifest(
+    version_dir: &Path,
+    manifest: &RemoteArtifactManifest,
+    sign: bool,
+) -> Result<(), ModelOpError> {
+    let text = serde_json::to_string_pretty(manifest).map_err(|err| {
+        ModelOpError::new(
+            "E_MODEL_MANIFEST",
+            format!("failed to serialize remote manifest: {}", err),
+        )
+    })?;
+    fs::write(version_dir.join(REMOTE_MANIFEST_FILE), &text).map_err(|err| {
+        ModelOpError::new(
+            "E_MODEL_MANIFEST",
+            format!(
+                "failed to write {}: {}",
+                version_dir.join(REMOTE_MANIFEST_FILE).display(),
+                err
+            ),
+        )
+    })?;
+    if sign {
+        let key = read_signing_key()?;
+        let signature = sign_manifest(&text, &key);
+        fs::write(version_dir.join(REMOTE_SIGNATURE_FILE), signature).map_err(|err| {
+            ModelOpError::new(
+                "E_MODEL_SIGNATURE",
+                format!(
+                    "failed to write {}: {}",
+                    version_dir.join(REMOTE_SIGNATURE_FILE).display(),
+                    err
+                ),
+            )
+        })?;
+    }
+    Ok(())
+}
+
+fn load_remote_manifest(version_dir: &Path) -> Result<RemoteArtifactManifest, ModelOpError> {
+    let path = version_dir.join(REMOTE_MANIFEST_FILE);
+    let text = fs::read_to_string(&path).map_err(|err| {
+        ModelOpError::new(
+            "E_MODEL_MANIFEST",
+            format!("failed to read {}: {}", path.display(), err),
+        )
+    })?;
+    serde_json::from_str::<RemoteArtifactManifest>(&text).map_err(|err| {
+        ModelOpError::new(
+            "E_MODEL_MANIFEST",
+            format!("invalid {}: {}", path.display(), err),
+        )
+    })
+}
+
+fn verify_remote_manifest_signature(version_dir: &Path) -> Result<(), ModelOpError> {
+    let manifest_path = version_dir.join(REMOTE_MANIFEST_FILE);
+    let signature_path = version_dir.join(REMOTE_SIGNATURE_FILE);
+    let manifest_text = fs::read_to_string(&manifest_path).map_err(|err| {
+        ModelOpError::new(
+            "E_MODEL_SIGNATURE_MISSING",
+            format!("failed to read {}: {}", manifest_path.display(), err),
+        )
+    })?;
+    let signature = fs::read_to_string(&signature_path).map_err(|err| {
+        ModelOpError::new(
+            "E_MODEL_SIGNATURE_MISSING",
+            format!("failed to read {}: {}", signature_path.display(), err),
+        )
+    })?;
+    let key = read_signing_key()?;
+    let expected = sign_manifest(&manifest_text, &key);
+    if signature.trim() != expected {
+        return Err(ModelOpError::new(
+            "E_MODEL_SIGNATURE_INVALID",
+            format!(
+                "signature verification failed for {}",
+                signature_path.display()
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn read_signing_key() -> Result<String, ModelOpError> {
+    let key = std::env::var(SIGNING_KEY_ENV).map_err(|_| {
+        ModelOpError::new(
+            "E_MODEL_SIGNATURE_KEY_MISSING",
+            format!("{} is required for signature operations", SIGNING_KEY_ENV),
+        )
+    })?;
+    let trimmed = key.trim();
+    if trimmed.is_empty() {
+        return Err(ModelOpError::new(
+            "E_MODEL_SIGNATURE_KEY_MISSING",
+            format!("{} cannot be empty", SIGNING_KEY_ENV),
+        ));
+    }
+    Ok(trimmed.to_string())
+}
+
+fn sign_manifest(manifest_text: &str, key: &str) -> String {
+    let digest = sha256_hex(manifest_text.as_bytes());
+    sha256_hex(format!("enkai-model-signature-v1:{}:{}", key, digest).as_bytes())
+}
+
+fn file_sha256_hex(path: &Path) -> Result<String, ModelOpError> {
+    let bytes = fs::read(path).map_err(|err| {
+        ModelOpError::new(
+            "E_MODEL_IO",
+            format!("failed to read {}: {}", path.display(), err),
+        )
+    })?;
+    Ok(sha256_hex(&bytes))
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
+fn has_local_model_version(registry_dir: &Path, name: &str, version: &str) -> bool {
+    match load_registry(registry_dir) {
+        Ok(registry) => registry
+            .models
+            .get(name)
+            .map(|entry| entry.versions.contains_key(version))
+            .unwrap_or(false),
+        Err(_) => false,
+    }
+}
+
+fn append_audit_event(registry_dir: &Path, input: AuditAppend<'_>) -> Result<(), String> {
+    fs::create_dir_all(registry_dir)
+        .map_err(|err| format!("failed to create {}: {}", registry_dir.display(), err))?;
+    let path = registry_dir.join(AUDIT_LOG_FILE);
+    let event = RegistryAuditEvent {
+        schema_version: 1,
+        timestamp_ms: now_ms(),
+        operation: input.operation.to_string(),
+        status: input.status.to_string(),
+        model: input.model.to_string(),
+        version: input.version.to_string(),
+        registry_path: registry_dir.to_string_lossy().to_string(),
+        remote_registry: input
+            .remote_registry
+            .map(|item| item.to_string_lossy().to_string()),
+        code: input.code.map(|value| value.to_string()),
+        detail: input.detail.map(|value| value.to_string()),
+    };
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|err| format!("failed to open {}: {}", path.display(), err))?;
+    let line = serde_json::to_string(&event)
+        .map_err(|err| format!("failed to encode audit event JSON: {}", err))?;
+    writeln!(file, "{}", line)
+        .map_err(|err| format!("failed to append {}: {}", path.display(), err))
 }
 
 fn print_model_entry(name: &str, model: &ModelEntry) {
@@ -741,10 +1895,19 @@ pub(crate) fn is_model_loaded(
         .is_some())
 }
 
-#[cfg(all(test, not(windows)))]
+#[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
+
+    fn env_guard() -> std::sync::MutexGuard<'static, ()> {
+        static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
+        GUARD
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+    }
 
     #[test]
     fn register_promote_retire_and_list_json() {
@@ -855,5 +2018,319 @@ mod tests {
         .expect("pointer");
         let resolved = resolve_checkpoint_pointer(&version_dir).expect("resolved");
         assert_eq!(resolved, checkpoint);
+    }
+
+    #[test]
+    fn remote_push_pull_with_signature_and_fallback() {
+        let _guard = env_guard();
+        let prev = std::env::var(SIGNING_KEY_ENV).ok();
+        std::env::set_var(SIGNING_KEY_ENV, "test-signing-key");
+
+        let dir = tempdir().expect("tempdir");
+        let local = dir.path().join("local");
+        let remote = dir.path().join("remote");
+        let ckpt = dir.path().join("checkpoint");
+        fs::create_dir_all(&ckpt).expect("ckpt");
+
+        let register = model_command(&[
+            "register".to_string(),
+            local.to_string_lossy().to_string(),
+            "chat".to_string(),
+            "v1.0.0".to_string(),
+            ckpt.to_string_lossy().to_string(),
+            "--activate".to_string(),
+        ]);
+        assert_eq!(register, 0);
+
+        let push = model_command(&[
+            "push".to_string(),
+            local.to_string_lossy().to_string(),
+            "chat".to_string(),
+            "v1.0.0".to_string(),
+            "--registry".to_string(),
+            remote.to_string_lossy().to_string(),
+            "--sign".to_string(),
+        ]);
+        assert_eq!(push, 0);
+
+        let local_cache = dir.path().join("local_cache");
+        fs::create_dir_all(&local_cache).expect("local cache");
+        let pull = model_command(&[
+            "pull".to_string(),
+            local_cache.to_string_lossy().to_string(),
+            "chat".to_string(),
+            "v1.0.0".to_string(),
+            "--registry".to_string(),
+            remote.to_string_lossy().to_string(),
+            "--verify-signature".to_string(),
+        ]);
+        assert_eq!(pull, 0);
+        assert!(has_local_model_version(&local_cache, "chat", "v1.0.0"));
+
+        let missing_remote = dir.path().join("missing_remote");
+        let fallback_pull = model_command(&[
+            "pull".to_string(),
+            local_cache.to_string_lossy().to_string(),
+            "chat".to_string(),
+            "v1.0.0".to_string(),
+            "--registry".to_string(),
+            missing_remote.to_string_lossy().to_string(),
+            "--verify-signature".to_string(),
+            "--fallback-local".to_string(),
+        ]);
+        assert_eq!(fallback_pull, 0);
+
+        let audit_log = fs::read_to_string(local_cache.join(AUDIT_LOG_FILE)).expect("audit");
+        assert!(audit_log.contains("\"operation\":\"pull_remote\""));
+        assert!(audit_log.contains("\"status\":\"fallback_local\""));
+
+        if let Some(value) = prev {
+            std::env::set_var(SIGNING_KEY_ENV, value);
+        } else {
+            std::env::remove_var(SIGNING_KEY_ENV);
+        }
+    }
+
+    #[test]
+    fn remote_state_sync_promote_retire_and_rollback() {
+        let _guard = env_guard();
+        let prev = std::env::var(SIGNING_KEY_ENV).ok();
+        std::env::set_var(SIGNING_KEY_ENV, "test-signing-key");
+
+        let dir = tempdir().expect("tempdir");
+        let local = dir.path().join("local");
+        let remote = dir.path().join("remote");
+        let ckpt = dir.path().join("checkpoint");
+        fs::create_dir_all(&ckpt).expect("ckpt");
+
+        assert_eq!(
+            model_command(&[
+                "register".to_string(),
+                local.to_string_lossy().to_string(),
+                "chat".to_string(),
+                "v1.0.0".to_string(),
+                ckpt.to_string_lossy().to_string(),
+                "--activate".to_string(),
+            ]),
+            0
+        );
+        assert_eq!(
+            model_command(&[
+                "push".to_string(),
+                local.to_string_lossy().to_string(),
+                "chat".to_string(),
+                "v1.0.0".to_string(),
+                "--registry".to_string(),
+                remote.to_string_lossy().to_string(),
+                "--sign".to_string(),
+            ]),
+            0
+        );
+
+        assert_eq!(
+            model_command(&[
+                "retire-remote".to_string(),
+                local.to_string_lossy().to_string(),
+                "chat".to_string(),
+                "v1.0.0".to_string(),
+                "--registry".to_string(),
+                remote.to_string_lossy().to_string(),
+                "--verify-signature".to_string(),
+            ]),
+            0
+        );
+        let local_registry = load_registry(&local).expect("local registry");
+        assert_eq!(
+            local_registry
+                .models
+                .get("chat")
+                .and_then(|entry| entry.versions.get("v1.0.0"))
+                .map(|meta| meta.status.as_str()),
+            Some("retired")
+        );
+
+        assert_eq!(
+            model_command(&[
+                "rollback-remote".to_string(),
+                local.to_string_lossy().to_string(),
+                "chat".to_string(),
+                "v1.0.0".to_string(),
+                "--registry".to_string(),
+                remote.to_string_lossy().to_string(),
+                "--verify-signature".to_string(),
+            ]),
+            0
+        );
+        let local_registry = load_registry(&local).expect("local registry");
+        assert_eq!(
+            local_registry
+                .models
+                .get("chat")
+                .and_then(|entry| entry.active.as_deref()),
+            Some("v1.0.0")
+        );
+
+        if let Some(value) = prev {
+            std::env::set_var(SIGNING_KEY_ENV, value);
+        } else {
+            std::env::remove_var(SIGNING_KEY_ENV);
+        }
+    }
+
+    #[test]
+    fn remote_pull_rejects_signature_mismatch_without_and_with_fallback() {
+        let _guard = env_guard();
+        let prev = std::env::var(SIGNING_KEY_ENV).ok();
+        std::env::set_var(SIGNING_KEY_ENV, "test-signing-key");
+
+        let dir = tempdir().expect("tempdir");
+        let local = dir.path().join("local");
+        let remote = dir.path().join("remote");
+        let ckpt = dir.path().join("checkpoint");
+        fs::create_dir_all(&ckpt).expect("ckpt");
+
+        assert_eq!(
+            model_command(&[
+                "register".to_string(),
+                local.to_string_lossy().to_string(),
+                "chat".to_string(),
+                "v1.0.1".to_string(),
+                ckpt.to_string_lossy().to_string(),
+                "--activate".to_string(),
+            ]),
+            0
+        );
+        assert_eq!(
+            model_command(&[
+                "push".to_string(),
+                local.to_string_lossy().to_string(),
+                "chat".to_string(),
+                "v1.0.1".to_string(),
+                "--registry".to_string(),
+                remote.to_string_lossy().to_string(),
+                "--sign".to_string(),
+            ]),
+            0
+        );
+
+        let remote_sig = remote
+            .join("chat")
+            .join("v1.0.1")
+            .join(REMOTE_SIGNATURE_FILE);
+        fs::write(&remote_sig, "tampered-signature").expect("tamper signature");
+
+        let strict_cache = dir.path().join("strict_cache");
+        fs::create_dir_all(&strict_cache).expect("strict cache");
+        assert_eq!(
+            model_command(&[
+                "pull".to_string(),
+                strict_cache.to_string_lossy().to_string(),
+                "chat".to_string(),
+                "v1.0.1".to_string(),
+                "--registry".to_string(),
+                remote.to_string_lossy().to_string(),
+                "--verify-signature".to_string(),
+            ]),
+            1
+        );
+
+        let fallback_cache = dir.path().join("fallback_cache");
+        fs::create_dir_all(&fallback_cache).expect("fallback cache");
+        assert_eq!(
+            model_command(&[
+                "pull".to_string(),
+                fallback_cache.to_string_lossy().to_string(),
+                "chat".to_string(),
+                "v1.0.1".to_string(),
+                "--registry".to_string(),
+                remote.to_string_lossy().to_string(),
+            ]),
+            0
+        );
+        assert_eq!(
+            model_command(&[
+                "pull".to_string(),
+                fallback_cache.to_string_lossy().to_string(),
+                "chat".to_string(),
+                "v1.0.1".to_string(),
+                "--registry".to_string(),
+                remote.to_string_lossy().to_string(),
+                "--verify-signature".to_string(),
+                "--fallback-local".to_string(),
+            ]),
+            0
+        );
+        let audit = fs::read_to_string(fallback_cache.join(AUDIT_LOG_FILE)).expect("audit");
+        assert!(audit.contains("\"status\":\"fallback_local\""));
+        assert!(audit.contains("E_MODEL_SIGNATURE_INVALID"));
+
+        if let Some(value) = prev {
+            std::env::set_var(SIGNING_KEY_ENV, value);
+        } else {
+            std::env::remove_var(SIGNING_KEY_ENV);
+        }
+    }
+
+    #[test]
+    fn remote_pull_rejects_manifest_hash_mismatch() {
+        let _guard = env_guard();
+        let prev = std::env::var(SIGNING_KEY_ENV).ok();
+        std::env::set_var(SIGNING_KEY_ENV, "test-signing-key");
+
+        let dir = tempdir().expect("tempdir");
+        let local = dir.path().join("local");
+        let remote = dir.path().join("remote");
+        let ckpt = dir.path().join("checkpoint");
+        fs::create_dir_all(&ckpt).expect("ckpt");
+
+        assert_eq!(
+            model_command(&[
+                "register".to_string(),
+                local.to_string_lossy().to_string(),
+                "chat".to_string(),
+                "v2.0.0".to_string(),
+                ckpt.to_string_lossy().to_string(),
+                "--activate".to_string(),
+            ]),
+            0
+        );
+        assert_eq!(
+            model_command(&[
+                "push".to_string(),
+                local.to_string_lossy().to_string(),
+                "chat".to_string(),
+                "v2.0.0".to_string(),
+                "--registry".to_string(),
+                remote.to_string_lossy().to_string(),
+                "--sign".to_string(),
+            ]),
+            0
+        );
+
+        let remote_pointer = remote
+            .join("chat")
+            .join("v2.0.0")
+            .join("checkpoint_path.txt");
+        fs::write(remote_pointer, "/tmp/tampered-checkpoint\n").expect("tamper checkpoint path");
+
+        let local_cache = dir.path().join("local_cache");
+        fs::create_dir_all(&local_cache).expect("local cache");
+        assert_eq!(
+            model_command(&[
+                "pull".to_string(),
+                local_cache.to_string_lossy().to_string(),
+                "chat".to_string(),
+                "v2.0.0".to_string(),
+                "--registry".to_string(),
+                remote.to_string_lossy().to_string(),
+            ]),
+            1
+        );
+
+        if let Some(value) = prev {
+            std::env::set_var(SIGNING_KEY_ENV, value);
+        } else {
+            std::env::remove_var(SIGNING_KEY_ENV);
+        }
     }
 }

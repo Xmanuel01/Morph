@@ -8,6 +8,32 @@
 ### Breaking changes
 - None.
 
+## v2.5.3
+
+### Highlights
+- Advanced minor line to `v2.5.3` with additive compatibility (no contract removals).
+- Added signed remote model registry sync and lifecycle controls:
+  - `enkai model push <registry_dir> <name> <version> --registry <remote_registry_dir> [--sign]`
+  - `enkai model pull <registry_dir> <name> <version> --registry <remote_registry_dir> [--verify-signature] [--fallback-local]`
+  - `enkai model promote-remote <registry_dir> <name> <version> --registry <remote_registry_dir> [--verify-signature] [--fallback-local]`
+  - `enkai model retire-remote <registry_dir> <name> <version> --registry <remote_registry_dir> [--verify-signature] [--fallback-local]`
+  - `enkai model rollback-remote <registry_dir> <name> <version> --registry <remote_registry_dir> [--verify-signature] [--fallback-local]`
+- Added immutable remote artifact metadata and optional signature contract:
+  - `remote.manifest.json` with deterministic `artifact_digest`
+  - `remote.manifest.sig` verified with `ENKAI_MODEL_SIGNING_KEY`
+- Added append-only lifecycle audit stream:
+  - `audit.log.jsonl` (local and remote sync events, including signature/fallback outcomes)
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_5_3_rc_pipeline.ps1`
+  - `scripts/v2_5_3_rc_pipeline.sh`
+
+### Fixes
+- Synced docs/spec/release metadata and version surfaces to `v2.5.3`.
+- Added remote-registry regression tests for remote online and degraded fallback paths.
+
+### Breaking changes
+- None.
+
 ## v2.5.2
 
 ### Highlights

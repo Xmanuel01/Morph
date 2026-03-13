@@ -2,9 +2,22 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.5.2.
+- Current production release line is v2.5.3.
 - v2.5.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v2.5.3 (done)
+- Signed remote model registry sync and lifecycle operations:
+  - additive model command surface:
+    - `enkai model push <registry_dir> <name> <version> --registry <remote_registry_dir> [--sign]`
+    - `enkai model pull <registry_dir> <name> <version> --registry <remote_registry_dir> [--verify-signature] [--fallback-local]`
+    - `enkai model promote-remote|retire-remote|rollback-remote ...`
+  - immutable remote artifact metadata:
+    - `remote.manifest.json` with deterministic `artifact_digest`
+    - optional `remote.manifest.sig` verified with `ENKAI_MODEL_SIGNING_KEY`
+  - append-only model lifecycle audit stream:
+    - `audit.log.jsonl` for local lifecycle + remote sync outcomes
+  - regression coverage for remote-online and remote-degraded fallback paths.
 
 v2.5.2 (done)
 - LLM distributed orchestration and failure-mode hardening:
