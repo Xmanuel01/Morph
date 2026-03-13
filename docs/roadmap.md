@@ -2,9 +2,16 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.5.0.
+- Current production release line is v2.5.1.
 - v2.5.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v2.5.1 (done)
+- LLM runtime reliability hardening for single-node train/eval lifecycle:
+  - strict resume-time run-state validation for lineage/runtime identity fields
+  - additive `run_validation.json` artifact emitted under `checkpoint_dir`
+  - deterministic resume parity regression coverage
+  - strict vs lenient mismatch behavior tests for dataset-hash drift
 
 v2.5.0 (done)
 - Program contract freeze + readiness expansion for full-platform line:

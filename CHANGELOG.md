@@ -8,6 +8,27 @@
 ### Breaking changes
 - None.
 
+## v2.5.1
+
+### Highlights
+- Advanced minor line to `v2.5.1` with additive compatibility (no contract removals).
+- Added single-node runtime reliability hardening for train/pretrain resume paths:
+  - strict resume-time run-state validation across lineage/runtime identity fields
+    (`config_hash`, `code_hash`, `dataset_hash`, `seed`, `backend`, `dtype`, `device`, rank/world)
+  - additive run validation artifact:
+    - `checkpoint_dir/run_validation.json`
+  - deterministic resume parity regression coverage for interrupted vs uninterrupted runs
+  - strict/lenient resume mismatch behavior coverage for dataset-drift scenarios
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_5_1_rc_pipeline.ps1`
+  - `scripts/v2_5_1_rc_pipeline.sh`
+
+### Fixes
+- Synced docs/spec/release metadata and version surfaces to `v2.5.1`.
+
+### Breaking changes
+- None.
+
 ## v2.5.0
 
 ### Highlights

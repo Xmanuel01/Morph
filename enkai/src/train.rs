@@ -488,6 +488,32 @@ struct RunIndexEvent {
     note: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct RunValidationArtifact {
+    schema_version: u32,
+    validated_at_ms: u64,
+    strict_contracts: bool,
+    passed: bool,
+    issues: Vec<String>,
+    mode: String,
+    run_id: String,
+    parent_run_id: Option<String>,
+    run_name: Option<String>,
+    status: String,
+    step: usize,
+    tokens: u64,
+    checkpoint_path: Option<String>,
+    config_hash: String,
+    code_hash: String,
+    dataset_hash: String,
+    seed: Option<u64>,
+    backend: String,
+    dtype: String,
+    device: String,
+    world_size: usize,
+    rank: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CheckpointLifecycleManifest {
     format_version: u32,
@@ -510,6 +536,16 @@ struct RunContext {
     state: RunState,
     state_path: PathBuf,
     index_path: PathBuf,
+}
+
+struct ResumeValidationInput<'a> {
+    mode: TrainMode,
+    requested_run_id: Option<&'a str>,
+    requested_parent: Option<&'a str>,
+    requested_name: Option<&'a str>,
+    config_hash: &'a str,
+    code_hash: &'a str,
+    dataset_hash: &'a str,
 }
 
 impl RunContext {
@@ -562,28 +598,39 @@ impl RunContext {
                 .map_err(|err| format!("Failed to read {}: {}", state_path.display(), err))?;
             let mut loaded: RunState = serde_json::from_str(&text)
                 .map_err(|err| format!("Invalid run_state.json: {}", err))?;
-            if loaded.mode != mode.as_str() {
+            let expected = ResumeValidationInput {
+                mode,
+                requested_run_id: requested_run_id.as_deref(),
+                requested_parent: requested_parent.as_deref(),
+                requested_name: requested_name.as_deref(),
+                config_hash: &config_hash,
+                code_hash: &code_hash,
+                dataset_hash: &dataset_hash,
+            };
+            let validation_issues = validate_run_state_for_resume(&loaded, config, &expected);
+            let validation_path = checkpoint_root.join("run_validation.json");
+            let strict_validation_failed = config.strict_contracts && !validation_issues.is_empty();
+            let mut validation_state = loaded.clone();
+            if strict_validation_failed {
+                validation_state.status = "failed".to_string();
+            }
+            write_run_validation_artifact(
+                &validation_path,
+                &validation_state,
+                config.strict_contracts,
+                &validation_issues,
+            )?;
+            if strict_validation_failed {
                 return Err(format!(
-                    "run_state mode mismatch: found {}, expected {}",
-                    loaded.mode,
-                    mode.as_str()
+                    "run_state validation failed: {}",
+                    validation_issues.join("; ")
                 ));
             }
-            if let Some(run_id) = requested_run_id.as_ref() {
-                if &loaded.run_id != run_id {
-                    return Err(format!(
-                        "run_id mismatch with existing run_state ({} != {})",
-                        loaded.run_id, run_id
-                    ));
-                }
-            }
-            if let Some(parent) = requested_parent.as_ref() {
-                if loaded.parent_run_id.as_deref() != Some(parent.as_str()) {
-                    return Err("parent_run_id mismatch with existing run_state".to_string());
-                }
-            }
-            if !loaded.config_hash.is_empty() && loaded.config_hash != config_hash {
-                return Err("run_state config hash mismatch".to_string());
+            if !validation_issues.is_empty() {
+                eprintln!(
+                    "Warning: lenient run_state validation issues: {}",
+                    validation_issues.join("; ")
+                );
             }
             loaded.status = "running".to_string();
             loaded.updated_at_ms = now_ms;
@@ -632,6 +679,8 @@ impl RunContext {
 
         state.config_hash = config_hash;
         state.updated_at_ms = now_ms;
+        let validation_path = checkpoint_root.join("run_validation.json");
+        write_run_validation_artifact(&validation_path, &state, config.strict_contracts, &[])?;
         let ctx = Self {
             state,
             state_path,
@@ -741,6 +790,186 @@ impl RunContext {
             .map_err(|err| format!("Failed to open {}: {}", self.index_path.display(), err))?;
         writeln!(file, "{}", line).map_err(|err| err.to_string())
     }
+}
+
+fn validate_run_state_for_resume(
+    loaded: &RunState,
+    config: &TrainConfig,
+    expected: &ResumeValidationInput<'_>,
+) -> Vec<String> {
+    let mut issues = Vec::new();
+
+    if loaded.schema_version != 1 {
+        issues.push(format!(
+            "schema_version mismatch (expected 1, found {})",
+            loaded.schema_version
+        ));
+    }
+    if loaded.mode != expected.mode.as_str() {
+        issues.push(format!(
+            "mode mismatch (expected {}, found {})",
+            expected.mode.as_str(),
+            loaded.mode
+        ));
+    }
+    if let Some(run_id) = expected.requested_run_id {
+        if loaded.run_id != run_id {
+            issues.push(format!(
+                "run_id mismatch (expected {}, found {})",
+                run_id, loaded.run_id
+            ));
+        }
+    }
+    if let Some(parent) = expected.requested_parent {
+        if loaded.parent_run_id.as_deref() != Some(parent) {
+            issues.push(format!(
+                "parent_run_id mismatch (expected {}, found {})",
+                parent,
+                loaded.parent_run_id.as_deref().unwrap_or("<none>")
+            ));
+        }
+    }
+    if let Some(name) = expected.requested_name {
+        if loaded.run_name.as_deref() != Some(name) {
+            issues.push(format!(
+                "run_name mismatch (expected {}, found {})",
+                name,
+                loaded.run_name.as_deref().unwrap_or("<none>")
+            ));
+        }
+    }
+
+    validate_string_field(
+        "config_hash",
+        &loaded.config_hash,
+        expected.config_hash,
+        &mut issues,
+        true,
+    );
+    validate_string_field(
+        "code_hash",
+        &loaded.code_hash,
+        expected.code_hash,
+        &mut issues,
+        true,
+    );
+    validate_string_field(
+        "dataset_hash",
+        &loaded.dataset_hash,
+        expected.dataset_hash,
+        &mut issues,
+        true,
+    );
+    validate_option_u64_field("seed", loaded.seed, config.seed, &mut issues);
+    validate_string_field(
+        "backend",
+        &loaded.backend,
+        &config.backend,
+        &mut issues,
+        true,
+    );
+    validate_string_field(
+        "dtype",
+        &loaded.dtype,
+        &config.model.dtype,
+        &mut issues,
+        true,
+    );
+    validate_string_field(
+        "device",
+        &loaded.device,
+        &config.model.device,
+        &mut issues,
+        true,
+    );
+    if loaded.world_size != config.world_size {
+        issues.push(format!(
+            "world_size mismatch (expected {}, found {})",
+            config.world_size, loaded.world_size
+        ));
+    }
+    if loaded.rank != config.rank {
+        issues.push(format!(
+            "rank mismatch (expected {}, found {})",
+            config.rank, loaded.rank
+        ));
+    }
+    issues
+}
+
+fn validate_string_field(
+    field: &str,
+    actual: &str,
+    expected: &str,
+    issues: &mut Vec<String>,
+    required: bool,
+) {
+    if actual.is_empty() {
+        if required {
+            issues.push(format!("{} missing in run_state", field));
+        }
+        return;
+    }
+    if actual != expected {
+        issues.push(format!(
+            "{} mismatch (expected {}, found {})",
+            field, expected, actual
+        ));
+    }
+}
+
+fn validate_option_u64_field(
+    field: &str,
+    actual: Option<u64>,
+    expected: Option<u64>,
+    issues: &mut Vec<String>,
+) {
+    if actual != expected {
+        issues.push(format!(
+            "{} mismatch (expected {}, found {})",
+            field,
+            expected
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "<none>".to_string()),
+            actual
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "<none>".to_string())
+        ));
+    }
+}
+
+fn write_run_validation_artifact(
+    path: &Path,
+    state: &RunState,
+    strict_contracts: bool,
+    issues: &[String],
+) -> Result<(), String> {
+    let artifact = RunValidationArtifact {
+        schema_version: 1,
+        validated_at_ms: now_unix_ms(),
+        strict_contracts,
+        passed: issues.is_empty(),
+        issues: issues.to_vec(),
+        mode: state.mode.clone(),
+        run_id: state.run_id.clone(),
+        parent_run_id: state.parent_run_id.clone(),
+        run_name: state.run_name.clone(),
+        status: state.status.clone(),
+        step: state.step,
+        tokens: state.tokens,
+        checkpoint_path: state.checkpoint_path.clone(),
+        config_hash: state.config_hash.clone(),
+        code_hash: state.code_hash.clone(),
+        dataset_hash: state.dataset_hash.clone(),
+        seed: state.seed,
+        backend: state.backend.clone(),
+        dtype: state.dtype.clone(),
+        device: state.device.clone(),
+        world_size: state.world_size,
+        rank: state.rank,
+    };
+    let text = serde_json::to_string_pretty(&artifact).map_err(|err| err.to_string())?;
+    fs::write(path, text).map_err(|err| format!("Failed to write {}: {}", path.display(), err))
 }
 
 #[derive(Debug, Clone)]
@@ -2903,6 +3132,215 @@ mod tests {
     }
 
     #[test]
+    fn train_resume_is_deterministic_against_uninterrupted_run() {
+        let dir = tempdir().expect("tempdir");
+        let data = dir.path().join("det_data.txt");
+        fs::write(&data, "alpha beta gamma\ndelta epsilon").expect("write data");
+
+        let full_ckpt = dir.path().join("full_ckpt");
+        let full_cfg = dir.path().join("full.enk");
+        let full = serde_json::json!({
+            "config_version": 1,
+            "backend": "cpu",
+            "vocab_size": 8,
+            "hidden_size": 4,
+            "seq_len": 4,
+            "batch_size": 2,
+            "lr": 0.1,
+            "dataset_path": data.to_string_lossy(),
+            "checkpoint_dir": full_ckpt.to_string_lossy(),
+            "max_steps": 2,
+            "save_every": 1,
+            "log_every": 1,
+            "drop_remainder": false,
+            "seed": 7,
+            "tokenizer_train": { "path": data.to_string_lossy(), "vocab_size": 8 }
+        });
+        write_config(&full_cfg, &full).expect("write full cfg");
+        train(&full_cfg).expect("full train");
+
+        let resumed_ckpt = dir.path().join("resume_ckpt");
+        let resumed_cfg = dir.path().join("resume.enk");
+        let phase1 = serde_json::json!({
+            "config_version": 1,
+            "backend": "cpu",
+            "vocab_size": 8,
+            "hidden_size": 4,
+            "seq_len": 4,
+            "batch_size": 2,
+            "lr": 0.1,
+            "dataset_path": data.to_string_lossy(),
+            "checkpoint_dir": resumed_ckpt.to_string_lossy(),
+            "max_steps": 1,
+            "save_every": 1,
+            "log_every": 1,
+            "drop_remainder": false,
+            "seed": 7,
+            "tokenizer_train": { "path": data.to_string_lossy(), "vocab_size": 8 }
+        });
+        write_config(&resumed_cfg, &phase1).expect("write phase1");
+        train(&resumed_cfg).expect("phase1 train");
+
+        let phase2 = serde_json::json!({
+            "config_version": 1,
+            "backend": "cpu",
+            "vocab_size": 8,
+            "hidden_size": 4,
+            "seq_len": 4,
+            "batch_size": 2,
+            "lr": 0.1,
+            "dataset_path": data.to_string_lossy(),
+            "checkpoint_dir": resumed_ckpt.to_string_lossy(),
+            "max_steps": 2,
+            "save_every": 1,
+            "log_every": 1,
+            "drop_remainder": false,
+            "seed": 7,
+            "tokenizer_train": { "path": data.to_string_lossy(), "vocab_size": 8 }
+        });
+        write_config(&resumed_cfg, &phase2).expect("write phase2");
+        train(&resumed_cfg).expect("phase2 train");
+
+        let full_latest = latest_checkpoint(&full_ckpt)
+            .expect("full latest lookup")
+            .expect("full latest");
+        let resumed_latest = latest_checkpoint(&resumed_ckpt)
+            .expect("resume latest lookup")
+            .expect("resume latest");
+        let full_state = load_checkpoint(&full_latest).expect("load full");
+        let resumed_state = load_checkpoint(&resumed_latest).expect("load resumed");
+
+        assert_eq!(full_state.meta.step, resumed_state.meta.step);
+        assert_eq!(full_state.meta.tokens, resumed_state.meta.tokens);
+        assert_eq!(full_state.meta.config_hash, resumed_state.meta.config_hash);
+        assert_eq!(full_state.meta.model_sig, resumed_state.meta.model_sig);
+        assert_eq!(full_state.weights, resumed_state.weights);
+        assert_eq!(full_state.optimizer, resumed_state.optimizer);
+    }
+
+    #[test]
+    fn strict_resume_rejects_dataset_hash_drift() {
+        let dir = tempdir().expect("tempdir");
+        let data = dir.path().join("drift_data.txt");
+        fs::write(&data, "alpha beta gamma\ndelta epsilon").expect("write data");
+        let ckpt = dir.path().join("drift_ckpt");
+        let cfg = dir.path().join("drift.enk");
+        let base = serde_json::json!({
+            "config_version": 1,
+            "backend": "cpu",
+            "vocab_size": 8,
+            "hidden_size": 4,
+            "seq_len": 4,
+            "batch_size": 2,
+            "lr": 0.1,
+            "dataset_path": data.to_string_lossy(),
+            "checkpoint_dir": ckpt.to_string_lossy(),
+            "max_steps": 1,
+            "save_every": 1,
+            "log_every": 1,
+            "drop_remainder": false,
+            "tokenizer_train": { "path": data.to_string_lossy(), "vocab_size": 8 }
+        });
+        write_config(&cfg, &base).expect("write config");
+        train(&cfg).expect("first train");
+
+        fs::write(&data, "alpha beta gamma\ndelta epsilon\nnew-row").expect("mutate data");
+        let resume = serde_json::json!({
+            "config_version": 1,
+            "backend": "cpu",
+            "vocab_size": 8,
+            "hidden_size": 4,
+            "seq_len": 4,
+            "batch_size": 2,
+            "lr": 0.1,
+            "dataset_path": data.to_string_lossy(),
+            "checkpoint_dir": ckpt.to_string_lossy(),
+            "max_steps": 2,
+            "save_every": 1,
+            "log_every": 1,
+            "drop_remainder": false,
+            "tokenizer_train": { "path": data.to_string_lossy(), "vocab_size": 8 }
+        });
+        write_config(&cfg, &resume).expect("write resume config");
+        let err = train(&cfg).expect_err("strict resume should fail");
+        assert!(err.contains("dataset_hash mismatch"));
+
+        let validation_path = ckpt.join("run_validation.json");
+        let validation_text = fs::read_to_string(validation_path).expect("validation text");
+        let validation_json: serde_json::Value =
+            serde_json::from_str(&validation_text).expect("validation json");
+        assert_eq!(validation_json["strict_contracts"], true);
+        assert_eq!(validation_json["passed"], false);
+        let issues = validation_json["issues"]
+            .as_array()
+            .expect("issues array")
+            .iter()
+            .map(|v| v.as_str().unwrap_or_default())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(issues.contains("dataset_hash mismatch"));
+    }
+
+    #[test]
+    fn lenient_resume_allows_dataset_hash_drift_with_validation_artifact() {
+        let dir = tempdir().expect("tempdir");
+        let data = dir.path().join("lenient_data.txt");
+        fs::write(&data, "alpha beta gamma\ndelta epsilon").expect("write data");
+        let ckpt = dir.path().join("lenient_ckpt");
+        let cfg = dir.path().join("lenient.enk");
+        let base = serde_json::json!({
+            "config_version": 1,
+            "backend": "cpu",
+            "vocab_size": 8,
+            "hidden_size": 4,
+            "seq_len": 4,
+            "batch_size": 2,
+            "lr": 0.1,
+            "dataset_path": data.to_string_lossy(),
+            "checkpoint_dir": ckpt.to_string_lossy(),
+            "max_steps": 1,
+            "save_every": 1,
+            "log_every": 1,
+            "drop_remainder": false,
+            "tokenizer_train": { "path": data.to_string_lossy(), "vocab_size": 8 }
+        });
+        write_config(&cfg, &base).expect("write config");
+        train(&cfg).expect("first train");
+
+        fs::write(&data, "alpha beta gamma\ndelta epsilon\nchanged").expect("mutate data");
+        let resume = serde_json::json!({
+            "config_version": 1,
+            "backend": "cpu",
+            "vocab_size": 8,
+            "hidden_size": 4,
+            "seq_len": 4,
+            "batch_size": 2,
+            "lr": 0.1,
+            "dataset_path": data.to_string_lossy(),
+            "checkpoint_dir": ckpt.to_string_lossy(),
+            "max_steps": 2,
+            "save_every": 1,
+            "log_every": 1,
+            "drop_remainder": false,
+            "tokenizer_train": { "path": data.to_string_lossy(), "vocab_size": 8 }
+        });
+        write_config(&cfg, &resume).expect("write resume config");
+        train_with_contract_mode(&cfg, false).expect("lenient resume");
+
+        let latest = latest_checkpoint(&ckpt)
+            .expect("latest lookup")
+            .expect("latest path");
+        assert!(latest.ends_with("step_00000002"));
+
+        let validation_path = ckpt.join("run_validation.json");
+        let validation_text = fs::read_to_string(validation_path).expect("validation text");
+        let validation_json: serde_json::Value =
+            serde_json::from_str(&validation_text).expect("validation json");
+        assert_eq!(validation_json["strict_contracts"], false);
+        assert_eq!(validation_json["passed"], false);
+    }
+
+    #[test]
     fn eval_runs() {
         let dir = tempdir().expect("tempdir");
         let data = dir.path().join("data.txt");
@@ -3179,6 +3617,13 @@ mod tests {
         );
         assert!(index_text.contains("\"event\":\"checkpoint\""));
         assert!(index_text.contains("\"event\":\"completed\""));
+
+        let validation_path = ckpt.join("run_validation.json");
+        let validation_text = fs::read_to_string(validation_path).expect("validation");
+        let validation_json: serde_json::Value =
+            serde_json::from_str(&validation_text).expect("validation json");
+        assert_eq!(validation_json["passed"], true);
+        assert_eq!(validation_json["strict_contracts"], true);
     }
 
     #[test]
