@@ -18,6 +18,9 @@ const LINT_LITE_SCRIPT: &str = include_str!("../tools/bootstrap/lint_lite.enk");
 const TOKENIZER_LITE_SCRIPT: &str = include_str!("../tools/bootstrap/tokenizer_lite.enk");
 const DATASET_LITE_SCRIPT: &str = include_str!("../tools/bootstrap/dataset_lite.enk");
 const ENKAI_LITEC_SCRIPT: &str = include_str!("../tools/bootstrap/enkai_lite.enk");
+const LITEC_TRIAGE_DIR_ENV: &str = "ENKAI_LITEC_TRIAGE_DIR";
+const LITEC_MAINLINE_FALLBACK_REPORT: &str = "litec_mainline_fallback_report.json";
+const LITEC_FORCE_MAINLINE_FAIL_ENV: &str = "ENKAI_LITEC_FORCE_MAINLINE_FAIL";
 
 pub fn print_usage() {
     eprintln!("  enkai fmt-lite [--check] <file|dir>");
@@ -514,7 +517,7 @@ fn litec_check(args: &[String]) -> i32 {
         eprintln!("input file not found: {}", input.display());
         return 1;
     }
-    match run_litec_mode("check", &input, None) {
+    match run_litec_mode_release_default("check", &input, None) {
         Ok(code) => code,
         Err(err) => {
             eprintln!("litec check failed: {}", err);
@@ -559,7 +562,7 @@ fn litec_compile(args: &[String]) -> i32 {
             return 1;
         }
     };
-    match run_litec_mode("compile", &input, Some(&output)) {
+    match run_litec_mode_release_default("compile", &input, Some(&output)) {
         Ok(code) => code,
         Err(err) => {
             eprintln!("litec compile failed: {}", err);
@@ -600,7 +603,7 @@ fn litec_run(args: &[String]) -> i32 {
         eprintln!("input file not found: {}", input.display());
         return 1;
     }
-    let stage1_bytes = match compile_stage1_program_bytes(&input, "codegen") {
+    let stage1_bytes = match compile_release_default_program_bytes(&input, "codegen") {
         Ok(bytes) => bytes,
         Err(err) => {
             eprintln!("litec run compile failed: {}", err);
@@ -678,7 +681,7 @@ fn litec_stage(args: &[String]) -> i32 {
         eprintln!("--out is only valid for codegen stage");
         return 1;
     }
-    match run_litec_mode(mode, &input, output.as_deref()) {
+    match run_litec_mode_release_default(mode, &input, output.as_deref()) {
         Ok(code) => code,
         Err(err) => {
             eprintln!("litec stage failed: {}", err);
@@ -761,6 +764,35 @@ fn stage_fingerprint(bytes: &[u8]) -> serde_json::Value {
         "bytes": bytes.len(),
         "sha256": bytes_sha256_hex(bytes),
     })
+}
+
+#[derive(Debug, Clone)]
+struct LitecMainlineBuild {
+    stage2_driver: Program,
+    stage1_fp: serde_json::Value,
+    stage2_fp: serde_json::Value,
+    stage1_stage2_equivalent: bool,
+}
+
+#[derive(Debug, Clone)]
+struct LitecMainlineError {
+    code: &'static str,
+    message: String,
+    stage1_fp: Option<serde_json::Value>,
+    stage2_fp: Option<serde_json::Value>,
+    stage1_stage2_equivalent: Option<bool>,
+}
+
+impl LitecMainlineError {
+    fn new(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            stage1_fp: None,
+            stage2_fp: None,
+            stage1_stage2_equivalent: None,
+        }
+    }
 }
 
 fn write_triage_report(
@@ -1208,6 +1240,31 @@ fn litec_replace_check(args: &[String]) -> i32 {
             failures += 1;
             continue;
         }
+        let stage1_program = match decode_program_bytes(file, &stage1_bytes, "stage1") {
+            Ok(program) => program,
+            Err(err) => {
+                eprintln!("[fail] {}: {}", file.display(), err);
+                entry["status"] = serde_json::json!("fail");
+                entry["error"] = serde_json::json!(err);
+                entries.push(entry);
+                failures += 1;
+                continue;
+            }
+        };
+        let stage1_value = match run_program(&stage1_program) {
+            Ok(value) => value,
+            Err(err) => {
+                let message = format!("stage1 runtime error: {}", err);
+                eprintln!("[fail] {}: {}", file.display(), message);
+                entry["status"] = serde_json::json!("fail");
+                entry["error"] = serde_json::json!(message);
+                entries.push(entry);
+                failures += 1;
+                continue;
+            }
+        };
+        let stage1_canonical = canonical_value(&stage1_value);
+        entry["stage1_result"] = serde_json::json!(stage1_canonical);
         let stage2_program = match decode_program_bytes(file, &stage2_bytes, "stage2") {
             Ok(program) => program,
             Err(err) => {
@@ -1233,6 +1290,28 @@ fn litec_replace_check(args: &[String]) -> i32 {
         };
         let stage2_canonical = canonical_value(&stage2_value);
         entry["stage2_result"] = serde_json::json!(stage2_canonical);
+        let stage1_str = entry["stage1_result"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        let stage2_str = entry["stage2_result"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        let runtime_equal = stage1_str == stage2_str;
+        entry["stage1_stage2_runtime_equivalent"] = serde_json::json!(runtime_equal);
+        if !runtime_equal {
+            let message = format!(
+                "stage1/stage2 runtime mismatch (stage1={}, stage2={})",
+                stage1_str, stage2_str
+            );
+            eprintln!("[fail] {}: {}", file.display(), message);
+            entry["status"] = serde_json::json!("fail");
+            entry["error"] = serde_json::json!(message);
+            entries.push(entry);
+            failures += 1;
+            continue;
+        }
         if options.compare_stage0 {
             let stage0_bytes = match compile_stage0_program_bytes(file) {
                 Ok(bytes) => bytes,
@@ -1362,6 +1441,7 @@ fn litec_mainline_ci(args: &[String]) -> i32 {
     let summary = serde_json::json!({
         "command": "mainline-ci",
         "corpus": to_report_path(&options.corpus),
+        "release_default_build_path": "enkai-mainline-with-stage0-emergency-fallback",
         "stage0_fallback_lane": "separate-stage0-compare-lane-required",
         "selfhost_ci_exit_code": selfhost_code,
         "replace_check_exit_code": replace_code,
@@ -1438,6 +1518,7 @@ fn litec_release_ci(args: &[String]) -> i32 {
     let summary = serde_json::json!({
         "command": "release-ci",
         "corpus": to_report_path(&options.corpus),
+        "release_default_build_path": "enkai-mainline-with-stage0-emergency-fallback",
         "mainline_ci_exit_code": mainline_code,
         "selfhost_stage0_fallback_exit_code": selfhost_fallback_code,
         "replace_stage0_fallback_exit_code": replace_fallback_code,
@@ -1507,6 +1588,209 @@ fn compile_stage1_program_bytes(input: &Path, mode: &str) -> Result<Vec<u8>, Str
     })?;
     let _ = fs::remove_file(&stage1_path);
     Ok(stage1)
+}
+
+fn compile_release_default_program_bytes(input: &Path, mode: &str) -> Result<Vec<u8>, String> {
+    let out_path = temp_stage1_program_path()
+        .map_err(|err| format!("failed to allocate compile output path: {}", err))?;
+    let code = match run_litec_mode_release_default(mode, input, Some(&out_path)) {
+        Ok(code) => code,
+        Err(err) => {
+            let _ = fs::remove_file(&out_path);
+            return Err(format!("compile failed: {}", err));
+        }
+    };
+    if code != 0 {
+        let _ = fs::remove_file(&out_path);
+        return Err(format!("compile returned non-zero status {}", code));
+    }
+    let bytes = fs::read(&out_path).map_err(|err| {
+        let _ = fs::remove_file(&out_path);
+        format!(
+            "failed to read compile output {}: {}",
+            out_path.display(),
+            err
+        )
+    })?;
+    let _ = fs::remove_file(&out_path);
+    Ok(bytes)
+}
+
+fn run_litec_mode_release_default(
+    mode: &str,
+    input: &Path,
+    output: Option<&Path>,
+) -> Result<i32, String> {
+    if env::var(LITEC_FORCE_MAINLINE_FAIL_ENV)
+        .map(|value| value.trim() == "1")
+        .unwrap_or(false)
+    {
+        let err = LitecMainlineError::new(
+            "E_LITEC_MAINLINE_FORCED_FAIL",
+            "forced mainline bootstrap failure via ENKAI_LITEC_FORCE_MAINLINE_FAIL=1",
+        );
+        return run_litec_mode_stage0_fallback(mode, input, output, &err);
+    }
+
+    match build_litec_mainline_driver() {
+        Ok(mainline) => {
+            let code = run_litec_mode_with_program(&mainline.stage2_driver, mode, input, output)
+                .map_err(|message| {
+                    let mut err = LitecMainlineError::new("E_LITEC_MAINLINE_EXEC", message);
+                    err.stage1_fp = Some(mainline.stage1_fp.clone());
+                    err.stage2_fp = Some(mainline.stage2_fp.clone());
+                    err.stage1_stage2_equivalent = Some(mainline.stage1_stage2_equivalent);
+                    err
+                });
+            match code {
+                Ok(code) => Ok(code),
+                Err(err) => run_litec_mode_stage0_fallback(mode, input, output, &err),
+            }
+        }
+        Err(err) => run_litec_mode_stage0_fallback(mode, input, output, &err),
+    }
+}
+
+fn build_litec_mainline_driver() -> Result<LitecMainlineBuild, LitecMainlineError> {
+    let compiler_source = write_temp_script("enkai_lite_compiler.enk", ENKAI_LITEC_SCRIPT)
+        .map_err(|err| {
+            LitecMainlineError::new(
+                "E_LITEC_MAINLINE_TEMP_SCRIPT",
+                format!("failed to materialize compiler source: {}", err),
+            )
+        })?;
+    let stage0_driver = compile_embedded_script_program("enkai_lite.enk", ENKAI_LITEC_SCRIPT)
+        .map_err(|err| {
+            LitecMainlineError::new(
+                "E_LITEC_MAINLINE_STAGE0_BUILD",
+                format!("stage0 bootstrap compiler build failed: {}", err),
+            )
+        })?;
+    let stage1_driver_bytes = compile_with_driver_program(&stage0_driver, &compiler_source.path)
+        .map_err(|err| {
+            LitecMainlineError::new(
+                "E_LITEC_MAINLINE_STAGE1_BUILD",
+                format!("stage1 bootstrap compiler build failed: {}", err),
+            )
+        })?;
+    let stage1_fp = stage_fingerprint(&stage1_driver_bytes);
+    let stage1_driver = decode_program_bytes(
+        &compiler_source.path,
+        &stage1_driver_bytes,
+        "stage1-bootstrap-compiler",
+    )
+    .map_err(|err| {
+        let mut failure = LitecMainlineError::new("E_LITEC_MAINLINE_STAGE1_DECODE", err);
+        failure.stage1_fp = Some(stage1_fp.clone());
+        failure
+    })?;
+    let stage2_driver_bytes = compile_with_driver_program(&stage1_driver, &compiler_source.path)
+        .map_err(|err| {
+            let mut failure = LitecMainlineError::new(
+                "E_LITEC_MAINLINE_STAGE2_BUILD",
+                format!("stage2 bootstrap compiler build failed: {}", err),
+            );
+            failure.stage1_fp = Some(stage1_fp.clone());
+            failure
+        })?;
+    let stage2_fp = stage_fingerprint(&stage2_driver_bytes);
+    let stage12_equivalent = equivalent_program_bytes(
+        &compiler_source.path,
+        &stage1_driver_bytes,
+        "stage1-bootstrap-compiler",
+        &stage2_driver_bytes,
+        "stage2-bootstrap-compiler",
+    )
+    .map_err(|err| {
+        let mut failure = LitecMainlineError::new("E_LITEC_MAINLINE_EQUIVALENCE", err);
+        failure.stage1_fp = Some(stage1_fp.clone());
+        failure.stage2_fp = Some(stage2_fp.clone());
+        failure
+    })?;
+    if !stage12_equivalent {
+        let mut failure = LitecMainlineError::new(
+            "E_LITEC_MAINLINE_FIXED_POINT",
+            format!(
+                "stage1/stage2 bootstrap compiler mismatch (stage1={} bytes, stage2={} bytes)",
+                stage1_driver_bytes.len(),
+                stage2_driver_bytes.len()
+            ),
+        );
+        failure.stage1_fp = Some(stage1_fp);
+        failure.stage2_fp = Some(stage2_fp);
+        failure.stage1_stage2_equivalent = Some(false);
+        return Err(failure);
+    }
+    let stage2_driver = decode_program_bytes(
+        &compiler_source.path,
+        &stage2_driver_bytes,
+        "stage2-bootstrap-compiler",
+    )
+    .map_err(|err| {
+        let mut failure = LitecMainlineError::new("E_LITEC_MAINLINE_STAGE2_DECODE", err);
+        failure.stage1_fp = Some(stage1_fp.clone());
+        failure.stage2_fp = Some(stage2_fp.clone());
+        failure.stage1_stage2_equivalent = Some(true);
+        failure
+    })?;
+    Ok(LitecMainlineBuild {
+        stage2_driver,
+        stage1_fp,
+        stage2_fp,
+        stage1_stage2_equivalent: true,
+    })
+}
+
+fn run_litec_mode_stage0_fallback(
+    mode: &str,
+    input: &Path,
+    output: Option<&Path>,
+    reason: &LitecMainlineError,
+) -> Result<i32, String> {
+    let fallback_code = run_litec_mode(mode, input, output)?;
+    let report = serde_json::json!({
+        "schema_version": 1,
+        "command": "litec-mainline-fallback",
+        "mode": mode,
+        "input": to_report_path(input),
+        "output": output.map(to_report_path),
+        "status": "fallback",
+        "reason_code": reason.code,
+        "reason": reason.message,
+        "fallback_exit_code": fallback_code,
+        "stage1_compiler": reason.stage1_fp.clone(),
+        "stage2_compiler": reason.stage2_fp.clone(),
+        "stage1_stage2_equivalent": reason.stage1_stage2_equivalent,
+    });
+    let triage_dir = litec_triage_dir();
+    match write_triage_report(Some(&triage_dir), LITEC_MAINLINE_FALLBACK_REPORT, &report) {
+        Ok(Some(path)) => eprintln!(
+            "[warn] litec mainline fallback [{}]: {} (stage0 exit={}) triage={}",
+            reason.code,
+            reason.message,
+            fallback_code,
+            path.display()
+        ),
+        Ok(None) => {}
+        Err(err) => {
+            eprintln!(
+                "[warn] litec mainline fallback [{}]: {} (stage0 exit={})",
+                reason.code, reason.message, fallback_code
+            );
+            eprintln!("[warn] failed to write fallback triage report: {}", err);
+        }
+    }
+    Ok(fallback_code)
+}
+
+fn litec_triage_dir() -> PathBuf {
+    if let Ok(value) = env::var(LITEC_TRIAGE_DIR_ENV) {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+    PathBuf::from("artifacts").join("selfhost")
 }
 
 fn compile_with_driver_program(driver: &Program, input: &Path) -> Result<Vec<u8>, String> {
@@ -1917,10 +2201,19 @@ mod tests {
     use super::*;
     use std::f64;
     use std::process::Command;
+    use std::sync::{Mutex, OnceLock};
 
     use enkai_runtime::dataset::{resolve_dataset_paths, DatasetConfig, DatasetStream};
     use enkai_runtime::tokenizer::{Tokenizer, TrainConfig};
     use tempfile::tempdir;
+
+    fn litec_env_guard() -> std::sync::MutexGuard<'static, ()> {
+        static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
+        GUARD
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+    }
 
     fn cli_binary_path() -> PathBuf {
         let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -2128,6 +2421,50 @@ mod tests {
     }
 
     #[test]
+    fn litec_compile_auto_fallback_writes_triage_bundle() {
+        let _guard = litec_env_guard();
+        let dir = tempdir().expect("tempdir");
+        let triage = dir.path().join("triage");
+        let input = dir.path().join("fallback.enk");
+        let output = dir.path().join("fallback.bin");
+        fs::write(&input, "fn main() -> Int ::\n    return 11\n::\nmain()\n").expect("write input");
+
+        let prev_fail = env::var(LITEC_FORCE_MAINLINE_FAIL_ENV).ok();
+        let prev_triage = env::var(LITEC_TRIAGE_DIR_ENV).ok();
+        env::set_var(LITEC_FORCE_MAINLINE_FAIL_ENV, "1");
+        env::set_var(LITEC_TRIAGE_DIR_ENV, triage.to_string_lossy().to_string());
+
+        let code = litec_command(&[
+            "compile".to_string(),
+            input.to_string_lossy().to_string(),
+            "--out".to_string(),
+            output.to_string_lossy().to_string(),
+        ]);
+
+        if let Some(value) = prev_fail {
+            env::set_var(LITEC_FORCE_MAINLINE_FAIL_ENV, value);
+        } else {
+            env::remove_var(LITEC_FORCE_MAINLINE_FAIL_ENV);
+        }
+        if let Some(value) = prev_triage {
+            env::set_var(LITEC_TRIAGE_DIR_ENV, value);
+        } else {
+            env::remove_var(LITEC_TRIAGE_DIR_ENV);
+        }
+
+        assert_eq!(code, 0);
+        assert!(output.is_file());
+        let report_path = triage.join(LITEC_MAINLINE_FALLBACK_REPORT);
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read fallback report");
+        let report: serde_json::Value =
+            serde_json::from_str(&report_text).expect("parse fallback report");
+        assert_eq!(report["status"], "fallback");
+        assert_eq!(report["reason_code"], "E_LITEC_MAINLINE_FORCED_FAIL");
+        assert_eq!(report["fallback_exit_code"], 0);
+    }
+
+    #[test]
     fn litec_verify_matches_stage0_and_stage1() {
         let dir = tempdir().expect("tempdir");
         let input = dir.path().join("verify.enk");
@@ -2312,6 +2649,36 @@ mod tests {
             "--no-compare-stage0".to_string(),
         ]);
         assert_eq!(code, 0);
+    }
+
+    #[test]
+    fn litec_replace_check_report_records_stage1_stage2_runtime_parity() {
+        let dir = tempdir().expect("tempdir");
+        let corpus = dir.path().join("replace-corpus");
+        let triage = dir.path().join("triage");
+        fs::create_dir_all(&corpus).expect("corpus dir");
+        fs::write(
+            corpus.join("main_a.enk"),
+            "fn main() -> Int ::\n    let f := (v: Int) -> Int => v + 2\n    return f(5)\n::\nmain()\n",
+        )
+        .expect("write a");
+        let code = litec_command(&[
+            "replace-check".to_string(),
+            corpus.to_string_lossy().to_string(),
+            "--no-compare-stage0".to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+        ]);
+        assert_eq!(code, 0);
+        let report_path = triage.join("litec_replace_check_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        let first = report["entries"][0].clone();
+        assert!(first.get("stage1_result").is_some());
+        assert!(first.get("stage2_result").is_some());
+        assert_eq!(first["stage1_stage2_runtime_equivalent"], true);
     }
 
     #[test]

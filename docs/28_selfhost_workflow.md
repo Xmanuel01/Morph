@@ -1,4 +1,4 @@
-# Self-Host Workflow (v2.3.0)
+# Self-Host Workflow (v2.5.4)
 
 ## Purpose
 
@@ -11,7 +11,7 @@ required fallback path when a self-host lane fails.
    - `enkai litec check <file.enk>`
 2. Validate Stage0/Stage1 bytecode parity:
    - `enkai litec verify <file.enk>`
-3. Run staged compile path from Enkai script frontend:
+3. Run staged compile path from Enkai script frontend (mainline default with emergency fallback):
    - `enkai litec stage parse <file.enk>`
    - `enkai litec stage check <file.enk>`
    - `enkai litec stage codegen <file.enk> --out <program.bin>`
@@ -55,6 +55,10 @@ If any self-host command fails:
      - `litec_selfhost_ci_report.json`
      - `litec_replace_check_report.json`
      - `litec_mainline_ci_report.json`
+     - `litec_mainline_fallback_report.json` (automatic fallback bundle)
+   - automatic fallback bundle location:
+     - default: `artifacts/selfhost/litec_mainline_fallback_report.json`
+     - override: `ENKAI_LITEC_TRIAGE_DIR=<dir>`
 4. Land a targeted fix with:
    - regression test in `enkai/src/bootstrap.rs` or compiler/runtime tests,
    - docs update if behavior changed.

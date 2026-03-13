@@ -2,9 +2,20 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.5.3.
+- Current production release line is v2.5.4.
 - v2.5.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v2.5.4 (done)
+- Bootstrap mainline promotion and emergency fallback automation:
+  - `enkai litec check|compile|stage|run` now prefer Enkai-built mainline compiler path.
+  - automatic Stage0 emergency fallback is triggered when mainline bootstrap build/fixed-point checks fail.
+  - deterministic fallback triage bundle emitted:
+    - `litec_mainline_fallback_report.json`
+    - default path `artifacts/selfhost/` (override via `ENKAI_LITEC_TRIAGE_DIR`).
+- Tightened release corpus equivalence gate:
+  - `enkai litec replace-check` now enforces Stage1/Stage2 bytecode equivalence and Stage1/Stage2 runtime-output parity.
+  - report entries include `stage1_result`, `stage2_result`, and `stage1_stage2_runtime_equivalent`.
 
 v2.5.3 (done)
 - Signed remote model registry sync and lifecycle operations:
@@ -457,6 +468,7 @@ v0.3 (done)
 - Local path dependencies in Enkai.toml
 - Expand stdlib: strings + fs (policy-gated)
 - Keep AI primitives as stubs unless testable
+
 
 
 

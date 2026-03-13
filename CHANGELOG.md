@@ -8,6 +8,30 @@
 ### Breaking changes
 - None.
 
+## v2.5.4
+
+### Highlights
+- Advanced minor line to `v2.5.4` with additive compatibility (no contract removals).
+- Promoted bootstrap mainline compile path for `litec check|compile|stage|run`.
+- Added automatic Stage0 emergency fallback when mainline bootstrap build/fixed-point checks fail.
+- Added deterministic fallback triage output:
+  - `litec_mainline_fallback_report.json`
+  - default path `artifacts/selfhost/` (override with `ENKAI_LITEC_TRIAGE_DIR`).
+- Tightened bootstrap replacement gate:
+  - `enkai litec replace-check` now enforces Stage1/Stage2 runtime parity in addition to bytecode equivalence.
+
+### Fixes
+- Added bootstrap regression tests for:
+  - automatic fallback + triage emission.
+  - Stage1/Stage2 runtime parity report fields.
+- Synced docs/spec/release metadata and version surfaces to `v2.5.4`.
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_5_4_rc_pipeline.ps1`
+  - `scripts/v2_5_4_rc_pipeline.sh`
+
+### Breaking changes
+- None.
+
 ## v2.5.3
 
 ### Highlights
