@@ -238,7 +238,7 @@ def main() -> int:
             f"contract snapshot directory not found for strict evidence mode: {contracts_dir}"
         )
 
-    required_readiness = ["production.json"]
+    required_readiness = ["full_platform.json"]
     if readiness_dir.is_dir():
         if args.strict:
             readiness_files = ensure_required_files(

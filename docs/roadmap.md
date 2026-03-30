@@ -2,9 +2,24 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.5.4.
+- Current production release line is v2.5.5.
 - v2.5.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v2.5.5 (done)
+- Readiness/release hardening for the v2.5 line:
+  - additive readiness filter:
+    - `enkai readiness check ... --skip-check <id>`
+  - unknown skipped check ids fail early and skipped checks are recorded in the readiness JSON report.
+- Release pipeline now treats full-platform readiness as the canonical non-hardware gate:
+  - `scripts/release_pipeline.ps1`
+  - `scripts/release_pipeline.sh`
+  - standalone self-host readiness lanes are skipped there because `enkai litec release-ci` runs separately.
+- Release pipeline now fails early on low-disk hosts via:
+  - `ENKAI_RELEASE_MIN_FREE_GB`
+- Strict evidence archive policy now requires:
+  - `artifacts/readiness/full_platform.json`
+  - `artifacts/readiness/production.json` remains optional compatibility evidence.
 
 v2.5.4 (done)
 - Bootstrap mainline promotion and emergency fallback automation:

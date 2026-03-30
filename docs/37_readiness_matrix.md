@@ -17,6 +17,10 @@ Run:
 
 `enkai readiness check --profile full_platform --json --output artifacts/readiness/full_platform.json`
 
+Selective pipeline reuse:
+- `enkai readiness check ... --skip-check <id>` may omit checks already executed by a stronger release gate.
+- Release pipelines use this to skip standalone self-host lanes when `enkai litec release-ci` is run separately.
+
 Manifest:
 - `enkai/contracts/readiness_full_platform_v2_5_0.json`
 - release blocker matrix:

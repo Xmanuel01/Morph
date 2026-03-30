@@ -1,8 +1,8 @@
-# Enkai Bootstrap Core (v2.5.4)
+# Enkai Bootstrap Core (v2.5.5)
 
 ## Purpose
 
-`v2.5.4` promotes bootstrap mainline as the default release/dev compile path while
+`v2.5.5` promotes bootstrap mainline as the default release/dev compile path while
 keeping Stage0 as an emergency fallback path with deterministic triage artifacts.
 The objective is to validate deterministic Stage1/Stage2 fixed-point behavior and
 runtime parity for the bootstrap release corpus.

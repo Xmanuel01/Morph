@@ -123,6 +123,10 @@ def main() -> int:
             failures.append(
                 "docs/36_capability_complete_report.md missing readiness evidence reference"
             )
+        if "readiness/full_platform.json" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing full_platform readiness evidence reference"
+            )
 
     readiness_doc = ROOT / "docs/37_readiness_matrix.md"
     if not readiness_doc.is_file():

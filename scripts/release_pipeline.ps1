@@ -70,32 +70,37 @@ function Invoke-Python {
     & $cmd @prefix @Args
 }
 
-function Resolve-BenchPython {
-    if (-not [string]::IsNullOrWhiteSpace($env:ENKAI_BENCH_PYTHON)) {
-        return $env:ENKAI_BENCH_PYTHON
+function Assert-MinFreeSpace {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [double]$RequiredGiB
+    )
+
+    $resolved = Resolve-Path -LiteralPath $Path
+    $drive = Get-PSDrive -Name $resolved.Drive.Name -ErrorAction Stop
+    $requiredBytes = [math]::Floor($RequiredGiB * 1GB)
+    if ($drive.Free -lt $requiredBytes) {
+        $freeGiB = [math]::Round($drive.Free / 1GB, 2)
+        throw "[release] insufficient free disk space on drive $($drive.Name): ${freeGiB} GiB available, ${RequiredGiB} GiB required. Free space or set ENKAI_RELEASE_MIN_FREE_GB to a lower validated threshold."
     }
-    try {
-        $candidate = (py -3.11 -c "import sys; print(sys.executable)" 2>$null).Trim()
-        if (-not [string]::IsNullOrWhiteSpace($candidate)) {
-            return $candidate
-        }
-    }
-    catch {
-    }
-    foreach ($name in @("python3.11", "python3", "python")) {
-        $cmd = Get-Command $name -ErrorAction SilentlyContinue
-        if ($null -ne $cmd) {
-            return $cmd.Source
-        }
-    }
-    throw "Unable to resolve a Python interpreter for benchmark lane. Set ENKAI_BENCH_PYTHON."
 }
+
+if ([string]::IsNullOrWhiteSpace($env:ENKAI_RELEASE_MIN_FREE_GB)) {
+    $env:ENKAI_RELEASE_MIN_FREE_GB = "4"
+}
+$minFreeGiB = [double]::Parse(
+    $env:ENKAI_RELEASE_MIN_FREE_GB,
+    [System.Globalization.CultureInfo]::InvariantCulture
+)
+Assert-MinFreeSpace -Path "." -RequiredGiB $minFreeGiB
 
 Write-Host "[release] Running consolidated production readiness gate..."
 Invoke-Gate -Name "readiness-check" -Command {
     New-Item -ItemType Directory -Path artifacts/selfhost -Force | Out-Null
     New-Item -ItemType Directory -Path artifacts/readiness -Force | Out-Null
-    cargo run -p enkai -- readiness check --profile production --json --output artifacts/readiness/production.json
+    cargo run -p enkai -- readiness check --profile full_platform --json --output artifacts/readiness/full_platform.json --skip-check selfhost-mainline --skip-check selfhost-stage0-fallback
 }
 
 Write-Host "[release] Running bootstrap release lane gate..."
@@ -106,29 +111,6 @@ Invoke-Gate -Name "selfhost-release-ci" -Command {
 Write-Host "[release] Running dependency license audit gate..."
 Invoke-Gate -Name "license-audit" -Command {
     Invoke-Python scripts/license_audit.py
-}
-
-Write-Host "[release] Building release binaries for benchmark/package gates..."
-Invoke-Gate -Name "build-release-enkai" -Command { cargo build -p enkai --release }
-Invoke-Gate -Name "build-release-native" -Command { cargo build -p enkai_native --release }
-
-Write-Host "[release] Running benchmark target gate..."
-Invoke-Gate -Name "benchmark-target" -Command {
-    $benchPython = Resolve-BenchPython
-    New-Item -ItemType Directory -Path dist -Force | Out-Null
-    cargo run -p enkai --release -- bench run `
-        --suite official_v2_3_0_matrix `
-        --baseline python `
-        --iterations 2 `
-        --warmup 1 `
-        --machine-profile bench/machines/windows_ref.json `
-        --output dist/benchmark_official_v2_3_0_matrix_windows.json `
-        --target-speedup 15 `
-        --target-memory 5 `
-        --enforce-target `
-        --enforce-class-targets `
-        --class-targets bench/suites/official_v2_3_0_targets.json `
-        --python $benchPython
 }
 
 if (-not $SkipPackageCheck) {

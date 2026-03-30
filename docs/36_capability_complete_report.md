@@ -35,8 +35,8 @@ Core categories:
   - `sdk_api_v1.snapshot.json`
   - `conversation_state_v1.schema.json`
 - `readiness/`:
-  - `production.json` (`readiness/production.json`)
-  - `full_platform.json` (`readiness/full_platform.json`) for v2.5+ full-platform line
+  - `full_platform.json` (`readiness/full_platform.json`) for the v2.5+ full-platform line
+  - `production.json` (`readiness/production.json`) as an optional compatibility/reference artifact
 - `gpu/` (mandatory for full sign-off):
   - `single_gpu.log`, `single_gpu_evidence.json`
   - `multi_gpu.log`, `multi_gpu_evidence.json`

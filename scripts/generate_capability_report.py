@@ -281,12 +281,26 @@ def build_checks(
         CheckResult(
             id="readiness_production_report",
             description="Production readiness JSON report is present",
-            required=True,
+            required=False,
             passed=readiness_present,
             details=(
                 "readiness/production.json"
                 if readiness_present
                 else "missing readiness/production.json"
+            ),
+        )
+    )
+    full_platform_readiness_present = has_exact(copied_paths, "/readiness/full_platform.json")
+    checks.append(
+        CheckResult(
+            id="readiness_full_platform_report",
+            description="Full-platform readiness JSON report is present",
+            required=True,
+            passed=full_platform_readiness_present,
+            details=(
+                "readiness/full_platform.json"
+                if full_platform_readiness_present
+                else "missing readiness/full_platform.json"
             ),
         )
     )

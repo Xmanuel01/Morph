@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -25,6 +26,7 @@ struct ReadinessCheckArgs {
     profile: String,
     json: bool,
     output: Option<PathBuf>,
+    skip_checks: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -36,6 +38,7 @@ struct ReadinessReport {
     started_unix_ms: u128,
     finished_unix_ms: u128,
     all_passed: bool,
+    skipped_checks: Vec<String>,
     checks: Vec<ReadinessCheckReport>,
 }
 
@@ -51,7 +54,7 @@ struct ReadinessCheckReport {
 
 pub fn print_readiness_usage() {
     eprintln!(
-        "  enkai readiness check [--profile production|full_platform] [--json] [--output <file>]"
+        "  enkai readiness check [--profile production|full_platform] [--json] [--output <file>] [--skip-check <id>]"
     );
 }
 
@@ -86,12 +89,19 @@ fn readiness_check_command(args: &[String]) -> i32 {
             return 1;
         }
     };
+    let (checks, skipped_checks) = match filter_manifest_checks(&manifest, &parsed.skip_checks) {
+        Ok(value) => value,
+        Err(err) => {
+            eprintln!("enkai readiness check: {}", err);
+            return 1;
+        }
+    };
 
     let started_unix_ms = unix_millis();
     let workspace = workspace_root();
-    let mut check_reports = Vec::with_capacity(manifest.checks.len());
+    let mut check_reports = Vec::with_capacity(checks.len());
 
-    for check in &manifest.checks {
+    for check in &checks {
         println!(
             "[readiness] [{}] {}",
             check.id.trim(),
@@ -116,6 +126,7 @@ fn readiness_check_command(args: &[String]) -> i32 {
         started_unix_ms,
         finished_unix_ms,
         all_passed,
+        skipped_checks,
         checks: check_reports,
     };
 
@@ -172,6 +183,7 @@ fn parse_check_args(args: &[String]) -> Result<ReadinessCheckArgs, String> {
         profile: "production".to_string(),
         json: false,
         output: None,
+        skip_checks: Vec::new(),
     };
     let mut idx = 0usize;
     while idx < args.len() {
@@ -196,6 +208,17 @@ fn parse_check_args(args: &[String]) -> Result<ReadinessCheckArgs, String> {
                 }
                 parsed.output = Some(PathBuf::from(args[idx].trim()));
             }
+            "--skip-check" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err("--skip-check requires a value".to_string());
+                }
+                let value = args[idx].trim();
+                if value.is_empty() {
+                    return Err("--skip-check cannot be empty".to_string());
+                }
+                parsed.skip_checks.push(value.to_string());
+            }
             unknown => {
                 return Err(format!("unknown option '{}'", unknown));
             }
@@ -219,6 +242,45 @@ fn load_manifest(profile: &str) -> Result<ReadinessManifest, String> {
     let manifest: ReadinessManifest = serde_json::from_str(raw)
         .map_err(|err| format!("failed to parse readiness manifest: {}", err))?;
     Ok(manifest)
+}
+
+fn filter_manifest_checks(
+    manifest: &ReadinessManifest,
+    skip_checks: &[String],
+) -> Result<(Vec<ReadinessCheckSpec>, Vec<String>), String> {
+    let requested_skips: BTreeSet<String> = skip_checks
+        .iter()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+        .collect();
+    if requested_skips.is_empty() {
+        return Ok((manifest.checks.clone(), Vec::new()));
+    }
+
+    let known_ids: BTreeSet<String> = manifest
+        .checks
+        .iter()
+        .map(|check| check.id.clone())
+        .collect();
+    let unknown: Vec<String> = requested_skips.difference(&known_ids).cloned().collect();
+    if !unknown.is_empty() {
+        return Err(format!(
+            "unknown --skip-check id(s): {}",
+            unknown.join(", ")
+        ));
+    }
+
+    let mut retained = Vec::with_capacity(manifest.checks.len());
+    let mut skipped = Vec::new();
+    for check in &manifest.checks {
+        if requested_skips.contains(&check.id) {
+            skipped.push(check.id.clone());
+        } else {
+            retained.push(check.clone());
+        }
+    }
+    Ok((retained, skipped))
 }
 
 fn run_check(workspace: &Path, check: &ReadinessCheckSpec) -> ReadinessCheckReport {
@@ -383,6 +445,7 @@ mod tests {
         assert_eq!(parsed.profile, "production");
         assert!(!parsed.json);
         assert!(parsed.output.is_none());
+        assert!(parsed.skip_checks.is_empty());
     }
 
     #[test]
@@ -393,6 +456,10 @@ mod tests {
             "--json".to_string(),
             "--output".to_string(),
             "artifacts/readiness.json".to_string(),
+            "--skip-check".to_string(),
+            "benchmark-target".to_string(),
+            "--skip-check".to_string(),
+            "benchmark-build-release".to_string(),
         ])
         .expect("parse");
         assert_eq!(parsed.profile, "full_platform");
@@ -400,6 +467,13 @@ mod tests {
         assert_eq!(
             parsed.output,
             Some(PathBuf::from("artifacts/readiness.json"))
+        );
+        assert_eq!(
+            parsed.skip_checks,
+            vec![
+                "benchmark-target".to_string(),
+                "benchmark-build-release".to_string()
+            ]
         );
     }
 
@@ -423,5 +497,45 @@ mod tests {
         assert_eq!(manifest.schema_version, 1);
         assert_eq!(manifest.profile, "full_platform");
         assert!(!manifest.checks.is_empty());
+    }
+
+    #[test]
+    fn filter_manifest_checks_skips_known_ids_in_order() {
+        let manifest = ReadinessManifest {
+            schema_version: 1,
+            profile: "test".to_string(),
+            checks: vec![
+                ReadinessCheckSpec {
+                    id: "fmt".to_string(),
+                    description: "fmt".to_string(),
+                    command: vec!["cargo".to_string()],
+                },
+                ReadinessCheckSpec {
+                    id: "test".to_string(),
+                    description: "test".to_string(),
+                    command: vec!["cargo".to_string()],
+                },
+                ReadinessCheckSpec {
+                    id: "bench".to_string(),
+                    description: "bench".to_string(),
+                    command: vec!["cargo".to_string()],
+                },
+            ],
+        };
+        let (checks, skipped) = filter_manifest_checks(
+            &manifest,
+            &["bench".to_string(), "fmt".to_string(), "fmt".to_string()],
+        )
+        .expect("filter");
+        assert_eq!(checks.len(), 1);
+        assert_eq!(checks[0].id, "test");
+        assert_eq!(skipped, vec!["fmt".to_string(), "bench".to_string()]);
+    }
+
+    #[test]
+    fn filter_manifest_checks_rejects_unknown_id() {
+        let manifest = load_manifest("production").expect("manifest");
+        let err = filter_manifest_checks(&manifest, &["missing".to_string()]).expect_err("unknown");
+        assert!(err.contains("missing"));
     }
 }

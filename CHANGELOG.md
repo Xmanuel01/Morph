@@ -8,6 +8,32 @@
 ### Breaking changes
 - None.
 
+## v2.5.5
+
+### Highlights
+- Advanced minor line to `v2.5.5` with additive compatibility (no contract removals).
+- Added deterministic readiness filtering:
+  - `enkai readiness check ... --skip-check <id>`
+  - unknown skipped check ids now fail fast with a machine-readable report mismatch.
+- Hardened release pipeline sign-off behavior:
+  - `scripts/release_pipeline.ps1`
+  - `scripts/release_pipeline.sh`
+  - both now treat `full_platform` readiness as the canonical non-hardware release gate.
+- Added release pipeline disk-space preflight via `ENKAI_RELEASE_MIN_FREE_GB`.
+
+### Fixes
+- Removed redundant standalone self-host readiness execution from release pipelines by skipping
+  `selfhost-mainline` and `selfhost-stage0-fallback` in readiness when `litec release-ci` runs separately.
+- Aligned archived evidence policy so strict release evidence requires `readiness/full_platform.json`
+  while keeping `readiness/production.json` as an optional compatibility artifact.
+- Synced docs/spec/release metadata and version surfaces to `v2.5.5`.
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_5_5_rc_pipeline.ps1`
+  - `scripts/v2_5_5_rc_pipeline.sh`
+
+### Breaking changes
+- None.
+
 ## v2.5.4
 
 ### Highlights

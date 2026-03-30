@@ -39,6 +39,10 @@ Note:
 - [ ] Version-neutral release pipeline:
   - `powershell -ExecutionPolicy Bypass -File scripts/release_pipeline.ps1`
   - or `sh scripts/release_pipeline.sh`
+  - pipeline note:
+    - uses `full_platform` readiness as the canonical non-hardware release gate
+    - skips standalone self-host readiness checks because `enkai litec release-ci` is executed separately
+    - respects `ENKAI_RELEASE_MIN_FREE_GB` for disk-space preflight
 - [ ] RC pipeline (GPU evidence required by default):
   - `powershell -ExecutionPolicy Bypass -File scripts/rc_pipeline.ps1`
   - or `sh scripts/rc_pipeline.sh`
