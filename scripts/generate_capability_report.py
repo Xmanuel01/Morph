@@ -139,6 +139,38 @@ def validate_benchmark_report(path: pathlib.Path) -> tuple[bool, str]:
     return True, path.name
 
 
+def validate_blocker_report(path: pathlib.Path) -> tuple[bool, str]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as err:  # pragma: no cover - defensive parse guard
+        return False, f"{path.name}: invalid JSON ({err})"
+
+    if not isinstance(payload, dict):
+        return False, f"{path.name}: report root must be object"
+    if int(payload.get("schema_version", 0)) < 1:
+        return False, f"{path.name}: schema_version must be >= 1"
+    if payload.get("profile") != "full_platform":
+        return False, f"{path.name}: profile must be full_platform"
+    if not bool(payload.get("all_passed", False)):
+        return False, f"{path.name}: all_passed is false"
+    if bool(payload.get("skip_release_evidence", True)):
+        return False, f"{path.name}: skip_release_evidence must be false for archived strict evidence"
+    for field in (
+        "missing_checks",
+        "failed_checks",
+        "skipped_required_checks",
+        "missing_artifacts",
+        "missing_gpu_artifacts",
+    ):
+        value = payload.get(field)
+        if not isinstance(value, list):
+            return False, f"{path.name}: {field} must be a list"
+        if value:
+            return False, f"{path.name}: {field} is non-empty"
+
+    return True, path.name
+
+
 def select_benchmark_report_paths(root: pathlib.Path, copied_paths: list[str]) -> list[pathlib.Path]:
     bench_regex = re.compile(r"/dist/benchmark_official_[^/]+\.json$")
     benchmark_paths: list[pathlib.Path] = []
@@ -302,6 +334,25 @@ def build_checks(
                 if full_platform_readiness_present
                 else "missing readiness/full_platform.json"
             ),
+        )
+    )
+    blocker_report_path = first_match(
+        copied_paths, lambda path: path.endswith("/readiness/full_platform_blockers.json")
+    )
+    blocker_report_valid = False
+    blocker_report_detail = "missing readiness/full_platform_blockers.json"
+    if blocker_report_path is not None:
+        blocker_path = root / blocker_report_path
+        blocker_report_valid, blocker_report_detail = validate_blocker_report(blocker_path)
+        if blocker_report_valid:
+            blocker_report_detail = blocker_report_path
+    checks.append(
+        CheckResult(
+            id="readiness_full_platform_blocker_report",
+            description="Full-platform blocker verification report is present and passing",
+            required=True,
+            passed=blocker_report_valid,
+            details=blocker_report_detail,
         )
     )
 

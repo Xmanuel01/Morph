@@ -62,25 +62,50 @@ if [ "$skip_package" = "0" ]; then
   echo "[release] Generating SBOM artifact..."
   python3 scripts/generate_sbom.py --output "dist/sbom-${version}-linux-x86_64.json"
 
+  echo "[release] Bootstrapping blocker verification artifact before evidence archive..."
+  cargo run -p enkai -- readiness verify-blockers \
+    --profile full_platform \
+    --report artifacts/readiness/full_platform.json \
+    --json \
+    --output artifacts/readiness/full_platform_blockers.json \
+    --skip-release-evidence \
+    --allow-skipped-required-check selfhost-mainline \
+    --allow-skipped-required-check selfhost-stage0-fallback
+
   echo "[release] Collecting strict release evidence bundle..."
+  python3 scripts/collect_release_evidence.py --strict
+
+  echo "[release] Verifying release blocker matrix against archived evidence..."
+  cargo run -p enkai -- readiness verify-blockers \
+    --profile full_platform \
+    --report artifacts/readiness/full_platform.json \
+    --json \
+    --output artifacts/readiness/full_platform_blockers.json \
+    --allow-skipped-required-check selfhost-mainline \
+    --allow-skipped-required-check selfhost-stage0-fallback
+
+  echo "[release] Refreshing strict release evidence bundle with final blocker report..."
   python3 scripts/collect_release_evidence.py --strict
 
   echo "[release] Generating strict capability report..."
   python3 scripts/generate_capability_report.py --strict
 else
+  echo "[release] Generating blocker verification artifact for reduced evidence mode..."
+  cargo run -p enkai -- readiness verify-blockers \
+    --profile full_platform \
+    --report artifacts/readiness/full_platform.json \
+    --json \
+    --output artifacts/readiness/full_platform_blockers.json \
+    --skip-release-evidence \
+    --allow-skipped-required-check selfhost-mainline \
+    --allow-skipped-required-check selfhost-stage0-fallback
+
   echo "[release] Collecting reduced release evidence bundle (package checks skipped)..."
   python3 scripts/collect_release_evidence.py
 
   echo "[release] Generating reduced capability report (package checks skipped)..."
   python3 scripts/generate_capability_report.py
 fi
-
-echo "[release] Verifying release blocker matrix..."
-blocker_args="--profile full_platform --report artifacts/readiness/full_platform.json --json --output artifacts/readiness/full_platform_blockers.json --allow-skipped-required-check selfhost-mainline --allow-skipped-required-check selfhost-stage0-fallback"
-if [ "$skip_package" = "1" ]; then
-  blocker_args="$blocker_args --skip-release-evidence"
-fi
-cargo run -p enkai -- readiness verify-blockers $blocker_args
 
 if [ "$verify_gpu" = "1" ]; then
   echo "[release] Verifying GPU gate evidence..."

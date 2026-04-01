@@ -8,30 +8,27 @@
 ### Breaking changes
 - None.
 
-## v2.5.8
+## v2.5.9
 
 ### Highlights
-- Advanced minor line to `v2.5.8` with additive compatibility (no contract removals).
-- Added machine-readable release blocker verification:
-  - `enkai readiness verify-blockers --profile full_platform --report <file> --json --output <file>`
-  - validates required readiness checks against the full-platform blocker matrix
-  - validates required archived release evidence artifacts for the current version line
-  - supports optional GPU evidence enforcement with `--require-gpu-evidence`
-- Hardened release and RC pipelines:
+- Advanced minor line to `v2.5.9` with additive compatibility (no contract removals).
+- Closed the full-platform release evidence loop:
+  - strict release evidence now archives `readiness/full_platform_blockers.json`
+  - strict capability reporting now validates the archived blocker-verification verdict
+- Hardened release and RC pipeline ordering:
   - `scripts/release_pipeline.ps1`
   - `scripts/release_pipeline.sh`
   - `scripts/rc_pipeline.ps1`
   - `scripts/rc_pipeline.sh`
-  - all now emit `artifacts/readiness/full_platform_blockers.json` and verify blocker-matrix state automatically
+  - blocker verification now runs before archival for bootstrap evidence and again after archive generation for final sign-off
 
 ### Fixes
-- Added explicit waiver support for intentionally skipped readiness checks:
-  - `--allow-skipped-required-check <id>`
-- Documented blocker-verification flow across spec, readiness matrix, and release checklist.
-- Synced docs/spec/release metadata and version surfaces to `v2.5.8`.
+- Removed the circular dependency where blocker verification implicitly depended on the capability report artifact.
+- Documented archived blocker-verification requirements across spec, readiness matrix, capability report docs, and release checklist.
+- Synced docs/spec/release metadata and version surfaces to `v2.5.9`.
 - Added current-line RC wrapper scripts:
-  - `scripts/v2_5_8_rc_pipeline.ps1`
-  - `scripts/v2_5_8_rc_pipeline.sh`
+  - `scripts/v2_5_9_rc_pipeline.ps1`
+  - `scripts/v2_5_9_rc_pipeline.sh`
 
 ### Breaking changes
 - None.

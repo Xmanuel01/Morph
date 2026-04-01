@@ -84,11 +84,15 @@ Note:
 - [ ] Archive release evidence package:
   - `python3 scripts/collect_release_evidence.py --gpu-log-dir artifacts/gpu --require-gpu --strict`
   - expected output: `artifacts/release/v<version>/manifest.json`
+  - strict archive must include:
+    - `readiness/full_platform.json`
+    - `readiness/full_platform_blockers.json`
 - [ ] Generate capability-complete report from archived evidence:
   - `python3 scripts/generate_capability_report.py --require-gpu --strict`
   - expected outputs:
     - `artifacts/release/v<version>/capability_complete.json`
     - `artifacts/release/v<version>/capability_complete.md`
+  - strict capability report now requires archived blocker-verification evidence to be present and passing
 - [ ] Verify blocker matrix against readiness + archived evidence:
   - `enkai readiness verify-blockers --profile full_platform --report artifacts/readiness/full_platform.json --json --output artifacts/readiness/full_platform_blockers.json --require-gpu-evidence`
   - expected output:

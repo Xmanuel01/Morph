@@ -45,23 +45,6 @@ if ($AllowMissingGpuEvidence) {
     }
     & powershell @args
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    Invoke-Python scripts/collect_release_evidence.py --gpu-log-dir $GpuLogDir
-    Invoke-Python scripts/generate_capability_report.py
-    $blockerArgs = @(
-        "run", "-p", "enkai", "--",
-        "readiness", "verify-blockers",
-        "--profile", "full_platform",
-        "--report", "artifacts/readiness/full_platform.json",
-        "--json",
-        "--output", "artifacts/readiness/full_platform_blockers.json",
-        "--allow-skipped-required-check", "selfhost-mainline",
-        "--allow-skipped-required-check", "selfhost-stage0-fallback"
-    )
-    if ($SkipPackageCheck.IsPresent) {
-        $blockerArgs += "--skip-release-evidence"
-    }
-    & cargo @blockerArgs
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     Write-Host "[rc] RC dry-run completed."
     exit 0
 }
@@ -78,15 +61,6 @@ if ($SkipPackageCheck.IsPresent) {
 }
 & powershell @args
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-$collectArgs = @("scripts/collect_release_evidence.py", "--gpu-log-dir", $GpuLogDir, "--require-gpu")
-$reportArgs = @("scripts/generate_capability_report.py", "--require-gpu")
-if (-not $SkipPackageCheck.IsPresent) {
-    $collectArgs += "--strict"
-    $reportArgs += "--strict"
-}
-Invoke-Python @collectArgs
-Invoke-Python @reportArgs
-Write-Host "[rc] Verifying full-platform blocker matrix with GPU evidence..."
 $blockerArgs = @(
     "run", "-p", "enkai", "--",
     "readiness", "verify-blockers",
@@ -101,6 +75,15 @@ $blockerArgs = @(
 if ($SkipPackageCheck.IsPresent) {
     $blockerArgs += "--skip-release-evidence"
 }
+Write-Host "[rc] Verifying full-platform blocker matrix with GPU evidence..."
 & cargo @blockerArgs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$collectArgs = @("scripts/collect_release_evidence.py", "--gpu-log-dir", $GpuLogDir, "--require-gpu")
+$reportArgs = @("scripts/generate_capability_report.py", "--require-gpu")
+if (-not $SkipPackageCheck.IsPresent) {
+    $collectArgs += "--strict"
+    $reportArgs += "--strict"
+}
+Invoke-Python @collectArgs
+Invoke-Python @reportArgs
 Write-Host "[rc] RC pipeline passed with archived evidence."

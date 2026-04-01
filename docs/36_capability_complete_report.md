@@ -36,6 +36,7 @@ Core categories:
   - `conversation_state_v1.schema.json`
 - `readiness/`:
   - `full_platform.json` (`readiness/full_platform.json`) for the v2.5+ full-platform line
+  - `full_platform_blockers.json` (`readiness/full_platform_blockers.json`) as the archived blocker-verification verdict for the current release line
   - `production.json` (`readiness/production.json`) as an optional compatibility/reference artifact
 - `gpu/` (mandatory for full sign-off):
   - `single_gpu.log`, `single_gpu_evidence.json`
@@ -54,6 +55,11 @@ Outputs:
 - `artifacts/release/v<version>/capability_complete.md`
 
 `--strict` fails if any required check fails.
+In strict mode the archived blocker report must also be present and must show:
+- `all_passed: true`
+- `skip_release_evidence: false`
+- no missing/failed/skipped required checks
+- no missing required release artifacts
 
 ## RC Pipeline Contract
 

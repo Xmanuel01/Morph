@@ -38,6 +38,10 @@ Manifest:
     - `--allow-skipped-required-check selfhost-mainline`
     - `--allow-skipped-required-check selfhost-stage0-fallback`
     because those readiness checks are intentionally replaced by the stronger `enkai litec release-ci` gate in the consolidated pipeline.
+  - strict release evidence archives both:
+    - `artifacts/readiness/full_platform.json`
+    - `artifacts/readiness/full_platform_blockers.json`
+  - strict capability reporting requires the archived blocker report to be present and passing.
 
 The command executes a deterministic gate bundle:
 - format/lint/test

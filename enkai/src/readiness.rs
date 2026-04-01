@@ -1028,8 +1028,8 @@ mod tests {
         let report = ReadinessReport {
             schema_version: 1,
             profile: "full_platform".to_string(),
-            language_version: "2.5.8".to_string(),
-            cli_version: "2.5.8".to_string(),
+            language_version: "2.5.9".to_string(),
+            cli_version: "2.5.9".to_string(),
             started_unix_ms: 0,
             finished_unix_ms: 1,
             all_passed: false,
@@ -1059,7 +1059,7 @@ mod tests {
             manifest: &manifest,
             readiness_report: &report,
             readiness_report_path: &report_path,
-            version: "2.5.8",
+            version: "2.5.9",
             require_gpu_evidence: false,
             skip_release_evidence: false,
             allow_skipped_required_checks: &[],
@@ -1087,8 +1087,8 @@ mod tests {
             "bench/results/full_platform_targets.json",
             "artifacts/selfhost/litec_mainline_ci_report.json",
             "artifacts/selfhost/litec_replace_check_report.json",
-            "artifacts/release/v2.5.8/manifest.json",
-            "artifacts/release/v2.5.8/capability_complete.json",
+            "artifacts/release/v2.5.9/manifest.json",
+            "artifacts/release/v2.5.9/capability_complete.json",
         ];
         for path in &required_paths {
             let full = workspace.join(path);
@@ -1116,8 +1116,8 @@ mod tests {
         let report = ReadinessReport {
             schema_version: 1,
             profile: "full_platform".to_string(),
-            language_version: "2.5.8".to_string(),
-            cli_version: "2.5.8".to_string(),
+            language_version: "2.5.9".to_string(),
+            cli_version: "2.5.9".to_string(),
             started_unix_ms: 0,
             finished_unix_ms: 1,
             all_passed: true,
@@ -1131,7 +1131,7 @@ mod tests {
             manifest: &manifest,
             readiness_report: &report,
             readiness_report_path: &report_path,
-            version: "2.5.8",
+            version: "2.5.9",
             require_gpu_evidence: false,
             skip_release_evidence: false,
             allow_skipped_required_checks: &[],
@@ -1154,8 +1154,8 @@ mod tests {
             "bench/results/full_platform_targets.json",
             "artifacts/selfhost/litec_mainline_ci_report.json",
             "artifacts/selfhost/litec_replace_check_report.json",
-            "artifacts/release/v2.5.8/manifest.json",
-            "artifacts/release/v2.5.8/capability_complete.json",
+            "artifacts/release/v2.5.9/manifest.json",
+            "artifacts/release/v2.5.9/capability_complete.json",
         ];
         for path in &required_paths {
             let full = workspace.join(path);
@@ -1183,8 +1183,8 @@ mod tests {
         let report = ReadinessReport {
             schema_version: 1,
             profile: "full_platform".to_string(),
-            language_version: "2.5.8".to_string(),
-            cli_version: "2.5.8".to_string(),
+            language_version: "2.5.9".to_string(),
+            cli_version: "2.5.9".to_string(),
             started_unix_ms: 0,
             finished_unix_ms: 1,
             all_passed: true,
@@ -1199,7 +1199,7 @@ mod tests {
             manifest: &manifest,
             readiness_report: &report,
             readiness_report_path: &report_path,
-            version: "2.5.8",
+            version: "2.5.9",
             require_gpu_evidence: false,
             skip_release_evidence: false,
             allow_skipped_required_checks: &allowed,

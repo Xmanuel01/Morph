@@ -13,20 +13,18 @@ fi
 
 if [ "$allow_missing_gpu" = "1" ]; then
   echo "[rc] Running RC dry-run without mandatory GPU evidence."
-  VERIFY_GPU_EVIDENCE=0 sh scripts/release_pipeline.sh
-  python3 scripts/collect_release_evidence.py --gpu-log-dir "$gpu_log_dir"
-  python3 scripts/generate_capability_report.py
-  blocker_args="--profile full_platform --report artifacts/readiness/full_platform.json --json --output artifacts/readiness/full_platform_blockers.json --allow-skipped-required-check selfhost-mainline --allow-skipped-required-check selfhost-stage0-fallback"
-  if [ "$skip_package" = "1" ]; then
-    blocker_args="$blocker_args --skip-release-evidence"
-  fi
-  cargo run -p enkai -- readiness verify-blockers $blocker_args
+  VERIFY_GPU_EVIDENCE=0 SKIP_PACKAGE_CHECK="$skip_package" sh scripts/release_pipeline.sh
   echo "[rc] RC dry-run completed."
   exit 0
 fi
 
 echo "[rc] Running full RC pipeline (GPU evidence required)..."
-VERIFY_GPU_EVIDENCE=1 GPU_LOG_DIR="$gpu_log_dir" sh scripts/release_pipeline.sh
+VERIFY_GPU_EVIDENCE=1 GPU_LOG_DIR="$gpu_log_dir" SKIP_PACKAGE_CHECK="$skip_package" sh scripts/release_pipeline.sh
+blocker_args="--profile full_platform --report artifacts/readiness/full_platform.json --json --output artifacts/readiness/full_platform_blockers.json --allow-skipped-required-check selfhost-mainline --allow-skipped-required-check selfhost-stage0-fallback --require-gpu-evidence"
+if [ "$skip_package" = "1" ]; then
+  blocker_args="$blocker_args --skip-release-evidence"
+fi
+cargo run -p enkai -- readiness verify-blockers $blocker_args
 if [ "$skip_package" != "1" ]; then
   python3 scripts/collect_release_evidence.py --gpu-log-dir "$gpu_log_dir" --require-gpu --strict
   python3 scripts/generate_capability_report.py --require-gpu --strict
@@ -34,9 +32,4 @@ else
   python3 scripts/collect_release_evidence.py --gpu-log-dir "$gpu_log_dir" --require-gpu
   python3 scripts/generate_capability_report.py --require-gpu
 fi
-blocker_args="--profile full_platform --report artifacts/readiness/full_platform.json --json --output artifacts/readiness/full_platform_blockers.json --allow-skipped-required-check selfhost-mainline --allow-skipped-required-check selfhost-stage0-fallback --require-gpu-evidence"
-if [ "$skip_package" = "1" ]; then
-  blocker_args="$blocker_args --skip-release-evidence"
-fi
-cargo run -p enkai -- readiness verify-blockers $blocker_args
 echo "[rc] RC pipeline passed with archived evidence."
