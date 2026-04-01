@@ -12,7 +12,7 @@ enkai new frontend-chat <target_dir> [--api-version <v>] [--backend-url <url>] [
 enkai new fullstack-chat <target_dir> [--api-version <v>] [--backend-url <url>] [--force]
 enkai new llm-fullstack <target_dir> [--api-version <v>] [--backend-url <url>] [--force]
 enkai sdk generate <output_file> [--api-version <v>]
-enkai deploy validate <project_dir> --profile <backend|fullstack> --strict
+enkai deploy validate <project_dir> --profile <backend|fullstack> --strict [--json] [--output <file>]
 ```
 
 ## API Contract
@@ -48,6 +48,9 @@ Expected backend routes:
   - Combined `backend/` + `frontend/` layout with shared API contract defaults.
 - `llm-fullstack`:
   - Fullstack layout using `llm-backend` profile defaults and frontend SDK scaffolding.
+- `deploy validate`:
+  - Supports machine-readable output via `--json` and `--output <file>`.
+  - Verifies migration sequencing/content and deploy-asset contract fragments in addition to snapshot/env alignment.
 
 ## Contract Testing
 

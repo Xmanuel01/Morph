@@ -3,8 +3,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use serde::Serialize;
+
 pub fn print_deploy_usage() {
-    eprintln!("  enkai deploy validate <project_dir> --profile <backend|fullstack> --strict");
+    eprintln!(
+        "  enkai deploy validate <project_dir> --profile <backend|fullstack> --strict [--json] [--output <file>]"
+    );
 }
 
 pub fn deploy_command(args: &[String]) -> i32 {
@@ -33,12 +37,25 @@ struct DeployValidateArgs {
     project_dir: PathBuf,
     profile: DeployProfile,
     strict: bool,
+    json: bool,
+    output: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct ValidationIssue {
     code: &'static str,
     message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ValidationReport {
+    schema_version: u32,
+    profile: &'static str,
+    project_dir: String,
+    strict: bool,
+    success: bool,
+    issue_count: usize,
+    issues: Vec<ValidationIssue>,
 }
 
 fn deploy_validate_command(args: &[String]) -> i32 {
@@ -60,8 +77,28 @@ fn deploy_validate_command(args: &[String]) -> i32 {
         DeployProfile::Backend => validate_backend_project(&parsed.project_dir, &mut issues),
         DeployProfile::Fullstack => validate_fullstack_project(&parsed.project_dir, &mut issues),
     }
+    let success = issues.is_empty();
+    let report = ValidationReport {
+        schema_version: 1,
+        profile: profile_name(parsed.profile),
+        project_dir: parsed.project_dir.display().to_string(),
+        strict: parsed.strict,
+        success,
+        issue_count: issues.len(),
+        issues,
+    };
 
-    if issues.is_empty() {
+    if parsed.json {
+        match write_validation_report(&report, parsed.output.as_deref()) {
+            Ok(()) => {}
+            Err(err) => {
+                eprintln!("enkai deploy validate: {}", err);
+                return 1;
+            }
+        }
+    }
+
+    if success {
         println!(
             "[deploy-validate] ok profile={} project={}",
             profile_name(parsed.profile),
@@ -74,7 +111,7 @@ fn deploy_validate_command(args: &[String]) -> i32 {
             profile_name(parsed.profile),
             parsed.project_dir.display()
         );
-        for issue in &issues {
+        for issue in &report.issues {
             eprintln!("[deploy-validate] {}: {}", issue.code, issue.message);
         }
         1
@@ -88,6 +125,8 @@ fn parse_validate_args(args: &[String]) -> Result<DeployValidateArgs, String> {
     let mut project_dir: Option<PathBuf> = None;
     let mut profile: Option<DeployProfile> = None;
     let mut strict = false;
+    let mut json = false;
+    let mut output: Option<PathBuf> = None;
     let mut index = 0usize;
     while index < args.len() {
         match args[index].as_str() {
@@ -98,7 +137,15 @@ fn parse_validate_args(args: &[String]) -> Result<DeployValidateArgs, String> {
                     .ok_or_else(|| "--profile requires a value".to_string())?;
                 profile = Some(parse_profile(value)?);
             }
+            "--output" => {
+                index += 1;
+                let value = args
+                    .get(index)
+                    .ok_or_else(|| "--output requires a value".to_string())?;
+                output = Some(PathBuf::from(value));
+            }
             "--strict" => strict = true,
+            "--json" => json = true,
             other if other.starts_with("--") => {
                 return Err(format!("unknown option '{}'", other));
             }
@@ -123,6 +170,8 @@ fn parse_validate_args(args: &[String]) -> Result<DeployValidateArgs, String> {
         project_dir,
         profile,
         strict,
+        json,
+        output,
     })
 }
 
@@ -225,6 +274,7 @@ fn validate_backend_project(root: &Path, issues: &mut Vec<ValidationIssue>) {
     if deploy_snapshot_path.is_file() && env_example_path.is_file() {
         validate_env_snapshot_alignment(&deploy_snapshot_path, &env_example_path, issues);
     }
+    validate_backend_contract_assets(root, issues);
 
     let validator = root.join("scripts").join("validate_env_contract.py");
     if validator.is_file() && env_example_path.is_file() {
@@ -302,6 +352,232 @@ fn validate_fullstack_project(root: &Path, issues: &mut Vec<ValidationIssue>) {
     let frontend_snapshot = frontend_dir.join("contracts").join("sdk_api.snapshot.json");
     if backend_snapshot.is_file() && frontend_snapshot.is_file() {
         validate_api_version_alignment(&backend_snapshot, &frontend_snapshot, issues);
+    }
+    validate_fullstack_frontend_assets(&frontend_dir, issues);
+}
+
+fn validate_backend_contract_assets(root: &Path, issues: &mut Vec<ValidationIssue>) {
+    validate_migration_contract(root, issues);
+    validate_backend_deploy_assets(root, issues);
+}
+
+fn validate_migration_contract(root: &Path, issues: &mut Vec<ValidationIssue>) {
+    let migrations_dir = root.join("migrations");
+    let entries = match fs::read_dir(&migrations_dir) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+    let mut sql_files = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let is_sql = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(|value| value.eq_ignore_ascii_case("sql"))
+            .unwrap_or(false);
+        if is_sql {
+            sql_files.push(path);
+        }
+    }
+    sql_files.sort();
+    if sql_files.is_empty() {
+        return;
+    }
+
+    let mut expected = 1usize;
+    for path in &sql_files {
+        let name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("");
+        let prefix = name.split('_').next().unwrap_or_default();
+        match prefix.parse::<usize>() {
+            Ok(number) if number == expected => expected += 1,
+            Ok(number) => issues.push(ValidationIssue {
+                code: "migration_sequence_gap",
+                message: format!(
+                    "expected migration prefix {:03}, found {:03} in {}",
+                    expected,
+                    number,
+                    path.display()
+                ),
+            }),
+            Err(_) => issues.push(ValidationIssue {
+                code: "invalid_migration_filename",
+                message: format!(
+                    "migration filename must start with zero-padded numeric prefix: {}",
+                    path.display()
+                ),
+            }),
+        }
+    }
+
+    validate_required_migration_content(
+        &migrations_dir.join("001_conversation_state.sql"),
+        &[
+            "CREATE TABLE IF NOT EXISTS schema_migrations",
+            "CREATE TABLE IF NOT EXISTS conversation_events",
+        ],
+        "migration_001_contract_mismatch",
+        issues,
+    );
+    validate_required_migration_content(
+        &migrations_dir.join("002_conversation_state_index.sql"),
+        &[
+            "CREATE INDEX IF NOT EXISTS idx_conversation_events_updated_ms",
+            "conversation_events(updated_ms)",
+        ],
+        "migration_002_contract_mismatch",
+        issues,
+    );
+}
+
+fn validate_required_migration_content(
+    path: &Path,
+    required_fragments: &[&str],
+    code: &'static str,
+    issues: &mut Vec<ValidationIssue>,
+) {
+    let Ok(text) = fs::read_to_string(path) else {
+        return;
+    };
+    for fragment in required_fragments {
+        if !text.contains(fragment) {
+            issues.push(ValidationIssue {
+                code,
+                message: format!(
+                    "required migration fragment '{}' missing from {}",
+                    fragment,
+                    path.display()
+                ),
+            });
+        }
+    }
+}
+
+fn validate_backend_deploy_assets(root: &Path, issues: &mut Vec<ValidationIssue>) {
+    let env_snapshot_path = root.join("contracts").join("deploy_env.snapshot.json");
+    let env_snapshot = match read_json(&env_snapshot_path) {
+        Ok(value) => value,
+        Err(_) => return,
+    };
+    let profile = env_snapshot
+        .get("profile")
+        .and_then(|value| value.as_str())
+        .unwrap_or("backend");
+    let required_env = env_snapshot
+        .get("required_env")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let deploy_compose = root.join("deploy").join("docker-compose.yml");
+    if deploy_compose.is_file() {
+        validate_deploy_file_contains_env(
+            &deploy_compose,
+            &required_env,
+            "docker_compose_missing_required_env",
+            issues,
+        );
+    }
+    let systemd_unit = root
+        .join("deploy")
+        .join("systemd")
+        .join("enkai-backend.service");
+    if systemd_unit.is_file() {
+        validate_systemd_unit(&systemd_unit, profile, issues);
+    }
+}
+
+fn validate_deploy_file_contains_env(
+    path: &Path,
+    required_env: &[serde_json::Value],
+    code: &'static str,
+    issues: &mut Vec<ValidationIssue>,
+) {
+    let Ok(text) = fs::read_to_string(path) else {
+        return;
+    };
+    for key in required_env.iter().filter_map(|value| value.as_str()) {
+        if !text.contains(key) {
+            issues.push(ValidationIssue {
+                code,
+                message: format!(
+                    "deploy asset {} does not mention required env key {}",
+                    path.display(),
+                    key
+                ),
+            });
+        }
+    }
+}
+
+fn validate_systemd_unit(path: &Path, profile: &str, issues: &mut Vec<ValidationIssue>) {
+    let Ok(text) = fs::read_to_string(path) else {
+        return;
+    };
+    for fragment in [
+        "EnvironmentFile=/opt/enkai-app/.env",
+        "ExecStart=/usr/local/bin/enkai serve --host 0.0.0.0 --port 8080 .",
+        "Restart=on-failure",
+    ] {
+        if !text.contains(fragment) {
+            issues.push(ValidationIssue {
+                code: "systemd_contract_mismatch",
+                message: format!(
+                    "required systemd fragment '{}' missing from {}",
+                    fragment,
+                    path.display()
+                ),
+            });
+        }
+    }
+    if !text.contains(profile) {
+        issues.push(ValidationIssue {
+            code: "systemd_profile_mismatch",
+            message: format!(
+                "systemd unit {} does not mention expected profile '{}'",
+                path.display(),
+                profile
+            ),
+        });
+    }
+}
+
+fn validate_fullstack_frontend_assets(frontend_dir: &Path, issues: &mut Vec<ValidationIssue>) {
+    let package_json = frontend_dir.join("package.json");
+    let sdk_source = frontend_dir.join("src").join("sdk").join("enkaiClient.ts");
+    let Ok(package_text) = fs::read_to_string(&package_json) else {
+        return;
+    };
+    if !package_text.contains("\"react\"") || !package_text.contains("\"typescript\"") {
+        issues.push(ValidationIssue {
+            code: "frontend_package_contract_mismatch",
+            message: format!(
+                "frontend package missing required react/typescript dependencies: {}",
+                package_json.display()
+            ),
+        });
+    }
+    let Ok(sdk_text) = fs::read_to_string(&sdk_source) else {
+        return;
+    };
+    for fragment in [
+        "x-enkai-api-version",
+        "streamChat(",
+        "streamChatWs(",
+        "/chat/stream",
+        "/chat/ws",
+    ] {
+        if !sdk_text.contains(fragment) {
+            issues.push(ValidationIssue {
+                code: "frontend_sdk_contract_mismatch",
+                message: format!(
+                    "frontend SDK missing required fragment '{}' in {}",
+                    fragment,
+                    sdk_source.display()
+                ),
+            });
+        }
     }
 }
 
@@ -508,9 +784,25 @@ fn parse_env_file(path: &Path) -> HashMap<String, String> {
     out
 }
 
+fn write_validation_report(report: &ValidationReport, output: Option<&Path>) -> Result<(), String> {
+    let text = serde_json::to_string_pretty(report)
+        .map_err(|err| format!("failed to serialize deploy validation report: {}", err))?;
+    if let Some(path) = output {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|err| format!("failed to create {}: {}", parent.display(), err))?;
+        }
+        fs::write(path, &text)
+            .map_err(|err| format!("failed to write {}: {}", path.display(), err))?;
+    }
+    println!("{}", text);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value as JsonValue;
     use tempfile::tempdir;
 
     #[test]
@@ -533,6 +825,29 @@ mod tests {
         .expect("parse");
         assert_eq!(parsed.profile, DeployProfile::Backend);
         assert!(parsed.strict);
+        assert!(!parsed.json);
+    }
+
+    #[test]
+    fn parse_validate_args_accepts_json_output() {
+        let dir = tempdir().expect("tempdir");
+        let parsed = parse_validate_args(&[
+            dir.path().to_string_lossy().to_string(),
+            "--profile".to_string(),
+            "fullstack".to_string(),
+            "--strict".to_string(),
+            "--json".to_string(),
+            "--output".to_string(),
+            "artifacts/report.json".to_string(),
+        ])
+        .expect("parse");
+        assert_eq!(parsed.profile, DeployProfile::Fullstack);
+        assert!(parsed.strict);
+        assert!(parsed.json);
+        assert_eq!(
+            parsed.output.as_deref(),
+            Some(Path::new("artifacts/report.json"))
+        );
     }
 
     #[test]
@@ -544,5 +859,48 @@ mod tests {
         assert!(issues
             .iter()
             .any(|issue| issue.code == "missing_backend_manifest"));
+    }
+
+    #[test]
+    fn validate_migration_contract_flags_invalid_sequence() {
+        let dir = tempdir().expect("tempdir");
+        let migrations = dir.path().join("migrations");
+        fs::create_dir_all(&migrations).expect("migrations");
+        fs::write(
+            migrations.join("002_conversation_state_index.sql"),
+            "CREATE INDEX foo ON bar(id);",
+        )
+        .expect("write");
+        let mut issues = Vec::new();
+        validate_migration_contract(dir.path(), &mut issues);
+        assert!(issues
+            .iter()
+            .any(|issue| issue.code == "migration_sequence_gap"));
+    }
+
+    #[test]
+    fn write_validation_report_outputs_json_file() {
+        let dir = tempdir().expect("tempdir");
+        let output = dir.path().join("artifacts").join("deploy.json");
+        let report = ValidationReport {
+            schema_version: 1,
+            profile: "backend",
+            project_dir: dir.path().display().to_string(),
+            strict: true,
+            success: false,
+            issue_count: 1,
+            issues: vec![ValidationIssue {
+                code: "sample_issue",
+                message: "sample".to_string(),
+            }],
+        };
+        write_validation_report(&report, Some(&output)).expect("write report");
+        let parsed: JsonValue =
+            serde_json::from_str(&fs::read_to_string(output).expect("report text")).expect("json");
+        assert_eq!(
+            parsed.get("profile").and_then(|v| v.as_str()),
+            Some("backend")
+        );
+        assert_eq!(parsed.get("issue_count").and_then(|v| v.as_u64()), Some(1));
     }
 }

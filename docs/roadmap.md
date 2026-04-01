@@ -2,9 +2,18 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.5.5.
+- Current production release line is v2.5.6.
 - v2.5.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v2.5.6 (done)
+- Deploy-validation hardening for production rollout workflows:
+  - additive machine-readable output:
+    - `enkai deploy validate ... --json --output <file>`
+  - additive contract enforcement for:
+    - migration sequencing/content under `migrations/`
+    - Docker/systemd deploy assets against required env keys
+    - frontend package/SDK fragments for fullstack scaffold validation
 
 v2.5.5 (done)
 - Readiness/release hardening for the v2.5 line:

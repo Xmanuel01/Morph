@@ -1,6 +1,6 @@
 [package]
 name = "enkaic"
-version = "2.5.5"
+version = "2.5.6"
 edition = "2021"
 license = "Apache-2.0"
 description = "Enkai compiler front-end: lexer, parser, AST, type-check stubs."
@@ -12,6 +12,7 @@ serde = { version = "1.0", features = ["derive"] }
 
 [dev-dependencies]
 tempfile = "3.10"
+
 
 
 

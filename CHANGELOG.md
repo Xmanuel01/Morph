@@ -8,6 +8,29 @@
 ### Breaking changes
 - None.
 
+## v2.5.6
+
+### Highlights
+- Advanced minor line to `v2.5.6` with additive compatibility (no contract removals).
+- Hardened production deploy validation:
+  - additive machine-readable output:
+    - `enkai deploy validate ... --json --output <file>`
+  - additive migration contract validation:
+    - zero-padded migration sequencing checks
+    - required SQL fragment checks for generated conversation-state migrations
+  - additive deploy-asset contract validation:
+    - required env-key coverage in Docker/systemd assets
+    - frontend package/SDK fragment validation for fullstack scaffolds
+
+### Fixes
+- Synced docs/spec/release metadata and version surfaces to `v2.5.6`.
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_5_6_rc_pipeline.ps1`
+  - `scripts/v2_5_6_rc_pipeline.sh`
+
+### Breaking changes
+- None.
+
 ## v2.5.5
 
 ### Highlights
