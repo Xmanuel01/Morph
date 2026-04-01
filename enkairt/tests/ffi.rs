@@ -58,11 +58,38 @@ fn ffi_hash_sha256_len() {
 }
 
 #[test]
+fn ffi_handle_roundtrip_and_drop() {
+    {
+        let value = run(
+            "native::import \"enkai_native\" ::\n    fn handle_new(value: Int) -> Handle\n    fn handle_read(handle: Handle) -> Int\n::\nlet handle := handle_new(41)\nhandle_read(handle)\n",
+        )
+        .expect("run");
+        assert_eq!(value, Value::Int(41));
+    }
+
+    let live = run(
+        "native::import \"enkai_native\" ::\n    fn handle_live_count() -> Int\n::\nhandle_live_count()\n",
+    )
+    .expect("run");
+    assert_eq!(live, Value::Int(0));
+}
+
+#[test]
+fn ffi_optional_handle_roundtrip() {
+    let value = run(
+        "native::import \"enkai_native\" ::\n    fn handle_maybe_new(flag: Bool, value: Int) -> Handle?\n::\nhandle_maybe_new(false, 9)\n",
+    )
+    .expect("run");
+    assert_eq!(value, Value::Null);
+}
+
+#[test]
 fn ffi_missing_symbol_error() {
     let err = run(
         "native::import \"enkai_native\" ::\n    fn missing_symbol() -> Int\n::\nmissing_symbol()\n",
     )
     .expect_err("expected error");
+    assert_eq!(err.code(), Some("E_FFI_SYMBOL_MISSING"));
     assert!(err.message.contains("Failed to resolve symbol"));
 }
 
@@ -72,6 +99,7 @@ fn ffi_missing_library_error() {
         "native::import \"definitely_missing\" ::\n    fn add_i64(a: Int, b: Int) -> Int\n::\nadd_i64(1, 2)\n",
     )
     .expect_err("expected error");
+    assert_eq!(err.code(), Some("E_FFI_LIBRARY_LOAD"));
     assert!(err.message.contains("Failed to load library"));
 }
 

@@ -1,8 +1,10 @@
 use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::ffi::c_void;
 use std::rc::Rc;
 
 use enkaic::bytecode::Program;
+use libffi::middle::{Arg, Cif, CodePtr};
 
 use crate::dataset::DatasetStream;
 use crate::ffi::native_fn::FfiFunction;
@@ -23,6 +25,7 @@ pub enum Obj {
     Function(FunctionObj),
     BoundFunction(BoundFunctionObj),
     NativeFunction(NativeFunction),
+    NativeHandle(NativeHandle),
     TaskHandle(usize),
     Channel(RefCell<ChannelState>),
     TcpListener(RefCell<std::net::TcpListener>),
@@ -30,7 +33,7 @@ pub enum Obj {
     HttpStream(HttpStream),
     WebSocket(WebSocketHandle),
     Tokenizer(Tokenizer),
-    DatasetStream(RefCell<DatasetStream>),
+    DatasetStream(Box<RefCell<DatasetStream>>),
     Record(RefCell<std::collections::HashMap<String, Value>>),
 }
 
@@ -44,6 +47,7 @@ impl Obj {
             Obj::Function(_) => "Function",
             Obj::BoundFunction(_) => "BoundFunction",
             Obj::NativeFunction(_) => "NativeFunction",
+            Obj::NativeHandle(_) => "Handle",
             Obj::TaskHandle(_) => "TaskHandle",
             Obj::Channel(_) => "Channel",
             Obj::TcpListener(_) => "TcpListener",
@@ -74,7 +78,7 @@ pub struct BoundFunctionObj {
 #[derive(Clone)]
 pub enum NativeImpl {
     Rust(Rc<NativeFunc>),
-    Ffi(FfiFunction),
+    Ffi(Box<FfiFunction>),
 }
 
 pub struct NativeFunction {
@@ -82,6 +86,31 @@ pub struct NativeFunction {
     pub arity: u16,
     pub kind: NativeImpl,
     pub bound: Option<Value>,
+}
+
+#[derive(Debug)]
+pub struct NativeHandleDrop {
+    pub _library: Arc<libloading::Library>,
+    pub free_ptr: CodePtr,
+    pub free_cif: Cif,
+}
+
+#[derive(Debug)]
+pub struct NativeHandle {
+    pub ptr: *mut c_void,
+    pub dropper: Rc<NativeHandleDrop>,
+}
+
+impl Drop for NativeHandle {
+    fn drop(&mut self) {
+        if self.ptr.is_null() {
+            return;
+        }
+        let ptr_args: Vec<*const c_void> = vec![self.ptr as *const c_void];
+        let args = vec![Arg::new(ptr_args.last().unwrap())];
+        let _: () = unsafe { self.dropper.free_cif.call(self.dropper.free_ptr, &args) };
+        self.ptr = std::ptr::null_mut();
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -147,6 +176,13 @@ pub fn record_value(map: std::collections::HashMap<String, Value>) -> Value {
 
 pub fn task_handle_value(id: usize) -> Value {
     Value::Obj(ObjRef::new(Obj::TaskHandle(id)))
+}
+
+pub fn native_handle_value(ptr: *mut c_void, dropper: Rc<NativeHandleDrop>) -> Value {
+    Value::Obj(ObjRef::new(Obj::NativeHandle(NativeHandle {
+        ptr,
+        dropper,
+    })))
 }
 
 #[derive(Debug)]

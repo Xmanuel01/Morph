@@ -1926,6 +1926,7 @@ fn canonical_value(value: &Value) -> String {
                 )
             }
             Obj::NativeFunction(func) => format!("NativeFunction({}/{})", func.name, func.arity),
+            Obj::NativeHandle(_) => "Handle".to_string(),
             Obj::TaskHandle(id) => format!("TaskHandle({})", id),
             Obj::Channel(_) => "Channel".to_string(),
             Obj::TcpListener(_) => "TcpListener".to_string(),

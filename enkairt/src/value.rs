@@ -74,6 +74,7 @@ impl PartialEq for Value {
             (Value::Obj(a), Value::Obj(b)) => match (a.as_obj(), b.as_obj()) {
                 (Obj::String(x), Obj::String(y)) => x == y,
                 (Obj::Buffer(x), Obj::Buffer(y)) => x == y,
+                (Obj::NativeHandle(x), Obj::NativeHandle(y)) => x.ptr == y.ptr,
                 (Obj::TaskHandle(x), Obj::TaskHandle(y)) => x == y,
                 _ => Rc::ptr_eq(&a.0, &b.0),
             },

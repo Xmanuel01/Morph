@@ -31,6 +31,7 @@ pub enum FfiType {
     Bool,
     String,
     Buffer,
+    Handle,
     Void,
     Optional(Box<FfiType>),
 }

@@ -1,4 +1,5 @@
 use std::ffi::c_void;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -8,22 +9,34 @@ use libffi::middle::{Arg, Cif, CodePtr, Type};
 use enkaic::bytecode::{FfiSignature, FfiType};
 
 use crate::error::RuntimeError;
-use crate::object::buffer_value;
+use crate::object::{buffer_value, native_handle_value, NativeHandleDrop, Obj};
 use crate::value::Value;
 
 const MAX_FFI_BUFFER: usize = 128 * 1024 * 1024;
+const E_FFI_ARITY: &str = "E_FFI_ARITY";
+const E_FFI_ARG_TYPE: &str = "E_FFI_ARG_TYPE";
+const E_FFI_SIGNATURE: &str = "E_FFI_SIGNATURE";
+const E_FFI_RETURN_NULL: &str = "E_FFI_RETURN_NULL";
+const E_FFI_RETURN_OVERSIZED: &str = "E_FFI_RETURN_OVERSIZED";
+const E_FFI_UTF8: &str = "E_FFI_UTF8";
+const E_FFI_FREE_MISSING: &str = "E_FFI_FREE_MISSING";
+const E_FFI_HANDLE_FREE_MISSING: &str = "E_FFI_HANDLE_FREE_MISSING";
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FfiStats {
     pub call_count: u64,
     pub marshal_in_bytes: u64,
     pub marshal_out_bytes: u64,
+    pub copy_count: u64,
+    pub handle_count: u64,
     pub native_time_ns: u64,
 }
 
 static FFI_CALL_COUNT: AtomicU64 = AtomicU64::new(0);
 static FFI_MARSHAL_IN_BYTES: AtomicU64 = AtomicU64::new(0);
 static FFI_MARSHAL_OUT_BYTES: AtomicU64 = AtomicU64::new(0);
+static FFI_COPY_COUNT: AtomicU64 = AtomicU64::new(0);
+static FFI_HANDLE_COUNT: AtomicU64 = AtomicU64::new(0);
 static FFI_NATIVE_TIME_NS: AtomicU64 = AtomicU64::new(0);
 
 pub fn ffi_stats_snapshot() -> FfiStats {
@@ -31,6 +44,8 @@ pub fn ffi_stats_snapshot() -> FfiStats {
         call_count: FFI_CALL_COUNT.load(Ordering::Relaxed),
         marshal_in_bytes: FFI_MARSHAL_IN_BYTES.load(Ordering::Relaxed),
         marshal_out_bytes: FFI_MARSHAL_OUT_BYTES.load(Ordering::Relaxed),
+        copy_count: FFI_COPY_COUNT.load(Ordering::Relaxed),
+        handle_count: FFI_HANDLE_COUNT.load(Ordering::Relaxed),
         native_time_ns: FFI_NATIVE_TIME_NS.load(Ordering::Relaxed),
     }
 }
@@ -39,6 +54,8 @@ pub fn ffi_stats_reset() {
     FFI_CALL_COUNT.store(0, Ordering::Relaxed);
     FFI_MARSHAL_IN_BYTES.store(0, Ordering::Relaxed);
     FFI_MARSHAL_OUT_BYTES.store(0, Ordering::Relaxed);
+    FFI_COPY_COUNT.store(0, Ordering::Relaxed);
+    FFI_HANDLE_COUNT.store(0, Ordering::Relaxed);
     FFI_NATIVE_TIME_NS.store(0, Ordering::Relaxed);
 }
 
@@ -51,6 +68,8 @@ pub struct FfiFunction {
     cif: Cif,
     free_ptr: Option<CodePtr>,
     free_cif: Option<Cif>,
+    handle_free_ptr: Option<CodePtr>,
+    handle_free_cif: Option<Cif>,
 }
 
 impl std::fmt::Debug for FfiFunction {
@@ -76,6 +95,7 @@ impl FfiFunction {
         library: Arc<libloading::Library>,
         symbol: *const c_void,
         free_symbol: Option<*const c_void>,
+        handle_free_symbol: Option<*const c_void>,
     ) -> Result<Self, RuntimeError> {
         validate_signature(&signature)?;
         let arg_types = expand_param_types(&signature.params);
@@ -84,6 +104,9 @@ impl FfiFunction {
         let free_ptr = free_symbol.map(CodePtr::from_ptr);
         let free_cif =
             free_ptr.map(|_| Cif::new(vec![Type::pointer(), Type::usize()], Type::void()));
+        let handle_free_ptr = handle_free_symbol.map(CodePtr::from_ptr);
+        let handle_free_cif =
+            handle_free_ptr.map(|_| Cif::new(vec![Type::pointer()], Type::void()));
         Ok(Self {
             name,
             signature,
@@ -92,6 +115,8 @@ impl FfiFunction {
             cif,
             free_ptr,
             free_cif,
+            handle_free_ptr,
+            handle_free_cif,
         })
     }
 
@@ -101,7 +126,7 @@ impl FfiFunction {
 
     pub fn call(&self, args: &[Value]) -> Result<Value, RuntimeError> {
         if args.len() != self.signature.params.len() {
-            return Err(RuntimeError::new("Arity mismatch"));
+            return Err(RuntimeError::with_code(E_FFI_ARITY, "Arity mismatch"));
         }
         FFI_CALL_COUNT.fetch_add(1, Ordering::Relaxed);
         let started = Instant::now();
@@ -145,6 +170,11 @@ impl FfiFunction {
                     u8_args.push(v);
                     ffi_args.push(Arg::new(u8_args.last().unwrap()));
                 }
+                FfiType::Handle => {
+                    let ptr = handle_arg(value)?;
+                    ptr_args.push(ptr);
+                    ffi_args.push(Arg::new(ptr_args.last().unwrap()));
+                }
                 FfiType::String => {
                     let (ptr, len) = string_arg(value, &mut keep_alive)?;
                     FFI_MARSHAL_IN_BYTES.fetch_add(len as u64, Ordering::Relaxed);
@@ -162,7 +192,10 @@ impl FfiFunction {
                     ffi_args.push(Arg::new(usize_args.last().unwrap()));
                 }
                 FfiType::Void => {
-                    return Err(RuntimeError::new("FFI arg cannot be Void"));
+                    return Err(RuntimeError::with_code(
+                        E_FFI_SIGNATURE,
+                        "FFI arg cannot be Void",
+                    ));
                 }
                 FfiType::Optional(inner) => {
                     if matches!(value, Value::Null) {
@@ -173,8 +206,15 @@ impl FfiFunction {
                                 ffi_args.push(Arg::new(ptr_args.last().unwrap()));
                                 ffi_args.push(Arg::new(usize_args.last().unwrap()));
                             }
+                            FfiType::Handle => {
+                                ptr_args.push(std::ptr::null());
+                                ffi_args.push(Arg::new(ptr_args.last().unwrap()));
+                            }
                             _ => {
-                                return Err(RuntimeError::new("FFI optional expects String/Buffer"))
+                                return Err(RuntimeError::with_code(
+                                    E_FFI_SIGNATURE,
+                                    "FFI optional expects String/Buffer/Handle",
+                                ))
                             }
                         }
                     } else {
@@ -195,8 +235,16 @@ impl FfiFunction {
                                 ffi_args.push(Arg::new(ptr_args.last().unwrap()));
                                 ffi_args.push(Arg::new(usize_args.last().unwrap()));
                             }
+                            FfiType::Handle => {
+                                let ptr = handle_arg(value)?;
+                                ptr_args.push(ptr);
+                                ffi_args.push(Arg::new(ptr_args.last().unwrap()));
+                            }
                             _ => {
-                                return Err(RuntimeError::new("FFI optional expects String/Buffer"))
+                                return Err(RuntimeError::with_code(
+                                    E_FFI_SIGNATURE,
+                                    "FFI optional expects String/Buffer/Handle",
+                                ))
                             }
                         }
                     }
@@ -221,14 +269,17 @@ impl FfiFunction {
                 let _: () = unsafe { self.cif.call(self.code_ptr, &ffi_args) };
                 Value::Null
             }
+            FfiType::Handle => self.call_handle(&mut ffi_args)?,
             FfiType::String => self.call_slice(&mut ffi_args, true)?,
             FfiType::Buffer => self.call_slice(&mut ffi_args, false)?,
             FfiType::Optional(inner) => match inner.as_ref() {
                 FfiType::String => self.call_slice_optional(&mut ffi_args, true)?,
                 FfiType::Buffer => self.call_slice_optional(&mut ffi_args, false)?,
+                FfiType::Handle => self.call_handle_optional(&mut ffi_args)?,
                 _ => {
-                    return Err(RuntimeError::new(
-                        "FFI optional return expects String/Buffer",
+                    return Err(RuntimeError::with_code(
+                        E_FFI_SIGNATURE,
+                        "FFI optional return expects String/Buffer/Handle",
                     ))
                 }
             },
@@ -241,17 +292,24 @@ impl FfiFunction {
     fn call_slice(&self, args: &mut [Arg], as_string: bool) -> Result<Value, RuntimeError> {
         let slice: FfiSlice = unsafe { self.cif.call(self.code_ptr, args) };
         if slice.ptr.is_null() {
-            return Err(RuntimeError::new("FFI returned null pointer"));
+            return Err(RuntimeError::with_code(
+                E_FFI_RETURN_NULL,
+                "FFI returned null pointer",
+            ));
         }
         if slice.len > MAX_FFI_BUFFER {
-            return Err(RuntimeError::new("FFI returned oversized buffer"));
+            return Err(RuntimeError::with_code(
+                E_FFI_RETURN_OVERSIZED,
+                "FFI returned oversized buffer",
+            ));
         }
         FFI_MARSHAL_OUT_BYTES.fetch_add(slice.len as u64, Ordering::Relaxed);
+        FFI_COPY_COUNT.fetch_add(1, Ordering::Relaxed);
         let bytes = unsafe { std::slice::from_raw_parts(slice.ptr, slice.len) }.to_vec();
         self.free_buffer(slice.ptr, slice.len)?;
         if as_string {
             let string = String::from_utf8(bytes)
-                .map_err(|_| RuntimeError::new("FFI returned invalid UTF-8"))?;
+                .map_err(|_| RuntimeError::with_code(E_FFI_UTF8, "FFI returned invalid UTF-8"))?;
             Ok(crate::object::string_value(&string))
         } else {
             Ok(buffer_value(bytes))
@@ -268,28 +326,54 @@ impl FfiFunction {
             return Ok(Value::Null);
         }
         if slice.len > MAX_FFI_BUFFER {
-            return Err(RuntimeError::new("FFI returned oversized buffer"));
+            return Err(RuntimeError::with_code(
+                E_FFI_RETURN_OVERSIZED,
+                "FFI returned oversized buffer",
+            ));
         }
         FFI_MARSHAL_OUT_BYTES.fetch_add(slice.len as u64, Ordering::Relaxed);
+        FFI_COPY_COUNT.fetch_add(1, Ordering::Relaxed);
         let bytes = unsafe { std::slice::from_raw_parts(slice.ptr, slice.len) }.to_vec();
         self.free_buffer(slice.ptr, slice.len)?;
         if as_string {
             let string = String::from_utf8(bytes)
-                .map_err(|_| RuntimeError::new("FFI returned invalid UTF-8"))?;
+                .map_err(|_| RuntimeError::with_code(E_FFI_UTF8, "FFI returned invalid UTF-8"))?;
             Ok(crate::object::string_value(&string))
         } else {
             Ok(buffer_value(bytes))
         }
     }
 
+    fn call_handle(&self, args: &mut [Arg]) -> Result<Value, RuntimeError> {
+        let ptr: *mut c_void = unsafe { self.cif.call(self.code_ptr, args) };
+        if ptr.is_null() {
+            return Err(RuntimeError::with_code(
+                E_FFI_RETURN_NULL,
+                "FFI returned null handle",
+            ));
+        }
+        let dropper = self.handle_dropper()?;
+        FFI_HANDLE_COUNT.fetch_add(1, Ordering::Relaxed);
+        Ok(native_handle_value(ptr, dropper))
+    }
+
+    fn call_handle_optional(&self, args: &mut [Arg]) -> Result<Value, RuntimeError> {
+        let ptr: *mut c_void = unsafe { self.cif.call(self.code_ptr, args) };
+        if ptr.is_null() {
+            return Ok(Value::Null);
+        }
+        let dropper = self.handle_dropper()?;
+        FFI_HANDLE_COUNT.fetch_add(1, Ordering::Relaxed);
+        Ok(native_handle_value(ptr, dropper))
+    }
+
     fn free_buffer(&self, ptr: *mut u8, len: usize) -> Result<(), RuntimeError> {
-        let free_ptr = self
-            .free_ptr
-            .ok_or_else(|| RuntimeError::new("enkai_free symbol missing"))?;
-        let free_cif = self
-            .free_cif
-            .as_ref()
-            .ok_or_else(|| RuntimeError::new("enkai_free symbol missing"))?;
+        let free_ptr = self.free_ptr.ok_or_else(|| {
+            RuntimeError::with_code(E_FFI_FREE_MISSING, "enkai_free symbol missing")
+        })?;
+        let free_cif = self.free_cif.as_ref().ok_or_else(|| {
+            RuntimeError::with_code(E_FFI_FREE_MISSING, "enkai_free symbol missing")
+        })?;
         let ptr_args: Vec<*const c_void> = vec![ptr as *const c_void];
         let len_args: Vec<usize> = vec![len];
         let args = vec![
@@ -299,22 +383,50 @@ impl FfiFunction {
         let _: () = unsafe { free_cif.call(free_ptr, &args) };
         Ok(())
     }
+
+    fn handle_dropper(&self) -> Result<Rc<NativeHandleDrop>, RuntimeError> {
+        let free_ptr = self.handle_free_ptr.ok_or_else(|| {
+            RuntimeError::with_code(
+                E_FFI_HANDLE_FREE_MISSING,
+                "enkai_handle_free symbol missing",
+            )
+        })?;
+        let free_cif = self.handle_free_cif.as_ref().ok_or_else(|| {
+            RuntimeError::with_code(
+                E_FFI_HANDLE_FREE_MISSING,
+                "enkai_handle_free symbol missing",
+            )
+        })?;
+        Ok(Rc::new(NativeHandleDrop {
+            _library: self._library.clone(),
+            free_ptr,
+            free_cif: free_cif.clone(),
+        }))
+    }
 }
 
 fn validate_signature(signature: &FfiSignature) -> Result<(), RuntimeError> {
     for param in &signature.params {
         if let FfiType::Optional(inner) = param {
-            if !matches!(inner.as_ref(), FfiType::String | FfiType::Buffer) {
-                return Err(RuntimeError::new(
-                    "Unsupported optional FFI parameter type; only String?/Buffer? are allowed",
+            if !matches!(
+                inner.as_ref(),
+                FfiType::String | FfiType::Buffer | FfiType::Handle
+            ) {
+                return Err(RuntimeError::with_code(
+                    E_FFI_SIGNATURE,
+                    "Unsupported optional FFI parameter type; only String?/Buffer?/Handle? are allowed",
                 ));
             }
         }
     }
     if let FfiType::Optional(inner) = &signature.ret {
-        if !matches!(inner.as_ref(), FfiType::String | FfiType::Buffer) {
-            return Err(RuntimeError::new(
-                "Unsupported optional FFI return type; only String?/Buffer? are allowed",
+        if !matches!(
+            inner.as_ref(),
+            FfiType::String | FfiType::Buffer | FfiType::Handle
+        ) {
+            return Err(RuntimeError::with_code(
+                E_FFI_SIGNATURE,
+                "Unsupported optional FFI return type; only String?/Buffer?/Handle? are allowed",
             ));
         }
     }
@@ -324,7 +436,17 @@ fn validate_signature(signature: &FfiSignature) -> Result<(), RuntimeError> {
 pub fn requires_free(signature: &FfiSignature) -> bool {
     match &signature.ret {
         FfiType::String | FfiType::Buffer => true,
-        FfiType::Optional(inner) => matches!(inner.as_ref(), FfiType::String | FfiType::Buffer),
+        FfiType::Optional(inner) => {
+            matches!(inner.as_ref(), FfiType::String | FfiType::Buffer)
+        }
+        _ => false,
+    }
+}
+
+pub fn requires_handle_free(signature: &FfiSignature) -> bool {
+    match &signature.ret {
+        FfiType::Handle => true,
+        FfiType::Optional(inner) => matches!(inner.as_ref(), FfiType::Handle),
         _ => false,
     }
 }
@@ -336,6 +458,7 @@ fn expand_param_types(params: &[FfiType]) -> Vec<Type> {
             FfiType::Int => types.push(Type::i64()),
             FfiType::Float => types.push(Type::f64()),
             FfiType::Bool => types.push(Type::u8()),
+            FfiType::Handle => types.push(Type::pointer()),
             FfiType::String | FfiType::Buffer => {
                 types.push(Type::pointer());
                 types.push(Type::usize());
@@ -349,6 +472,7 @@ fn expand_param_types(params: &[FfiType]) -> Vec<Type> {
                 FfiType::Int => types.push(Type::i64()),
                 FfiType::Float => types.push(Type::f64()),
                 FfiType::Bool => types.push(Type::u8()),
+                FfiType::Handle => types.push(Type::pointer()),
                 _ => types.push(Type::void()),
             },
         }
@@ -361,6 +485,7 @@ fn ffi_return_type(ret: &FfiType) -> Type {
         FfiType::Int => Type::i64(),
         FfiType::Float => Type::f64(),
         FfiType::Bool => Type::u8(),
+        FfiType::Handle => Type::pointer(),
         FfiType::String | FfiType::Buffer => Type::structure(vec![Type::pointer(), Type::usize()]),
         FfiType::Void => Type::void(),
         FfiType::Optional(inner) => match inner.as_ref() {
@@ -370,6 +495,7 @@ fn ffi_return_type(ret: &FfiType) -> Type {
             FfiType::Int => Type::i64(),
             FfiType::Float => Type::f64(),
             FfiType::Bool => Type::u8(),
+            FfiType::Handle => Type::pointer(),
             _ => Type::void(),
         },
     }
@@ -383,11 +509,18 @@ fn string_arg(
         Value::Obj(obj) => match obj.as_obj() {
             crate::object::Obj::String(s) => {
                 keep_alive.push(value.clone());
+                FFI_COPY_COUNT.fetch_add(1, Ordering::Relaxed);
                 Ok((s.as_ptr() as *const c_void, s.len()))
             }
-            _ => Err(RuntimeError::new("FFI arg expects String")),
+            _ => Err(RuntimeError::with_code(
+                E_FFI_ARG_TYPE,
+                "FFI arg expects String",
+            )),
         },
-        _ => Err(RuntimeError::new("FFI arg expects String")),
+        _ => Err(RuntimeError::with_code(
+            E_FFI_ARG_TYPE,
+            "FFI arg expects String",
+        )),
     }
 }
 
@@ -399,10 +532,33 @@ fn buffer_arg(
         Value::Obj(obj) => match obj.as_obj() {
             crate::object::Obj::Buffer(bytes) => {
                 keep_alive.push(value.clone());
+                FFI_COPY_COUNT.fetch_add(1, Ordering::Relaxed);
                 Ok((bytes.as_ptr() as *const c_void, bytes.len()))
             }
-            _ => Err(RuntimeError::new("FFI arg expects Buffer")),
+            _ => Err(RuntimeError::with_code(
+                E_FFI_ARG_TYPE,
+                "FFI arg expects Buffer",
+            )),
         },
-        _ => Err(RuntimeError::new("FFI arg expects Buffer")),
+        _ => Err(RuntimeError::with_code(
+            E_FFI_ARG_TYPE,
+            "FFI arg expects Buffer",
+        )),
+    }
+}
+
+fn handle_arg(value: &Value) -> Result<*const c_void, RuntimeError> {
+    match value {
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::NativeHandle(handle) => Ok(handle.ptr as *const c_void),
+            _ => Err(RuntimeError::with_code(
+                E_FFI_ARG_TYPE,
+                "FFI arg expects Handle",
+            )),
+        },
+        _ => Err(RuntimeError::with_code(
+            E_FFI_ARG_TYPE,
+            "FFI arg expects Handle",
+        )),
     }
 }

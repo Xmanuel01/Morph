@@ -2,9 +2,19 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.5.9.
-- v2.5.x remains additive/integration work (no contract-breaking removals).
+- Current production release line is v2.6.0.
+- v2.6.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v2.6.0 (done)
+- FFI contract hardening for AGI/simulation workloads:
+  - additive `Handle` / `Handle?` support in `native::import`
+  - automatic opaque handle destruction via `enkai_handle_free`
+  - optional native ABI policy support through:
+    - `enkai_abi_version`
+    - `enkai_symbol_table`
+  - deterministic FFI error taxonomy for load/symbol/ABI/free failures
+  - VM benchmark profile expansion for marshal/copy count and native handle counts
 
 v2.5.9 (done)
 - Release evidence closure for the full-platform line:

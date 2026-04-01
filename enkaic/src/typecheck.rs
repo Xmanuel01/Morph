@@ -550,6 +550,7 @@ fn type_from_ref(r: TypeRef) -> Type {
                 Some("Bool") => Type::Bool,
                 Some("String") => Type::String,
                 Some("Buffer") => Type::Buffer,
+                Some("Handle") => Type::Handle,
                 Some("Tokenizer") => Type::Tokenizer,
                 Some("DataStream") => Type::DataStream,
                 Some("Batch") => Type::Batch,
@@ -1161,8 +1162,10 @@ fn inject_builtins(
 
 fn ffi_param_type_allowed(ty: &Type) -> bool {
     match ty {
-        Type::Int | Type::Float | Type::Bool | Type::String | Type::Buffer => true,
-        Type::Optional(inner) => matches!(inner.as_ref(), Type::String | Type::Buffer),
+        Type::Int | Type::Float | Type::Bool | Type::String | Type::Buffer | Type::Handle => true,
+        Type::Optional(inner) => {
+            matches!(inner.as_ref(), Type::String | Type::Buffer | Type::Handle)
+        }
         _ => false,
     }
 }

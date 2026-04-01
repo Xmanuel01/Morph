@@ -59,6 +59,13 @@ fn native_import_rejects_optional_scalar_return() {
 }
 
 #[test]
+fn native_import_accepts_handle_types() {
+    assert!(type_ok(
+        "native::import \"libdemo\" ::\n    fn make(seed: Int) -> Handle\n    fn read(handle: Handle) -> Int\n    fn maybe(flag: Bool) -> Handle?\n::\n"
+    ));
+}
+
+#[test]
 fn unknown_callee_call_is_permitted() {
     assert!(type_ok(
         "type Boxed ::\n    value: Int\n::\n\

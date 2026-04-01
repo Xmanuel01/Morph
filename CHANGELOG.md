@@ -8,6 +8,37 @@
 ### Breaking changes
 - None.
 
+## v2.6.0
+
+### Highlights
+- Advanced the release line to `v2.6.0` with additive compatibility and no syntax changes.
+- Hardened `native::import` for AGI/simulation-oriented native acceleration:
+  - new FFI `Handle` type
+  - optional `Handle?` support
+  - automatic opaque handle destruction through `enkai_handle_free`
+  - stable ABI-policy support through `enkai_abi_version` + `enkai_symbol_table`
+- Extended VM benchmark profiling for FFI-heavy workloads:
+  - marshal/copy operation count
+  - native handle object count
+  - existing native-call timing/byte counters preserved
+
+### Fixes
+- Added deterministic FFI error-code mapping for:
+  - library load failures
+  - symbol resolution failures
+  - ABI/symbol-table failures
+  - invalid argument and return contracts
+  - missing `enkai_free` / `enkai_handle_free`
+- Added runtime/compiler/typecheck coverage for handle-based FFI contracts.
+- Added native test handle exports and ABI metadata to `enkai_native`.
+- Synced docs/spec/release metadata and version surfaces to `v2.6.0`.
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_6_0_rc_pipeline.ps1`
+  - `scripts/v2_6_0_rc_pipeline.sh`
+
+### Breaking changes
+- None.
+
 ## v2.5.9
 
 ### Highlights

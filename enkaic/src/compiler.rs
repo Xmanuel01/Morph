@@ -1314,6 +1314,7 @@ fn ffi_type_from_ref(ty: &TypeRef) -> Option<FfiType> {
                 return match path.last().map(|s| s.as_str()) {
                     Some("String") => Some(FfiType::Optional(Box::new(FfiType::String))),
                     Some("Buffer") => Some(FfiType::Optional(Box::new(FfiType::Buffer))),
+                    Some("Handle") => Some(FfiType::Optional(Box::new(FfiType::Handle))),
                     _ => None,
                 };
             }
@@ -1323,6 +1324,7 @@ fn ffi_type_from_ref(ty: &TypeRef) -> Option<FfiType> {
                 Some("Bool") => Some(FfiType::Bool),
                 Some("String") => Some(FfiType::String),
                 Some("Buffer") => Some(FfiType::Buffer),
+                Some("Handle") => Some(FfiType::Handle),
                 Some("Void") => Some(FfiType::Void),
                 _ => None,
             }

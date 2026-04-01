@@ -410,6 +410,12 @@ impl VM {
         let marshal_out_bytes = ffi_now
             .marshal_out_bytes
             .saturating_sub(profile.start_ffi.marshal_out_bytes);
+        let ffi_copy_count = ffi_now
+            .copy_count
+            .saturating_sub(profile.start_ffi.copy_count);
+        let ffi_handle_count = ffi_now
+            .handle_count
+            .saturating_sub(profile.start_ffi.handle_count);
         let ffi_time_ns = ffi_now
             .native_time_ns
             .saturating_sub(profile.start_ffi.native_time_ns);
@@ -443,6 +449,8 @@ impl VM {
                 "object_allocations": obj_now.saturating_sub(profile.start_object_allocs),
                 "marshal_in_bytes": marshal_in_bytes,
                 "marshal_out_bytes": marshal_out_bytes,
+                "marshal_copy_ops": ffi_copy_count,
+                "ffi_handle_objects": ffi_handle_count,
             }
         });
         if let Some(parent) = profile.out_path.parent() {
@@ -6750,9 +6758,9 @@ impl VM {
             .map_err(|err| RuntimeError::new(&format!("dataset.open failed: {}", err)))?;
         let stream = DatasetStream::new(paths, tokenizer, cfg)
             .map_err(|err| RuntimeError::new(&format!("dataset.open failed: {}", err)))?;
-        Ok(Value::Obj(ObjRef::new(Obj::DatasetStream(
+        Ok(Value::Obj(ObjRef::new(Obj::DatasetStream(Box::new(
             std::cell::RefCell::new(stream),
-        ))))
+        )))))
     }
 
     fn dataset_next_batch(&self, stream: Value) -> Result<Option<Value>, RuntimeError> {
@@ -7012,7 +7020,7 @@ impl VM {
                 Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
                     name: decl.name.clone(),
                     arity: ffi.arity() as u16,
-                    kind: NativeImpl::Ffi(ffi),
+                    kind: NativeImpl::Ffi(Box::new(ffi)),
                     bound: None,
                 })))
             }
@@ -8582,6 +8590,7 @@ fn display_value(v: &Value) -> String {
             Obj::Function(f) => format!("<fn {}>", f.name.clone().unwrap_or_default()),
             Obj::BoundFunction(_) => "<bound_fn>".to_string(),
             Obj::NativeFunction(n) => format!("<native {}>", n.name),
+            Obj::NativeHandle(_) => "<handle>".to_string(),
             Obj::TaskHandle(id) => format!("<task {}>", id),
             Obj::Channel(_) => "<channel>".to_string(),
             Obj::TcpListener(_) => "<tcp_listener>".to_string(),

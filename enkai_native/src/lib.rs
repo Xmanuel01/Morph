@@ -5,6 +5,7 @@ use rusqlite::Connection;
 use sha2::{Digest, Sha256};
 use std::cmp::{Ordering as CmpOrdering, Reverse};
 use std::collections::{BTreeMap, BinaryHeap, HashMap};
+use std::ffi::c_void;
 use std::fs;
 use std::net::{SocketAddr, TcpStream};
 use std::process::{Child, Command, Stdio};
@@ -12,6 +13,13 @@ use std::sync::{
     atomic::{AtomicI64, Ordering},
     Mutex, OnceLock,
 };
+
+static HANDLE_LIVE_COUNT: AtomicI64 = AtomicI64::new(0);
+
+#[derive(Debug)]
+struct ExampleHandle {
+    value: i64,
+}
 
 #[repr(C)]
 pub struct FfiSlice {
@@ -62,8 +70,56 @@ fn string_slice(value: String) -> FfiSlice {
 }
 
 #[no_mangle]
+pub extern "C" fn enkai_abi_version() -> i64 {
+    1
+}
+
+#[no_mangle]
+pub extern "C" fn enkai_symbol_table() -> FfiSlice {
+    string_slice("{\"abi_version\":1,\"exports\":[\"*\"]}".to_string())
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a pointer previously returned by `handle_new` from this library.
+pub unsafe extern "C" fn enkai_handle_free(ptr: *mut c_void) {
+    if ptr.is_null() {
+        return;
+    }
+    let _ = unsafe { Box::from_raw(ptr as *mut ExampleHandle) };
+    HANDLE_LIVE_COUNT.fetch_sub(1, Ordering::SeqCst);
+}
+
+#[no_mangle]
 pub extern "C" fn add_i64(a: i64, b: i64) -> i64 {
     a.wrapping_add(b)
+}
+
+#[no_mangle]
+pub extern "C" fn handle_new(value: i64) -> *mut c_void {
+    HANDLE_LIVE_COUNT.fetch_add(1, Ordering::SeqCst);
+    Box::into_raw(Box::new(ExampleHandle { value })) as *mut c_void
+}
+
+#[no_mangle]
+pub extern "C" fn handle_read(ptr: *mut c_void) -> i64 {
+    let Some(handle) = (unsafe { (ptr as *mut ExampleHandle).as_ref() }) else {
+        return 0;
+    };
+    handle.value
+}
+
+#[no_mangle]
+pub extern "C" fn handle_maybe_new(flag: u8, value: i64) -> *mut c_void {
+    if flag == 0 {
+        return std::ptr::null_mut();
+    }
+    handle_new(value)
+}
+
+#[no_mangle]
+pub extern "C" fn handle_live_count() -> i64 {
+    HANDLE_LIVE_COUNT.load(Ordering::SeqCst)
 }
 
 #[no_mangle]

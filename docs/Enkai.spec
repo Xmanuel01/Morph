@@ -1,8 +1,8 @@
-# Enkai Language Specification (v0.1 -> v2.5.9)
+# Enkai Language Specification (v0.1 -> v2.6.0)
 
 Status: stable.
 Grammar and CLI contracts are frozen at the v0.9.3 baseline for the v1.x/v2.x line.
-This document is the normative language and runtime surface for Enkai v2.5.9,
+This document is the normative language and runtime surface for Enkai v2.6.0,
 including compatibility constraints carried from v0.1 onward.
 
 -------------------------------------------------------------------------------
@@ -13,7 +13,7 @@ This specification covers:
 - Core syntax and block rules.
 - Module/import semantics.
 - Type and expression forms supported by parser, checker, compiler, and VM.
-- Built-in runtime modules shipped in v2.5.9.
+- Built-in runtime modules shipped in v2.6.0.
 - CLI entrypoints used in production.
 
 This specification does not claim features that are still stubbed or not yet implemented.
@@ -54,7 +54,7 @@ Compatibility baseline:
   (`use`/`type`/`enum`/`impl` + non-capturing lambda), and self-host CI lane coverage.
 - v1.8: compatibility/deprecation policy, legacy config/checkpoint compatibility
   gates, and documented self-host daily workflow + fallback process.
-- v1.9-v2.5.9: stage1 execution command (`enkai litec run`), unified master pipeline smoke test, GPU evidence verification scripts for operator-run soak gates, frontend/serve contract snapshot freeze with persisted conversation schema v1, deterministic packaging/checksum/SBOM release gates, RC evidence-archive tooling, capability-complete release reporting from archived evidence manifests, additive multi-node orchestration controls (`dist.topology`, `dist.rendezvous`, `dist.retry_budget`, `dist.device_map`) plus `enkai cluster validate|plan|run`, and additive readiness filtering via `--skip-check <id>`.
+- v1.9-v2.6.0: stage1 execution command (`enkai litec run`), unified master pipeline smoke test, GPU evidence verification scripts for operator-run soak gates, frontend/serve contract snapshot freeze with persisted conversation schema v1, deterministic packaging/checksum/SBOM release gates, RC evidence-archive tooling, capability-complete release reporting from archived evidence manifests, additive multi-node orchestration controls (`dist.topology`, `dist.rendezvous`, `dist.retry_budget`, `dist.device_map`) plus `enkai cluster validate|plan|run`, and additive readiness filtering via `--skip-check <id>`.
 
 Compatibility policy:
 - `.enk` and `.en` are primary source extensions.
@@ -62,7 +62,7 @@ Compatibility policy:
   primary contract unless listed explicitly.
 
 -------------------------------------------------------------------------------
-1.2 Validation Gate Status (v2.5.9)
+1.2 Validation Gate Status (v2.6.0)
 -------------------------------------------------------------------------------
 
 Current verification status:
@@ -205,6 +205,18 @@ Native FFI import:
   - `    fn symbol(a: Int, b: String) -> Int`
   - `::`
 - Native signatures do not allow default parameter values.
+- Supported FFI scalar/slice types:
+  - `Int`, `Float`, `Bool`, `String`, `Buffer`, `Handle`, `Void`
+  - optional FFI types are limited to `String?`, `Buffer?`, and `Handle?`
+- `Handle` is an opaque native pointer value owned by the VM/runtime.
+- If a library exports either `enkai_abi_version` or `enkai_symbol_table`, it must export both.
+- Official native library ABI policy:
+  - `enkai_abi_version() -> Int`
+  - `enkai_symbol_table() -> String`
+  - `enkai_symbol_table` returns JSON with `abi_version` and `exports`
+  - `["*"]` is accepted, but exact exported symbol lists are preferred for new native modules
+- Libraries returning `String` or `Buffer` must export `enkai_free(ptr, len)`.
+- Libraries returning `Handle` must export `enkai_handle_free(ptr)`.
 
 Policy/tool/AI declarations:
 - `tool path.name(params) -> Type`
@@ -276,8 +288,8 @@ Assignment form:
 8. Types
 -------------------------------------------------------------------------------
 
-Core types used in v2.5.9:
-- `Int`, `Float`, `Bool`, `String`, `Void`
+Core types used in v2.6.0:
+- `Int`, `Float`, `Bool`, `String`, `Buffer`, `Handle`, `Void`
 - Optional: `T?`
 - Function: `fn(T1, T2) -> R`
 - Named types with optional generic arguments in syntax
@@ -288,6 +300,12 @@ Typechecking behavior (production):
 - Return type checks against function signatures.
 - Visibility checks for private symbol access across modules.
 - Native import signature validation for supported FFI types.
+- FFI diagnostics use stable runtime codes for:
+  - library load failures
+  - symbol resolution failures
+  - ABI/version or symbol-table failures
+  - invalid argument/return type usage
+  - missing `enkai_free` / `enkai_handle_free`
 
 -------------------------------------------------------------------------------
 9. Runtime and Execution
@@ -299,13 +317,19 @@ Execution pipeline:
 Diagnostics:
 - Parse/type/compile diagnostics include line/column and snippets.
 - Runtime errors include a lightweight stack trace with source locations.
+- VM benchmark profile artifacts include FFI-native diagnostics:
+  - native call count
+  - marshaled bytes in/out
+  - marshal/copy operation count
+  - native handle object count
+  - native-call time vs VM execution time
 
 Formatting and tests:
 - Deterministic formatter (`enkai fmt`, `enkai fmt --check`).
 - Project test runner (`enkai test`) compiles and executes test files.
 
 -------------------------------------------------------------------------------
-10. Built-in Runtime Modules (v2.5.9)
+10. Built-in Runtime Modules (v2.6.0)
 -------------------------------------------------------------------------------
 
 Concurrency:
@@ -408,7 +432,7 @@ Native-backed std modules:
 - `std::analysis` (CSV/JSONL ingest, typed schema inference/validation, filter/project/join/group aggregates, describe/histogram/quantiles/rolling stats, deterministic pipeline manifests)
 - `std::algo` (sorting/searching/path, priority/merge/stream helpers, ML metric/eval/scheduler helpers)
 
-`std::analysis` additive APIs (v2.5.9):
+`std::analysis` additive APIs (v2.6.0):
 - `read_csv(path, delimiter, has_header)`
 - `read_jsonl(path)`
 - `infer_schema(rows)`
@@ -425,7 +449,7 @@ Native-backed std modules:
 - `rolling_mean(values, window)`
 - `run_pipeline(rows, pipeline)` -> `{ rows, manifest }` with deterministic stage stats + hashes
 
-`std::algo` additive APIs (v2.5.9):
+`std::algo` additive APIs (v2.6.0):
 - software/algorithm primitives:
   - `sort_ints(values)`
   - `binary_search_ints(values, target)`
@@ -446,7 +470,7 @@ Native-backed std modules:
   - `split_indices(total, test_ratio, seed, shuffle)`
   - `scheduler_linear_warmup(step, total_steps, warmup_steps, base_lr, min_lr)`
 
-Tensor backend (`std::tensor`, v2.5.9 surface):
+Tensor backend (`std::tensor`, v2.6.0 surface):
 - device/tensor creation, math ops, shape/dtype/device transforms
 - autograd and optimizer helper APIs
 - AMP scaler/autocast APIs
@@ -465,7 +489,7 @@ Tensor C ABI checkpoint/distributed hooks:
 For full tensor C ABI contracts and safety preconditions, see `docs/tensor_api.md` and `docs/gpu_backend.md`.
 
 -------------------------------------------------------------------------------
-11. CLI Contract (v2.5.9)
+11. CLI Contract (v2.6.0)
 -------------------------------------------------------------------------------
 
 Commands:
@@ -519,7 +543,7 @@ Commands:
 - `enkai doctor [path] [--json] [--strict-contracts|--lenient]`
 
 Contract enforcement note:
-- In v2.5.9, train/eval run strict contracts by default.
+- In v2.6.0, train/eval run strict contracts by default.
 - `--lenient-contracts` requires `ENKAI_ALLOW_LEGACY_CONTRACTS=1`.
 
 Serve model-selection contract:
@@ -589,7 +613,7 @@ Build caching and lockfile:
 
 Benchmarking:
 - `enkai bench run` executes deterministic suites from `bench/suites/*.json`.
-- Official v2.5.9 bounded claim suite: `official_v2_3_0_matrix`.
+- Official v2.6.0 bounded claim suite: `official_v2_3_0_matrix`.
 - `--enforce-target` validates suite-level median targets.
 - `--enforce-all-cases` additionally requires every individual case target to pass.
 - Baseline comparisons are bounded to pinned suite/machine profiles and emit structured JSON reports.
@@ -608,7 +632,7 @@ Train/Eval config schema:
 - Optional v1.2+ fields include `world_size`, `rank`, `grad_accum_steps`, `grad_clip_norm`,
   `amp { enabled, dtype, init_scale, growth_factor, backoff_factor, growth_interval }`,
   `shuffle`, and `prefetch_batches`.
-- Optional v2.5.9 additive distributed orchestration fields include:
+- Optional v2.6.0 additive distributed orchestration fields include:
   - `dist.topology` (`standalone|single-node|multi-node`)
   - `dist.rendezvous` (non-empty string; required tcp endpoint for `multi-node`)
   - `dist.retry_budget` (`Int >= 0`)
@@ -629,7 +653,7 @@ Train/Eval config schema:
   - `run_state.json` (resumable run identity + status),
   - `runs/index.jsonl` (append-only run events),
   - `checkpoint_lifecycle.json` (integrity digests + tiered retention metadata).
-- v2.5.9 strict behavior rejects configs missing `config_version`.
+- v2.6.0 strict behavior rejects configs missing `config_version`.
 - Optional legacy recovery mode:
   - `--lenient-contracts` is accepted only when `ENKAI_ALLOW_LEGACY_CONTRACTS=1`.
 
@@ -644,7 +668,7 @@ Checkpoint format:
     with machine-readable output via `--json`.
 
 -------------------------------------------------------------------------------
-12. Known Limits in v2.5.9
+12. Known Limits in v2.6.0
 -------------------------------------------------------------------------------
 
 The following are intentionally not fully implemented yet:
@@ -694,9 +718,9 @@ The following are intentionally not fully implemented yet:
 - `enkai litec mainline-ci` composes `selfhost-ci --no-compare-stage0` and
   `replace-check --no-compare-stage0` to make the Enkai-built compiler path the
   default CI self-host lane while preserving a separate mandatory Stage0 fallback lane.
-- `enkai cluster run` is a deterministic planner output in v2.5.9; first-party
+- `enkai cluster run` is a deterministic planner output in v2.6.0; first-party
   process supervisor execution remains operator-managed.
-- v2.5.9 validation note:
+- v2.6.0 validation note:
   - CPU-mode single-device soak requires operator-run evidence on production hardware.
   - CUDA single-GPU long-soak and distributed (2-GPU/4-GPU) reliability remain
     operator-run requirements and are not auto-proven by repository state alone.
@@ -726,7 +750,7 @@ These limits are part of the current stable contract and should be treated as pr
 13. Change Control
 -------------------------------------------------------------------------------
 
-For any language/runtime surface change after v2.5.9:
+For any language/runtime surface change after v2.6.0:
 1) Implement the change and add/adjust compiler/runtime tests.
 2) Update this specification to match the shipped behavior.
 3) Update changelog and targeted docs (`docs/xx_*.md`, `docs/tensor_api.md`, etc.).
