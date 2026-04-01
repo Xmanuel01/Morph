@@ -2,11 +2,21 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.5.6.
+- Current production release line is v2.5.8.
 - v2.5.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
 
-v2.5.7 (in progress)
+v2.5.8 (done)
+- Release blocker enforcement + evidence verification:
+  - additive blocker verification command:
+    - `enkai readiness verify-blockers --profile full_platform --report artifacts/readiness/full_platform.json --json --output artifacts/readiness/full_platform_blockers.json`
+  - optional flags:
+    - `--skip-release-evidence` for reduced package-skipped runs
+    - `--require-gpu-evidence` for final RC/release sign-off
+    - `--allow-skipped-required-check <id>` for intentional readiness-check substitution by stronger release gates
+  - release/RC pipelines now generate readiness blocker artifacts and validate blocker matrix state automatically
+
+v2.5.7 (done)
 - Full-platform readiness profile expansion:
   - generated backend scaffold deploy-validation smoke
   - generated fullstack scaffold deploy-validation smoke

@@ -29,6 +29,12 @@ Note:
   - readiness contract:
     - `enkai/contracts/readiness_full_platform_v2_5_0.json`
     - `enkai/contracts/full_platform_release_blockers_v2_5_0.json`
+  - blocker verification:
+    - `enkai readiness verify-blockers --profile full_platform --report artifacts/readiness/full_platform.json --json --output artifacts/readiness/full_platform_blockers.json`
+    - release pipeline form:
+      - add `--allow-skipped-required-check selfhost-mainline --allow-skipped-required-check selfhost-stage0-fallback`
+    - optional reduced-host mode:
+      - add `--skip-release-evidence` when package artifacts are intentionally skipped
   - deploy-validation smoke artifacts expected from full-platform readiness:
     - `artifacts/readiness/deploy_backend.json`
     - `artifacts/readiness/deploy_fullstack.json`
@@ -83,6 +89,10 @@ Note:
   - expected outputs:
     - `artifacts/release/v<version>/capability_complete.json`
     - `artifacts/release/v<version>/capability_complete.md`
+- [ ] Verify blocker matrix against readiness + archived evidence:
+  - `enkai readiness verify-blockers --profile full_platform --report artifacts/readiness/full_platform.json --json --output artifacts/readiness/full_platform_blockers.json --require-gpu-evidence`
+  - expected output:
+    - `artifacts/readiness/full_platform_blockers.json`
 
 ## 3) Tag
 

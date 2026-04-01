@@ -47,6 +47,21 @@ if ($AllowMissingGpuEvidence) {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     Invoke-Python scripts/collect_release_evidence.py --gpu-log-dir $GpuLogDir
     Invoke-Python scripts/generate_capability_report.py
+    $blockerArgs = @(
+        "run", "-p", "enkai", "--",
+        "readiness", "verify-blockers",
+        "--profile", "full_platform",
+        "--report", "artifacts/readiness/full_platform.json",
+        "--json",
+        "--output", "artifacts/readiness/full_platform_blockers.json",
+        "--allow-skipped-required-check", "selfhost-mainline",
+        "--allow-skipped-required-check", "selfhost-stage0-fallback"
+    )
+    if ($SkipPackageCheck.IsPresent) {
+        $blockerArgs += "--skip-release-evidence"
+    }
+    & cargo @blockerArgs
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     Write-Host "[rc] RC dry-run completed."
     exit 0
 }
@@ -71,4 +86,21 @@ if (-not $SkipPackageCheck.IsPresent) {
 }
 Invoke-Python @collectArgs
 Invoke-Python @reportArgs
+Write-Host "[rc] Verifying full-platform blocker matrix with GPU evidence..."
+$blockerArgs = @(
+    "run", "-p", "enkai", "--",
+    "readiness", "verify-blockers",
+    "--profile", "full_platform",
+    "--report", "artifacts/readiness/full_platform.json",
+    "--json",
+    "--output", "artifacts/readiness/full_platform_blockers.json",
+    "--allow-skipped-required-check", "selfhost-mainline",
+    "--allow-skipped-required-check", "selfhost-stage0-fallback",
+    "--require-gpu-evidence"
+)
+if ($SkipPackageCheck.IsPresent) {
+    $blockerArgs += "--skip-release-evidence"
+}
+& cargo @blockerArgs
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Host "[rc] RC pipeline passed with archived evidence."

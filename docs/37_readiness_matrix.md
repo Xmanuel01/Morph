@@ -30,6 +30,14 @@ Manifest:
 - `enkai/contracts/readiness_full_platform_v2_5_0.json`
 - release blocker matrix:
   - `enkai/contracts/full_platform_release_blockers_v2_5_0.json`
+- machine-readable blocker verification:
+  - `enkai readiness verify-blockers --profile full_platform --report artifacts/readiness/full_platform.json --json --output artifacts/readiness/full_platform_blockers.json`
+  - output:
+    - `artifacts/readiness/full_platform_blockers.json`
+  - release pipelines may add:
+    - `--allow-skipped-required-check selfhost-mainline`
+    - `--allow-skipped-required-check selfhost-stage0-fallback`
+    because those readiness checks are intentionally replaced by the stronger `enkai litec release-ci` gate in the consolidated pipeline.
 
 The command executes a deterministic gate bundle:
 - format/lint/test

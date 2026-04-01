@@ -79,6 +79,8 @@ def main() -> int:
         failures.append("docs/RELEASE_CHECKLIST.md missing readiness command gate")
     if "enkai readiness check --profile full_platform" not in release_checklist:
         failures.append("docs/RELEASE_CHECKLIST.md missing full_platform readiness gate")
+    if "enkai readiness verify-blockers --profile full_platform" not in release_checklist:
+        failures.append("docs/RELEASE_CHECKLIST.md missing blocker verification gate")
     if "enkai litec release-ci" not in release_checklist:
         failures.append("docs/RELEASE_CHECKLIST.md missing litec release-ci gate")
     if "official_v2_3_0_matrix" not in release_checklist:
@@ -131,6 +133,10 @@ def main() -> int:
     readiness_doc = ROOT / "docs/37_readiness_matrix.md"
     if not readiness_doc.is_file():
         failures.append("missing docs/37_readiness_matrix.md")
+    else:
+        readiness_text = readiness_doc.read_text(encoding="utf-8")
+        if "enkai readiness verify-blockers --profile full_platform" not in readiness_text:
+            failures.append("docs/37_readiness_matrix.md missing blocker verification reference")
     benchmark_doc = ROOT / "docs/33_benchmark_suite.md"
     if not benchmark_doc.is_file():
         failures.append("missing docs/33_benchmark_suite.md")

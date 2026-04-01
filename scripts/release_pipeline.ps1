@@ -140,6 +140,45 @@ if (-not $SkipPackageCheck) {
     Invoke-Gate -Name "generate-sbom" -Command {
         Invoke-Python scripts/generate_sbom.py --output "dist/sbom-$version-windows-x86_64.json"
     }
+
+    Write-Host "[release] Collecting strict release evidence bundle..."
+    Invoke-Gate -Name "collect-release-evidence" -Command {
+        Invoke-Python scripts/collect_release_evidence.py --strict
+    }
+
+    Write-Host "[release] Generating strict capability report..."
+    Invoke-Gate -Name "generate-capability-report" -Command {
+        Invoke-Python scripts/generate_capability_report.py --strict
+    }
+}
+else {
+    Write-Host "[release] Collecting reduced release evidence bundle (package checks skipped)..."
+    Invoke-Gate -Name "collect-release-evidence" -Command {
+        Invoke-Python scripts/collect_release_evidence.py
+    }
+
+    Write-Host "[release] Generating reduced capability report (package checks skipped)..."
+    Invoke-Gate -Name "generate-capability-report" -Command {
+        Invoke-Python scripts/generate_capability_report.py
+    }
+}
+
+Write-Host "[release] Verifying release blocker matrix..."
+$blockerArgs = @(
+    "run", "-p", "enkai", "--",
+    "readiness", "verify-blockers",
+    "--profile", "full_platform",
+    "--report", "artifacts/readiness/full_platform.json",
+    "--json",
+    "--output", "artifacts/readiness/full_platform_blockers.json",
+    "--allow-skipped-required-check", "selfhost-mainline",
+    "--allow-skipped-required-check", "selfhost-stage0-fallback"
+)
+if ($SkipPackageCheck) {
+    $blockerArgs += "--skip-release-evidence"
+}
+Invoke-Gate -Name "verify-release-blockers" -Command {
+    cargo @blockerArgs
 }
 
 if ($VerifyGpuEvidence) {
