@@ -497,6 +497,14 @@ mod tests {
         assert_eq!(manifest.schema_version, 1);
         assert_eq!(manifest.profile, "full_platform");
         assert!(!manifest.checks.is_empty());
+        assert!(manifest
+            .checks
+            .iter()
+            .any(|check| check.id == "deploy-backend-validate"));
+        assert!(manifest
+            .checks
+            .iter()
+            .any(|check| check.id == "deploy-fullstack-validate"));
     }
 
     #[test]

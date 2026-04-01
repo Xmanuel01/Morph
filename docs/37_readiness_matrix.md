@@ -20,6 +20,11 @@ Run:
 Selective pipeline reuse:
 - `enkai readiness check ... --skip-check <id>` may omit checks already executed by a stronger release gate.
 - Release pipelines use this to skip standalone self-host lanes when `enkai litec release-ci` is run separately.
+- Generated deploy-validation smoke reports emitted by the full-platform profile:
+  - `artifacts/readiness/deploy_backend.json`
+  - `artifacts/readiness/deploy_fullstack.json`
+  - `artifacts/readiness/deploy_backend_smoke.json`
+  - `artifacts/readiness/deploy_fullstack_smoke.json`
 
 Manifest:
 - `enkai/contracts/readiness_full_platform_v2_5_0.json`
@@ -33,6 +38,7 @@ The command executes a deterministic gate bundle:
 - backend HTTP contract smoke
 - LLM runtime smoke
 - DB core smoke
+- generated backend/fullstack deploy validation smoke
 - bootstrap mainline + Stage0 fallback lanes
 - benchmark fairness + target smoke enforcement (`official_v2_3_0_matrix`, workload-equivalence contract)
 

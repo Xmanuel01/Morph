@@ -6,6 +6,17 @@ Note:
 - v2.5.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
 
+v2.5.7 (in progress)
+- Full-platform readiness profile expansion:
+  - generated backend scaffold deploy-validation smoke
+  - generated fullstack scaffold deploy-validation smoke
+  - wrapper artifacts:
+    - `artifacts/readiness/deploy_backend_smoke.json`
+    - `artifacts/readiness/deploy_fullstack_smoke.json`
+  - validation reports:
+    - `artifacts/readiness/deploy_backend.json`
+    - `artifacts/readiness/deploy_fullstack.json`
+
 v2.5.6 (done)
 - Deploy-validation hardening for production rollout workflows:
   - additive machine-readable output:

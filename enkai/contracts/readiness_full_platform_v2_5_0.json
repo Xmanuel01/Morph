@@ -66,6 +66,38 @@
       "command": ["cargo", "test", "-p", "enkai_native", "sqlite_exec_many_transaction_roundtrip"]
     },
     {
+      "id": "deploy-backend-validate",
+      "description": "Generated backend scaffold deploy validation smoke",
+      "command": [
+        "${PYTHON}",
+        "scripts/readiness_deploy_scaffold_smoke.py",
+        "--enkai-bin",
+        "${ENKAI_BIN}",
+        "--workspace",
+        ".",
+        "--mode",
+        "backend",
+        "--output",
+        "artifacts/readiness/deploy_backend_smoke.json"
+      ]
+    },
+    {
+      "id": "deploy-fullstack-validate",
+      "description": "Generated fullstack scaffold deploy validation smoke",
+      "command": [
+        "${PYTHON}",
+        "scripts/readiness_deploy_scaffold_smoke.py",
+        "--enkai-bin",
+        "${ENKAI_BIN}",
+        "--workspace",
+        ".",
+        "--mode",
+        "fullstack",
+        "--output",
+        "artifacts/readiness/deploy_fullstack_smoke.json"
+      ]
+    },
+    {
       "id": "selfhost-mainline",
       "description": "Bootstrap self-host mainline lane",
       "command": [

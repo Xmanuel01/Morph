@@ -29,6 +29,9 @@ Note:
   - readiness contract:
     - `enkai/contracts/readiness_full_platform_v2_5_0.json`
     - `enkai/contracts/full_platform_release_blockers_v2_5_0.json`
+  - deploy-validation smoke artifacts expected from full-platform readiness:
+    - `artifacts/readiness/deploy_backend.json`
+    - `artifacts/readiness/deploy_fullstack.json`
 - [ ] Benchmark target gate (official bounded suite):
   - `enkai bench run --suite official_v2_3_0_matrix --baseline python --iterations 2 --warmup 1 --machine-profile bench/machines/linux_ref.json --output bench/results/official_v2_3_0_matrix.linux.json --target-speedup 15 --target-memory 5 --enforce-target --enforce-class-targets --class-targets bench/suites/official_v2_3_0_targets.json`
   - `enkai bench run --suite official_v2_3_0_matrix --baseline python --iterations 2 --warmup 1 --machine-profile bench/machines/windows_ref.json --output bench/results/official_v2_3_0_matrix.windows.json --target-speedup 15 --target-memory 5 --enforce-target --enforce-class-targets --class-targets bench/suites/official_v2_3_0_targets.json`
