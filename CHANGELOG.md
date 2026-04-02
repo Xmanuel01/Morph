@@ -8,6 +8,32 @@
 ### Breaking changes
 - None.
 
+## v2.6.6
+
+### Highlights
+- Advanced the release line to `v2.6.6` with additive compatibility and no syntax changes.
+- Hardened the AGI/simulation release path with native FFI smoke verification:
+  - new smoke runner:
+    - `scripts/readiness_sim_native_smoke.py`
+  - new verifier:
+    - `scripts/verify_sim_native_evidence.py`
+  - new readiness artifacts:
+    - `artifacts/readiness/sim_native_smoke.json`
+    - `artifacts/readiness/sim_native_evidence_verify.json`
+
+### Fixes
+- Full-platform readiness now proves the native `native::import` simulation escape hatch is live before release sign-off.
+- Strict release evidence and capability reporting now require archived native FFI simulation smoke artifacts:
+  - `artifacts/sim/native_smoke_run.json`
+  - `artifacts/sim/native_smoke_profile.json`
+- Synced docs/spec/release metadata and version surfaces to `v2.6.6`.
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_6_6_rc_pipeline.ps1`
+  - `scripts/v2_6_6_rc_pipeline.sh`
+
+### Breaking changes
+- None.
+
 ## v2.6.5
 
 ### Highlights

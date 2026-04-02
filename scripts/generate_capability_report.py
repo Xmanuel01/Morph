@@ -383,12 +383,51 @@ def build_checks(
             ),
         )
     )
+    sim_native_smoke = has_exact(copied_paths, "/readiness/sim_native_smoke.json")
+    checks.append(
+        CheckResult(
+            id="readiness_sim_native_smoke_report",
+            description="Simulation native FFI smoke summary is present",
+            required=True,
+            passed=sim_native_smoke,
+            details=(
+                "readiness/sim_native_smoke.json"
+                if sim_native_smoke
+                else "missing readiness/sim_native_smoke.json"
+            ),
+        )
+    )
+    sim_native_verify = has_exact(copied_paths, "/readiness/sim_native_evidence_verify.json")
+    checks.append(
+        CheckResult(
+            id="readiness_sim_native_evidence_verify_report",
+            description="Simulation native FFI evidence verification report is present",
+            required=True,
+            passed=sim_native_verify,
+            details=(
+                "readiness/sim_native_evidence_verify.json"
+                if sim_native_verify
+                else "missing readiness/sim_native_evidence_verify.json"
+            ),
+        )
+    )
     for name in ("smoke_run.json", "smoke_profile.json", "smoke_replay.json"):
         present = has_exact(copied_paths, f"/sim/{name}")
         checks.append(
             CheckResult(
                 id=f"simulation_{name.replace('.', '_')}",
                 description=f"Simulation evidence `{name}` is present",
+                required=True,
+                passed=present,
+                details=name if present else f"missing sim/{name}",
+            )
+        )
+    for name in ("native_smoke_run.json", "native_smoke_profile.json"):
+        present = has_exact(copied_paths, f"/sim/{name}")
+        checks.append(
+            CheckResult(
+                id=f"simulation_{name.replace('.', '_')}",
+                description=f"Simulation native evidence `{name}` is present",
                 required=True,
                 passed=present,
                 details=name if present else f"missing sim/{name}",

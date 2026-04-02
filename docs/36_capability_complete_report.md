@@ -39,11 +39,15 @@ Core categories:
   - `full_platform_blockers.json` (`readiness/full_platform_blockers.json`) as the archived blocker-verification verdict for the current release line
   - `sim_smoke.json` (`readiness/sim_smoke.json`) summarizing the archived simulation smoke workflow
   - `sim_evidence_verify.json` (`readiness/sim_evidence_verify.json`) validating archived simulation evidence consistency
+  - `sim_native_smoke.json` (`readiness/sim_native_smoke.json`) summarizing the archived native FFI simulation smoke workflow
+  - `sim_native_evidence_verify.json` (`readiness/sim_native_evidence_verify.json`) validating archived native FFI simulation evidence consistency
   - `production.json` (`readiness/production.json`) as an optional compatibility/reference artifact
 - `sim/`:
   - `sim/smoke_run.json`
   - `sim/smoke_profile.json`
   - `sim/smoke_replay.json`
+  - `sim/native_smoke_run.json`
+  - `sim/native_smoke_profile.json`
 - `gpu/` (mandatory for full sign-off):
   - `single_gpu.log`, `single_gpu_evidence.json`
   - `multi_gpu.log`, `multi_gpu_evidence.json`
@@ -66,7 +70,7 @@ In strict mode the archived blocker report must also be present and must show:
 - `skip_release_evidence: false`
 - no missing/failed/skipped required checks
 - no missing required release artifacts
-- simulation evidence artifacts must be present under both `readiness/` and `sim/`
+- simulation std/runtime and native FFI evidence artifacts must be present under both `readiness/` and `sim/`
 
 ## RC Pipeline Contract
 

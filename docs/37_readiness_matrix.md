@@ -28,9 +28,13 @@ Selective pipeline reuse:
 - Generated simulation smoke reports emitted by the full-platform profile:
   - `artifacts/readiness/sim_smoke.json`
   - `artifacts/readiness/sim_evidence_verify.json`
+  - `artifacts/readiness/sim_native_smoke.json`
+  - `artifacts/readiness/sim_native_evidence_verify.json`
   - `artifacts/sim/smoke_run.json`
   - `artifacts/sim/smoke_profile.json`
   - `artifacts/sim/smoke_replay.json`
+  - `artifacts/sim/native_smoke_run.json`
+  - `artifacts/sim/native_smoke_profile.json`
 
 Manifest:
 - `enkai/contracts/readiness_full_platform_v2_5_0.json`
@@ -57,6 +61,8 @@ The command executes a deterministic gate bundle:
 - LLM runtime smoke
 - simulation std/runtime CLI smoke
 - simulation smoke evidence semantic verification
+- simulation native FFI smoke
+- simulation native FFI evidence verification
 - DB core smoke
 - generated backend/fullstack deploy validation smoke
 - bootstrap mainline + Stage0 fallback lanes

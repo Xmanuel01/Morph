@@ -93,6 +93,36 @@
       ]
     },
     {
+      "id": "simulation-native-smoke",
+      "description": "Simulation native FFI smoke test",
+      "command": [
+        "${PYTHON}",
+        "scripts/readiness_sim_native_smoke.py",
+        "--enkai-bin",
+        "${ENKAI_BIN}",
+        "--workspace",
+        ".",
+        "--output",
+        "artifacts/readiness/sim_native_smoke.json"
+      ]
+    },
+    {
+      "id": "simulation-native-evidence-verify",
+      "description": "Simulation native FFI smoke evidence verification",
+      "command": [
+        "${PYTHON}",
+        "scripts/verify_sim_native_evidence.py",
+        "--summary",
+        "artifacts/readiness/sim_native_smoke.json",
+        "--run-report",
+        "artifacts/sim/native_smoke_run.json",
+        "--profile-report",
+        "artifacts/sim/native_smoke_profile.json",
+        "--output",
+        "artifacts/readiness/sim_native_evidence_verify.json"
+      ]
+    },
+    {
       "id": "db-core-smoke",
       "description": "Database core smoke test (SQLite/native)",
       "command": ["cargo", "test", "-p", "enkai_native", "sqlite_exec_many_transaction_roundtrip"]

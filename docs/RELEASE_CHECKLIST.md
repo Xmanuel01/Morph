@@ -41,9 +41,13 @@ Note:
   - simulation smoke artifacts expected from full-platform readiness:
     - `artifacts/readiness/sim_smoke.json`
     - `artifacts/readiness/sim_evidence_verify.json`
+    - `artifacts/readiness/sim_native_smoke.json`
+    - `artifacts/readiness/sim_native_evidence_verify.json`
     - `artifacts/sim/smoke_run.json`
     - `artifacts/sim/smoke_profile.json`
     - `artifacts/sim/smoke_replay.json`
+    - `artifacts/sim/native_smoke_run.json`
+    - `artifacts/sim/native_smoke_profile.json`
 - [ ] Benchmark target gate (official bounded suite):
   - `enkai bench run --suite official_v2_3_0_matrix --baseline python --iterations 2 --warmup 1 --machine-profile bench/machines/linux_ref.json --output bench/results/official_v2_3_0_matrix.linux.json --target-speedup 15 --target-memory 5 --enforce-target --enforce-class-targets --class-targets bench/suites/official_v2_3_0_targets.json`
   - `enkai bench run --suite official_v2_3_0_matrix --baseline python --iterations 2 --warmup 1 --machine-profile bench/machines/windows_ref.json --output bench/results/official_v2_3_0_matrix.windows.json --target-speedup 15 --target-memory 5 --enforce-target --enforce-class-targets --class-targets bench/suites/official_v2_3_0_targets.json`
@@ -95,9 +99,13 @@ Note:
     - `readiness/full_platform_blockers.json`
     - `readiness/sim_smoke.json`
     - `readiness/sim_evidence_verify.json`
+    - `readiness/sim_native_smoke.json`
+    - `readiness/sim_native_evidence_verify.json`
     - `sim/smoke_run.json`
     - `sim/smoke_profile.json`
     - `sim/smoke_replay.json`
+    - `sim/native_smoke_run.json`
+    - `sim/native_smoke_profile.json`
 - [ ] Generate capability-complete report from archived evidence:
   - `python3 scripts/generate_capability_report.py --require-gpu --strict`
   - expected outputs:

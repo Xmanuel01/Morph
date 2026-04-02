@@ -2,9 +2,22 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.6.5.
+- Current production release line is v2.6.6.
 - v2.6.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v2.6.6 (done)
+- Simulation native FFI evidence hardening:
+  - added native smoke workflow via:
+    - `scripts/readiness_sim_native_smoke.py`
+  - added native smoke evidence verifier via:
+    - `scripts/verify_sim_native_evidence.py`
+  - full-platform readiness now emits:
+    - `artifacts/readiness/sim_native_smoke.json`
+    - `artifacts/readiness/sim_native_evidence_verify.json`
+    - `artifacts/sim/native_smoke_run.json`
+    - `artifacts/sim/native_smoke_profile.json`
+  - strict release evidence and capability reporting now require the native FFI verification artifact
 
 v2.6.5 (done)
 - Simulation evidence verification hardening:

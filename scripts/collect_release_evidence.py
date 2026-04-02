@@ -249,6 +249,8 @@ def main() -> int:
         "full_platform_blockers.json",
         "sim_smoke.json",
         "sim_evidence_verify.json",
+        "sim_native_smoke.json",
+        "sim_native_evidence_verify.json",
     ]
     if readiness_dir.is_dir():
         if args.strict:
@@ -269,6 +271,8 @@ def main() -> int:
         "smoke_run.json",
         "smoke_profile.json",
         "smoke_replay.json",
+        "native_smoke_run.json",
+        "native_smoke_profile.json",
     ]
     if sim_dir.is_dir():
         if args.strict:
