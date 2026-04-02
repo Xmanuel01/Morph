@@ -56,6 +56,11 @@ def parse_args() -> argparse.Namespace:
         help="Simulation evidence source directory",
     )
     parser.add_argument(
+        "--registry-dir",
+        default="artifacts/registry",
+        help="Registry convergence evidence source directory",
+    )
+    parser.add_argument(
         "--out-dir",
         default="artifacts/release",
         help="Output directory for evidence bundle",
@@ -174,6 +179,7 @@ def main() -> int:
     contracts_dir = (root / args.contracts_dir).resolve()
     readiness_dir = (root / args.readiness_dir).resolve()
     sim_dir = (root / args.sim_dir).resolve()
+    registry_dir = (root / args.registry_dir).resolve()
     out_root = (root / args.out_dir / f"v{version}").resolve()
     out_root.mkdir(parents=True, exist_ok=True)
 
@@ -259,6 +265,8 @@ def main() -> int:
         "adam0_reference_suite_verify.json",
         "snn_agent_kernel_smoke.json",
         "snn_agent_kernel_evidence_verify.json",
+        "model_registry_convergence.json",
+        "model_registry_convergence_verify.json",
     ]
     if readiness_dir.is_dir():
         if args.strict:
@@ -309,6 +317,28 @@ def main() -> int:
     elif args.strict:
         raise RuntimeError(
             f"simulation evidence directory not found for strict evidence mode: {sim_dir}"
+        )
+
+    required_registry = [
+        "sim_lineage.json",
+        "sim_snapshot.manifest.json",
+        "local/registry.json",
+        "remote/registry.json",
+        "cache/registry.json",
+        "remote/adam0-sim/v2.8.0/remote.manifest.json",
+        "remote/adam0-sim/v2.8.0/remote.manifest.sig",
+    ]
+    if registry_dir.is_dir():
+        if args.strict:
+            registry_files = ensure_required_files(
+                registry_dir, required_registry, "registry convergence evidence"
+            )
+        else:
+            registry_files = sorted(path for path in registry_dir.rglob("*") if path.is_file())
+        file_rows.extend(copy_files(root, registry_dir, out_root / "registry", "registry", registry_files))
+    elif args.strict:
+        raise RuntimeError(
+            f"registry convergence evidence directory not found for strict evidence mode: {registry_dir}"
         )
 
     manifest["files"] = file_rows

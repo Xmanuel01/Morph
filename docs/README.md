@@ -2,9 +2,10 @@
 
 ## Versioning policy
 
-- Current production release line: `v2.7.1`.
-- `docs/Enkai.spec` is the normative language reference for `v2.7.1`.
-- Known limits and partial features are tracked inside `docs/Enkai.spec` under `Known Limits in v2.7.1`.
+- Current production release line: `v2.8.0`.
+- `docs/Enkai.spec` is the normative language reference for `v2.8.0`.
+- Known limits and partial features are tracked inside `docs/Enkai.spec` under `Known Limits in v2.8.0`.
+- `docs/40_registry_convergence.md` defines the `v2.8.0` registry convergence contract for checkpoint, simulation, environment, and native-extension artifacts.
 - VM bytecode runtime behavior is the production contract; the legacy tree-walk interpreter is non-production/reference only.
 - Spec updates are implementation-first (update docs after code + tests land).
 - Full-platform readiness gating for the v2.5+ program is tracked by:

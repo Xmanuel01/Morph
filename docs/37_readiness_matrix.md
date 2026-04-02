@@ -34,6 +34,8 @@ Selective pipeline reuse:
   - `artifacts/readiness/sim_stdlib_evidence_verify.json`
   - `artifacts/readiness/adam0_reference_suite.json`
   - `artifacts/readiness/adam0_reference_suite_verify.json`
+  - `artifacts/readiness/model_registry_convergence.json`
+  - `artifacts/readiness/model_registry_convergence_verify.json`
   - `artifacts/readiness/snn_agent_kernel_smoke.json`
   - `artifacts/readiness/snn_agent_kernel_evidence_verify.json`
   - `artifacts/sim/smoke_run.json`
@@ -57,6 +59,13 @@ Selective pipeline reuse:
   - `artifacts/sim/adam0_target_10000_replay.json`
   - `artifacts/sim/snn_agent_kernel_run.json`
   - `artifacts/sim/snn_agent_kernel_profile.json`
+  - `artifacts/registry/sim_lineage.json`
+  - `artifacts/registry/sim_snapshot.manifest.json`
+  - `artifacts/registry/local/registry.json`
+  - `artifacts/registry/remote/registry.json`
+  - `artifacts/registry/cache/registry.json`
+  - `artifacts/registry/remote/adam0-sim/v2.8.0/remote.manifest.json`
+  - `artifacts/registry/remote/adam0-sim/v2.8.0/remote.manifest.sig`
 
 Manifest:
 - `enkai/contracts/readiness_full_platform_v2_5_0.json`
@@ -89,6 +98,8 @@ The command executes a deterministic gate bundle:
 - simulation stdlib evidence verification
 - Adam-0 reference suite (100 / 1000 / 10000 agents)
 - Adam-0 reference suite evidence verification
+- signed model/simulation registry convergence smoke
+- signed model/simulation registry convergence verification
 - SNN/agent environment kernel smoke
 - SNN/agent environment kernel evidence verification
 - DB core smoke

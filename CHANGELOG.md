@@ -8,6 +8,35 @@
 ### Breaking changes
 - None.
 
+## v2.8.0
+
+### Highlights
+- Advanced the release line to `v2.8.0` with additive compatibility and no syntax changes.
+- Completed the `v2.8.0` LLM + AGI data/training/registry convergence milestone.
+- Unified the model registry lifecycle across artifact kinds:
+  - `checkpoint`
+  - `simulation`
+  - `environment`
+  - `native-extension`
+
+### Fixes
+- Added additive simulation lineage and world-snapshot manifest outputs to `enkai sim`:
+  - `--lineage-output <file>`
+  - `--snapshot-manifest-output <file>`
+- Added additive registry metadata for `--artifact-kind`, `--artifact-manifest`, and `--lineage-manifest` on `enkai model register`.
+- Added `enkai model verify-signature <registry_dir> <name> <version> --registry <remote_registry_dir>`.
+- Added full-platform signed registry convergence smoke and semantic verification:
+  - `scripts/readiness_registry_convergence.py`
+  - `scripts/verify_registry_convergence.py`
+- Full-platform readiness, blocker verification, strict evidence archiving, and capability reporting now require archived registry convergence artifacts under:
+  - `artifacts/readiness/model_registry_convergence.json`
+  - `artifacts/readiness/model_registry_convergence_verify.json`
+  - `artifacts/registry/`
+- Synced docs/spec/release metadata and version surfaces to `v2.8.0`.
+
+### Breaking changes
+- None.
+
 ## v2.7.1
 
 ### Highlights

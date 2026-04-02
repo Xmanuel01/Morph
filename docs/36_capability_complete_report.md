@@ -1,6 +1,6 @@
-# 36. Capability-Complete Report (v2.3.0)
+# 36. Capability-Complete Report (v2.8.0)
 
-This document defines the objective release evidence contract for the `v2.3.0`
+This document defines the objective release evidence contract for the `v2.8.0`
 stability cut.
 
 ## Goal
@@ -45,6 +45,8 @@ Core categories:
   - `sim_stdlib_evidence_verify.json` (`readiness/sim_stdlib_evidence_verify.json`) validating archived stdlib simulation evidence consistency
   - `adam0_reference_suite.json` (`readiness/adam0_reference_suite.json`) summarizing the archived Adam-0 reference suite for the 100 / 1000 / 10000 agent cases
   - `adam0_reference_suite_verify.json` (`readiness/adam0_reference_suite_verify.json`) validating archived Adam-0 reference suite evidence consistency
+  - `model_registry_convergence.json` (`readiness/model_registry_convergence.json`) summarizing signed registry convergence across checkpoint, simulation, environment, and native-extension artifact kinds
+  - `model_registry_convergence_verify.json` (`readiness/model_registry_convergence_verify.json`) validating archived registry convergence evidence consistency
   - `snn_agent_kernel_smoke.json` (`readiness/snn_agent_kernel_smoke.json`) summarizing the archived SNN/agent kernel smoke workflow
   - `snn_agent_kernel_evidence_verify.json` (`readiness/snn_agent_kernel_evidence_verify.json`) validating archived SNN/agent kernel evidence consistency
   - `production.json` (`readiness/production.json`) as an optional compatibility/reference artifact
@@ -70,6 +72,14 @@ Core categories:
   - `sim/adam0_target_10000_replay.json`
   - `sim/snn_agent_kernel_run.json`
   - `sim/snn_agent_kernel_profile.json`
+- `registry/`:
+  - `registry/sim_lineage.json`
+  - `registry/sim_snapshot.manifest.json`
+  - `registry/local/registry.json`
+  - `registry/remote/registry.json`
+  - `registry/cache/registry.json`
+  - `registry/remote/adam0-sim/v2.8.0/remote.manifest.json`
+  - `registry/remote/adam0-sim/v2.8.0/remote.manifest.sig`
 - `gpu/` (mandatory for full sign-off):
   - `single_gpu.log`, `single_gpu_evidence.json`
   - `multi_gpu.log`, `multi_gpu_evidence.json`
@@ -92,7 +102,7 @@ In strict mode the archived blocker report must also be present and must show:
 - `skip_release_evidence: false`
 - no missing/failed/skipped required checks
 - no missing required release artifacts
-- simulation std/runtime, stdlib primitive, Adam-0 smoke, Adam-0 reference suite, native FFI, and SNN/agent kernel evidence artifacts must be present under both `readiness/` and `sim/`
+- simulation std/runtime, stdlib primitive, Adam-0 smoke, Adam-0 reference suite, native FFI, SNN/agent kernel, and registry convergence evidence artifacts must be present under `readiness/`, `sim/`, and `registry/`
 
 ## RC Pipeline Contract
 
@@ -101,6 +111,6 @@ In strict mode the archived blocker report must also be present and must show:
 
 The RC wrappers for the current line are:
 
-- `scripts/v2_3_0_rc_pipeline.ps1`
-- `scripts/v2_3_0_rc_pipeline.sh`
+- `scripts/v2_8_0_rc_pipeline.ps1`
+- `scripts/v2_8_0_rc_pipeline.sh`
 

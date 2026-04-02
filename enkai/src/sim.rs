@@ -1,9 +1,12 @@
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use serde::Serialize;
 use serde_json::json;
+use sha2::{Digest, Sha256};
 
 use enkai_compiler::compiler::compile_module;
 use enkai_compiler::parser::parse_module_named;
@@ -20,6 +23,8 @@ struct SimRunOptions {
     trace_net: bool,
     emit_json_stdout: bool,
     output: Option<PathBuf>,
+    lineage_output: Option<PathBuf>,
+    snapshot_manifest_output: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,6 +40,40 @@ struct SimReplayOptions {
     steps: usize,
     emit_json_stdout: bool,
     output: Option<PathBuf>,
+    lineage_output: Option<PathBuf>,
+    snapshot_manifest_output: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SimLineageManifest {
+    schema_version: u32,
+    manifest_kind: String,
+    run_id: String,
+    parent_run_id: Option<String>,
+    command: String,
+    target: Option<String>,
+    snapshot: Option<String>,
+    source_hash: Option<String>,
+    environment_hash: String,
+    config_hash: String,
+    started_at_unix_ms: u128,
+    finished_at_unix_ms: u128,
+    elapsed_ms: f64,
+    exit_code: i32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SimSnapshotManifest {
+    schema_version: u32,
+    manifest_kind: String,
+    source_run_id: String,
+    command: String,
+    target: Option<String>,
+    snapshot_path: Option<String>,
+    snapshot_hash: String,
+    source_hash: Option<String>,
+    environment_hash: String,
+    config_hash: String,
 }
 
 pub fn sim_command(args: &[String]) -> i32 {
@@ -54,9 +93,9 @@ pub fn sim_command(args: &[String]) -> i32 {
 }
 
 pub fn print_sim_usage() {
-    eprintln!("  enkai sim run [--trace-vm] [--disasm] [--trace-task] [--trace-net] [--json] [--output <file>] <file|dir>");
-    eprintln!("  enkai sim profile [--trace-vm] [--disasm] [--trace-task] [--trace-net] [--case <id>] --output <file> <file|dir>");
-    eprintln!("  enkai sim replay --snapshot <file> --steps <n> [--json] [--output <file>]");
+    eprintln!("  enkai sim run [--trace-vm] [--disasm] [--trace-task] [--trace-net] [--json] [--output <file>] [--lineage-output <file>] [--snapshot-manifest-output <file>] <file|dir>");
+    eprintln!("  enkai sim profile [--trace-vm] [--disasm] [--trace-task] [--trace-net] [--case <id>] --output <file> [--lineage-output <file>] [--snapshot-manifest-output <file>] <file|dir>");
+    eprintln!("  enkai sim replay --snapshot <file> --steps <n> [--json] [--output <file>] [--lineage-output <file>] [--snapshot-manifest-output <file>]");
 }
 
 fn sim_run_command(args: &[String]) -> i32 {
@@ -177,6 +216,19 @@ fn sim_replay_command(args: &[String]) -> i32 {
         eprintln!("enkai sim replay: {}", err);
         return 1;
     }
+    if let Err(err) = write_sim_manifests(SimManifestRequest {
+        command: "sim.replay",
+        target: None,
+        snapshot: Some(&options.snapshot),
+        started,
+        exit_code,
+        payload: &payload,
+        lineage_output: options.lineage_output.as_deref(),
+        snapshot_manifest_output: options.snapshot_manifest_output.as_deref(),
+    }) {
+        eprintln!("enkai sim replay: {}", err);
+        return 1;
+    }
     exit_code
 }
 
@@ -233,6 +285,16 @@ fn execute_sim_run(
                 options.emit_json_stdout,
                 options.output.as_deref(),
             )?;
+            write_sim_manifests(SimManifestRequest {
+                command: "sim.run",
+                target: Some(&options.target),
+                snapshot: None,
+                started,
+                exit_code,
+                payload: &payload,
+                lineage_output: options.lineage_output.as_deref(),
+                snapshot_manifest_output: options.snapshot_manifest_output.as_deref(),
+            })?;
             Ok(exit_code)
         }
         Err(err) => Err(format!("Runtime error: {}", err)),
@@ -343,6 +405,167 @@ fn value_to_json(value: &Value) -> serde_json::Value {
     }
 }
 
+struct SimManifestRequest<'a> {
+    command: &'a str,
+    target: Option<&'a Path>,
+    snapshot: Option<&'a Path>,
+    started: Instant,
+    exit_code: i32,
+    payload: &'a serde_json::Value,
+    lineage_output: Option<&'a Path>,
+    snapshot_manifest_output: Option<&'a Path>,
+}
+
+fn write_sim_manifests(request: SimManifestRequest<'_>) -> Result<(), String> {
+    let SimManifestRequest {
+        command,
+        target,
+        snapshot,
+        started,
+        exit_code,
+        payload,
+        lineage_output,
+        snapshot_manifest_output,
+    } = request;
+    let Some(lineage_path) = lineage_output else {
+        return Ok(());
+    };
+    let started_at_unix_ms = current_unix_ms().saturating_sub(started.elapsed().as_millis());
+    let finished_at_unix_ms = current_unix_ms();
+    let source_hash = target.map(hash_target).transpose()?;
+    let environment_hash = simulation_environment_hash();
+    let config_hash = sha256_hex(
+        format!(
+            "{}|{}|{}|{}",
+            command,
+            target
+                .map(|path| path.display().to_string())
+                .unwrap_or_default(),
+            snapshot
+                .map(|path| path.display().to_string())
+                .unwrap_or_default(),
+            environment_hash
+        )
+        .as_bytes(),
+    );
+    let run_id = simulation_run_id(command, target, snapshot, &config_hash);
+    let lineage = SimLineageManifest {
+        schema_version: 1,
+        manifest_kind: "simulation_lineage_v1".to_string(),
+        run_id: run_id.clone(),
+        parent_run_id: env::var("ENKAI_SIM_PARENT_RUN_ID").ok(),
+        command: command.to_string(),
+        target: target.map(|path| path.display().to_string()),
+        snapshot: snapshot.map(|path| path.display().to_string()),
+        source_hash,
+        environment_hash: environment_hash.clone(),
+        config_hash: config_hash.clone(),
+        started_at_unix_ms,
+        finished_at_unix_ms,
+        elapsed_ms: started.elapsed().as_secs_f64() * 1000.0,
+        exit_code,
+    };
+    write_manifest(lineage_path, &lineage)?;
+
+    if let Some(snapshot_path) = snapshot_manifest_output {
+        let snapshot_json = payload.get("result").unwrap_or(&serde_json::Value::Null);
+        let snapshot_manifest = SimSnapshotManifest {
+            schema_version: 1,
+            manifest_kind: "world_snapshot_v1".to_string(),
+            source_run_id: run_id,
+            command: command.to_string(),
+            target: target.map(|path| path.display().to_string()),
+            snapshot_path: snapshot.map(|path| path.display().to_string()),
+            snapshot_hash: sha256_hex(snapshot_json.to_string().as_bytes()),
+            source_hash: target.map(hash_target).transpose()?,
+            environment_hash,
+            config_hash,
+        };
+        write_manifest(snapshot_path, &snapshot_manifest)?;
+    }
+    Ok(())
+}
+
+fn write_manifest<T: Serialize>(path: &Path, payload: &T) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+        }
+    }
+    let text = serde_json::to_vec_pretty(payload).map_err(|err| err.to_string())?;
+    fs::write(path, text).map_err(|err| err.to_string())
+}
+
+fn simulation_environment_hash() -> String {
+    let mut selected = BTreeMap::new();
+    for (key, value) in env::vars() {
+        if key.starts_with("ENKAI_") {
+            selected.insert(key, value);
+        }
+    }
+    let json = serde_json::to_string(&selected).unwrap_or_default();
+    sha256_hex(json.as_bytes())
+}
+
+fn simulation_run_id(
+    command: &str,
+    target: Option<&Path>,
+    snapshot: Option<&Path>,
+    config_hash: &str,
+) -> String {
+    env::var("ENKAI_SIM_RUN_ID").unwrap_or_else(|_| {
+        let descriptor = format!(
+            "{}:{}:{}:{}",
+            command,
+            target
+                .map(|path| path.display().to_string())
+                .unwrap_or_default(),
+            snapshot
+                .map(|path| path.display().to_string())
+                .unwrap_or_default(),
+            &config_hash[..config_hash.len().min(8)]
+        );
+        format!(
+            "sim-{}-{}",
+            current_unix_ms(),
+            &sha256_hex(descriptor.as_bytes())[0..8]
+        )
+    })
+}
+
+fn hash_target(path: &Path) -> Result<String, String> {
+    if path.is_file() {
+        let bytes =
+            fs::read(path).map_err(|err| format!("failed to read {}: {}", path.display(), err))?;
+        return Ok(sha256_hex(&bytes));
+    }
+    let root = super::find_project_root(path).unwrap_or_else(|| path.to_path_buf());
+    let files = super::collect_source_files(&root)?;
+    let mut digest = Sha256::new();
+    for file in files {
+        digest.update(file.to_string_lossy().as_bytes());
+        if file.is_file() {
+            let bytes = fs::read(&file)
+                .map_err(|err| format!("failed to read {}: {}", file.display(), err))?;
+            digest.update(&bytes);
+        }
+    }
+    Ok(format!("{:x}", digest.finalize()))
+}
+
+fn current_unix_ms() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|value| value.as_millis())
+        .unwrap_or(0)
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut digest = Sha256::new();
+    digest.update(bytes);
+    format!("{:x}", digest.finalize())
+}
+
 fn parse_sim_run_args(args: &[String]) -> Result<SimRunOptions, String> {
     let mut target: Option<PathBuf> = None;
     let mut trace_vm = false;
@@ -351,6 +574,8 @@ fn parse_sim_run_args(args: &[String]) -> Result<SimRunOptions, String> {
     let mut trace_net = false;
     let mut emit_json_stdout = false;
     let mut output: Option<PathBuf> = None;
+    let mut lineage_output: Option<PathBuf> = None;
+    let mut snapshot_manifest_output: Option<PathBuf> = None;
     let mut idx = 0usize;
     while idx < args.len() {
         match args[idx].as_str() {
@@ -365,6 +590,20 @@ fn parse_sim_run_args(args: &[String]) -> Result<SimRunOptions, String> {
                     return Err("--output requires a value".to_string());
                 }
                 output = Some(PathBuf::from(&args[idx]));
+            }
+            "--lineage-output" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err("--lineage-output requires a value".to_string());
+                }
+                lineage_output = Some(PathBuf::from(&args[idx]));
+            }
+            "--snapshot-manifest-output" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err("--snapshot-manifest-output requires a value".to_string());
+                }
+                snapshot_manifest_output = Some(PathBuf::from(&args[idx]));
             }
             flag if flag.starts_with("--") => return Err(format!("unknown option '{}'", flag)),
             path => {
@@ -385,11 +624,15 @@ fn parse_sim_run_args(args: &[String]) -> Result<SimRunOptions, String> {
         trace_net,
         emit_json_stdout,
         output,
+        lineage_output,
+        snapshot_manifest_output,
     })
 }
 
 fn parse_sim_profile_args(args: &[String]) -> Result<SimProfileOptions, String> {
     let mut output: Option<PathBuf> = None;
+    let mut lineage_output: Option<PathBuf> = None;
+    let mut snapshot_manifest_output: Option<PathBuf> = None;
     let mut case_id = "sim_cli".to_string();
     let mut passthrough = Vec::new();
     let mut idx = 0usize;
@@ -409,13 +652,29 @@ fn parse_sim_profile_args(args: &[String]) -> Result<SimProfileOptions, String> 
                 }
                 case_id = args[idx].clone();
             }
+            "--lineage-output" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err("--lineage-output requires a value".to_string());
+                }
+                lineage_output = Some(PathBuf::from(&args[idx]));
+            }
+            "--snapshot-manifest-output" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err("--snapshot-manifest-output requires a value".to_string());
+                }
+                snapshot_manifest_output = Some(PathBuf::from(&args[idx]));
+            }
             value => passthrough.push(value.to_string()),
         }
         idx += 1;
     }
     let profile_output =
         output.ok_or_else(|| "sim profile requires --output <file>".to_string())?;
-    let run = parse_sim_run_args(&passthrough)?;
+    let mut run = parse_sim_run_args(&passthrough)?;
+    run.lineage_output = lineage_output;
+    run.snapshot_manifest_output = snapshot_manifest_output;
     Ok(SimProfileOptions {
         run,
         profile_output,
@@ -428,6 +687,8 @@ fn parse_sim_replay_args(args: &[String]) -> Result<SimReplayOptions, String> {
     let mut steps: Option<usize> = None;
     let mut emit_json_stdout = false;
     let mut output: Option<PathBuf> = None;
+    let mut lineage_output: Option<PathBuf> = None;
+    let mut snapshot_manifest_output: Option<PathBuf> = None;
     let mut idx = 0usize;
     while idx < args.len() {
         match args[idx].as_str() {
@@ -457,6 +718,20 @@ fn parse_sim_replay_args(args: &[String]) -> Result<SimReplayOptions, String> {
                 }
                 output = Some(PathBuf::from(&args[idx]));
             }
+            "--lineage-output" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err("--lineage-output requires a value".to_string());
+                }
+                lineage_output = Some(PathBuf::from(&args[idx]));
+            }
+            "--snapshot-manifest-output" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err("--snapshot-manifest-output requires a value".to_string());
+                }
+                snapshot_manifest_output = Some(PathBuf::from(&args[idx]));
+            }
             flag => return Err(format!("unknown option '{}'", flag)),
         }
         idx += 1;
@@ -466,6 +741,8 @@ fn parse_sim_replay_args(args: &[String]) -> Result<SimReplayOptions, String> {
         steps: steps.ok_or_else(|| "sim replay requires --steps <n>".to_string())?,
         emit_json_stdout,
         output,
+        lineage_output,
+        snapshot_manifest_output,
     })
 }
 
@@ -488,6 +765,7 @@ mod tests {
             options.output,
             Some(PathBuf::from("artifacts/sim/run.json"))
         );
+        assert_eq!(options.lineage_output, None);
         assert_eq!(options.target, PathBuf::from("examples/nn_sanity.enk"));
     }
 
@@ -515,6 +793,8 @@ mod tests {
             trace_net: false,
             emit_json_stdout: false,
             output: Some(out.clone()),
+            lineage_output: None,
+            snapshot_manifest_output: None,
         };
         let exit = execute_sim_run(&options, None, None).expect("run");
         assert_eq!(exit, 0);
@@ -541,6 +821,8 @@ mod tests {
             trace_net: false,
             emit_json_stdout: false,
             output: None,
+            lineage_output: None,
+            snapshot_manifest_output: None,
         };
         let exit = execute_sim_run(&options, Some(&profile), Some("sim_cli_test")).expect("run");
         assert_eq!(exit, 0);
@@ -564,5 +846,36 @@ mod tests {
         );
         assert_eq!(options.steps, 4);
         assert!(options.emit_json_stdout);
+    }
+
+    #[test]
+    fn sim_run_writes_lineage_and_snapshot_manifests() {
+        let dir = tempdir().expect("tempdir");
+        let script = dir.path().join("sim.enk");
+        fs::write(
+            &script,
+            "import std::sim\nfn main() ::\n    let w := sim.make_seeded(8, 7)\n    sim.schedule(w, 1.0, 9)\n    sim.run(w, 1)\n    return sim.snapshot(w)\n::\nmain()\n",
+        )
+        .expect("write");
+        let run_out = dir.path().join("run.json");
+        let lineage_out = dir.path().join("run.lineage.json");
+        let snapshot_manifest = dir.path().join("run.snapshot.manifest.json");
+        let options = SimRunOptions {
+            target: script,
+            trace_vm: false,
+            disasm: false,
+            trace_task: false,
+            trace_net: false,
+            emit_json_stdout: false,
+            output: Some(run_out),
+            lineage_output: Some(lineage_out.clone()),
+            snapshot_manifest_output: Some(snapshot_manifest.clone()),
+        };
+        let exit = execute_sim_run(&options, None, None).expect("run");
+        assert_eq!(exit, 0);
+        let lineage = fs::read_to_string(lineage_out).expect("lineage");
+        assert!(lineage.contains("\"manifest_kind\": \"simulation_lineage_v1\""));
+        let snapshot = fs::read_to_string(snapshot_manifest).expect("snapshot manifest");
+        assert!(snapshot.contains("\"manifest_kind\": \"world_snapshot_v1\""));
     }
 }

@@ -165,6 +165,14 @@ def main() -> int:
             failures.append(
                 "docs/36_capability_complete_report.md missing Adam-0 reference suite verification reference"
             )
+        if "readiness/model_registry_convergence.json" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing registry convergence summary reference"
+            )
+        if "readiness/model_registry_convergence_verify.json" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing registry convergence verification reference"
+            )
         if "readiness/snn_agent_kernel_smoke.json" not in capability_text:
             failures.append(
                 "docs/36_capability_complete_report.md missing SNN agent kernel smoke reference"
@@ -193,6 +201,14 @@ def main() -> int:
             failures.append(
                 "docs/36_capability_complete_report.md missing SNN agent kernel evidence archive reference"
             )
+        if "registry/sim_lineage.json" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing registry simulation lineage archive reference"
+            )
+        if "registry/remote/adam0-sim/v2.8.0/remote.manifest.json" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing registry remote manifest archive reference"
+            )
 
     readiness_doc = ROOT / "docs/37_readiness_matrix.md"
     if not readiness_doc.is_file():
@@ -217,6 +233,10 @@ def main() -> int:
             failures.append("docs/37_readiness_matrix.md missing Adam-0 reference suite artifact reference")
         if "artifacts/readiness/adam0_reference_suite_verify.json" not in readiness_text:
             failures.append("docs/37_readiness_matrix.md missing Adam-0 reference suite verification artifact reference")
+        if "artifacts/readiness/model_registry_convergence.json" not in readiness_text:
+            failures.append("docs/37_readiness_matrix.md missing registry convergence artifact reference")
+        if "artifacts/readiness/model_registry_convergence_verify.json" not in readiness_text:
+            failures.append("docs/37_readiness_matrix.md missing registry convergence verification artifact reference")
         if "artifacts/readiness/snn_agent_kernel_smoke.json" not in readiness_text:
             failures.append("docs/37_readiness_matrix.md missing SNN agent kernel smoke artifact reference")
         if "artifacts/readiness/snn_agent_kernel_evidence_verify.json" not in readiness_text:
@@ -234,6 +254,17 @@ def main() -> int:
             failures.append("docs/39_adam0_reference_stack.md missing Adam-0 readiness suite artifact reference")
         if "artifacts/sim/adam0_target_10000_run.json" not in adam0_text:
             failures.append("docs/39_adam0_reference_stack.md missing Adam-0 target run artifact reference")
+    registry_doc = ROOT / "docs/40_registry_convergence.md"
+    if not registry_doc.is_file():
+        failures.append("missing docs/40_registry_convergence.md")
+    else:
+        registry_text = registry_doc.read_text(encoding="utf-8")
+        if "enkai model verify-signature" not in registry_text:
+            failures.append("docs/40_registry_convergence.md missing verify-signature command reference")
+        if "artifacts/readiness/model_registry_convergence.json" not in registry_text:
+            failures.append("docs/40_registry_convergence.md missing registry convergence readiness artifact reference")
+        if "artifacts/registry/sim_lineage.json" not in registry_text:
+            failures.append("docs/40_registry_convergence.md missing simulation lineage artifact reference")
     benchmark_doc = ROOT / "docs/33_benchmark_suite.md"
     if not benchmark_doc.is_file():
         failures.append("missing docs/33_benchmark_suite.md")

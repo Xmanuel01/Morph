@@ -2,11 +2,39 @@
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.7.1.
+- Current production release line is v2.8.0.
 - v2.6.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
 
-v2.7.1 (done)
+v2.8.0 (done)
+- LLM + AGI data/training/registry convergence:
+  - added simulation lineage and world-snapshot manifests to `enkai sim`:
+    - `--lineage-output <file>`
+    - `--snapshot-manifest-output <file>`
+  - extended the model registry lifecycle to support additive artifact kinds:
+    - `checkpoint`
+    - `simulation`
+    - `environment`
+    - `native-extension`
+  - added signed remote verification command:
+    - `enkai model verify-signature <registry_dir> <name> <version> --registry <remote_registry_dir>`
+  - added full-platform signed registry convergence smoke + verification:
+    - `scripts/readiness_registry_convergence.py`
+    - `scripts/verify_registry_convergence.py`
+  - full-platform readiness now archives and verifies:
+    - `artifacts/readiness/model_registry_convergence.json`
+    - `artifacts/readiness/model_registry_convergence_verify.json`
+    - `artifacts/registry/sim_lineage.json`
+    - `artifacts/registry/sim_snapshot.manifest.json`
+    - `artifacts/registry/local/registry.json`
+    - `artifacts/registry/remote/registry.json`
+    - `artifacts/registry/cache/registry.json`
+    - `artifacts/registry/remote/adam0-sim/v2.8.0/remote.manifest.json`
+    - `artifacts/registry/remote/adam0-sim/v2.8.0/remote.manifest.sig`
+  - documented the convergence contract in:
+    - `docs/40_registry_convergence.md`
+
+v2.8.0 (done)
 - Adam-0 reference stack completion:
   - added bounded Adam-0 reference suite:
     - `examples/adam0_reference.enk`

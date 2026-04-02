@@ -4,9 +4,9 @@
 Overview
 Enkai is a programming language with block structure defined by :: tokens, a clean
 assignment operator (:=), and an AI-native roadmap (tools, agents, memory, policy).
-This repository contains the v2.7.1 implementation in Rust.
+This repository contains the v2.8.0 implementation in Rust.
 
-Status (v2.7.1)
+Status (v2.8.0)
 - Bytecode VM + globals + type-checking
 - Module system with public/private exports
 - CLI: run/bench/readiness/deploy/model/serve/new/sdk/check/fmt/fmt-lite/lint-lite/tokenizer-lite/dataset-lite/litec/build/test/train/pretrain/eval/migrate/doctor
@@ -54,9 +54,15 @@ Status (v2.7.1)
 - Serving hardening: request correlation IDs, queue/inflight telemetry headers, deterministic JSON error codes, backpressure control, and model-version enforcement hooks
 - Model lifecycle registry hardening:
   - local registry lifecycle (`register|list|load|unload|promote|retire|rollback`)
-  - remote registry sync (`push|pull|promote-remote|retire-remote|rollback-remote`)
+  - remote registry sync (`push|pull|promote-remote|retire-remote|rollback-remote|verify-signature`)
   - immutable remote artifact manifests + optional signature verification
   - append-only model lifecycle audit log (`audit.log.jsonl`)
+  - additive artifact kinds:
+    - `checkpoint`
+    - `simulation`
+    - `environment`
+    - `native-extension`
+  - simulation lineage/snapshot manifests can be registered and remotely signed through the same lifecycle flow
 - Frontend stack: React/TypeScript scaffolds + typed SDK generation
 - Serve/frontend contract snapshots and compatibility freeze gates for generated backend + SDK
 - Schema-versioned conversation persistence (`schema_version: 1`) with startup migration hook for legacy scaffold state
@@ -68,8 +74,8 @@ Status (v2.7.1)
 - Bootstrap-lite/core toolchain path with `litec` stage0/stage1 bytecode equivalence checks, phase staging (`litec stage`), self-host CI corpus validation (`litec selfhost-ci`), and consolidated release lane (`litec release-ci`)
 - Self-host mainline CI lane with deterministic triage artifacts (`litec mainline-ci --triage-dir <dir>`) plus mandatory Stage0 fallback lane
 - Self-host replacement-readiness gate with Stage1/Stage2 fixed-point checks (`litec replace-check`)
-- Compatibility/deprecation governance and self-host fallback workflow docs for v2.7.1 release readiness
-- Version-neutral release pipeline, deterministic packaging, checksum verification, SBOM generation, and RC evidence-archive gates for v2.7.1 sign-off
+- Compatibility/deprecation governance and self-host fallback workflow docs for v2.8.0 release readiness
+- Version-neutral release pipeline, deterministic packaging, checksum verification, SBOM generation, and RC evidence-archive gates for v2.8.0 sign-off
 - Full-platform simulation smoke evidence integrated into release sign-off:
   - `scripts/readiness_sim_smoke.py`
   - `artifacts/readiness/sim_smoke.json`
@@ -88,6 +94,13 @@ Status (v2.7.1)
   - `artifacts/sim/adam0_baseline_100_run.json`
   - `artifacts/sim/adam0_stress_1000_run.json`
   - `artifacts/sim/adam0_target_10000_run.json`
+- Registry convergence evidence integrated into release sign-off:
+  - `scripts/readiness_registry_convergence.py`
+  - `scripts/verify_registry_convergence.py`
+  - `artifacts/readiness/model_registry_convergence.json`
+  - `artifacts/readiness/model_registry_convergence_verify.json`
+  - `artifacts/registry/sim_lineage.json`
+  - `artifacts/registry/sim_snapshot.manifest.json`
 - Capability-complete release report generated from archived evidence:
   - `scripts/collect_release_evidence.py --strict`
   - `scripts/generate_capability_report.py --strict`
@@ -108,7 +121,7 @@ Status (v2.7.1)
   - deterministic suites under `bench/suites/`
   - machine profile manifests under `bench/machines/`
   - structured result artifacts under `bench/results/*.json`
-- Strict-contract enforcement in v2.7.1:
+- Strict-contract enforcement in v2.8.0:
   - `enkai train` / `enkai eval` enforce contract checks by default
   - explicit legacy recovery is gated: `--lenient-contracts` + `ENKAI_ALLOW_LEGACY_CONTRACTS=1`
   - readiness audit: `enkai doctor --json [--strict-contracts|--lenient]`

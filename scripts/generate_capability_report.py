@@ -497,6 +497,38 @@ def build_checks(
             ),
         )
     )
+    registry_convergence = has_exact(
+        copied_paths, "/readiness/model_registry_convergence.json"
+    )
+    checks.append(
+        CheckResult(
+            id="readiness_model_registry_convergence_report",
+            description="Model/simulation registry convergence summary is present",
+            required=True,
+            passed=registry_convergence,
+            details=(
+                "readiness/model_registry_convergence.json"
+                if registry_convergence
+                else "missing readiness/model_registry_convergence.json"
+            ),
+        )
+    )
+    registry_convergence_verify = has_exact(
+        copied_paths, "/readiness/model_registry_convergence_verify.json"
+    )
+    checks.append(
+        CheckResult(
+            id="readiness_model_registry_convergence_verify_report",
+            description="Model/simulation registry convergence verification report is present",
+            required=True,
+            passed=registry_convergence_verify,
+            details=(
+                "readiness/model_registry_convergence_verify.json"
+                if registry_convergence_verify
+                else "missing readiness/model_registry_convergence_verify.json"
+            ),
+        )
+    )
     snn_agent_smoke = has_exact(copied_paths, "/readiness/snn_agent_kernel_smoke.json")
     checks.append(
         CheckResult(
@@ -602,6 +634,25 @@ def build_checks(
                 required=True,
                 passed=present,
                 details=name if present else f"missing sim/{name}",
+            )
+        )
+    for name in (
+        "sim_lineage.json",
+        "sim_snapshot.manifest.json",
+        "local/registry.json",
+        "remote/registry.json",
+        "cache/registry.json",
+        "remote/adam0-sim/v2.8.0/remote.manifest.json",
+        "remote/adam0-sim/v2.8.0/remote.manifest.sig",
+    ):
+        present = has_exact(copied_paths, f"/registry/{name}")
+        checks.append(
+            CheckResult(
+                id=f"registry_{name.replace('/', '_').replace('.', '_')}",
+                description=f"Registry convergence evidence `{name}` is present",
+                required=True,
+                passed=present,
+                details=name if present else f"missing registry/{name}",
             )
         )
 

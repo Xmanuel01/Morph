@@ -5,12 +5,25 @@
     {
       "id": "fmt",
       "description": "Rust formatting gate",
-      "command": ["cargo", "fmt", "--all", "--check"]
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ]
     },
     {
       "id": "clippy",
       "description": "Workspace lint gate",
-      "command": ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]
+      "command": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ]
     },
     {
       "id": "test",
@@ -27,7 +40,10 @@
     {
       "id": "docs-consistency",
       "description": "Docs/spec/contract consistency check",
-      "command": ["${PYTHON}", "scripts/check_docs_consistency.py"]
+      "command": [
+        "${PYTHON}",
+        "scripts/check_docs_consistency.py"
+      ]
     },
     {
       "id": "frontend-contract",
@@ -58,7 +74,14 @@
     {
       "id": "llm-runtime-smoke",
       "description": "LLM tensor/runtime smoke test",
-      "command": ["cargo", "test", "-p", "enkai_tensor", "--test", "tinylm_smoke"]
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "enkai_tensor",
+        "--test",
+        "tinylm_smoke"
+      ]
     },
     {
       "id": "simulation-smoke",
@@ -241,7 +264,39 @@
     {
       "id": "db-core-smoke",
       "description": "Database core smoke test (SQLite/native)",
-      "command": ["cargo", "test", "-p", "enkai_native", "sqlite_exec_many_transaction_roundtrip"]
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "enkai_native",
+        "sqlite_exec_many_transaction_roundtrip"
+      ]
+    },
+    {
+      "id": "registry-convergence",
+      "description": "Signed model/simulation registry convergence smoke",
+      "command": [
+        "${PYTHON}",
+        "scripts/readiness_registry_convergence.py",
+        "--enkai-bin",
+        "${ENKAI_BIN}",
+        "--workspace",
+        ".",
+        "--output",
+        "artifacts/readiness/model_registry_convergence.json"
+      ]
+    },
+    {
+      "id": "registry-convergence-verify",
+      "description": "Signed model/simulation registry convergence verification",
+      "command": [
+        "${PYTHON}",
+        "scripts/verify_registry_convergence.py",
+        "--summary",
+        "artifacts/readiness/model_registry_convergence.json",
+        "--output",
+        "artifacts/readiness/model_registry_convergence_verify.json"
+      ]
     },
     {
       "id": "deploy-backend-validate",

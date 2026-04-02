@@ -1,4 +1,4 @@
-﻿# Self-Host Workflow (v2.7.1)
+﻿# Self-Host Workflow (v2.8.0)
 
 ## Purpose
 

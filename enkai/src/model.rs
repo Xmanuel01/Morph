@@ -11,6 +11,10 @@ const REMOTE_MANIFEST_FILE: &str = "remote.manifest.json";
 const REMOTE_SIGNATURE_FILE: &str = "remote.manifest.sig";
 const AUDIT_LOG_FILE: &str = "audit.log.jsonl";
 const SIGNING_KEY_ENV: &str = "ENKAI_MODEL_SIGNING_KEY";
+const ARTIFACT_POINTER_FILE: &str = "artifact_path.txt";
+const CHECKPOINT_POINTER_FILE: &str = "checkpoint_path.txt";
+const MODEL_MANIFEST_FILE: &str = "model.meta.json";
+const DEFAULT_ARTIFACT_KIND: &str = "checkpoint";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ModelRegistry {
@@ -28,6 +32,12 @@ struct ModelEntry {
 struct ModelVersion {
     status: String,
     checkpoint_path: String,
+    #[serde(default = "default_artifact_kind")]
+    artifact_kind: String,
+    #[serde(default)]
+    artifact_manifest_path: Option<String>,
+    #[serde(default)]
+    lineage_manifest_path: Option<String>,
     created_ms: u64,
     updated_ms: u64,
 }
@@ -51,6 +61,9 @@ struct RemoteArtifactManifest {
     version: String,
     status: String,
     checkpoint_path: String,
+    artifact_kind: String,
+    artifact_manifest_path: Option<String>,
+    lineage_manifest_path: Option<String>,
     source_registry: String,
     pushed_ms: u64,
     artifact_digest: String,
@@ -98,6 +111,18 @@ struct RemoteCommandArgs {
 }
 
 #[derive(Debug, Clone)]
+struct RegisterCommandArgs {
+    registry_dir: PathBuf,
+    name: String,
+    version: String,
+    artifact_path: PathBuf,
+    activate: bool,
+    artifact_kind: String,
+    artifact_manifest_path: Option<PathBuf>,
+    lineage_manifest_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
 struct AuditAppend<'a> {
     operation: &'a str,
     status: &'a str,
@@ -121,6 +146,7 @@ pub fn model_command(args: &[String]) -> i32 {
         "loaded" => model_loaded(&args[1..]),
         "push" => model_push_remote(&args[1..]),
         "pull" => model_pull_remote(&args[1..]),
+        "verify-signature" => model_verify_signature(&args[1..]),
         "promote-remote" => model_sync_remote_state("promote", &args[1..]),
         "retire-remote" => model_sync_remote_state("retire", &args[1..]),
         "rollback-remote" => model_sync_remote_state("rollback", &args[1..]),
@@ -137,7 +163,7 @@ pub fn model_command(args: &[String]) -> i32 {
 
 pub fn print_model_usage() {
     eprintln!(
-        "  enkai model register <registry_dir> <name> <version> <checkpoint_path> [--activate]"
+        "  enkai model register <registry_dir> <name> <version> <artifact_path> [--activate] [--artifact-kind <checkpoint|simulation|environment|native-extension>] [--artifact-manifest <file>] [--lineage-manifest <file>]"
     );
     eprintln!("  enkai model list <registry_dir> [name] [--json]");
     eprintln!("  enkai model load <registry_dir> <name> <version>");
@@ -148,6 +174,9 @@ pub fn print_model_usage() {
     );
     eprintln!(
         "  enkai model pull <registry_dir> <name> <version> --registry <remote_registry_dir> [--verify-signature] [--fallback-local]"
+    );
+    eprintln!(
+        "  enkai model verify-signature <registry_dir> <name> <version> --registry <remote_registry_dir>"
     );
     eprintln!(
         "  enkai model promote-remote <registry_dir> <name> <version> --registry <remote_registry_dir> [--verify-signature] [--fallback-local]"
@@ -163,30 +192,24 @@ pub fn print_model_usage() {
     eprintln!("  enkai model rollback <registry_dir> <name> <version>");
 }
 
+fn default_artifact_kind() -> String {
+    DEFAULT_ARTIFACT_KIND.to_string()
+}
+
 fn model_register(args: &[String]) -> i32 {
-    if args.len() < 4 || args.len() > 5 {
-        eprintln!("Usage: enkai model register <registry_dir> <name> <version> <checkpoint_path> [--activate]");
-        return 1;
-    }
-    let registry_dir = PathBuf::from(&args[0]);
-    let name = args[1].trim();
-    let version = args[2].trim();
-    let checkpoint_path = PathBuf::from(&args[3]);
-    let activate = args.get(4).map(|v| v.as_str()) == Some("--activate");
-    if args.len() == 5 && !activate {
-        eprintln!("enkai model register: unknown option '{}'", args[4]);
-        return 1;
-    }
-    if name.is_empty() || version.is_empty() {
-        eprintln!("enkai model register: name/version cannot be empty");
-        return 1;
-    }
-    let checkpoint_path = match fs::canonicalize(&checkpoint_path) {
+    let parsed = match parse_register_args(args) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            eprintln!("enkai model register: {}", err);
+            return 1;
+        }
+    };
+    let checkpoint_path = match fs::canonicalize(&parsed.artifact_path) {
         Ok(path) => path,
         Err(err) => {
             eprintln!(
-                "enkai model register: checkpoint path {} is invalid: {}",
-                checkpoint_path.display(),
+                "enkai model register: artifact path {} is invalid: {}",
+                parsed.artifact_path.display(),
                 err
             );
             return 1;
@@ -194,27 +217,43 @@ fn model_register(args: &[String]) -> i32 {
     };
     if !checkpoint_path.exists() {
         eprintln!(
-            "enkai model register: checkpoint path not found: {}",
+            "enkai model register: artifact path not found: {}",
             checkpoint_path.display()
         );
         return 1;
     }
-    if let Err(err) = fs::create_dir_all(&registry_dir) {
+    let artifact_manifest_path =
+        match canonicalize_optional_file(parsed.artifact_manifest_path.as_deref()) {
+            Ok(path) => path,
+            Err(err) => {
+                eprintln!("enkai model register: {}", err);
+                return 1;
+            }
+        };
+    let lineage_manifest_path =
+        match canonicalize_optional_file(parsed.lineage_manifest_path.as_deref()) {
+            Ok(path) => path,
+            Err(err) => {
+                eprintln!("enkai model register: {}", err);
+                return 1;
+            }
+        };
+    if let Err(err) = fs::create_dir_all(&parsed.registry_dir) {
         eprintln!(
             "enkai model register: failed to create registry dir {}: {}",
-            registry_dir.display(),
+            parsed.registry_dir.display(),
             err
         );
         return 1;
     }
-    let mut registry = match load_registry(&registry_dir) {
+    let mut registry = match load_registry(&parsed.registry_dir) {
         Ok(registry) => registry,
         Err(err) => {
             eprintln!("enkai model register: {}", err);
             return 1;
         }
     };
-    let model_dir = registry_dir.join(name).join(version);
+    let model_dir = parsed.registry_dir.join(&parsed.name).join(&parsed.version);
     if let Err(err) = fs::create_dir_all(&model_dir) {
         eprintln!(
             "enkai model register: failed to create model version dir {}: {}",
@@ -225,35 +264,82 @@ fn model_register(args: &[String]) -> i32 {
     }
     let now = now_ms();
     let checkpoint_text = checkpoint_path.to_string_lossy().to_string();
-    let entry = registry.models.entry(name.to_string()).or_default();
+    let artifact_manifest_text = artifact_manifest_path
+        .as_ref()
+        .map(|path| path.to_string_lossy().to_string());
+    let lineage_manifest_text = lineage_manifest_path
+        .as_ref()
+        .map(|path| path.to_string_lossy().to_string());
+    let entry = registry.models.entry(parsed.name.clone()).or_default();
     let existing_created = entry
         .versions
-        .get(version)
+        .get(&parsed.version)
         .map(|existing| existing.created_ms)
         .unwrap_or(now);
     entry.versions.insert(
-        version.to_string(),
+        parsed.version.clone(),
         ModelVersion {
             status: "registered".to_string(),
             checkpoint_path: checkpoint_text.clone(),
+            artifact_kind: parsed.artifact_kind.clone(),
+            artifact_manifest_path: materialize_registry_manifest_path(
+                &model_dir,
+                artifact_manifest_text.as_deref(),
+                "artifact.manifest.json",
+            ),
+            lineage_manifest_path: materialize_registry_manifest_path(
+                &model_dir,
+                lineage_manifest_text.as_deref(),
+                "lineage.manifest.json",
+            ),
             created_ms: existing_created,
             updated_ms: now,
         },
     );
-    if activate || entry.active.is_none() {
-        entry.active = Some(version.to_string());
-        set_version_status(entry, version, "active");
+    if parsed.activate || entry.active.is_none() {
+        entry.active = Some(parsed.version.clone());
+        set_version_status(entry, &parsed.version, "active");
     }
-    if let Err(err) = write_checkpoint_pointer(&model_dir, &checkpoint_text) {
+    if let Err(err) = write_artifact_pointer(&model_dir, &checkpoint_text) {
         eprintln!("enkai model register: {}", err);
         return 1;
     }
-    if let Err(err) = write_model_manifest(&model_dir, name, version, entry) {
+    if let Some(source) = artifact_manifest_path.as_ref() {
+        let destination = model_dir.join(file_name_or("artifact.manifest.json", source));
+        if let Err(err) = fs::copy(source, &destination) {
+            eprintln!(
+                "enkai model register: failed to copy artifact manifest {} -> {}: {}",
+                source.display(),
+                destination.display(),
+                err
+            );
+            return 1;
+        }
+    }
+    if let Some(source) = lineage_manifest_path.as_ref() {
+        let destination = model_dir.join(file_name_or("lineage.manifest.json", source));
+        if let Err(err) = fs::copy(source, &destination) {
+            eprintln!(
+                "enkai model register: failed to copy lineage manifest {} -> {}: {}",
+                source.display(),
+                destination.display(),
+                err
+            );
+            return 1;
+        }
+    }
+    if let Err(err) = write_model_manifest(&model_dir, &parsed.name, &parsed.version, entry) {
         eprintln!("enkai model register: {}", err);
         return 1;
     }
     if let Some(active) = &entry.active {
-        if let Err(err) = fs::write(registry_dir.join(name).join(".active_version"), active) {
+        if let Err(err) = fs::write(
+            parsed
+                .registry_dir
+                .join(&parsed.name)
+                .join(".active_version"),
+            active,
+        ) {
             eprintln!(
                 "enkai model register: failed to write active version pointer: {}",
                 err
@@ -261,29 +347,86 @@ fn model_register(args: &[String]) -> i32 {
             return 1;
         }
     }
-    if let Err(err) = save_registry(&registry_dir, &registry) {
+    if let Err(err) = save_registry(&parsed.registry_dir, &registry) {
         eprintln!("enkai model register: {}", err);
         return 1;
     }
     let _ = append_audit_event(
-        &registry_dir,
+        &parsed.registry_dir,
         AuditAppend {
             operation: "register",
             status: "ok",
-            model: name,
-            version,
+            model: &parsed.name,
+            version: &parsed.version,
             remote_registry: None,
             code: None,
             detail: None,
         },
     );
     println!(
-        "registered model {} {} (checkpoint: {})",
-        name,
-        version,
+        "registered model {} {} (kind: {}, artifact: {})",
+        parsed.name,
+        parsed.version,
+        parsed.artifact_kind,
         checkpoint_path.display()
     );
     0
+}
+
+fn parse_register_args(args: &[String]) -> Result<RegisterCommandArgs, String> {
+    if args.len() < 4 {
+        return Err("Usage: enkai model register <registry_dir> <name> <version> <artifact_path> [--activate] [--artifact-kind <checkpoint|simulation|environment|native-extension>] [--artifact-manifest <file>] [--lineage-manifest <file>]".to_string());
+    }
+    let registry_dir = PathBuf::from(&args[0]);
+    let name = args[1].trim().to_string();
+    let version = args[2].trim().to_string();
+    let artifact_path = PathBuf::from(&args[3]);
+    if name.is_empty() || version.is_empty() {
+        return Err("name/version cannot be empty".to_string());
+    }
+    let mut activate = false;
+    let mut artifact_kind = default_artifact_kind();
+    let mut artifact_manifest_path: Option<PathBuf> = None;
+    let mut lineage_manifest_path: Option<PathBuf> = None;
+    let mut idx = 4usize;
+    while idx < args.len() {
+        match args[idx].as_str() {
+            "--activate" => activate = true,
+            "--artifact-kind" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err("--artifact-kind requires a value".to_string());
+                }
+                artifact_kind = normalize_artifact_kind(&args[idx])?;
+            }
+            "--artifact-manifest" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err("--artifact-manifest requires a value".to_string());
+                }
+                artifact_manifest_path = Some(PathBuf::from(&args[idx]));
+            }
+            "--lineage-manifest" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err("--lineage-manifest requires a value".to_string());
+                }
+                lineage_manifest_path = Some(PathBuf::from(&args[idx]));
+            }
+            other => return Err(format!("unknown option '{}'", other)),
+        }
+        idx += 1;
+    }
+    Ok(RegisterCommandArgs {
+        registry_dir,
+        name,
+        version,
+        artifact_path,
+        activate,
+        artifact_kind,
+        artifact_manifest_path,
+        lineage_manifest_path,
+    })
 }
 
 fn model_list(args: &[String]) -> i32 {
@@ -353,6 +496,30 @@ fn model_list(args: &[String]) -> i32 {
         print_model_entry(model_name, model);
     }
     0
+}
+
+fn normalize_artifact_kind(raw: &str) -> Result<String, String> {
+    let normalized = raw.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "checkpoint" | "simulation" | "environment" | "native-extension" => Ok(normalized),
+        _ => Err(format!(
+            "unsupported --artifact-kind '{}'; expected checkpoint|simulation|environment|native-extension",
+            raw
+        )),
+    }
+}
+
+fn canonicalize_optional_file(path: Option<&Path>) -> Result<Option<PathBuf>, String> {
+    match path {
+        Some(path) => fs::canonicalize(path)
+            .map(Some)
+            .map_err(|err| format!("invalid metadata file {}: {}", path.display(), err)),
+        None => Ok(None),
+    }
+}
+
+fn file_name_or<'a>(fallback: &'a str, path: &'a Path) -> &'a std::ffi::OsStr {
+    path.file_name().unwrap_or_else(|| fallback.as_ref())
 }
 
 fn model_promote_like(kind: &str, args: &[String]) -> i32 {
@@ -451,6 +618,13 @@ fn model_load(args: &[String]) -> i32 {
         );
         return 1;
     };
+    if version_entry.artifact_kind != DEFAULT_ARTIFACT_KIND {
+        eprintln!(
+            "enkai model load: model '{}' version '{}' is artifact kind '{}' and cannot be loaded for serve",
+            name, version, version_entry.artifact_kind
+        );
+        return 1;
+    }
     if version_entry.status == "retired" {
         eprintln!(
             "enkai model load: model '{}' version '{}' is retired",
@@ -705,6 +879,62 @@ fn model_pull_remote(args: &[String]) -> i32 {
                 &parsed.local_registry,
                 AuditAppend {
                     operation: "pull_remote",
+                    status: "failed",
+                    model: &parsed.model,
+                    version: &parsed.version,
+                    remote_registry: Some(&parsed.remote_registry),
+                    code: Some(err.code),
+                    detail: Some(&err.message),
+                },
+            );
+            1
+        }
+    }
+}
+
+fn model_verify_signature(args: &[String]) -> i32 {
+    let parsed = match parse_remote_args("verify-signature", args, false) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            eprintln!("enkai model verify-signature: {}", err);
+            return 1;
+        }
+    };
+    let remote_version_dir = parsed
+        .remote_registry
+        .join(&parsed.model)
+        .join(&parsed.version);
+    match maybe_verify_remote_manifest(&remote_version_dir, &parsed.model, &parsed.version, true) {
+        Ok(()) => {
+            let _ = append_audit_event(
+                &parsed.local_registry,
+                AuditAppend {
+                    operation: "verify_signature",
+                    status: "ok",
+                    model: &parsed.model,
+                    version: &parsed.version,
+                    remote_registry: Some(&parsed.remote_registry),
+                    code: None,
+                    detail: None,
+                },
+            );
+            println!(
+                "verified signature for model {} {} in remote registry {}",
+                parsed.model,
+                parsed.version,
+                parsed.remote_registry.display()
+            );
+            0
+        }
+        Err(err) => {
+            eprintln!(
+                "enkai model verify-signature [{}]: {}",
+                err.code, err.message
+            );
+            let _ = append_audit_event(
+                &parsed.local_registry,
+                AuditAppend {
+                    operation: "verify_signature",
                     status: "failed",
                     model: &parsed.model,
                     version: &parsed.version,
@@ -984,7 +1214,7 @@ fn push_remote_model(args: &RemoteCommandArgs) -> Result<String, ModelOpError> {
     }
 
     copy_required_version_files(&local_version_dir, &remote_version_dir)?;
-    write_remote_manifest(&remote_version_dir, &manifest, args.sign)?;
+    copy_optional_version_manifests(local_version_meta, &local_version_dir, &remote_version_dir)?;
 
     let mut remote_registry = load_registry(&args.remote_registry).map_err(|err| {
         ModelOpError::new(
@@ -1011,6 +1241,17 @@ fn push_remote_model(args: &RemoteCommandArgs) -> Result<String, ModelOpError> {
         ModelVersion {
             status: local_version_meta.status.clone(),
             checkpoint_path: local_version_meta.checkpoint_path.clone(),
+            artifact_kind: local_version_meta.artifact_kind.clone(),
+            artifact_manifest_path: materialize_registry_manifest_path(
+                &remote_version_dir,
+                local_version_meta.artifact_manifest_path.as_deref(),
+                "artifact.manifest.json",
+            ),
+            lineage_manifest_path: materialize_registry_manifest_path(
+                &remote_version_dir,
+                local_version_meta.lineage_manifest_path.as_deref(),
+                "lineage.manifest.json",
+            ),
             created_ms,
             updated_ms: now,
         },
@@ -1039,6 +1280,20 @@ fn push_remote_model(args: &RemoteCommandArgs) -> Result<String, ModelOpError> {
         remote_entry,
     )
     .map_err(|err| ModelOpError::new("E_MODEL_REMOTE_IO", err))?;
+    let final_remote_meta = remote_entry.versions.get(&args.version).ok_or_else(|| {
+        ModelOpError::new(
+            "E_MODEL_REMOTE_IO",
+            "remote registry lost version metadata after sync",
+        )
+    })?;
+    let final_manifest = build_remote_manifest(
+        &args.remote_registry,
+        &args.model,
+        &args.version,
+        final_remote_meta,
+        &remote_version_dir,
+    )?;
+    write_remote_manifest(&remote_version_dir, &final_manifest, args.sign)?;
     save_registry(&args.remote_registry, &remote_registry)
         .map_err(|err| ModelOpError::new("E_MODEL_REMOTE_IO", err))?;
 
@@ -1115,6 +1370,7 @@ fn pull_remote_model(args: &RemoteCommandArgs) -> Result<String, ModelOpError> {
         )
     })?;
     copy_required_version_files(&remote_version_dir, &local_version_dir)?;
+    copy_optional_version_manifests(remote_meta, &remote_version_dir, &local_version_dir)?;
     let _ = copy_optional_file(
         &remote_version_dir.join(REMOTE_MANIFEST_FILE),
         &local_version_dir.join(REMOTE_MANIFEST_FILE),
@@ -1135,9 +1391,18 @@ fn pull_remote_model(args: &RemoteCommandArgs) -> Result<String, ModelOpError> {
         )
     })?;
     let entry = local_registry.models.entry(args.model.clone()).or_default();
-    entry
-        .versions
-        .insert(args.version.clone(), remote_meta.clone());
+    let mut local_meta = remote_meta.clone();
+    local_meta.artifact_manifest_path = materialize_registry_manifest_path(
+        &local_version_dir,
+        remote_meta.artifact_manifest_path.as_deref(),
+        "artifact.manifest.json",
+    );
+    local_meta.lineage_manifest_path = materialize_registry_manifest_path(
+        &local_version_dir,
+        remote_meta.lineage_manifest_path.as_deref(),
+        "lineage.manifest.json",
+    );
+    entry.versions.insert(args.version.clone(), local_meta);
     if entry.active.is_none() && remote_entry.active.as_deref() == Some(args.version.as_str()) {
         entry.active = Some(args.version.clone());
         set_version_status(entry, &args.version, "active");
@@ -1212,6 +1477,22 @@ fn sync_remote_state_operation(
         remote_entry,
         &args.remote_registry,
     )?;
+    let remote_version_dir = args.remote_registry.join(&args.model).join(&args.version);
+    let remote_meta = remote_entry.versions.get(&args.version).ok_or_else(|| {
+        ModelOpError::new(
+            "E_MODEL_REMOTE_IO",
+            "remote registry lost version metadata after state transition",
+        )
+    })?;
+    let remote_manifest = build_remote_manifest(
+        &args.remote_registry,
+        &args.model,
+        &args.version,
+        remote_meta,
+        &remote_version_dir,
+    )?;
+    let should_sign = remote_version_dir.join(REMOTE_SIGNATURE_FILE).is_file();
+    write_remote_manifest(&remote_version_dir, &remote_manifest, should_sign)?;
     save_registry(&args.remote_registry, &remote_registry)
         .map_err(|err| ModelOpError::new("E_MODEL_REMOTE_IO", err))?;
 
@@ -1340,14 +1621,23 @@ fn ensure_model_version_dir(path: &Path, label: &str) -> Result<(), ModelOpError
             ),
         ));
     }
-    for file in ["model.meta.json", "checkpoint_path.txt"] {
-        let item = path.join(file);
-        if !item.is_file() {
-            return Err(ModelOpError::new(
-                "E_MODEL_VERSION_FILE_MISSING",
-                format!("{} model artifact missing: {}", label, item.display()),
-            ));
-        }
+    let manifest = path.join(MODEL_MANIFEST_FILE);
+    if !manifest.is_file() {
+        return Err(ModelOpError::new(
+            "E_MODEL_VERSION_FILE_MISSING",
+            format!("{} model artifact missing: {}", label, manifest.display()),
+        ));
+    }
+    if resolve_artifact_pointer(path).is_none() {
+        return Err(ModelOpError::new(
+            "E_MODEL_VERSION_FILE_MISSING",
+            format!(
+                "{} model artifact missing: {} or {}",
+                label,
+                path.join(ARTIFACT_POINTER_FILE).display(),
+                path.join(CHECKPOINT_POINTER_FILE).display()
+            ),
+        ));
     }
     Ok(())
 }
@@ -1359,8 +1649,21 @@ fn copy_required_version_files(src: &Path, dst: &Path) -> Result<(), ModelOpErro
             format!("failed to create {}: {}", dst.display(), err),
         )
     })?;
-    for file in ["model.meta.json", "checkpoint_path.txt"] {
+    for file in [
+        MODEL_MANIFEST_FILE,
+        CHECKPOINT_POINTER_FILE,
+        ARTIFACT_POINTER_FILE,
+    ] {
         let src_path = src.join(file);
+        if !src_path.is_file() {
+            if file == ARTIFACT_POINTER_FILE {
+                continue;
+            }
+            return Err(ModelOpError::new(
+                "E_MODEL_IO",
+                format!("missing required model artifact {}", src_path.display()),
+            ));
+        }
         let dst_path = dst.join(file);
         fs::copy(&src_path, &dst_path).map_err(|err| {
             ModelOpError::new(
@@ -1395,6 +1698,30 @@ fn copy_optional_file(src: &Path, dst: &Path) -> Result<(), ModelOpError> {
     Ok(())
 }
 
+fn copy_optional_version_manifests(
+    meta: &ModelVersion,
+    src_dir: &Path,
+    dst_dir: &Path,
+) -> Result<(), ModelOpError> {
+    for (raw_path, fallback) in [
+        (
+            meta.artifact_manifest_path.as_deref(),
+            "artifact.manifest.json",
+        ),
+        (
+            meta.lineage_manifest_path.as_deref(),
+            "lineage.manifest.json",
+        ),
+    ] {
+        let Some(raw_path) = raw_path else {
+            continue;
+        };
+        let file_name = file_name_or(fallback, Path::new(raw_path));
+        copy_optional_file(&src_dir.join(file_name), &dst_dir.join(file_name))?;
+    }
+    Ok(())
+}
+
 fn build_remote_manifest(
     source_registry: &Path,
     model: &str,
@@ -1402,17 +1729,25 @@ fn build_remote_manifest(
     meta: &ModelVersion,
     version_dir: &Path,
 ) -> Result<RemoteArtifactManifest, ModelOpError> {
-    let mut files = BTreeMap::new();
-    let file = "checkpoint_path.txt";
-    let hash = file_sha256_hex(&version_dir.join(file))?;
-    files.insert(file.to_string(), hash);
-    let artifact_digest = artifact_digest(model, version, &meta.checkpoint_path, &files);
+    let files = version_files_for_manifest(version_dir, meta)?;
+    let artifact_digest = artifact_digest(
+        model,
+        version,
+        &meta.checkpoint_path,
+        &meta.artifact_kind,
+        &meta.artifact_manifest_path,
+        &meta.lineage_manifest_path,
+        &files,
+    );
     Ok(RemoteArtifactManifest {
         schema_version: 1,
         name: model.to_string(),
         version: version.to_string(),
         status: meta.status.clone(),
         checkpoint_path: meta.checkpoint_path.clone(),
+        artifact_kind: meta.artifact_kind.clone(),
+        artifact_manifest_path: meta.artifact_manifest_path.clone(),
+        lineage_manifest_path: meta.lineage_manifest_path.clone(),
         source_registry: source_registry.to_string_lossy().to_string(),
         pushed_ms: now_ms(),
         artifact_digest,
@@ -1424,12 +1759,18 @@ fn artifact_digest(
     model: &str,
     version: &str,
     checkpoint_path: &str,
+    artifact_kind: &str,
+    artifact_manifest_path: &Option<String>,
+    lineage_manifest_path: &Option<String>,
     files: &BTreeMap<String, String>,
 ) -> String {
     let payload = serde_json::json!({
         "model": model,
         "version": version,
         "checkpoint_path": checkpoint_path,
+        "artifact_kind": artifact_kind,
+        "artifact_manifest_path": artifact_manifest_path,
+        "lineage_manifest_path": lineage_manifest_path,
         "files": files,
     });
     sha256_hex(payload.to_string().as_bytes())
@@ -1478,35 +1819,24 @@ fn verify_remote_manifest_integrity(
             ),
         ));
     }
-    let file = "checkpoint_path.txt";
-    let expected = manifest.files.get(file).ok_or_else(|| {
-        ModelOpError::new(
-            "E_MODEL_MANIFEST",
-            format!(
-                "remote manifest {} missing file hash entry for {}",
-                version_dir.join(REMOTE_MANIFEST_FILE).display(),
-                file
-            ),
-        )
-    })?;
-    let actual = file_sha256_hex(&version_dir.join(file))?;
-    if actual != *expected {
-        return Err(ModelOpError::new(
-            "E_MODEL_MANIFEST",
-            format!(
-                "remote manifest file hash mismatch for {} (expected {}, got {})",
-                file, expected, actual
-            ),
-        ));
+    for (file, expected) in &manifest.files {
+        let actual = file_sha256_hex(&version_dir.join(file))?;
+        if actual != *expected {
+            return Err(ModelOpError::new(
+                "E_MODEL_MANIFEST",
+                format!(
+                    "remote manifest file hash mismatch for {} (expected {}, got {})",
+                    file, expected, actual
+                ),
+            ));
+        }
     }
-    let pointer = fs::read_to_string(version_dir.join("checkpoint_path.txt")).map_err(|err| {
+    let pointer_path = resolve_artifact_pointer_path(version_dir)
+        .unwrap_or_else(|| version_dir.join(CHECKPOINT_POINTER_FILE));
+    let pointer = fs::read_to_string(&pointer_path).map_err(|err| {
         ModelOpError::new(
             "E_MODEL_MANIFEST",
-            format!(
-                "failed to read {}: {}",
-                version_dir.join("checkpoint_path.txt").display(),
-                err
-            ),
+            format!("failed to read {}: {}", pointer_path.display(), err),
         )
     })?;
     if pointer.trim() != manifest.checkpoint_path.trim() {
@@ -1522,6 +1852,9 @@ fn verify_remote_manifest_integrity(
         &manifest.name,
         &manifest.version,
         &manifest.checkpoint_path,
+        &manifest.artifact_kind,
+        &manifest.artifact_manifest_path,
+        &manifest.lineage_manifest_path,
         &manifest.files,
     );
     if manifest.artifact_digest != expected_digest {
@@ -1706,8 +2039,8 @@ fn print_model_entry(name: &str, model: &ModelEntry) {
     }
     for (version, metadata) in &model.versions {
         println!(
-            "  - {} [{}] checkpoint={}",
-            version, metadata.status, metadata.checkpoint_path
+            "  - {} [{}] kind={} artifact={}",
+            version, metadata.status, metadata.artifact_kind, metadata.checkpoint_path
         );
     }
 }
@@ -1797,14 +2130,17 @@ fn unload_model_version(registry_dir: &Path, name: &str, version: &str) -> Resul
     Ok(())
 }
 
-fn write_checkpoint_pointer(version_dir: &Path, checkpoint_path: &str) -> Result<(), String> {
-    fs::write(version_dir.join("checkpoint_path.txt"), checkpoint_path).map_err(|err| {
-        format!(
-            "failed to write {}: {}",
-            version_dir.join("checkpoint_path.txt").display(),
-            err
-        )
-    })
+fn write_artifact_pointer(version_dir: &Path, artifact_path: &str) -> Result<(), String> {
+    for file in [CHECKPOINT_POINTER_FILE, ARTIFACT_POINTER_FILE] {
+        fs::write(version_dir.join(file), artifact_path).map_err(|err| {
+            format!(
+                "failed to write {}: {}",
+                version_dir.join(file).display(),
+                err
+            )
+        })?;
+    }
+    Ok(())
 }
 
 fn write_model_manifest(
@@ -1823,7 +2159,11 @@ fn write_model_manifest(
         "version": version,
         "active": entry.active.as_deref() == Some(version),
         "status": version_meta.status,
+        "artifact_kind": version_meta.artifact_kind,
+        "artifact_path": version_meta.checkpoint_path,
         "checkpoint_path": version_meta.checkpoint_path,
+        "artifact_manifest_path": version_meta.artifact_manifest_path,
+        "lineage_manifest_path": version_meta.lineage_manifest_path,
         "created_ms": version_meta.created_ms,
         "updated_ms": version_meta.updated_ms,
     });
@@ -1865,10 +2205,7 @@ pub(crate) fn read_active_model_version(model_root: &Path) -> Option<String> {
 }
 
 pub(crate) fn resolve_checkpoint_pointer(version_dir: &Path) -> Option<PathBuf> {
-    let pointer = version_dir.join("checkpoint_path.txt");
-    if !pointer.is_file() {
-        return None;
-    }
+    let pointer = resolve_artifact_pointer_path(version_dir)?;
     let raw = fs::read_to_string(pointer).ok()?;
     let value = raw.trim();
     if value.is_empty() {
@@ -1880,6 +2217,77 @@ pub(crate) fn resolve_checkpoint_pointer(version_dir: &Path) -> Option<PathBuf> 
     } else {
         None
     }
+}
+
+fn resolve_artifact_pointer_path(version_dir: &Path) -> Option<PathBuf> {
+    for file in [ARTIFACT_POINTER_FILE, CHECKPOINT_POINTER_FILE] {
+        let path = version_dir.join(file);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn resolve_artifact_pointer(version_dir: &Path) -> Option<PathBuf> {
+    let pointer = resolve_artifact_pointer_path(version_dir)?;
+    let raw = fs::read_to_string(pointer).ok()?;
+    let value = raw.trim();
+    if value.is_empty() {
+        return None;
+    }
+    Some(PathBuf::from(value))
+}
+
+fn version_files_for_manifest(
+    version_dir: &Path,
+    meta: &ModelVersion,
+) -> Result<BTreeMap<String, String>, ModelOpError> {
+    let mut files = BTreeMap::new();
+    for file in [
+        MODEL_MANIFEST_FILE,
+        CHECKPOINT_POINTER_FILE,
+        ARTIFACT_POINTER_FILE,
+    ] {
+        let path = version_dir.join(file);
+        if path.is_file() {
+            files.insert(file.to_string(), file_sha256_hex(&path)?);
+        }
+    }
+    if let Some(path) = meta.artifact_manifest_path.as_deref() {
+        let local_path = version_dir.join(file_name_or("artifact.manifest.json", Path::new(path)));
+        if local_path.is_file() {
+            let key = local_path
+                .file_name()
+                .map(|value| value.to_string_lossy().to_string())
+                .unwrap_or_else(|| "artifact.manifest.json".to_string());
+            files.insert(key, file_sha256_hex(&local_path)?);
+        }
+    }
+    if let Some(path) = meta.lineage_manifest_path.as_deref() {
+        let local_path = version_dir.join(file_name_or("lineage.manifest.json", Path::new(path)));
+        if local_path.is_file() {
+            let key = local_path
+                .file_name()
+                .map(|value| value.to_string_lossy().to_string())
+                .unwrap_or_else(|| "lineage.manifest.json".to_string());
+            files.insert(key, file_sha256_hex(&local_path)?);
+        }
+    }
+    Ok(files)
+}
+
+fn materialize_registry_manifest_path(
+    version_dir: &Path,
+    raw_path: Option<&str>,
+    fallback: &str,
+) -> Option<String> {
+    raw_path.map(|path| {
+        version_dir
+            .join(file_name_or(fallback, Path::new(path)))
+            .to_string_lossy()
+            .to_string()
+    })
 }
 
 pub(crate) fn is_model_loaded(
@@ -2325,6 +2733,105 @@ mod tests {
                 remote.to_string_lossy().to_string(),
             ]),
             1
+        );
+
+        if let Some(value) = prev {
+            std::env::set_var(SIGNING_KEY_ENV, value);
+        } else {
+            std::env::remove_var(SIGNING_KEY_ENV);
+        }
+    }
+
+    #[test]
+    fn register_supports_simulation_artifact_metadata() {
+        let dir = tempdir().expect("tempdir");
+        let registry = dir.path().join("registry");
+        let artifact = dir.path().join("snapshot.json");
+        let artifact_manifest = dir.path().join("snapshot.manifest.json");
+        let lineage_manifest = dir.path().join("lineage.json");
+        fs::write(&artifact, "{}").expect("artifact");
+        fs::write(&artifact_manifest, "{\"schema_version\":1}").expect("artifact manifest");
+        fs::write(&lineage_manifest, "{\"schema_version\":1}").expect("lineage manifest");
+
+        assert_eq!(
+            model_command(&[
+                "register".to_string(),
+                registry.to_string_lossy().to_string(),
+                "adam0".to_string(),
+                "v2.8.0".to_string(),
+                artifact.to_string_lossy().to_string(),
+                "--artifact-kind".to_string(),
+                "simulation".to_string(),
+                "--artifact-manifest".to_string(),
+                artifact_manifest.to_string_lossy().to_string(),
+                "--lineage-manifest".to_string(),
+                lineage_manifest.to_string_lossy().to_string(),
+            ]),
+            0
+        );
+
+        let registry_json = load_registry(&registry).expect("registry");
+        let version = registry_json
+            .models
+            .get("adam0")
+            .and_then(|entry| entry.versions.get("v2.8.0"))
+            .expect("version");
+        assert_eq!(version.artifact_kind, "simulation");
+        assert!(version.artifact_manifest_path.is_some());
+        assert!(version.lineage_manifest_path.is_some());
+        assert!(registry
+            .join("adam0")
+            .join("v2.8.0")
+            .join(ARTIFACT_POINTER_FILE)
+            .is_file());
+    }
+
+    #[test]
+    fn verify_signature_command_passes_for_signed_remote_artifact() {
+        let _guard = env_guard();
+        let prev = std::env::var(SIGNING_KEY_ENV).ok();
+        std::env::set_var(SIGNING_KEY_ENV, "test-signing-key");
+
+        let dir = tempdir().expect("tempdir");
+        let local = dir.path().join("local");
+        let remote = dir.path().join("remote");
+        let artifact = dir.path().join("artifact.json");
+        fs::write(&artifact, "{}").expect("artifact");
+
+        assert_eq!(
+            model_command(&[
+                "register".to_string(),
+                local.to_string_lossy().to_string(),
+                "artifact".to_string(),
+                "v2.8.0".to_string(),
+                artifact.to_string_lossy().to_string(),
+                "--artifact-kind".to_string(),
+                "environment".to_string(),
+            ]),
+            0
+        );
+        assert_eq!(
+            model_command(&[
+                "push".to_string(),
+                local.to_string_lossy().to_string(),
+                "artifact".to_string(),
+                "v2.8.0".to_string(),
+                "--registry".to_string(),
+                remote.to_string_lossy().to_string(),
+                "--sign".to_string(),
+            ]),
+            0
+        );
+        assert_eq!(
+            model_command(&[
+                "verify-signature".to_string(),
+                local.to_string_lossy().to_string(),
+                "artifact".to_string(),
+                "v2.8.0".to_string(),
+                "--registry".to_string(),
+                remote.to_string_lossy().to_string(),
+            ]),
+            0
         );
 
         if let Some(value) = prev {
