@@ -2,9 +2,31 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.6.0.
+- Current production release line is v2.6.2.
 - v2.6.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v2.6.2 (done)
+- Deterministic simulation scheduler/runtime helpers:
+  - `std::sim`
+    - world creation with seed + capacity
+    - event scheduling / stepping / bounded run
+    - snapshot / restore / replay for simulation state
+    - entity set/get/remove/id surfaces
+    - stable simulation error codes for overflow, starvation, and corrupted replay state
+
+v2.6.1 (done)
+- Core simulation primitives in std/runtime:
+  - `std::sparse`
+    - sparse vector/matrix storage
+    - deterministic non-zero iteration
+    - sparse dot/matvec helpers
+  - `std::event`
+    - deterministic timestamp-ordered event queue
+    - tie-breaking by insertion order
+  - `std::pool`
+    - fixed-capacity and growable reusable value pools
+    - explicit capacity/available/stats surfaces
 
 v2.6.0 (done)
 - FFI contract hardening for AGI/simulation workloads:

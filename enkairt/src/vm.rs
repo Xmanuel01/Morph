@@ -28,9 +28,10 @@ use crate::dataset::{resolve_dataset_paths, Batch, DatasetConfig, DatasetStream}
 use crate::error::{RuntimeError, RuntimeFrame};
 use crate::ffi::{ffi_stats_snapshot, FfiLoader, FfiStats};
 use crate::object::{
-    channel_value, function_value, record_value, string_value, task_handle_value, BoundFunctionObj,
-    HttpStream, NativeFunction, NativeImpl, Obj, StreamCommand, WebSocketHandle, WsCommand,
-    WsIncoming,
+    buffer_value, channel_value, event_queue_value, function_value, pool_value, record_value,
+    sim_world_value, sparse_matrix_value, sparse_vector_value, string_value, task_handle_value,
+    BoundFunctionObj, HttpStream, NativeFunction, NativeImpl, Obj, StreamCommand, WebSocketHandle,
+    WsCommand, WsIncoming,
 };
 use crate::tokenizer::{bytes_to_ids, ids_to_bytes, Tokenizer, TrainConfig};
 use crate::value::{object_allocation_count, ObjRef, Value};
@@ -1154,6 +1155,411 @@ impl VM {
             self.globals_map
                 .insert("checkpoint".to_string(), self.globals.len() as u16);
             self.globals.push(checkpoint_value);
+        }
+        let mut sparse_record = std::collections::HashMap::new();
+        sparse_record.insert(
+            "vector".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sparse.vector".to_string(),
+                arity: 0,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sparse_record.insert(
+            "matrix".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sparse.matrix".to_string(),
+                arity: 0,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sparse_record.insert(
+            "get".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sparse.get".to_string(),
+                arity: 3,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sparse_record.insert(
+            "set".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sparse.set".to_string(),
+                arity: 4,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sparse_record.insert(
+            "get_vector".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sparse.get_vector".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sparse_record.insert(
+            "set_vector".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sparse.set_vector".to_string(),
+                arity: 3,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sparse_record.insert(
+            "nonzero".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sparse.nonzero".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sparse_record.insert(
+            "nonzero_vector".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sparse.nonzero_vector".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sparse_record.insert(
+            "dot".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sparse.dot".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sparse_record.insert(
+            "matvec".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sparse.matvec".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sparse_record.insert(
+            "nnz".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sparse.nnz".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        let sparse_value = record_value(sparse_record);
+        if let Some(idx) = self.globals_map.get("sparse").copied() {
+            self.globals[idx as usize] = sparse_value;
+        } else {
+            self.globals_map
+                .insert("sparse".to_string(), self.globals.len() as u16);
+            self.globals.push(sparse_value);
+        }
+        let mut event_record = std::collections::HashMap::new();
+        event_record.insert(
+            "make".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "event.make".to_string(),
+                arity: 0,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        event_record.insert(
+            "push".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "event.push".to_string(),
+                arity: 3,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        event_record.insert(
+            "pop".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "event.pop".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        event_record.insert(
+            "peek".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "event.peek".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        event_record.insert(
+            "len".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "event.len".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        event_record.insert(
+            "is_empty".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "event.is_empty".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        let event_value = record_value(event_record);
+        if let Some(idx) = self.globals_map.get("event").copied() {
+            self.globals[idx as usize] = event_value;
+        } else {
+            self.globals_map
+                .insert("event".to_string(), self.globals.len() as u16);
+            self.globals.push(event_value);
+        }
+        let mut pool_record = std::collections::HashMap::new();
+        pool_record.insert(
+            "make".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "pool.make".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        pool_record.insert(
+            "make_growable".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "pool.make_growable".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        pool_record.insert(
+            "acquire".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "pool.acquire".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        pool_record.insert(
+            "release".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "pool.release".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        pool_record.insert(
+            "reset".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "pool.reset".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        pool_record.insert(
+            "available".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "pool.available".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        pool_record.insert(
+            "capacity".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "pool.capacity".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        pool_record.insert(
+            "stats".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "pool.stats".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        let pool_value = record_value(pool_record);
+        if let Some(idx) = self.globals_map.get("pool").copied() {
+            self.globals[idx as usize] = pool_value;
+        } else {
+            self.globals_map
+                .insert("pool".to_string(), self.globals.len() as u16);
+            self.globals.push(pool_value);
+        }
+        let mut sim_record = std::collections::HashMap::new();
+        sim_record.insert(
+            "make".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sim.make".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sim_record.insert(
+            "make_seeded".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sim.make_seeded".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sim_record.insert(
+            "time".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sim.time".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sim_record.insert(
+            "seed".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sim.seed".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sim_record.insert(
+            "pending".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sim.pending".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sim_record.insert(
+            "schedule".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sim.schedule".to_string(),
+                arity: 3,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sim_record.insert(
+            "step".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sim.step".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sim_record.insert(
+            "run".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sim.run".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sim_record.insert(
+            "snapshot".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sim.snapshot".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sim_record.insert(
+            "restore".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sim.restore".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sim_record.insert(
+            "replay".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sim.replay".to_string(),
+                arity: 3,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sim_record.insert(
+            "log".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sim.log".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sim_record.insert(
+            "entity_set".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sim.entity_set".to_string(),
+                arity: 3,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sim_record.insert(
+            "entity_get".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sim.entity_get".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sim_record.insert(
+            "entity_remove".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sim.entity_remove".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sim_record.insert(
+            "entity_ids".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sim.entity_ids".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        let sim_value = record_value(sim_record);
+        if let Some(idx) = self.globals_map.get("sim").copied() {
+            self.globals[idx as usize] = sim_value;
+        } else {
+            self.globals_map
+                .insert("sim".to_string(), self.globals.len() as u16);
+            self.globals.push(sim_value);
         }
         Ok(())
     }
@@ -4160,6 +4566,455 @@ impl VM {
                             self.stack.push(Value::Null);
                             return Ok(());
                         }
+                        if nf.name == "sparse.vector" {
+                            self.stack.truncate(callee_index);
+                            self.stack.push(sparse_vector_value());
+                            return Ok(());
+                        }
+                        if nf.name == "sparse.matrix" {
+                            self.stack.truncate(callee_index);
+                            self.stack.push(sparse_matrix_value());
+                            return Ok(());
+                        }
+                        if nf.name == "sparse.get" {
+                            let matrix = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sparse.get expects matrix"))?;
+                            let row = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sparse.get expects row"))?;
+                            let col = args
+                                .get(2)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sparse.get expects col"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(self.sparse_get(matrix, row, col)?);
+                            return Ok(());
+                        }
+                        if nf.name == "sparse.set" {
+                            let matrix = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sparse.set expects matrix"))?;
+                            let row = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sparse.set expects row"))?;
+                            let col = args
+                                .get(2)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sparse.set expects col"))?;
+                            let value = args
+                                .get(3)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sparse.set expects value"))?;
+                            self.stack.truncate(callee_index);
+                            self.sparse_set(matrix, row, col, value)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "sparse.get_vector" {
+                            let vector = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("sparse.get_vector expects vector")
+                            })?;
+                            let index = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("sparse.get_vector expects index")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(self.sparse_vector_get(vector, index)?);
+                            return Ok(());
+                        }
+                        if nf.name == "sparse.set_vector" {
+                            let vector = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("sparse.set_vector expects vector")
+                            })?;
+                            let index = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("sparse.set_vector expects index")
+                            })?;
+                            let value = args.get(2).cloned().ok_or_else(|| {
+                                RuntimeError::new("sparse.set_vector expects value")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            self.sparse_vector_set(vector, index, value)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "sparse.nonzero" {
+                            let matrix = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("sparse.nonzero expects matrix")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(self.sparse_nonzero(matrix)?);
+                            return Ok(());
+                        }
+                        if nf.name == "sparse.nonzero_vector" {
+                            let vector = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("sparse.nonzero_vector expects vector")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(self.sparse_vector_nonzero(vector)?);
+                            return Ok(());
+                        }
+                        if nf.name == "sparse.dot" {
+                            let vector = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sparse.dot expects vector"))?;
+                            let dense = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sparse.dot expects dense"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack
+                                .push(Value::Float(self.sparse_dot(vector, dense)?));
+                            return Ok(());
+                        }
+                        if nf.name == "sparse.matvec" {
+                            let matrix = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sparse.matvec expects matrix"))?;
+                            let dense = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sparse.matvec expects dense"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(self.sparse_matvec(matrix, dense)?);
+                            return Ok(());
+                        }
+                        if nf.name == "sparse.nnz" {
+                            let value = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sparse.nnz expects value"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(Value::Int(self.sparse_nnz(value)? as i64));
+                            return Ok(());
+                        }
+                        if nf.name == "event.make" {
+                            self.stack.truncate(callee_index);
+                            self.stack.push(event_queue_value());
+                            return Ok(());
+                        }
+                        if nf.name == "event.push" {
+                            let queue = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("event.push expects queue"))?;
+                            let time = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("event.push expects time"))?;
+                            let event = args
+                                .get(2)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("event.push expects event"))?;
+                            self.stack.truncate(callee_index);
+                            self.event_push(queue, time, event)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "event.pop" {
+                            let queue = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("event.pop expects queue"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(self.event_pop(queue)?);
+                            return Ok(());
+                        }
+                        if nf.name == "event.peek" {
+                            let queue = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("event.peek expects queue"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(self.event_peek(queue)?);
+                            return Ok(());
+                        }
+                        if nf.name == "event.len" {
+                            let queue = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("event.len expects queue"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(Value::Int(self.event_len(queue)? as i64));
+                            return Ok(());
+                        }
+                        if nf.name == "event.is_empty" {
+                            let queue = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("event.is_empty expects queue"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(Value::Bool(self.event_len(queue)? == 0));
+                            return Ok(());
+                        }
+                        if nf.name == "pool.make" {
+                            let capacity = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("pool.make expects capacity"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(self.pool_make(capacity, false)?);
+                            return Ok(());
+                        }
+                        if nf.name == "pool.make_growable" {
+                            let capacity = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("pool.make_growable expects capacity")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(self.pool_make(capacity, true)?);
+                            return Ok(());
+                        }
+                        if nf.name == "pool.acquire" {
+                            let pool = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("pool.acquire expects pool"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(self.pool_acquire(pool)?);
+                            return Ok(());
+                        }
+                        if nf.name == "pool.release" {
+                            let pool = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("pool.release expects pool"))?;
+                            let value = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("pool.release expects value"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack
+                                .push(Value::Bool(self.pool_release(pool, value)?));
+                            return Ok(());
+                        }
+                        if nf.name == "pool.reset" {
+                            let pool = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("pool.reset expects pool"))?;
+                            self.stack.truncate(callee_index);
+                            self.pool_reset(pool)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "pool.available" {
+                            let pool = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("pool.available expects pool"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack
+                                .push(Value::Int(self.pool_available(pool)? as i64));
+                            return Ok(());
+                        }
+                        if nf.name == "pool.capacity" {
+                            let pool = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("pool.capacity expects pool"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack
+                                .push(Value::Int(self.pool_capacity(pool)? as i64));
+                            return Ok(());
+                        }
+                        if nf.name == "pool.stats" {
+                            let pool = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("pool.stats expects pool"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(self.pool_stats(pool)?);
+                            return Ok(());
+                        }
+                        if nf.name == "sim.make" {
+                            let max_events = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.make expects max_events"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(self.sim_make(max_events, Value::Int(0))?);
+                            return Ok(());
+                        }
+                        if nf.name == "sim.make_seeded" {
+                            let max_events = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("sim.make_seeded expects max_events")
+                            })?;
+                            let seed = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.make_seeded expects seed"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(self.sim_make(max_events, seed)?);
+                            return Ok(());
+                        }
+                        if nf.name == "sim.time" {
+                            let world = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.time expects world"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(Value::Float(self.sim_time(world)?));
+                            return Ok(());
+                        }
+                        if nf.name == "sim.seed" {
+                            let world = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.seed expects world"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(Value::Int(self.sim_seed(world)?));
+                            return Ok(());
+                        }
+                        if nf.name == "sim.pending" {
+                            let world = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.pending expects world"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(Value::Int(self.sim_pending(world)? as i64));
+                            return Ok(());
+                        }
+                        if nf.name == "sim.schedule" {
+                            let world = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.schedule expects world"))?;
+                            let time = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.schedule expects time"))?;
+                            let event = args
+                                .get(2)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.schedule expects event"))?;
+                            self.stack.truncate(callee_index);
+                            self.sim_schedule(world, time, event)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "sim.step" {
+                            let world = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.step expects world"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(self.sim_step(world)?);
+                            return Ok(());
+                        }
+                        if nf.name == "sim.run" {
+                            let world = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.run expects world"))?;
+                            let max_steps = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.run expects max_steps"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(self.sim_run(world, max_steps)?);
+                            return Ok(());
+                        }
+                        if nf.name == "sim.snapshot" {
+                            let world = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.snapshot expects world"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(self.sim_snapshot(world)?);
+                            return Ok(());
+                        }
+                        if nf.name == "sim.restore" {
+                            let snapshot = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.restore expects snapshot"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(self.sim_restore(snapshot)?);
+                            return Ok(());
+                        }
+                        if nf.name == "sim.replay" {
+                            let log = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.replay expects log"))?;
+                            let max_events = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("sim.replay expects max_events")
+                            })?;
+                            let seed = args
+                                .get(2)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.replay expects seed"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(self.sim_replay(log, max_events, seed)?);
+                            return Ok(());
+                        }
+                        if nf.name == "sim.log" {
+                            let world = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.log expects world"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(self.sim_log(world)?);
+                            return Ok(());
+                        }
+                        if nf.name == "sim.entity_set" {
+                            let world = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.entity_set expects world"))?;
+                            let id = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.entity_set expects id"))?;
+                            let value = args
+                                .get(2)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.entity_set expects value"))?;
+                            self.stack.truncate(callee_index);
+                            self.sim_entity_set(world, id, value)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "sim.entity_get" {
+                            let world = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.entity_get expects world"))?;
+                            let id = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.entity_get expects id"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(self.sim_entity_get(world, id)?);
+                            return Ok(());
+                        }
+                        if nf.name == "sim.entity_remove" {
+                            let world = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("sim.entity_remove expects world")
+                            })?;
+                            let id = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.entity_remove expects id"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack
+                                .push(Value::Bool(self.sim_entity_remove(world, id)?));
+                            return Ok(());
+                        }
+                        if nf.name == "sim.entity_ids" {
+                            let world = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.entity_ids expects world"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(self.sim_entity_ids(world)?);
+                            return Ok(());
+                        }
                         let result = match &nf.kind {
                             NativeImpl::Rust(func) => (func)(self, &args)?,
                             NativeImpl::Ffi(func) => func.call(&args)?,
@@ -6951,6 +7806,840 @@ impl VM {
         Ok(())
     }
 
+    fn sparse_get(&self, matrix: Value, row: Value, col: Value) -> Result<Value, RuntimeError> {
+        let row = value_as_non_negative_int(&row, "sparse.get expects row >= 0")?;
+        let col = value_as_non_negative_int(&col, "sparse.get expects col >= 0")?;
+        match matrix {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SparseMatrix(inner) => Ok(inner
+                    .borrow()
+                    .data
+                    .get(&(row, col))
+                    .copied()
+                    .map(Value::Float)
+                    .unwrap_or(Value::Null)),
+                _ => Err(RuntimeError::new("sparse.get expects SparseMatrix")),
+            },
+            _ => Err(RuntimeError::new("sparse.get expects SparseMatrix")),
+        }
+    }
+
+    fn sparse_set(
+        &self,
+        matrix: Value,
+        row: Value,
+        col: Value,
+        value: Value,
+    ) -> Result<(), RuntimeError> {
+        let row = value_as_non_negative_int(&row, "sparse.set expects row >= 0")?;
+        let col = value_as_non_negative_int(&col, "sparse.set expects col >= 0")?;
+        let value = value_as_float_like(&value)?;
+        if !value.is_finite() {
+            return Err(RuntimeError::new("sparse.set expects finite value"));
+        }
+        match matrix {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SparseMatrix(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    if value == 0.0 {
+                        inner.data.remove(&(row, col));
+                    } else {
+                        inner.data.insert((row, col), value);
+                    }
+                }
+                _ => return Err(RuntimeError::new("sparse.set expects SparseMatrix")),
+            },
+            _ => return Err(RuntimeError::new("sparse.set expects SparseMatrix")),
+        }
+        Ok(())
+    }
+
+    fn sparse_vector_get(&self, vector: Value, index: Value) -> Result<Value, RuntimeError> {
+        let index = value_as_non_negative_int(&index, "sparse.get_vector expects index >= 0")?;
+        match vector {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SparseVector(inner) => Ok(inner
+                    .borrow()
+                    .data
+                    .get(&index)
+                    .copied()
+                    .map(Value::Float)
+                    .unwrap_or(Value::Null)),
+                _ => Err(RuntimeError::new("sparse.get_vector expects SparseVector")),
+            },
+            _ => Err(RuntimeError::new("sparse.get_vector expects SparseVector")),
+        }
+    }
+
+    fn sparse_vector_set(
+        &self,
+        vector: Value,
+        index: Value,
+        value: Value,
+    ) -> Result<(), RuntimeError> {
+        let index = value_as_non_negative_int(&index, "sparse.set_vector expects index >= 0")?;
+        let value = value_as_float_like(&value)?;
+        if !value.is_finite() {
+            return Err(RuntimeError::new("sparse.set_vector expects finite value"));
+        }
+        match vector {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SparseVector(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    if value == 0.0 {
+                        inner.data.remove(&index);
+                    } else {
+                        inner.data.insert(index, value);
+                    }
+                }
+                _ => return Err(RuntimeError::new("sparse.set_vector expects SparseVector")),
+            },
+            _ => return Err(RuntimeError::new("sparse.set_vector expects SparseVector")),
+        }
+        Ok(())
+    }
+
+    fn sparse_nonzero(&self, matrix: Value) -> Result<Value, RuntimeError> {
+        match matrix {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SparseMatrix(inner) => {
+                    let inner = inner.borrow();
+                    let mut values = Vec::with_capacity(inner.data.len());
+                    for ((row, col), value) in inner.data.iter() {
+                        values.push(record_value(HashMap::from([
+                            ("row".to_string(), Value::Int(*row)),
+                            ("col".to_string(), Value::Int(*col)),
+                            ("value".to_string(), Value::Float(*value)),
+                        ])));
+                    }
+                    Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(values)))))
+                }
+                _ => Err(RuntimeError::new("sparse.nonzero expects SparseMatrix")),
+            },
+            _ => Err(RuntimeError::new("sparse.nonzero expects SparseMatrix")),
+        }
+    }
+
+    fn sparse_vector_nonzero(&self, vector: Value) -> Result<Value, RuntimeError> {
+        match vector {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SparseVector(inner) => {
+                    let inner = inner.borrow();
+                    let mut values = Vec::with_capacity(inner.data.len());
+                    for (index, value) in inner.data.iter() {
+                        values.push(record_value(HashMap::from([
+                            ("index".to_string(), Value::Int(*index)),
+                            ("value".to_string(), Value::Float(*value)),
+                        ])));
+                    }
+                    Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(values)))))
+                }
+                _ => Err(RuntimeError::new(
+                    "sparse.nonzero_vector expects SparseVector",
+                )),
+            },
+            _ => Err(RuntimeError::new(
+                "sparse.nonzero_vector expects SparseVector",
+            )),
+        }
+    }
+
+    fn sparse_dot(&self, vector: Value, dense: Value) -> Result<f64, RuntimeError> {
+        let dense = value_as_dense_f64(&dense)?;
+        match vector {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SparseVector(inner) => {
+                    let mut out = 0.0;
+                    for (index, value) in inner.borrow().data.iter() {
+                        let idx = *index as usize;
+                        if let Some(dense_value) = dense.get(idx) {
+                            out += value * dense_value;
+                        }
+                    }
+                    Ok(out)
+                }
+                _ => Err(RuntimeError::new("sparse.dot expects SparseVector")),
+            },
+            _ => Err(RuntimeError::new("sparse.dot expects SparseVector")),
+        }
+    }
+
+    fn sparse_matvec(&self, matrix: Value, dense: Value) -> Result<Value, RuntimeError> {
+        let dense = value_as_dense_f64(&dense)?;
+        match matrix {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SparseMatrix(inner) => {
+                    let inner = inner.borrow();
+                    let max_row = inner
+                        .data
+                        .keys()
+                        .map(|(row, _)| *row as usize)
+                        .max()
+                        .unwrap_or(0);
+                    let mut out = if inner.data.is_empty() {
+                        Vec::new()
+                    } else {
+                        vec![0.0; max_row + 1]
+                    };
+                    for ((row, col), value) in inner.data.iter() {
+                        let col = *col as usize;
+                        if let Some(dense_value) = dense.get(col) {
+                            out[*row as usize] += value * dense_value;
+                        }
+                    }
+                    Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                        out.into_iter().map(Value::Float).collect(),
+                    )))))
+                }
+                _ => Err(RuntimeError::new("sparse.matvec expects SparseMatrix")),
+            },
+            _ => Err(RuntimeError::new("sparse.matvec expects SparseMatrix")),
+        }
+    }
+
+    fn sparse_nnz(&self, value: Value) -> Result<usize, RuntimeError> {
+        match value {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SparseMatrix(inner) => Ok(inner.borrow().data.len()),
+                Obj::SparseVector(inner) => Ok(inner.borrow().data.len()),
+                _ => Err(RuntimeError::new(
+                    "sparse.nnz expects SparseMatrix or SparseVector",
+                )),
+            },
+            _ => Err(RuntimeError::new(
+                "sparse.nnz expects SparseMatrix or SparseVector",
+            )),
+        }
+    }
+
+    fn event_push(&self, queue: Value, time: Value, event: Value) -> Result<(), RuntimeError> {
+        let time = value_as_float_like(&time)?;
+        if !time.is_finite() {
+            return Err(RuntimeError::new("event.push expects finite time"));
+        }
+        match queue {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::EventQueue(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    let seq = inner.next_seq;
+                    inner.next_seq = inner.next_seq.saturating_add(1);
+                    inner
+                        .items
+                        .push(crate::object::ScheduledEvent { time, seq, event });
+                    Ok(())
+                }
+                _ => Err(RuntimeError::new("event.push expects EventQueue")),
+            },
+            _ => Err(RuntimeError::new("event.push expects EventQueue")),
+        }
+    }
+
+    fn event_pop(&self, queue: Value) -> Result<Value, RuntimeError> {
+        match queue {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::EventQueue(inner) => Ok(inner
+                    .borrow_mut()
+                    .items
+                    .pop()
+                    .map(event_record_value)
+                    .unwrap_or(Value::Null)),
+                _ => Err(RuntimeError::new("event.pop expects EventQueue")),
+            },
+            _ => Err(RuntimeError::new("event.pop expects EventQueue")),
+        }
+    }
+
+    fn event_peek(&self, queue: Value) -> Result<Value, RuntimeError> {
+        match queue {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::EventQueue(inner) => Ok(inner
+                    .borrow()
+                    .items
+                    .peek()
+                    .cloned()
+                    .map(event_record_value)
+                    .unwrap_or(Value::Null)),
+                _ => Err(RuntimeError::new("event.peek expects EventQueue")),
+            },
+            _ => Err(RuntimeError::new("event.peek expects EventQueue")),
+        }
+    }
+
+    fn event_len(&self, queue: Value) -> Result<usize, RuntimeError> {
+        match queue {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::EventQueue(inner) => Ok(inner.borrow().items.len()),
+                _ => Err(RuntimeError::new("event.len expects EventQueue")),
+            },
+            _ => Err(RuntimeError::new("event.len expects EventQueue")),
+        }
+    }
+
+    fn pool_make(&self, capacity: Value, growable: bool) -> Result<Value, RuntimeError> {
+        let capacity = value_as_non_negative_int(
+            &capacity,
+            if growable {
+                "pool.make_growable expects capacity >= 0"
+            } else {
+                "pool.make expects capacity >= 0"
+            },
+        )?;
+        Ok(pool_value(capacity as usize, growable))
+    }
+
+    fn pool_acquire(&self, pool: Value) -> Result<Value, RuntimeError> {
+        match pool {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::Pool(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    if let Some(value) = inner.items.pop() {
+                        inner.acquire_hits = inner.acquire_hits.saturating_add(1);
+                        Ok(value)
+                    } else {
+                        inner.acquire_misses = inner.acquire_misses.saturating_add(1);
+                        Ok(Value::Null)
+                    }
+                }
+                _ => Err(RuntimeError::new("pool.acquire expects Pool")),
+            },
+            _ => Err(RuntimeError::new("pool.acquire expects Pool")),
+        }
+    }
+
+    fn pool_release(&self, pool: Value, value: Value) -> Result<bool, RuntimeError> {
+        match pool {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::Pool(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    if inner.items.len() >= inner.capacity {
+                        if inner.growable {
+                            inner.capacity = inner
+                                .capacity
+                                .max(1)
+                                .saturating_mul(2)
+                                .max(inner.items.len().saturating_add(1));
+                        } else {
+                            inner.dropped_on_full = inner.dropped_on_full.saturating_add(1);
+                            return Ok(false);
+                        }
+                    }
+                    inner.releases = inner.releases.saturating_add(1);
+                    inner.items.push(value);
+                    inner.high_watermark = inner.high_watermark.max(inner.items.len());
+                    Ok(true)
+                }
+                _ => Err(RuntimeError::new("pool.release expects Pool")),
+            },
+            _ => Err(RuntimeError::new("pool.release expects Pool")),
+        }
+    }
+
+    fn pool_reset(&self, pool: Value) -> Result<(), RuntimeError> {
+        match pool {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::Pool(inner) => {
+                    inner.borrow_mut().items.clear();
+                    Ok(())
+                }
+                _ => Err(RuntimeError::new("pool.reset expects Pool")),
+            },
+            _ => Err(RuntimeError::new("pool.reset expects Pool")),
+        }
+    }
+
+    fn pool_available(&self, pool: Value) -> Result<usize, RuntimeError> {
+        match pool {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::Pool(inner) => Ok(inner.borrow().items.len()),
+                _ => Err(RuntimeError::new("pool.available expects Pool")),
+            },
+            _ => Err(RuntimeError::new("pool.available expects Pool")),
+        }
+    }
+
+    fn pool_capacity(&self, pool: Value) -> Result<usize, RuntimeError> {
+        match pool {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::Pool(inner) => Ok(inner.borrow().capacity),
+                _ => Err(RuntimeError::new("pool.capacity expects Pool")),
+            },
+            _ => Err(RuntimeError::new("pool.capacity expects Pool")),
+        }
+    }
+
+    fn pool_stats(&self, pool: Value) -> Result<Value, RuntimeError> {
+        match pool {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::Pool(inner) => {
+                    let inner = inner.borrow();
+                    Ok(record_value(HashMap::from([
+                        (
+                            "available".to_string(),
+                            Value::Int(inner.items.len() as i64),
+                        ),
+                        ("capacity".to_string(), Value::Int(inner.capacity as i64)),
+                        ("growable".to_string(), Value::Bool(inner.growable)),
+                        (
+                            "acquire_hits".to_string(),
+                            Value::Int(inner.acquire_hits as i64),
+                        ),
+                        (
+                            "acquire_misses".to_string(),
+                            Value::Int(inner.acquire_misses as i64),
+                        ),
+                        ("releases".to_string(), Value::Int(inner.releases as i64)),
+                        (
+                            "dropped_on_full".to_string(),
+                            Value::Int(inner.dropped_on_full as i64),
+                        ),
+                        (
+                            "high_watermark".to_string(),
+                            Value::Int(inner.high_watermark as i64),
+                        ),
+                    ])))
+                }
+                _ => Err(RuntimeError::new("pool.stats expects Pool")),
+            },
+            _ => Err(RuntimeError::new("pool.stats expects Pool")),
+        }
+    }
+
+    fn sim_make(&self, max_events: Value, seed: Value) -> Result<Value, RuntimeError> {
+        let max_events =
+            value_as_non_negative_int(&max_events, "sim.make expects max_events >= 0")?;
+        let seed = value_as_int(&seed)?;
+        Ok(sim_world_value(max_events as usize, seed))
+    }
+
+    fn sim_time(&self, world: Value) -> Result<f64, RuntimeError> {
+        match world {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SimWorld(inner) => Ok(inner.borrow().now),
+                _ => Err(RuntimeError::new("sim.time expects SimWorld")),
+            },
+            _ => Err(RuntimeError::new("sim.time expects SimWorld")),
+        }
+    }
+
+    fn sim_seed(&self, world: Value) -> Result<i64, RuntimeError> {
+        match world {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SimWorld(inner) => Ok(inner.borrow().seed),
+                _ => Err(RuntimeError::new("sim.seed expects SimWorld")),
+            },
+            _ => Err(RuntimeError::new("sim.seed expects SimWorld")),
+        }
+    }
+
+    fn sim_pending(&self, world: Value) -> Result<usize, RuntimeError> {
+        match world {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SimWorld(inner) => Ok(inner.borrow().queue.len()),
+                _ => Err(RuntimeError::new("sim.pending expects SimWorld")),
+            },
+            _ => Err(RuntimeError::new("sim.pending expects SimWorld")),
+        }
+    }
+
+    fn sim_schedule(&self, world: Value, time: Value, event: Value) -> Result<(), RuntimeError> {
+        let time = value_as_float_like(&time)?;
+        if !time.is_finite() {
+            return Err(RuntimeError::with_code(
+                "E_SIM_TIME_ORDER",
+                "sim.schedule expects finite event time",
+            ));
+        }
+        match world {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SimWorld(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    if time < inner.now {
+                        return Err(RuntimeError::with_code(
+                            "E_SIM_TIME_ORDER",
+                            "sim.schedule cannot insert an event before the current world time",
+                        ));
+                    }
+                    if inner.queue.len() >= inner.max_events {
+                        return Err(RuntimeError::with_code(
+                            "E_SIM_EVENT_OVERFLOW",
+                            "sim.schedule exceeded the configured event capacity",
+                        ));
+                    }
+                    let seq = inner.next_seq;
+                    inner.next_seq = inner.next_seq.saturating_add(1);
+                    inner
+                        .queue
+                        .push(crate::object::ScheduledEvent { time, seq, event });
+                    Ok(())
+                }
+                _ => Err(RuntimeError::new("sim.schedule expects SimWorld")),
+            },
+            _ => Err(RuntimeError::new("sim.schedule expects SimWorld")),
+        }
+    }
+
+    fn sim_step(&self, world: Value) -> Result<Value, RuntimeError> {
+        match world {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SimWorld(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    let Some(event) = inner.queue.pop() else {
+                        return Ok(Value::Null);
+                    };
+                    if event.time < inner.now {
+                        return Err(RuntimeError::with_code(
+                            "E_SIM_TIME_ORDER",
+                            "sim.step encountered an event earlier than the current world time",
+                        ));
+                    }
+                    inner.now = event.time;
+                    inner.log.push(event.clone());
+                    Ok(sim_event_record_value(event))
+                }
+                _ => Err(RuntimeError::new("sim.step expects SimWorld")),
+            },
+            _ => Err(RuntimeError::new("sim.step expects SimWorld")),
+        }
+    }
+
+    fn sim_run(&self, world: Value, max_steps: Value) -> Result<Value, RuntimeError> {
+        let max_steps =
+            value_as_non_negative_int(&max_steps, "sim.run expects max_steps >= 0")? as usize;
+        let mut dispatched = Vec::new();
+        for _ in 0..max_steps {
+            let next = self.sim_step(world.clone())?;
+            if matches!(next, Value::Null) {
+                return Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(dispatched)))));
+            }
+            dispatched.push(next);
+        }
+        if self.sim_pending(world)? > 0 {
+            return Err(RuntimeError::with_code(
+                "E_SIM_STARVATION",
+                "sim.run exhausted its step budget before the event queue drained",
+            ));
+        }
+        Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(dispatched)))))
+    }
+
+    fn sim_snapshot(&self, world: Value) -> Result<Value, RuntimeError> {
+        match world {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SimWorld(inner) => {
+                    let inner = inner.borrow();
+                    let mut pending = inner.queue.clone().into_vec();
+                    pending.sort_by(|left, right| {
+                        left.time
+                            .partial_cmp(&right.time)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                            .then_with(|| left.seq.cmp(&right.seq))
+                    });
+                    let queue = pending
+                        .into_iter()
+                        .map(snapshot_event_record_value)
+                        .collect::<Result<Vec<_>, RuntimeError>>()?;
+                    let log = inner
+                        .log
+                        .iter()
+                        .cloned()
+                        .map(snapshot_event_record_value)
+                        .collect::<Result<Vec<_>, RuntimeError>>()?;
+                    let entities = inner
+                        .entities
+                        .iter()
+                        .map(|(id, value)| {
+                            let snapshot_value = clone_snapshot_value(value)?;
+                            Ok(record_value(HashMap::from([
+                                ("id".to_string(), Value::Int(*id)),
+                                ("value".to_string(), snapshot_value),
+                            ])))
+                        })
+                        .collect::<Result<Vec<_>, RuntimeError>>()?;
+                    Ok(record_value(HashMap::from([
+                        ("seed".to_string(), Value::Int(inner.seed)),
+                        ("now".to_string(), Value::Float(inner.now)),
+                        (
+                            "max_events".to_string(),
+                            Value::Int(inner.max_events as i64),
+                        ),
+                        ("next_seq".to_string(), Value::Int(inner.next_seq as i64)),
+                        (
+                            "queue".to_string(),
+                            Value::Obj(ObjRef::new(Obj::List(RefCell::new(queue)))),
+                        ),
+                        (
+                            "log".to_string(),
+                            Value::Obj(ObjRef::new(Obj::List(RefCell::new(log)))),
+                        ),
+                        (
+                            "entities".to_string(),
+                            Value::Obj(ObjRef::new(Obj::List(RefCell::new(entities)))),
+                        ),
+                    ])))
+                }
+                _ => Err(RuntimeError::new("sim.snapshot expects SimWorld")),
+            },
+            _ => Err(RuntimeError::new("sim.snapshot expects SimWorld")),
+        }
+    }
+
+    fn sim_restore(&self, snapshot: Value) -> Result<Value, RuntimeError> {
+        let map = value_as_record(&snapshot).map_err(|_| {
+            RuntimeError::with_code(
+                "E_SIM_CORRUPTED_REPLAY",
+                "sim.restore expects a snapshot record",
+            )
+        })?;
+        let seed = map
+            .get("seed")
+            .ok_or_else(|| {
+                RuntimeError::with_code(
+                    "E_SIM_CORRUPTED_REPLAY",
+                    "sim.restore snapshot is missing seed",
+                )
+            })
+            .and_then(value_as_int)?;
+        let now = map
+            .get("now")
+            .ok_or_else(|| {
+                RuntimeError::with_code(
+                    "E_SIM_CORRUPTED_REPLAY",
+                    "sim.restore snapshot is missing now",
+                )
+            })
+            .and_then(value_as_float_like)?;
+        let max_events = map
+            .get("max_events")
+            .ok_or_else(|| {
+                RuntimeError::with_code(
+                    "E_SIM_CORRUPTED_REPLAY",
+                    "sim.restore snapshot is missing max_events",
+                )
+            })
+            .and_then(|value| {
+                value_as_non_negative_int(value, "sim.restore expects max_events >= 0")
+            })? as usize;
+        let next_seq = map
+            .get("next_seq")
+            .ok_or_else(|| {
+                RuntimeError::with_code(
+                    "E_SIM_CORRUPTED_REPLAY",
+                    "sim.restore snapshot is missing next_seq",
+                )
+            })
+            .and_then(|value| {
+                value_as_non_negative_int(value, "sim.restore expects next_seq >= 0")
+            })? as u64;
+        let queue = map.get("queue").ok_or_else(|| {
+            RuntimeError::with_code(
+                "E_SIM_CORRUPTED_REPLAY",
+                "sim.restore snapshot is missing queue",
+            )
+        })?;
+        let log = map.get("log").ok_or_else(|| {
+            RuntimeError::with_code(
+                "E_SIM_CORRUPTED_REPLAY",
+                "sim.restore snapshot is missing log",
+            )
+        })?;
+        let entities = map.get("entities").ok_or_else(|| {
+            RuntimeError::with_code(
+                "E_SIM_CORRUPTED_REPLAY",
+                "sim.restore snapshot is missing entities",
+            )
+        })?;
+        let queue_items = value_as_list(queue).map_err(|_| {
+            RuntimeError::with_code("E_SIM_CORRUPTED_REPLAY", "sim.restore queue must be a list")
+        })?;
+        let log_items = value_as_list(log).map_err(|_| {
+            RuntimeError::with_code("E_SIM_CORRUPTED_REPLAY", "sim.restore log must be a list")
+        })?;
+        let entity_items = value_as_list(entities).map_err(|_| {
+            RuntimeError::with_code(
+                "E_SIM_CORRUPTED_REPLAY",
+                "sim.restore entities must be a list",
+            )
+        })?;
+        let mut state = crate::object::SimWorldState::new(max_events, seed);
+        state.now = now;
+        let mut required_next_seq = 0u64;
+        for item in queue_items {
+            let event = scheduled_event_from_value(&item)?;
+            if event.time < now {
+                return Err(RuntimeError::with_code(
+                    "E_SIM_CORRUPTED_REPLAY",
+                    "sim.restore queue contains an event before the current world time",
+                ));
+            }
+            required_next_seq = required_next_seq.max(event.seq.saturating_add(1));
+            state.queue.push(event);
+        }
+        for item in log_items {
+            let event = scheduled_event_from_value(&item)?;
+            if event.time > now {
+                return Err(RuntimeError::with_code(
+                    "E_SIM_CORRUPTED_REPLAY",
+                    "sim.restore log contains an event after the current world time",
+                ));
+            }
+            required_next_seq = required_next_seq.max(event.seq.saturating_add(1));
+            state.log.push(event);
+        }
+        if next_seq < required_next_seq {
+            return Err(RuntimeError::with_code(
+                "E_SIM_CORRUPTED_REPLAY",
+                "sim.restore snapshot next_seq is lower than the highest event sequence",
+            ));
+        }
+        state.next_seq = next_seq;
+        for item in entity_items {
+            let entity = value_as_record(&item).map_err(|_| {
+                RuntimeError::with_code(
+                    "E_SIM_CORRUPTED_REPLAY",
+                    "sim.restore entity entries must be records",
+                )
+            })?;
+            let id = entity.get("id").ok_or_else(|| {
+                RuntimeError::with_code(
+                    "E_SIM_CORRUPTED_REPLAY",
+                    "sim.restore entity record is missing id",
+                )
+            })?;
+            let value = entity.get("value").ok_or_else(|| {
+                RuntimeError::with_code(
+                    "E_SIM_CORRUPTED_REPLAY",
+                    "sim.restore entity record is missing value",
+                )
+            })?;
+            state
+                .entities
+                .insert(value_as_int(id)?, clone_snapshot_value(value)?);
+        }
+        Ok(Value::Obj(ObjRef::new(Obj::SimWorld(Box::new(
+            RefCell::new(state),
+        )))))
+    }
+
+    fn sim_replay(
+        &self,
+        log: Value,
+        max_events: Value,
+        seed: Value,
+    ) -> Result<Value, RuntimeError> {
+        let max_events =
+            value_as_non_negative_int(&max_events, "sim.replay expects max_events >= 0")? as usize;
+        let seed = value_as_int(&seed)?;
+        let entries = value_as_list(&log).map_err(|_| {
+            RuntimeError::with_code("E_SIM_CORRUPTED_REPLAY", "sim.replay expects a log list")
+        })?;
+        let world = sim_world_value(max_events, seed);
+        let mut parsed = Vec::with_capacity(entries.len());
+        for entry in entries {
+            parsed.push(scheduled_event_from_value(&entry)?);
+        }
+        match &world {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SimWorld(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    for event in parsed {
+                        if inner.queue.len() >= inner.max_events {
+                            return Err(RuntimeError::with_code(
+                                "E_SIM_EVENT_OVERFLOW",
+                                "sim.replay exceeded the configured event capacity",
+                            ));
+                        }
+                        inner.next_seq = inner.next_seq.max(event.seq.saturating_add(1));
+                        inner.queue.push(event);
+                    }
+                }
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        }
+        let pending = self.sim_pending(world.clone())?;
+        self.sim_run(world.clone(), Value::Int(pending as i64))?;
+        Ok(world)
+    }
+
+    fn sim_log(&self, world: Value) -> Result<Value, RuntimeError> {
+        match world {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SimWorld(inner) => {
+                    let log = inner
+                        .borrow()
+                        .log
+                        .iter()
+                        .cloned()
+                        .map(snapshot_event_record_value)
+                        .collect::<Result<Vec<_>, RuntimeError>>()?;
+                    Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(log)))))
+                }
+                _ => Err(RuntimeError::new("sim.log expects SimWorld")),
+            },
+            _ => Err(RuntimeError::new("sim.log expects SimWorld")),
+        }
+    }
+
+    fn sim_entity_set(&self, world: Value, id: Value, value: Value) -> Result<(), RuntimeError> {
+        let id = value_as_int(&id)?;
+        match world {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SimWorld(inner) => {
+                    inner.borrow_mut().entities.insert(id, value);
+                    Ok(())
+                }
+                _ => Err(RuntimeError::new("sim.entity_set expects SimWorld")),
+            },
+            _ => Err(RuntimeError::new("sim.entity_set expects SimWorld")),
+        }
+    }
+
+    fn sim_entity_get(&self, world: Value, id: Value) -> Result<Value, RuntimeError> {
+        let id = value_as_int(&id)?;
+        match world {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SimWorld(inner) => Ok(inner
+                    .borrow()
+                    .entities
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or(Value::Null)),
+                _ => Err(RuntimeError::new("sim.entity_get expects SimWorld")),
+            },
+            _ => Err(RuntimeError::new("sim.entity_get expects SimWorld")),
+        }
+    }
+
+    fn sim_entity_remove(&self, world: Value, id: Value) -> Result<bool, RuntimeError> {
+        let id = value_as_int(&id)?;
+        match world {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SimWorld(inner) => Ok(inner.borrow_mut().entities.remove(&id).is_some()),
+                _ => Err(RuntimeError::new("sim.entity_remove expects SimWorld")),
+            },
+            _ => Err(RuntimeError::new("sim.entity_remove expects SimWorld")),
+        }
+    }
+
+    fn sim_entity_ids(&self, world: Value) -> Result<Value, RuntimeError> {
+        match world {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SimWorld(inner) => {
+                    let values = inner
+                        .borrow()
+                        .entities
+                        .keys()
+                        .copied()
+                        .map(Value::Int)
+                        .collect::<Vec<_>>();
+                    Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(values)))))
+                }
+                _ => Err(RuntimeError::new("sim.entity_ids expects SimWorld")),
+            },
+            _ => Err(RuntimeError::new("sim.entity_ids expects SimWorld")),
+        }
+    }
+
     fn value_to_json(&self, value: Value) -> Result<serde_json::Value, RuntimeError> {
         match value {
             Value::Null => Ok(serde_json::Value::Null),
@@ -8060,6 +9749,22 @@ fn value_as_int(value: &Value) -> Result<i64, RuntimeError> {
     }
 }
 
+fn value_as_non_negative_int(value: &Value, message: &str) -> Result<i64, RuntimeError> {
+    let value = value_as_int(value)?;
+    if value < 0 {
+        return Err(RuntimeError::new(message));
+    }
+    Ok(value)
+}
+
+fn value_as_float_like(value: &Value) -> Result<f64, RuntimeError> {
+    match value {
+        Value::Int(i) => Ok(*i as f64),
+        Value::Float(f) => Ok(*f),
+        _ => Err(RuntimeError::new("Expected Float value")),
+    }
+}
+
 fn value_as_bool(value: &Value) -> Result<bool, RuntimeError> {
     match value {
         Value::Bool(b) => Ok(*b),
@@ -8087,6 +9792,134 @@ fn value_as_record(
         },
         _ => Err(RuntimeError::new("Expected Record value")),
     }
+}
+
+fn value_as_dense_f64(value: &Value) -> Result<Vec<f64>, RuntimeError> {
+    match value {
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::List(values) => values
+                .borrow()
+                .iter()
+                .map(value_as_float_like)
+                .collect::<Result<Vec<_>, _>>(),
+            Obj::Buffer(bytes) => {
+                if bytes.len() % 4 != 0 {
+                    return Err(RuntimeError::new(
+                        "Dense Buffer must be little-endian f32 bytes",
+                    ));
+                }
+                let mut out = Vec::with_capacity(bytes.len() / 4);
+                for chunk in bytes.chunks_exact(4) {
+                    out.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) as f64);
+                }
+                Ok(out)
+            }
+            _ => Err(RuntimeError::new("Expected dense List or Buffer value")),
+        },
+        _ => Err(RuntimeError::new("Expected dense List or Buffer value")),
+    }
+}
+
+fn event_record_value(event: crate::object::ScheduledEvent) -> Value {
+    sim_event_record_value(event)
+}
+
+fn sim_event_record_value(event: crate::object::ScheduledEvent) -> Value {
+    record_value(HashMap::from([
+        ("time".to_string(), Value::Float(event.time)),
+        ("seq".to_string(), Value::Int(event.seq as i64)),
+        ("event".to_string(), event.event),
+    ]))
+}
+
+fn snapshot_event_record_value(
+    event: crate::object::ScheduledEvent,
+) -> Result<Value, RuntimeError> {
+    Ok(record_value(HashMap::from([
+        ("time".to_string(), Value::Float(event.time)),
+        ("seq".to_string(), Value::Int(event.seq as i64)),
+        ("event".to_string(), clone_snapshot_value(&event.event)?),
+    ])))
+}
+
+fn clone_snapshot_value(value: &Value) -> Result<Value, RuntimeError> {
+    match value {
+        Value::Int(_) | Value::Float(_) | Value::Bool(_) | Value::Null => Ok(value.clone()),
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::String(text) => Ok(string_value(text)),
+            Obj::Buffer(bytes) => Ok(buffer_value(bytes.clone())),
+            Obj::Json(json) => Ok(Value::Obj(ObjRef::new(Obj::Json(json.clone())))),
+            Obj::List(values) => Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                values
+                    .borrow()
+                    .iter()
+                    .map(clone_snapshot_value)
+                    .collect::<Result<Vec<_>, _>>()?,
+            ))))),
+            Obj::Record(map) => {
+                let map = map.borrow();
+                let mut cloned = HashMap::with_capacity(map.len());
+                for (key, value) in map.iter() {
+                    cloned.insert(key.clone(), clone_snapshot_value(value)?);
+                }
+                Ok(record_value(cloned))
+            }
+            _ => Err(RuntimeError::with_code(
+                "E_SIM_UNSNAPSHOTTABLE",
+                &format!(
+                    "simulation snapshots do not support runtime value type {}",
+                    value.type_name()
+                ),
+            )),
+        },
+    }
+}
+
+fn scheduled_event_from_value(
+    value: &Value,
+) -> Result<crate::object::ScheduledEvent, RuntimeError> {
+    let map = value_as_record(value).map_err(|_| {
+        RuntimeError::with_code(
+            "E_SIM_CORRUPTED_REPLAY",
+            "simulation event entries must be records",
+        )
+    })?;
+    let time = map
+        .get("time")
+        .ok_or_else(|| {
+            RuntimeError::with_code(
+                "E_SIM_CORRUPTED_REPLAY",
+                "simulation event record is missing time",
+            )
+        })
+        .and_then(value_as_float_like)?;
+    if !time.is_finite() {
+        return Err(RuntimeError::with_code(
+            "E_SIM_CORRUPTED_REPLAY",
+            "simulation event time must be finite",
+        ));
+    }
+    let seq = map
+        .get("seq")
+        .ok_or_else(|| {
+            RuntimeError::with_code(
+                "E_SIM_CORRUPTED_REPLAY",
+                "simulation event record is missing seq",
+            )
+        })
+        .and_then(|value| value_as_non_negative_int(value, "simulation event seq must be >= 0"))?
+        as u64;
+    let event = map.get("event").ok_or_else(|| {
+        RuntimeError::with_code(
+            "E_SIM_CORRUPTED_REPLAY",
+            "simulation event record is missing event payload",
+        )
+    })?;
+    Ok(crate::object::ScheduledEvent {
+        time,
+        seq,
+        event: clone_snapshot_value(event)?,
+    })
 }
 
 fn value_to_token_ids(value: &Value) -> Result<Vec<u32>, RuntimeError> {
@@ -8591,6 +10424,19 @@ fn display_value(v: &Value) -> String {
             Obj::BoundFunction(_) => "<bound_fn>".to_string(),
             Obj::NativeFunction(n) => format!("<native {}>", n.name),
             Obj::NativeHandle(_) => "<handle>".to_string(),
+            Obj::SparseVector(inner) => format!("<sparse_vector {}>", inner.borrow().data.len()),
+            Obj::SparseMatrix(inner) => format!("<sparse_matrix {}>", inner.borrow().data.len()),
+            Obj::EventQueue(inner) => format!("<event_queue {}>", inner.borrow().items.len()),
+            Obj::Pool(inner) => format!("<pool {}>", inner.borrow().items.len()),
+            Obj::SimWorld(inner) => {
+                let inner = inner.borrow();
+                format!(
+                    "<sim_world now={} pending={} entities={}>",
+                    inner.now,
+                    inner.queue.len(),
+                    inner.entities.len()
+                )
+            }
             Obj::TaskHandle(id) => format!("<task {}>", id),
             Obj::Channel(_) => "<channel>".to_string(),
             Obj::TcpListener(_) => "<tcp_listener>".to_string(),

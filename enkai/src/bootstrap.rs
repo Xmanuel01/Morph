@@ -1927,6 +1927,11 @@ fn canonical_value(value: &Value) -> String {
             }
             Obj::NativeFunction(func) => format!("NativeFunction({}/{})", func.name, func.arity),
             Obj::NativeHandle(_) => "Handle".to_string(),
+            Obj::SparseVector(_) => "SparseVector".to_string(),
+            Obj::SparseMatrix(_) => "SparseMatrix".to_string(),
+            Obj::EventQueue(_) => "EventQueue".to_string(),
+            Obj::Pool(_) => "Pool".to_string(),
+            Obj::SimWorld(_) => "SimWorld".to_string(),
             Obj::TaskHandle(id) => format!("TaskHandle({})", id),
             Obj::Channel(_) => "Channel".to_string(),
             Obj::TcpListener(_) => "TcpListener".to_string(),

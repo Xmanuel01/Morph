@@ -551,6 +551,11 @@ fn type_from_ref(r: TypeRef) -> Type {
                 Some("String") => Type::String,
                 Some("Buffer") => Type::Buffer,
                 Some("Handle") => Type::Handle,
+                Some("SparseVector") => Type::SparseVector,
+                Some("SparseMatrix") => Type::SparseMatrix,
+                Some("EventQueue") => Type::EventQueue,
+                Some("Pool") => Type::Pool,
+                Some("SimWorld") => Type::SimWorld,
                 Some("Tokenizer") => Type::Tokenizer,
                 Some("DataStream") => Type::DataStream,
                 Some("Batch") => Type::Batch,
@@ -901,6 +906,239 @@ fn inject_builtins(
         Type::Function(vec![Type::String, Type::Int], Box::new(Type::Void)),
     );
     exports.entry(checkpoint_id).or_insert(checkpoint_exports);
+    let std_sparse_id = ModuleId(vec!["std".to_string(), "sparse".to_string()]);
+    imports
+        .entry("sparse".to_string())
+        .or_insert(std_sparse_id.clone());
+    let mut sparse_exports = std::collections::HashMap::new();
+    sparse_exports.insert(
+        "vector".to_string(),
+        Type::Function(Vec::new(), Box::new(Type::SparseVector)),
+    );
+    sparse_exports.insert(
+        "matrix".to_string(),
+        Type::Function(Vec::new(), Box::new(Type::SparseMatrix)),
+    );
+    sparse_exports.insert(
+        "get".to_string(),
+        Type::Function(
+            vec![Type::SparseMatrix, Type::Int, Type::Int],
+            Box::new(Type::Optional(Box::new(Type::Float))),
+        ),
+    );
+    sparse_exports.insert(
+        "set".to_string(),
+        Type::Function(
+            vec![Type::SparseMatrix, Type::Int, Type::Int, Type::Float],
+            Box::new(Type::Void),
+        ),
+    );
+    sparse_exports.insert(
+        "get_vector".to_string(),
+        Type::Function(
+            vec![Type::SparseVector, Type::Int],
+            Box::new(Type::Optional(Box::new(Type::Float))),
+        ),
+    );
+    sparse_exports.insert(
+        "set_vector".to_string(),
+        Type::Function(
+            vec![Type::SparseVector, Type::Int, Type::Float],
+            Box::new(Type::Void),
+        ),
+    );
+    sparse_exports.insert(
+        "nonzero".to_string(),
+        Type::Function(vec![Type::SparseMatrix], Box::new(Type::Unknown)),
+    );
+    sparse_exports.insert(
+        "nonzero_vector".to_string(),
+        Type::Function(vec![Type::SparseVector], Box::new(Type::Unknown)),
+    );
+    sparse_exports.insert(
+        "dot".to_string(),
+        Type::Function(
+            vec![Type::SparseVector, Type::Unknown],
+            Box::new(Type::Float),
+        ),
+    );
+    sparse_exports.insert(
+        "matvec".to_string(),
+        Type::Function(
+            vec![Type::SparseMatrix, Type::Unknown],
+            Box::new(Type::Unknown),
+        ),
+    );
+    sparse_exports.insert(
+        "nnz".to_string(),
+        Type::Function(vec![Type::Unknown], Box::new(Type::Int)),
+    );
+    exports.entry(std_sparse_id).or_insert(sparse_exports);
+    let std_event_id = ModuleId(vec!["std".to_string(), "event".to_string()]);
+    imports
+        .entry("event".to_string())
+        .or_insert(std_event_id.clone());
+    let mut event_exports = std::collections::HashMap::new();
+    event_exports.insert(
+        "make".to_string(),
+        Type::Function(Vec::new(), Box::new(Type::EventQueue)),
+    );
+    event_exports.insert(
+        "push".to_string(),
+        Type::Function(
+            vec![Type::EventQueue, Type::Float, Type::Unknown],
+            Box::new(Type::Void),
+        ),
+    );
+    event_exports.insert(
+        "pop".to_string(),
+        Type::Function(
+            vec![Type::EventQueue],
+            Box::new(Type::Optional(Box::new(Type::Unknown))),
+        ),
+    );
+    event_exports.insert(
+        "peek".to_string(),
+        Type::Function(
+            vec![Type::EventQueue],
+            Box::new(Type::Optional(Box::new(Type::Unknown))),
+        ),
+    );
+    event_exports.insert(
+        "len".to_string(),
+        Type::Function(vec![Type::EventQueue], Box::new(Type::Int)),
+    );
+    event_exports.insert(
+        "is_empty".to_string(),
+        Type::Function(vec![Type::EventQueue], Box::new(Type::Bool)),
+    );
+    exports.entry(std_event_id).or_insert(event_exports);
+    let std_pool_id = ModuleId(vec!["std".to_string(), "pool".to_string()]);
+    imports
+        .entry("pool".to_string())
+        .or_insert(std_pool_id.clone());
+    let mut pool_exports = std::collections::HashMap::new();
+    pool_exports.insert(
+        "make".to_string(),
+        Type::Function(vec![Type::Int], Box::new(Type::Pool)),
+    );
+    pool_exports.insert(
+        "make_growable".to_string(),
+        Type::Function(vec![Type::Int], Box::new(Type::Pool)),
+    );
+    pool_exports.insert(
+        "acquire".to_string(),
+        Type::Function(
+            vec![Type::Pool],
+            Box::new(Type::Optional(Box::new(Type::Unknown))),
+        ),
+    );
+    pool_exports.insert(
+        "release".to_string(),
+        Type::Function(vec![Type::Pool, Type::Unknown], Box::new(Type::Bool)),
+    );
+    pool_exports.insert(
+        "reset".to_string(),
+        Type::Function(vec![Type::Pool], Box::new(Type::Void)),
+    );
+    pool_exports.insert(
+        "available".to_string(),
+        Type::Function(vec![Type::Pool], Box::new(Type::Int)),
+    );
+    pool_exports.insert(
+        "capacity".to_string(),
+        Type::Function(vec![Type::Pool], Box::new(Type::Int)),
+    );
+    pool_exports.insert(
+        "stats".to_string(),
+        Type::Function(vec![Type::Pool], Box::new(Type::Unknown)),
+    );
+    exports.entry(std_pool_id).or_insert(pool_exports);
+    let std_sim_id = ModuleId(vec!["std".to_string(), "sim".to_string()]);
+    imports
+        .entry("sim".to_string())
+        .or_insert(std_sim_id.clone());
+    let mut sim_exports = std::collections::HashMap::new();
+    sim_exports.insert(
+        "make".to_string(),
+        Type::Function(vec![Type::Int], Box::new(Type::SimWorld)),
+    );
+    sim_exports.insert(
+        "make_seeded".to_string(),
+        Type::Function(vec![Type::Int, Type::Int], Box::new(Type::SimWorld)),
+    );
+    sim_exports.insert(
+        "time".to_string(),
+        Type::Function(vec![Type::SimWorld], Box::new(Type::Float)),
+    );
+    sim_exports.insert(
+        "seed".to_string(),
+        Type::Function(vec![Type::SimWorld], Box::new(Type::Int)),
+    );
+    sim_exports.insert(
+        "pending".to_string(),
+        Type::Function(vec![Type::SimWorld], Box::new(Type::Int)),
+    );
+    sim_exports.insert(
+        "schedule".to_string(),
+        Type::Function(
+            vec![Type::SimWorld, Type::Float, Type::Unknown],
+            Box::new(Type::Void),
+        ),
+    );
+    sim_exports.insert(
+        "step".to_string(),
+        Type::Function(
+            vec![Type::SimWorld],
+            Box::new(Type::Optional(Box::new(Type::Unknown))),
+        ),
+    );
+    sim_exports.insert(
+        "run".to_string(),
+        Type::Function(vec![Type::SimWorld, Type::Int], Box::new(Type::Unknown)),
+    );
+    sim_exports.insert(
+        "snapshot".to_string(),
+        Type::Function(vec![Type::SimWorld], Box::new(Type::Unknown)),
+    );
+    sim_exports.insert(
+        "restore".to_string(),
+        Type::Function(vec![Type::Unknown], Box::new(Type::SimWorld)),
+    );
+    sim_exports.insert(
+        "replay".to_string(),
+        Type::Function(
+            vec![Type::Unknown, Type::Int, Type::Int],
+            Box::new(Type::SimWorld),
+        ),
+    );
+    sim_exports.insert(
+        "log".to_string(),
+        Type::Function(vec![Type::SimWorld], Box::new(Type::Unknown)),
+    );
+    sim_exports.insert(
+        "entity_set".to_string(),
+        Type::Function(
+            vec![Type::SimWorld, Type::Int, Type::Unknown],
+            Box::new(Type::Void),
+        ),
+    );
+    sim_exports.insert(
+        "entity_get".to_string(),
+        Type::Function(
+            vec![Type::SimWorld, Type::Int],
+            Box::new(Type::Optional(Box::new(Type::Unknown))),
+        ),
+    );
+    sim_exports.insert(
+        "entity_remove".to_string(),
+        Type::Function(vec![Type::SimWorld, Type::Int], Box::new(Type::Bool)),
+    );
+    sim_exports.insert(
+        "entity_ids".to_string(),
+        Type::Function(vec![Type::SimWorld], Box::new(Type::Unknown)),
+    );
+    exports.entry(std_sim_id).or_insert(sim_exports);
     let std_nn_id = ModuleId(vec!["std".to_string(), "nn".to_string()]);
     let mut nn_exports = std::collections::HashMap::new();
     nn_exports.insert(

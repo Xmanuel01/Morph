@@ -166,6 +166,10 @@ impl<'a> ProgramBuilder<'a> {
         let _ = self.ensure_global("tokenizer");
         let _ = self.ensure_global("dataset");
         let _ = self.ensure_global("checkpoint");
+        let _ = self.ensure_global("sparse");
+        let _ = self.ensure_global("event");
+        let _ = self.ensure_global("pool");
+        let _ = self.ensure_global("sim");
     }
 
     fn ensure_global(&mut self, name: &str) -> u16 {

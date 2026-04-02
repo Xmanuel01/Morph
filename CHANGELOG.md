@@ -3,10 +3,41 @@
 ## Unreleased
 
 ### Highlights
-- None.
+- None yet.
 
 ### Breaking changes
 - None.
+
+## v2.6.2
+
+### Highlights
+- Advanced the release line to `v2.6.2` with additive compatibility and no syntax changes.
+- Added core simulation primitives in std/runtime:
+  - `std::sparse`
+  - `std::event`
+  - `std::pool`
+- Added deterministic simulation scheduling/runtime support:
+  - `std::sim`
+  - world creation with seed + bounded event capacity
+  - event scheduling / stepping / bounded run
+  - snapshot / restore / replay helpers
+  - entity set/get/remove/id surfaces
+
+### Fixes
+- Implemented deterministic sparse storage, non-zero iteration, dot, and matvec helpers for AGI/simulation workloads.
+- Implemented deterministic timestamp ordering with insertion-order tie breaking for event queues.
+- Implemented fixed-capacity and growable reusable value pools with explicit stats and no hidden capacity behavior.
+- Added stable simulation runtime error codes for:
+  - time-order violations
+  - event-capacity overflow
+  - bounded-run starvation
+  - corrupted replay / snapshot restoration
+  - unsupported snapshot payload types
+- Added runtime/compiler/typecheck/test coverage for `SparseVector`, `SparseMatrix`, `EventQueue`, `Pool`, and `SimWorld`.
+- Synced docs/spec/release metadata and version surfaces to `v2.6.2`.
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_6_2_rc_pipeline.ps1`
+  - `scripts/v2_6_2_rc_pipeline.sh`
 
 ## v2.6.0
 

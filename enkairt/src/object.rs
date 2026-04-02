@@ -1,5 +1,6 @@
 use std::cell::RefCell;
-use std::collections::VecDeque;
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, BinaryHeap, VecDeque};
 use std::ffi::c_void;
 use std::rc::Rc;
 
@@ -26,6 +27,11 @@ pub enum Obj {
     BoundFunction(BoundFunctionObj),
     NativeFunction(NativeFunction),
     NativeHandle(NativeHandle),
+    SparseVector(Box<RefCell<SparseVectorState>>),
+    SparseMatrix(Box<RefCell<SparseMatrixState>>),
+    EventQueue(Box<RefCell<EventQueueState>>),
+    Pool(Box<RefCell<ValuePoolState>>),
+    SimWorld(Box<RefCell<SimWorldState>>),
     TaskHandle(usize),
     Channel(RefCell<ChannelState>),
     TcpListener(RefCell<std::net::TcpListener>),
@@ -48,6 +54,11 @@ impl Obj {
             Obj::BoundFunction(_) => "BoundFunction",
             Obj::NativeFunction(_) => "NativeFunction",
             Obj::NativeHandle(_) => "Handle",
+            Obj::SparseVector(_) => "SparseVector",
+            Obj::SparseMatrix(_) => "SparseMatrix",
+            Obj::EventQueue(_) => "EventQueue",
+            Obj::Pool(_) => "Pool",
+            Obj::SimWorld(_) => "SimWorld",
             Obj::TaskHandle(_) => "TaskHandle",
             Obj::Channel(_) => "Channel",
             Obj::TcpListener(_) => "TcpListener",
@@ -110,6 +121,105 @@ impl Drop for NativeHandle {
         let args = vec![Arg::new(ptr_args.last().unwrap())];
         let _: () = unsafe { self.dropper.free_cif.call(self.dropper.free_ptr, &args) };
         self.ptr = std::ptr::null_mut();
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct SparseVectorState {
+    pub data: BTreeMap<i64, f64>,
+}
+
+#[derive(Debug, Default)]
+pub struct SparseMatrixState {
+    pub data: BTreeMap<(i64, i64), f64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ScheduledEvent {
+    pub time: f64,
+    pub seq: u64,
+    pub event: Value,
+}
+
+impl PartialEq for ScheduledEvent {
+    fn eq(&self, other: &Self) -> bool {
+        self.time.to_bits() == other.time.to_bits() && self.seq == other.seq
+    }
+}
+
+impl Eq for ScheduledEvent {}
+
+impl PartialOrd for ScheduledEvent {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ScheduledEvent {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other
+            .time
+            .partial_cmp(&self.time)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| other.seq.cmp(&self.seq))
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct EventQueueState {
+    pub next_seq: u64,
+    pub items: BinaryHeap<ScheduledEvent>,
+}
+
+#[derive(Debug)]
+pub struct ValuePoolState {
+    pub items: Vec<Value>,
+    pub capacity: usize,
+    pub growable: bool,
+    pub acquire_hits: u64,
+    pub acquire_misses: u64,
+    pub releases: u64,
+    pub dropped_on_full: u64,
+    pub high_watermark: usize,
+}
+
+impl ValuePoolState {
+    pub fn new(capacity: usize, growable: bool) -> Self {
+        Self {
+            items: Vec::with_capacity(capacity),
+            capacity,
+            growable,
+            acquire_hits: 0,
+            acquire_misses: 0,
+            releases: 0,
+            dropped_on_full: 0,
+            high_watermark: 0,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct SimWorldState {
+    pub seed: i64,
+    pub now: f64,
+    pub max_events: usize,
+    pub next_seq: u64,
+    pub queue: BinaryHeap<ScheduledEvent>,
+    pub log: Vec<ScheduledEvent>,
+    pub entities: BTreeMap<i64, Value>,
+}
+
+impl SimWorldState {
+    pub fn new(max_events: usize, seed: i64) -> Self {
+        Self {
+            seed,
+            now: 0.0,
+            max_events,
+            next_seq: 0,
+            queue: BinaryHeap::new(),
+            log: Vec::new(),
+            entities: BTreeMap::new(),
+        }
     }
 }
 
@@ -183,6 +293,36 @@ pub fn native_handle_value(ptr: *mut c_void, dropper: Rc<NativeHandleDrop>) -> V
         ptr,
         dropper,
     })))
+}
+
+pub fn sparse_vector_value() -> Value {
+    Value::Obj(ObjRef::new(Obj::SparseVector(Box::new(RefCell::new(
+        SparseVectorState::default(),
+    )))))
+}
+
+pub fn sparse_matrix_value() -> Value {
+    Value::Obj(ObjRef::new(Obj::SparseMatrix(Box::new(RefCell::new(
+        SparseMatrixState::default(),
+    )))))
+}
+
+pub fn event_queue_value() -> Value {
+    Value::Obj(ObjRef::new(Obj::EventQueue(Box::new(RefCell::new(
+        EventQueueState::default(),
+    )))))
+}
+
+pub fn pool_value(capacity: usize, growable: bool) -> Value {
+    Value::Obj(ObjRef::new(Obj::Pool(Box::new(RefCell::new(
+        ValuePoolState::new(capacity, growable),
+    )))))
+}
+
+pub fn sim_world_value(max_events: usize, seed: i64) -> Value {
+    Value::Obj(ObjRef::new(Obj::SimWorld(Box::new(RefCell::new(
+        SimWorldState::new(max_events, seed),
+    )))))
 }
 
 #[derive(Debug)]

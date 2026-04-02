@@ -66,6 +66,43 @@ fn native_import_accepts_handle_types() {
 }
 
 #[test]
+fn simulation_stdlib_modules_typecheck() {
+    assert!(type_ok(
+        "import std::sparse\n\
+         import std::event\n\
+         import std::pool\n\
+         let m: SparseMatrix := sparse.matrix()\n\
+         let v: SparseVector := sparse.vector()\n\
+         let q: EventQueue := event.make()\n\
+         let p: Pool := pool.make(4)\n\
+         sparse.set(m, 0, 1, 2.0)\n\
+         sparse.set_vector(v, 1, 3.0)\n\
+         event.push(q, 1.0, 7)\n\
+         let hit := sparse.get(m, 0, 1)\n\
+         let item := event.pop(q)\n\
+         let maybe := pool.acquire(p)\n\
+         let ok := pool.release(p, 4)\n"
+    ));
+}
+
+#[test]
+fn simulation_world_stdlib_typechecks() {
+    assert!(type_ok(
+        "import std::sim\n\
+         import json\n\
+         let world: SimWorld := sim.make_seeded(16, 7)\n\
+         sim.schedule(world, 1.0, json.parse(\"{\\\"kind\\\":\\\"tick\\\"}\"))\n\
+         let next := sim.step(world)\n\
+         let snap := sim.snapshot(world)\n\
+         let restored := sim.restore(snap)\n\
+         let replayed := sim.replay(sim.log(restored), 16, sim.seed(restored))\n\
+         sim.entity_set(replayed, 1, json.parse(\"{\\\"state\\\":2}\"))\n\
+         let entity := sim.entity_get(replayed, 1)\n\
+         let ids := sim.entity_ids(replayed)\n"
+    ));
+}
+
+#[test]
 fn unknown_callee_call_is_permitted() {
     assert!(type_ok(
         "type Boxed ::\n    value: Int\n::\n\
