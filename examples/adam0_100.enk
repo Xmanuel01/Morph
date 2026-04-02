@@ -1,0 +1,169 @@
+import json
+import std::event
+import std::pool
+import std::sim
+import std::sparse
+
+fn build_connectivity(agent_count: Int, fanout: Int) -> SparseMatrix ::
+    let weights := sparse.matrix()
+    let source := 0
+    while source < agent_count ::
+        let hop := 1
+        while hop <= fanout ::
+            let target := source + hop
+            if target < agent_count ::
+                sparse.set(weights, source, target, 0.08 + hop * 0.01)
+            ::
+            hop := hop + 1
+        ::
+        source := source + 1
+    ::
+    return weights
+::
+
+fn build_feature_weights() -> SparseVector ::
+    let weights := sparse.vector()
+    sparse.set_vector(weights, 0, 0.55)
+    sparse.set_vector(weights, 1, 0.15)
+    sparse.set_vector(weights, 2, 0.10)
+    sparse.set_vector(weights, 3, 0.20)
+    return weights
+::
+
+fn init_agents(world: SimWorld, agent_count: Int) -> Int ::
+    let agent_id := 0
+    while agent_id < agent_count ::
+        let entity_rec := json.parse("{}")
+        entity_rec.potential := 0.0
+        entity_rec.spikes := 0
+        entity_rec.age := 0
+        sim.entity_set(world, agent_id, entity_rec)
+        agent_id := agent_id + 1
+    ::
+    return agent_count
+::
+
+fn run_shard(coro: SimCoroutine, start: Int, count: Int, rounds: Int, fanout: Int, agent_count: Int, reusable_capacity: Int, connectivity: SparseMatrix, feature_weights: SparseVector) -> Int ::
+    let world := sim.world(coro)
+    let local_events := event.make()
+    let reusable := pool.make_growable(reusable_capacity)
+    let base_drive := sparse.dot(feature_weights, [1.0, 1.0, 1.0, 1.0])
+    let round := 0
+    while round < rounds ::
+        let offset := 0
+        while offset < count ::
+            let agent_id := start + offset
+            let next_potential := base_drive + round * 0.02
+            event.push(local_events, sim.time(world) + round * 0.1 + offset * 0.001, agent_id)
+            let updated := json.parse("{}")
+            updated.potential := next_potential
+            updated.spikes := round + 1
+            updated.age := round + 1
+            sim.entity_set(world, agent_id, updated)
+            offset := offset + 1
+        ::
+        while not event.is_empty(local_events) ::
+            event.pop(local_events)?
+            let hop := 1
+            while hop <= fanout ::
+                let target := start + hop + round
+                if target < agent_count ::
+                    let maybe_weight := sparse.get(connectivity, start, target)
+                    if maybe_weight != none ::
+                        let token := pool.acquire(reusable)
+                        let weight := maybe_weight?
+                        let scheduled := json.parse("{}")
+                        scheduled.target := target
+                        scheduled.weight := weight
+                        sim.schedule(world, sim.time(world) + hop * 0.05, scheduled)
+                        if token == none ::
+                            pool.release(reusable, hop)
+                        ::
+                        else ::
+                            pool.release(reusable, token?)
+                        ::
+                    ::
+                ::
+                hop := hop + 1
+            ::
+        ::
+        let report := json.parse("{}")
+        report.start := start
+        report.round := round
+        report.available := pool.available(reusable)
+        report.pending := sim.pending(world)
+        sim.emit(coro, report)
+        round := round + 1
+    ::
+    return count
+::
+
+fn drain_reports(coro: SimCoroutine, rounds: Int) -> Int ::
+    let idx := 0
+    let total := 0
+    while idx < rounds ::
+        sim.next(coro)?
+        total := total + 1
+        idx := idx + 1
+    ::
+    return total
+::
+
+fn main() ::
+    let agent_count := 100
+    let shard_count := 10
+    let shard_size := 10
+    let rounds := 3
+    let fanout := 4
+    let world := sim.make_seeded(4096, 11)
+    let connectivity := build_connectivity(agent_count, fanout)
+    let feature_weights := build_feature_weights()
+    init_agents(world, agent_count)
+
+    let c0 := sim.coroutine_args(world, run_shard, [0, shard_size, rounds, fanout, agent_count, 40, connectivity, feature_weights])
+    let c1 := sim.coroutine_args(world, run_shard, [10, shard_size, rounds, fanout, agent_count, 40, connectivity, feature_weights])
+    let c2 := sim.coroutine_args(world, run_shard, [20, shard_size, rounds, fanout, agent_count, 40, connectivity, feature_weights])
+    let c3 := sim.coroutine_args(world, run_shard, [30, shard_size, rounds, fanout, agent_count, 40, connectivity, feature_weights])
+    let c4 := sim.coroutine_args(world, run_shard, [40, shard_size, rounds, fanout, agent_count, 40, connectivity, feature_weights])
+    let c5 := sim.coroutine_args(world, run_shard, [50, shard_size, rounds, fanout, agent_count, 40, connectivity, feature_weights])
+    let c6 := sim.coroutine_args(world, run_shard, [60, shard_size, rounds, fanout, agent_count, 40, connectivity, feature_weights])
+    let c7 := sim.coroutine_args(world, run_shard, [70, shard_size, rounds, fanout, agent_count, 40, connectivity, feature_weights])
+    let c8 := sim.coroutine_args(world, run_shard, [80, shard_size, rounds, fanout, agent_count, 40, connectivity, feature_weights])
+    let c9 := sim.coroutine_args(world, run_shard, [90, shard_size, rounds, fanout, agent_count, 40, connectivity, feature_weights])
+
+    let report_total := 0
+    report_total := report_total + drain_reports(c0, rounds)
+    report_total := report_total + drain_reports(c1, rounds)
+    report_total := report_total + drain_reports(c2, rounds)
+    report_total := report_total + drain_reports(c3, rounds)
+    report_total := report_total + drain_reports(c4, rounds)
+    report_total := report_total + drain_reports(c5, rounds)
+    report_total := report_total + drain_reports(c6, rounds)
+    report_total := report_total + drain_reports(c7, rounds)
+    report_total := report_total + drain_reports(c8, rounds)
+    report_total := report_total + drain_reports(c9, rounds)
+
+    sim.join(c0)?
+    sim.join(c1)?
+    sim.join(c2)?
+    sim.join(c3)?
+    sim.join(c4)?
+    sim.join(c5)?
+    sim.join(c6)?
+    sim.join(c7)?
+    sim.join(c8)?
+    sim.join(c9)?
+    let joined_total := agent_count
+
+    sim.run(world, 4096)
+    let snapshot := sim.snapshot(world)
+    snapshot.agent_count := agent_count
+    snapshot.shard_count := shard_count
+    snapshot.joined_total := joined_total
+    snapshot.report_total := report_total
+    snapshot.sparse_edges := sparse.nnz(connectivity)
+    snapshot.feature_nnz := sparse.nnz(feature_weights)
+    return snapshot
+::
+
+main()

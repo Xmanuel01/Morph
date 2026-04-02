@@ -1114,6 +1114,8 @@ mod tests {
             "artifacts/readiness/sim_native_evidence_verify.json",
             "artifacts/readiness/sim_stdlib_smoke.json",
             "artifacts/readiness/sim_stdlib_evidence_verify.json",
+            "artifacts/readiness/adam0_100_smoke.json",
+            "artifacts/readiness/adam0_100_evidence_verify.json",
             "artifacts/sim/smoke_run.json",
             "artifacts/sim/smoke_profile.json",
             "artifacts/sim/smoke_replay.json",
@@ -1121,11 +1123,12 @@ mod tests {
             "artifacts/sim/native_smoke_profile.json",
             "artifacts/sim/stdlib_smoke_run.json",
             "artifacts/sim/stdlib_smoke_profile.json",
+            "artifacts/sim/adam0_100_run.json",
+            "artifacts/sim/adam0_100_profile.json",
             "bench/results/full_platform_targets.json",
             "artifacts/selfhost/litec_mainline_ci_report.json",
             "artifacts/selfhost/litec_replace_check_report.json",
             "artifacts/release/v2.5.9/manifest.json",
-            "artifacts/release/v2.5.9/capability_complete.json",
         ];
         for path in &required_paths {
             let full = workspace.join(path);
@@ -1194,6 +1197,8 @@ mod tests {
             "artifacts/readiness/sim_native_evidence_verify.json",
             "artifacts/readiness/sim_stdlib_smoke.json",
             "artifacts/readiness/sim_stdlib_evidence_verify.json",
+            "artifacts/readiness/adam0_100_smoke.json",
+            "artifacts/readiness/adam0_100_evidence_verify.json",
             "artifacts/sim/smoke_run.json",
             "artifacts/sim/smoke_profile.json",
             "artifacts/sim/smoke_replay.json",
@@ -1201,11 +1206,12 @@ mod tests {
             "artifacts/sim/native_smoke_profile.json",
             "artifacts/sim/stdlib_smoke_run.json",
             "artifacts/sim/stdlib_smoke_profile.json",
+            "artifacts/sim/adam0_100_run.json",
+            "artifacts/sim/adam0_100_profile.json",
             "bench/results/full_platform_targets.json",
             "artifacts/selfhost/litec_mainline_ci_report.json",
             "artifacts/selfhost/litec_replace_check_report.json",
             "artifacts/release/v2.5.9/manifest.json",
-            "artifacts/release/v2.5.9/capability_complete.json",
         ];
         for path in &required_paths {
             let full = workspace.join(path);

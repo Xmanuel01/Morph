@@ -8,6 +8,43 @@
 ### Breaking changes
 - None.
 
+## v2.6.9
+
+### Highlights
+- Advanced the release line to `v2.6.9` with additive compatibility and no syntax changes.
+- Completed the missing `v2.6.2` coroutine/generator-facing simulation API requirement under `std::sim`.
+- Added an in-tree Adam-0 reference prototype for the 100-agent deterministic baseline:
+  - `examples/adam0_100.enk`
+- Added release-gated Adam-0 evidence generation and verification:
+  - `scripts/readiness_adam0_smoke.py`
+  - `scripts/verify_adam0_evidence.py`
+
+### Fixes
+- Added `SimCoroutine` as a stable runtime/typechecker surface with deterministic task-backed yield/join behavior.
+- Added `std::sim` coroutine APIs without changing language syntax:
+  - `sim.coroutine`
+  - `sim.coroutine_with`
+  - `sim.coroutine_args`
+  - `sim.world`
+  - `sim.state`
+  - `sim.emit`
+  - `sim.next`
+  - `sim.join`
+  - `sim.done`
+- Added VM bench profile counters for simulation coroutine activity so readiness artifacts can prove the coroutine path was exercised.
+- Added release-blocking Adam-0 smoke/evidence artifacts:
+  - `artifacts/readiness/adam0_100_smoke.json`
+  - `artifacts/readiness/adam0_100_evidence_verify.json`
+  - `artifacts/sim/adam0_100_run.json`
+  - `artifacts/sim/adam0_100_profile.json`
+- Synced docs/spec/release metadata and version surfaces to `v2.6.9`.
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_6_9_rc_pipeline.ps1`
+  - `scripts/v2_6_9_rc_pipeline.sh`
+
+### Breaking changes
+- None.
+
 ## v2.6.8
 
 ### Highlights

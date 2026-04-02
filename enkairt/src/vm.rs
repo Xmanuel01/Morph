@@ -5,6 +5,7 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::rc::Weak;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -30,9 +31,10 @@ use crate::ffi::FfiFunction;
 use crate::ffi::{ffi_stats_snapshot, FfiLoader, FfiStats};
 use crate::object::{
     buffer_value, channel_value, event_queue_value_with_native, function_value,
-    pool_value_with_native, record_value, sim_world_value, sparse_matrix_value_with_native,
-    sparse_vector_value_with_native, string_value, task_handle_value, BoundFunctionObj, HttpStream,
-    NativeFunction, NativeImpl, Obj, StreamCommand, WebSocketHandle, WsCommand, WsIncoming,
+    pool_value_with_native, record_value, sim_coroutine_value, sim_world_value,
+    sparse_matrix_value_with_native, sparse_vector_value_with_native, string_value,
+    task_handle_value, BoundFunctionObj, HttpStream, NativeFunction, NativeImpl, Obj,
+    StreamCommand, WebSocketHandle, WsCommand, WsIncoming,
 };
 use crate::tokenizer::{bytes_to_ids, ids_to_bytes, Tokenizer, TrainConfig};
 use crate::value::{object_allocation_count, ObjRef, Value};
@@ -335,6 +337,9 @@ struct VmBenchCounters {
     arithmetic_ops: u64,
     compare_ops: u64,
     native_calls: u64,
+    sim_coroutines_spawned: u64,
+    sim_coroutine_emits: u64,
+    sim_coroutine_next_waits: u64,
 }
 
 #[derive(Clone)]
@@ -448,6 +453,7 @@ pub struct VM {
     trace_net: bool,
     ffi_loader: FfiLoader,
     tasks: Vec<Option<Task>>,
+    sim_coroutines: Vec<Option<Weak<Obj>>>,
     ready: VecDeque<usize>,
     current_task: Option<usize>,
     next_task_id: usize,
@@ -496,6 +502,7 @@ impl VM {
             trace_net,
             ffi_loader: FfiLoader::new(),
             tasks: Vec::new(),
+            sim_coroutines: Vec::new(),
             ready: VecDeque::new(),
             current_task: None,
             next_task_id: 0,
@@ -589,6 +596,9 @@ impl VM {
                 "arithmetic_ops": profile.counters.arithmetic_ops,
                 "compare_ops": profile.counters.compare_ops,
                 "native_function_calls": profile.counters.native_calls,
+                "sim_coroutines_spawned": profile.counters.sim_coroutines_spawned,
+                "sim_coroutine_emits": profile.counters.sim_coroutine_emits,
+                "sim_coroutine_next_waits": profile.counters.sim_coroutine_next_waits,
                 "ffi_calls": ffi_call_count,
                 "object_allocations": obj_now.saturating_sub(profile.start_object_allocs),
                 "marshal_in_bytes": marshal_in_bytes,
@@ -1696,6 +1706,87 @@ impl VM {
                 bound: None,
             }))),
         );
+        sim_record.insert(
+            "coroutine".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sim.coroutine".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sim_record.insert(
+            "coroutine_with".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sim.coroutine_with".to_string(),
+                arity: 3,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sim_record.insert(
+            "coroutine_args".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sim.coroutine_args".to_string(),
+                arity: 3,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sim_record.insert(
+            "world".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sim.world".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sim_record.insert(
+            "state".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sim.state".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sim_record.insert(
+            "emit".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sim.emit".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sim_record.insert(
+            "next".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sim.next".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sim_record.insert(
+            "join".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sim.join".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        sim_record.insert(
+            "done".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "sim.done".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
         let sim_value = record_value(sim_record);
         if let Some(idx) = self.globals_map.get("sim").copied() {
             self.globals[idx as usize] = sim_value;
@@ -1900,6 +1991,7 @@ impl VM {
             http_conn = task.http_conn.take();
             http_meta = task.http_meta.take();
         }
+        let _ = self.complete_sim_coroutine(task_id, Some(result.clone()));
         if self.trace_task {
             println!("[task] finish {}", task_id);
         }
@@ -5179,6 +5271,115 @@ impl VM {
                                 .ok_or_else(|| RuntimeError::new("sim.entity_ids expects world"))?;
                             self.stack.truncate(callee_index);
                             self.stack.push(self.sim_entity_ids(world)?);
+                            return Ok(());
+                        }
+                        if nf.name == "sim.coroutine" {
+                            let world = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.coroutine expects world"))?;
+                            let func = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("sim.coroutine expects function")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let coroutine = self.sim_coroutine_spawn(program, world, func, None)?;
+                            self.stack.push(coroutine);
+                            return Ok(());
+                        }
+                        if nf.name == "sim.coroutine_with" {
+                            let world = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("sim.coroutine_with expects world")
+                            })?;
+                            let func = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("sim.coroutine_with expects function")
+                            })?;
+                            let state = args.get(2).cloned().ok_or_else(|| {
+                                RuntimeError::new("sim.coroutine_with expects state")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let coroutine =
+                                self.sim_coroutine_spawn(program, world, func, Some(state))?;
+                            self.stack.push(coroutine);
+                            return Ok(());
+                        }
+                        if nf.name == "sim.coroutine_args" {
+                            let world = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("sim.coroutine_args expects world")
+                            })?;
+                            let func = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("sim.coroutine_args expects function")
+                            })?;
+                            let arg_list = args.get(2).cloned().ok_or_else(|| {
+                                RuntimeError::new("sim.coroutine_args expects args list")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let coroutine =
+                                self.sim_coroutine_spawn_args(program, world, func, arg_list)?;
+                            self.stack.push(coroutine);
+                            return Ok(());
+                        }
+                        if nf.name == "sim.world" {
+                            let coroutine = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.world expects coroutine"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(self.sim_coroutine_world(coroutine)?);
+                            return Ok(());
+                        }
+                        if nf.name == "sim.state" {
+                            let coroutine = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.state expects coroutine"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(self.sim_coroutine_state(coroutine)?);
+                            return Ok(());
+                        }
+                        if nf.name == "sim.emit" {
+                            let coroutine = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.emit expects coroutine"))?;
+                            let value = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.emit expects value"))?;
+                            self.stack.truncate(callee_index);
+                            self.sim_coroutine_emit(coroutine, value)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "sim.next" {
+                            let coroutine = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.next expects coroutine"))?;
+                            self.stack.truncate(callee_index);
+                            if let Some(value) = self.sim_coroutine_next(coroutine)? {
+                                self.stack.push(value);
+                            }
+                            return Ok(());
+                        }
+                        if nf.name == "sim.join" {
+                            let coroutine = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.join expects coroutine"))?;
+                            self.stack.truncate(callee_index);
+                            if let Some(value) = self.sim_coroutine_join(coroutine)? {
+                                self.stack.push(value);
+                            }
+                            return Ok(());
+                        }
+                        if nf.name == "sim.done" {
+                            let coroutine = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("sim.done expects coroutine"))?;
+                            self.stack.truncate(callee_index);
+                            self.stack
+                                .push(Value::Bool(self.sim_coroutine_done(coroutine)?));
                             return Ok(());
                         }
                         let result = match &nf.kind {
@@ -8986,6 +9187,285 @@ impl VM {
         }
     }
 
+    fn sim_coroutine_spawn(
+        &mut self,
+        program: &Program,
+        world: Value,
+        func: Value,
+        state: Option<Value>,
+    ) -> Result<Value, RuntimeError> {
+        match &world {
+            Value::Obj(obj) if matches!(obj.as_obj(), Obj::SimWorld(_)) => {}
+            _ => return Err(RuntimeError::new("sim.coroutine expects SimWorld")),
+        }
+        let expected_arity = if state.is_some() { 2 } else { 1 };
+        let actual_arity = match &func {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::Function(f) => f.arity,
+                Obj::BoundFunction(bf) => bf.arity,
+                _ => {
+                    return Err(RuntimeError::new(
+                        "sim.coroutine expects a function or bound function",
+                    ));
+                }
+            },
+            _ => {
+                return Err(RuntimeError::new(
+                    "sim.coroutine expects a function or bound function",
+                ));
+            }
+        };
+        if actual_arity != expected_arity {
+            return Err(RuntimeError::new(if state.is_some() {
+                "sim.coroutine_with expects function arity 2"
+            } else {
+                "sim.coroutine expects function arity 1"
+            }));
+        }
+        let predicted_task_id = self.next_task_id;
+        let coroutine = sim_coroutine_value(world.clone(), state.clone(), predicted_task_id);
+        let mut args = vec![coroutine.clone()];
+        if let Some(state) = state {
+            args.push(state);
+        }
+        let task_id = self.spawn_task_with_args(program, func, args, None)?;
+        if self.sim_coroutines.len() <= task_id {
+            self.sim_coroutines.resize(task_id + 1, None);
+        }
+        if let Value::Obj(obj) = &coroutine {
+            self.sim_coroutines[task_id] = Some(obj.downgrade());
+        }
+        if let Some(task) = self.tasks.get(task_id).and_then(|entry| entry.as_ref()) {
+            if task.result.is_some() {
+                self.complete_sim_coroutine(task_id, task.result.clone())?;
+            }
+        }
+        if let Some(profile) = self.bench_profile.as_mut() {
+            profile.counters.sim_coroutines_spawned =
+                profile.counters.sim_coroutines_spawned.saturating_add(1);
+        }
+        Ok(coroutine)
+    }
+
+    fn sim_coroutine_spawn_args(
+        &mut self,
+        program: &Program,
+        world: Value,
+        func: Value,
+        args: Value,
+    ) -> Result<Value, RuntimeError> {
+        match &world {
+            Value::Obj(obj) if matches!(obj.as_obj(), Obj::SimWorld(_)) => {}
+            _ => return Err(RuntimeError::new("sim.coroutine_args expects SimWorld")),
+        }
+        let extra_args = value_as_list(&args)
+            .map_err(|_| RuntimeError::new("sim.coroutine_args expects args list"))?;
+        let expected_arity = extra_args.len() as u16 + 1;
+        let actual_arity = match &func {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::Function(f) => f.arity,
+                Obj::BoundFunction(bf) => bf.arity,
+                _ => {
+                    return Err(RuntimeError::new(
+                        "sim.coroutine_args expects a function or bound function",
+                    ));
+                }
+            },
+            _ => {
+                return Err(RuntimeError::new(
+                    "sim.coroutine_args expects a function or bound function",
+                ));
+            }
+        };
+        if actual_arity != expected_arity {
+            return Err(RuntimeError::new(
+                "sim.coroutine_args arity must match args list length + 1",
+            ));
+        }
+        let predicted_task_id = self.next_task_id;
+        let coroutine = sim_coroutine_value(world.clone(), None, predicted_task_id);
+        let mut spawn_args = Vec::with_capacity(extra_args.len() + 1);
+        spawn_args.push(coroutine.clone());
+        spawn_args.extend(extra_args);
+        let task_id = self.spawn_task_with_args(program, func, spawn_args, None)?;
+        if self.sim_coroutines.len() <= task_id {
+            self.sim_coroutines.resize(task_id + 1, None);
+        }
+        if let Value::Obj(obj) = &coroutine {
+            self.sim_coroutines[task_id] = Some(obj.downgrade());
+        }
+        if let Some(task) = self.tasks.get(task_id).and_then(|entry| entry.as_ref()) {
+            if task.result.is_some() {
+                self.complete_sim_coroutine(task_id, task.result.clone())?;
+            }
+        }
+        if let Some(profile) = self.bench_profile.as_mut() {
+            profile.counters.sim_coroutines_spawned =
+                profile.counters.sim_coroutines_spawned.saturating_add(1);
+        }
+        Ok(coroutine)
+    }
+
+    fn sim_coroutine_world(&self, coroutine: Value) -> Result<Value, RuntimeError> {
+        match coroutine {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SimCoroutine(inner) => Ok(inner.borrow().world.clone()),
+                _ => Err(RuntimeError::new("sim.world expects SimCoroutine")),
+            },
+            _ => Err(RuntimeError::new("sim.world expects SimCoroutine")),
+        }
+    }
+
+    fn sim_coroutine_state(&self, coroutine: Value) -> Result<Value, RuntimeError> {
+        match coroutine {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SimCoroutine(inner) => Ok(inner.borrow().state.clone().unwrap_or(Value::Null)),
+                _ => Err(RuntimeError::new("sim.state expects SimCoroutine")),
+            },
+            _ => Err(RuntimeError::new("sim.state expects SimCoroutine")),
+        }
+    }
+
+    fn sim_coroutine_emit(&mut self, coroutine: Value, value: Value) -> Result<(), RuntimeError> {
+        if matches!(value, Value::Null) {
+            return Err(RuntimeError::new(
+                "sim.emit does not allow none; use a concrete value",
+            ));
+        }
+        match coroutine {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SimCoroutine(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    inner.emitted = inner.emitted.saturating_add(1);
+                    if let Some(waiter) = inner.waiters.pop_front() {
+                        if let Some(task) = self.tasks.get_mut(waiter).and_then(|t| t.as_mut()) {
+                            if !matches!(task.state, TaskState::Finished) {
+                                task.stack.push(value);
+                                task.state = TaskState::Ready;
+                                self.ready.push_back(waiter);
+                            }
+                        }
+                    } else {
+                        inner.outputs.push_back(value);
+                    }
+                    if let Some(profile) = self.bench_profile.as_mut() {
+                        profile.counters.sim_coroutine_emits =
+                            profile.counters.sim_coroutine_emits.saturating_add(1);
+                    }
+                    self.yield_now = true;
+                    Ok(())
+                }
+                _ => Err(RuntimeError::new("sim.emit expects SimCoroutine")),
+            },
+            _ => Err(RuntimeError::new("sim.emit expects SimCoroutine")),
+        }
+    }
+
+    fn sim_coroutine_next(&mut self, coroutine: Value) -> Result<Option<Value>, RuntimeError> {
+        match coroutine {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SimCoroutine(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    if let Some(value) = inner.outputs.pop_front() {
+                        return Ok(Some(value));
+                    }
+                    let result = self
+                        .tasks
+                        .get(inner.task_id)
+                        .and_then(|entry| entry.as_ref())
+                        .and_then(|task| task.result.clone());
+                    if let Some(result) = result {
+                        return match result {
+                            Ok(_) => Ok(Some(Value::Null)),
+                            Err(err) => Err(err),
+                        };
+                    }
+                    let current_id = self
+                        .current_task
+                        .ok_or_else(|| RuntimeError::new("No current task"))?;
+                    inner.waiters.push_back(current_id);
+                    if let Some(profile) = self.bench_profile.as_mut() {
+                        profile.counters.sim_coroutine_next_waits =
+                            profile.counters.sim_coroutine_next_waits.saturating_add(1);
+                    }
+                    self.pending_state = Some(TaskState::BlockedChannel);
+                    self.yield_now = true;
+                    Ok(None)
+                }
+                _ => Err(RuntimeError::new("sim.next expects SimCoroutine")),
+            },
+            _ => Err(RuntimeError::new("sim.next expects SimCoroutine")),
+        }
+    }
+
+    fn sim_coroutine_join(&mut self, coroutine: Value) -> Result<Option<Value>, RuntimeError> {
+        let task_id = match coroutine {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SimCoroutine(inner) => inner.borrow().task_id,
+                _ => return Err(RuntimeError::new("sim.join expects SimCoroutine")),
+            },
+            _ => return Err(RuntimeError::new("sim.join expects SimCoroutine")),
+        };
+        self.task_join(task_handle_value(task_id))
+    }
+
+    fn sim_coroutine_done(&self, coroutine: Value) -> Result<bool, RuntimeError> {
+        match coroutine {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SimCoroutine(inner) => {
+                    let inner = inner.borrow();
+                    let finished = self
+                        .tasks
+                        .get(inner.task_id)
+                        .and_then(|entry| entry.as_ref())
+                        .and_then(|task| task.result.clone())
+                        .is_some();
+                    Ok(finished && inner.outputs.is_empty())
+                }
+                _ => Err(RuntimeError::new("sim.done expects SimCoroutine")),
+            },
+            _ => Err(RuntimeError::new("sim.done expects SimCoroutine")),
+        }
+    }
+
+    fn complete_sim_coroutine(
+        &mut self,
+        task_id: usize,
+        result: Option<Result<Value, RuntimeError>>,
+    ) -> Result<(), RuntimeError> {
+        let Some(slot) = self
+            .sim_coroutines
+            .get(task_id)
+            .and_then(|entry| entry.as_ref())
+        else {
+            return Ok(());
+        };
+        let Some(obj) = slot.upgrade() else {
+            return Ok(());
+        };
+        let Obj::SimCoroutine(inner) = obj.as_ref() else {
+            return Ok(());
+        };
+        let mut inner = inner.borrow_mut();
+        inner.finished = true;
+        while let Some(waiter) = inner.waiters.pop_front() {
+            if let Some(task) = self.tasks.get_mut(waiter).and_then(|t| t.as_mut()) {
+                if matches!(task.state, TaskState::Finished) {
+                    continue;
+                }
+                match &result {
+                    Some(Err(err)) => {
+                        task.pending_error = Some(err.clone());
+                    }
+                    _ => task.stack.push(Value::Null),
+                }
+                task.state = TaskState::Ready;
+                self.ready.push_back(waiter);
+            }
+        }
+        Ok(())
+    }
+
     fn value_to_json(&self, value: Value) -> Result<serde_json::Value, RuntimeError> {
         match value {
             Value::Null => Ok(serde_json::Value::Null),
@@ -10879,6 +11359,15 @@ fn display_value(v: &Value) -> String {
                     inner.now,
                     inner.queue.len(),
                     inner.entities.len()
+                )
+            }
+            Obj::SimCoroutine(inner) => {
+                let inner = inner.borrow();
+                format!(
+                    "<sim_coroutine task={} queued={} finished={}>",
+                    inner.task_id,
+                    inner.outputs.len(),
+                    inner.finished
                 )
             }
             Obj::TaskHandle(id) => format!("<task {}>", id),

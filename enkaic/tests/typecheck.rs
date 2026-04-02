@@ -103,6 +103,24 @@ fn simulation_world_stdlib_typechecks() {
 }
 
 #[test]
+fn simulation_coroutines_typecheck() {
+    assert!(type_ok(
+        "import std::sim\n\
+         fn worker(coro: SimCoroutine, state: Any) -> Int ::\n\
+             let world: SimWorld := sim.world(coro)\n\
+             let cfg := sim.state(coro)\n\
+             sim.emit(coro, state)\n\
+             let done := sim.done(coro)\n\
+             return sim.pending(world)\n\
+         ::\n\
+         let world: SimWorld := sim.make_seeded(16, 7)\n\
+         let coro: SimCoroutine := sim.coroutine_with(world, worker, 3)\n\
+         let next := sim.next(coro)\n\
+         let joined := sim.join(coro)\n"
+    ));
+}
+
+#[test]
 fn unknown_callee_call_is_permitted() {
     assert!(type_ok(
         "type Boxed ::\n    value: Int\n::\n\

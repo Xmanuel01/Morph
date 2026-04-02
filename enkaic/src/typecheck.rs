@@ -556,6 +556,7 @@ fn type_from_ref(r: TypeRef) -> Type {
                 Some("EventQueue") => Type::EventQueue,
                 Some("Pool") => Type::Pool,
                 Some("SimWorld") => Type::SimWorld,
+                Some("SimCoroutine") => Type::SimCoroutine,
                 Some("Tokenizer") => Type::Tokenizer,
                 Some("DataStream") => Type::DataStream,
                 Some("Batch") => Type::Batch,
@@ -1137,6 +1138,63 @@ fn inject_builtins(
     sim_exports.insert(
         "entity_ids".to_string(),
         Type::Function(vec![Type::SimWorld], Box::new(Type::Unknown)),
+    );
+    sim_exports.insert(
+        "coroutine".to_string(),
+        Type::Function(
+            vec![Type::SimWorld, Type::Unknown],
+            Box::new(Type::SimCoroutine),
+        ),
+    );
+    sim_exports.insert(
+        "coroutine_with".to_string(),
+        Type::Function(
+            vec![Type::SimWorld, Type::Unknown, Type::Unknown],
+            Box::new(Type::SimCoroutine),
+        ),
+    );
+    sim_exports.insert(
+        "coroutine_args".to_string(),
+        Type::Function(
+            vec![Type::SimWorld, Type::Unknown, Type::Unknown],
+            Box::new(Type::SimCoroutine),
+        ),
+    );
+    sim_exports.insert(
+        "world".to_string(),
+        Type::Function(vec![Type::SimCoroutine], Box::new(Type::SimWorld)),
+    );
+    sim_exports.insert(
+        "state".to_string(),
+        Type::Function(
+            vec![Type::SimCoroutine],
+            Box::new(Type::Optional(Box::new(Type::Unknown))),
+        ),
+    );
+    sim_exports.insert(
+        "emit".to_string(),
+        Type::Function(
+            vec![Type::SimCoroutine, Type::Unknown],
+            Box::new(Type::Void),
+        ),
+    );
+    sim_exports.insert(
+        "next".to_string(),
+        Type::Function(
+            vec![Type::SimCoroutine],
+            Box::new(Type::Optional(Box::new(Type::Unknown))),
+        ),
+    );
+    sim_exports.insert(
+        "join".to_string(),
+        Type::Function(
+            vec![Type::SimCoroutine],
+            Box::new(Type::Optional(Box::new(Type::Unknown))),
+        ),
+    );
+    sim_exports.insert(
+        "done".to_string(),
+        Type::Function(vec![Type::SimCoroutine], Box::new(Type::Bool)),
     );
     exports.entry(std_sim_id).or_insert(sim_exports);
     let std_nn_id = ModuleId(vec!["std".to_string(), "nn".to_string()]);

@@ -32,6 +32,7 @@ pub enum Obj {
     EventQueue(Box<RefCell<EventQueueState>>),
     Pool(Box<RefCell<ValuePoolState>>),
     SimWorld(Box<RefCell<SimWorldState>>),
+    SimCoroutine(Box<RefCell<SimCoroutineState>>),
     TaskHandle(usize),
     Channel(RefCell<ChannelState>),
     TcpListener(RefCell<std::net::TcpListener>),
@@ -59,6 +60,7 @@ impl Obj {
             Obj::EventQueue(_) => "EventQueue",
             Obj::Pool(_) => "Pool",
             Obj::SimWorld(_) => "SimWorld",
+            Obj::SimCoroutine(_) => "SimCoroutine",
             Obj::TaskHandle(_) => "TaskHandle",
             Obj::Channel(_) => "Channel",
             Obj::TcpListener(_) => "TcpListener",
@@ -229,6 +231,31 @@ impl SimWorldState {
     }
 }
 
+#[derive(Debug)]
+pub struct SimCoroutineState {
+    pub world: Value,
+    pub state: Option<Value>,
+    pub task_id: usize,
+    pub outputs: VecDeque<Value>,
+    pub waiters: VecDeque<usize>,
+    pub finished: bool,
+    pub emitted: u64,
+}
+
+impl SimCoroutineState {
+    pub fn new(world: Value, state: Option<Value>, task_id: usize) -> Self {
+        Self {
+            world,
+            state,
+            task_id,
+            outputs: VecDeque::new(),
+            waiters: VecDeque::new(),
+            finished: false,
+            emitted: 0,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum StreamCommand {
     Data(Vec<u8>),
@@ -356,6 +383,12 @@ pub fn pool_value_with_native(capacity: usize, growable: bool, native: Option<Va
 pub fn sim_world_value(max_events: usize, seed: i64) -> Value {
     Value::Obj(ObjRef::new(Obj::SimWorld(Box::new(RefCell::new(
         SimWorldState::new(max_events, seed),
+    )))))
+}
+
+pub fn sim_coroutine_value(world: Value, state: Option<Value>, task_id: usize) -> Value {
+    Value::Obj(ObjRef::new(Obj::SimCoroutine(Box::new(RefCell::new(
+        SimCoroutineState::new(world, state, task_id),
     )))))
 }
 

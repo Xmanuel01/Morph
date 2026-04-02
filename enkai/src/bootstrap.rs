@@ -1932,6 +1932,7 @@ fn canonical_value(value: &Value) -> String {
             Obj::EventQueue(_) => "EventQueue".to_string(),
             Obj::Pool(_) => "Pool".to_string(),
             Obj::SimWorld(_) => "SimWorld".to_string(),
+            Obj::SimCoroutine(_) => "SimCoroutine".to_string(),
             Obj::TaskHandle(id) => format!("TaskHandle({})", id),
             Obj::Channel(_) => "Channel".to_string(),
             Obj::TcpListener(_) => "TcpListener".to_string(),

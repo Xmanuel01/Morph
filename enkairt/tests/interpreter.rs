@@ -238,3 +238,53 @@ fn sim_restore_rejects_corrupted_snapshots() {
     let err = result.expect_err("restore should fail");
     assert_eq!(err.code(), Some("E_SIM_CORRUPTED_REPLAY"));
 }
+
+#[test]
+fn sim_coroutines_yield_and_join_through_stdlib() {
+    let result = run_value(
+        "import std::sim\n\
+         fn worker(coro: SimCoroutine, state: Int) -> Int ::\n\
+             let world := sim.world(coro)\n\
+             let step := 0\n\
+             while step < state ::\n\
+                 sim.schedule(world, sim.time(world) + 1.0, [state, step])\n\
+                 sim.emit(coro, [state, step])\n\
+                 step := step + 1\n\
+             ::\n\
+             return sim.pending(world)\n\
+         ::\n\
+         let world := sim.make_seeded(16, 9)\n\
+         let coro := sim.coroutine_with(world, worker, 3)\n\
+         let a := sim.next(coro)?\n\
+         let b := sim.next(coro)?\n\
+         let c := sim.next(coro)?\n\
+         let done_before := sim.done(coro)\n\
+         let joined := sim.join(coro)?\n\
+         let done_after := sim.done(coro)\n\
+         let out := a[0] * 100000 + b[1] * 10000 + c[1] * 1000 + joined * 10\n\
+         if done_before ::\n\
+             out := out + 1\n\
+         ::\n\
+         if done_after ::\n\
+             out := out + 1\n\
+         ::\n\
+         out\n",
+    );
+    assert_eq!(result, Value::Int(312031));
+}
+
+#[test]
+fn sim_next_surfaces_coroutine_errors() {
+    let result = run_result(
+        "import std::sim\n\
+         fn worker(coro: SimCoroutine) -> Int ::\n\
+             let world := sim.world(coro)\n\
+             sim.schedule(world, 1.0, 7)\n\
+             return none?\n\
+         ::\n\
+         let world := sim.make(8)\n\
+         let coro := sim.coroutine(world, worker)\n\
+         sim.next(coro)\n",
+    );
+    assert!(result.is_err());
+}
