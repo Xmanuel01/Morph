@@ -529,6 +529,66 @@ def build_checks(
             ),
         )
     )
+    cluster_scale_smoke = has_exact(copied_paths, "/readiness/cluster_scale_smoke.json")
+    checks.append(
+        CheckResult(
+            id="readiness_cluster_scale_smoke_report",
+            description="Cluster scale smoke summary is present",
+            required=True,
+            passed=cluster_scale_smoke,
+            details=(
+                "readiness/cluster_scale_smoke.json"
+                if cluster_scale_smoke
+                else "missing readiness/cluster_scale_smoke.json"
+            ),
+        )
+    )
+    cluster_scale_verify = has_exact(
+        copied_paths, "/readiness/cluster_scale_evidence_verify.json"
+    )
+    checks.append(
+        CheckResult(
+            id="readiness_cluster_scale_evidence_verify_report",
+            description="Cluster scale evidence verification report is present",
+            required=True,
+            passed=cluster_scale_verify,
+            details=(
+                "readiness/cluster_scale_evidence_verify.json"
+                if cluster_scale_verify
+                else "missing readiness/cluster_scale_evidence_verify.json"
+            ),
+        )
+    )
+    registry_degraded_smoke = has_exact(copied_paths, "/readiness/registry_degraded_smoke.json")
+    checks.append(
+        CheckResult(
+            id="readiness_registry_degraded_smoke_report",
+            description="Registry degraded-mode smoke summary is present",
+            required=True,
+            passed=registry_degraded_smoke,
+            details=(
+                "readiness/registry_degraded_smoke.json"
+                if registry_degraded_smoke
+                else "missing readiness/registry_degraded_smoke.json"
+            ),
+        )
+    )
+    registry_degraded_verify = has_exact(
+        copied_paths, "/readiness/registry_degraded_evidence_verify.json"
+    )
+    checks.append(
+        CheckResult(
+            id="readiness_registry_degraded_verify_report",
+            description="Registry degraded-mode evidence verification report is present",
+            required=True,
+            passed=registry_degraded_verify,
+            details=(
+                "readiness/registry_degraded_evidence_verify.json"
+                if registry_degraded_verify
+                else "missing readiness/registry_degraded_evidence_verify.json"
+            ),
+        )
+    )
     snn_agent_smoke = has_exact(copied_paths, "/readiness/snn_agent_kernel_smoke.json")
     checks.append(
         CheckResult(
@@ -637,13 +697,32 @@ def build_checks(
             )
         )
     for name in (
+        "validate.json",
+        "plan.json",
+        "run.json",
+        "recovery/rank0/window_0000.run.json",
+        "recovery/rank0/window_0000.snapshot.json",
+        "recovery/rank1/window_0000.run.json",
+        "recovery/rank1/window_0000.snapshot.json",
+    ):
+        present = has_exact(copied_paths, f"/cluster_scale/{name}")
+        checks.append(
+            CheckResult(
+                id=f"cluster_scale_{name.replace('/', '_').replace('.', '_')}",
+                description=f"Cluster scale evidence `{name}` is present",
+                required=True,
+                passed=present,
+                details=name if present else f"missing cluster_scale/{name}",
+            )
+        )
+    for name in (
         "sim_lineage.json",
         "sim_snapshot.manifest.json",
         "local/registry.json",
         "remote/registry.json",
         "cache/registry.json",
-        "remote/adam0-sim/v2.8.0/remote.manifest.json",
-        "remote/adam0-sim/v2.8.0/remote.manifest.sig",
+        "remote/adam0-sim/v2.8.1/remote.manifest.json",
+        "remote/adam0-sim/v2.8.1/remote.manifest.sig",
     ):
         present = has_exact(copied_paths, f"/registry/{name}")
         checks.append(
@@ -653,6 +732,22 @@ def build_checks(
                 required=True,
                 passed=present,
                 details=name if present else f"missing registry/{name}",
+            )
+        )
+    for name in (
+        "cache/registry.json",
+        "cache/audit.log.jsonl",
+        "remote_offline/adam0-degraded/v2.8.1/remote.manifest.json",
+        "remote_offline/adam0-degraded/v2.8.1/remote.manifest.sig",
+    ):
+        present = has_exact(copied_paths, f"/registry_degraded/{name}")
+        checks.append(
+            CheckResult(
+                id=f"registry_degraded_{name.replace('/', '_').replace('.', '_')}",
+                description=f"Registry degraded evidence `{name}` is present",
+                required=True,
+                passed=present,
+                details=name if present else f"missing registry_degraded/{name}",
             )
         )
 

@@ -205,7 +205,7 @@ def main() -> int:
             failures.append(
                 "docs/36_capability_complete_report.md missing registry simulation lineage archive reference"
             )
-        if "registry/remote/adam0-sim/v2.8.0/remote.manifest.json" not in capability_text:
+        if "registry/remote/adam0-sim/v2.8.1/remote.manifest.json" not in capability_text:
             failures.append(
                 "docs/36_capability_complete_report.md missing registry remote manifest archive reference"
             )

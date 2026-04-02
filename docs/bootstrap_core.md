@@ -1,8 +1,8 @@
-﻿# Enkai Bootstrap Core (v2.8.0)
+﻿# Enkai Bootstrap Core (v2.8.1)
 
 ## Purpose
 
-`v2.8.0` promotes bootstrap mainline as the default release/dev compile path while
+`v2.8.1` promotes bootstrap mainline as the default release/dev compile path while
 keeping Stage0 as an emergency fallback path with deterministic triage artifacts.
 The objective is to validate deterministic Stage1/Stage2 fixed-point behavior and
 runtime parity for the bootstrap release corpus.

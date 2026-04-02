@@ -8,6 +8,43 @@
 ### Breaking changes
 - None.
 
+## v2.8.1
+
+### Highlights
+- Advanced the release line to `v2.8.1` with additive compatibility and no syntax changes.
+- Completed the `v2.8.1` scale, multi-node, and reliability milestone.
+- Added bounded simulation cluster supervision and degraded registry fallback evidence to the full-platform release gate.
+
+### Fixes
+- Extended `enkai cluster` with additive multi-node simulation fields:
+  - `dist.hosts`
+  - `dist.host_map`
+  - `workload = "simulation"`
+  - `simulation.target`
+  - `simulation.partition_count`
+  - `simulation.total_steps`
+  - `simulation.step_window`
+  - `simulation.snapshot_interval`
+  - `simulation.recovery_dir`
+  - `simulation.route_policy`
+- Added supervised bounded simulation execution to `enkai cluster run` using windowed `enkai sim run` / `enkai sim replay`, persisted snapshots, and bounded retry/recovery.
+- Added additive `--output <file>` support for `enkai cluster validate|plan|run`.
+- Added additive `--snapshot-output <file>` support for `enkai sim run|profile|replay`.
+- Added release-gated cluster scale smoke and semantic verification:
+  - `scripts/readiness_cluster_scale_smoke.py`
+  - `scripts/verify_cluster_scale_evidence.py`
+- Added release-gated degraded registry fallback smoke and semantic verification:
+  - `scripts/readiness_registry_degraded_smoke.py`
+  - `scripts/verify_registry_degraded_evidence.py`
+- Full-platform readiness, blocker verification, strict evidence archiving, and capability reporting now require archived cluster-scale and degraded-registry artifacts.
+- Synced docs/spec/release metadata and version surfaces to `v2.8.1`.
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_8_1_rc_pipeline.ps1`
+  - `scripts/v2_8_1_rc_pipeline.sh`
+
+### Breaking changes
+- None.
+
 ## v2.8.0
 
 ### Highlights

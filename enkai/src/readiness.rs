@@ -1012,6 +1012,22 @@ mod tests {
             .checks
             .iter()
             .any(|check| check.id == "deploy-fullstack-validate"));
+        assert!(manifest
+            .checks
+            .iter()
+            .any(|check| check.id == "cluster-scale-smoke"));
+        assert!(manifest
+            .checks
+            .iter()
+            .any(|check| check.id == "cluster-scale-evidence-verify"));
+        assert!(manifest
+            .checks
+            .iter()
+            .any(|check| check.id == "registry-degraded-smoke"));
+        assert!(manifest
+            .checks
+            .iter()
+            .any(|check| check.id == "registry-degraded-evidence-verify"));
     }
 
     #[test]
@@ -1161,17 +1177,32 @@ mod tests {
             "artifacts/sim/snn_agent_kernel_profile.json",
             "artifacts/readiness/model_registry_convergence.json",
             "artifacts/readiness/model_registry_convergence_verify.json",
+            "artifacts/readiness/cluster_scale_smoke.json",
+            "artifacts/readiness/cluster_scale_evidence_verify.json",
+            "artifacts/readiness/registry_degraded_smoke.json",
+            "artifacts/readiness/registry_degraded_evidence_verify.json",
+            "artifacts/cluster_scale/validate.json",
+            "artifacts/cluster_scale/plan.json",
+            "artifacts/cluster_scale/run.json",
+            "artifacts/cluster_scale/recovery/rank0/window_0000.run.json",
+            "artifacts/cluster_scale/recovery/rank0/window_0000.snapshot.json",
+            "artifacts/cluster_scale/recovery/rank1/window_0000.run.json",
+            "artifacts/cluster_scale/recovery/rank1/window_0000.snapshot.json",
             "artifacts/registry/sim_lineage.json",
             "artifacts/registry/sim_snapshot.manifest.json",
             "artifacts/registry/local/registry.json",
             "artifacts/registry/remote/registry.json",
             "artifacts/registry/cache/registry.json",
-            "artifacts/registry/remote/adam0-sim/v2.8.0/remote.manifest.json",
-            "artifacts/registry/remote/adam0-sim/v2.8.0/remote.manifest.sig",
+            "artifacts/registry/remote/adam0-sim/v2.8.1/remote.manifest.json",
+            "artifacts/registry/remote/adam0-sim/v2.8.1/remote.manifest.sig",
+            "artifacts/registry_degraded/cache/registry.json",
+            "artifacts/registry_degraded/cache/audit.log.jsonl",
+            "artifacts/registry_degraded/remote_offline/adam0-degraded/v2.8.1/remote.manifest.json",
+            "artifacts/registry_degraded/remote_offline/adam0-degraded/v2.8.1/remote.manifest.sig",
             "bench/results/full_platform_targets.json",
             "artifacts/selfhost/litec_mainline_ci_report.json",
             "artifacts/selfhost/litec_replace_check_report.json",
-            "artifacts/release/v2.8.0/manifest.json",
+            "artifacts/release/v2.8.1/manifest.json",
         ];
         for path in &required_paths {
             let full = workspace.join(path);
@@ -1199,8 +1230,8 @@ mod tests {
         let report = ReadinessReport {
             schema_version: 1,
             profile: "full_platform".to_string(),
-            language_version: "2.8.0".to_string(),
-            cli_version: "2.8.0".to_string(),
+            language_version: "2.8.1".to_string(),
+            cli_version: "2.8.1".to_string(),
             started_unix_ms: 0,
             finished_unix_ms: 1,
             all_passed: true,
@@ -1214,7 +1245,7 @@ mod tests {
             manifest: &manifest,
             readiness_report: &report,
             readiness_report_path: &report_path,
-            version: "2.8.0",
+            version: "2.8.1",
             require_gpu_evidence: false,
             skip_release_evidence: false,
             allow_skipped_required_checks: &[],
@@ -1271,17 +1302,32 @@ mod tests {
             "artifacts/sim/snn_agent_kernel_profile.json",
             "artifacts/readiness/model_registry_convergence.json",
             "artifacts/readiness/model_registry_convergence_verify.json",
+            "artifacts/readiness/cluster_scale_smoke.json",
+            "artifacts/readiness/cluster_scale_evidence_verify.json",
+            "artifacts/readiness/registry_degraded_smoke.json",
+            "artifacts/readiness/registry_degraded_evidence_verify.json",
+            "artifacts/cluster_scale/validate.json",
+            "artifacts/cluster_scale/plan.json",
+            "artifacts/cluster_scale/run.json",
+            "artifacts/cluster_scale/recovery/rank0/window_0000.run.json",
+            "artifacts/cluster_scale/recovery/rank0/window_0000.snapshot.json",
+            "artifacts/cluster_scale/recovery/rank1/window_0000.run.json",
+            "artifacts/cluster_scale/recovery/rank1/window_0000.snapshot.json",
             "artifacts/registry/sim_lineage.json",
             "artifacts/registry/sim_snapshot.manifest.json",
             "artifacts/registry/local/registry.json",
             "artifacts/registry/remote/registry.json",
             "artifacts/registry/cache/registry.json",
-            "artifacts/registry/remote/adam0-sim/v2.8.0/remote.manifest.json",
-            "artifacts/registry/remote/adam0-sim/v2.8.0/remote.manifest.sig",
+            "artifacts/registry/remote/adam0-sim/v2.8.1/remote.manifest.json",
+            "artifacts/registry/remote/adam0-sim/v2.8.1/remote.manifest.sig",
+            "artifacts/registry_degraded/cache/registry.json",
+            "artifacts/registry_degraded/cache/audit.log.jsonl",
+            "artifacts/registry_degraded/remote_offline/adam0-degraded/v2.8.1/remote.manifest.json",
+            "artifacts/registry_degraded/remote_offline/adam0-degraded/v2.8.1/remote.manifest.sig",
             "bench/results/full_platform_targets.json",
             "artifacts/selfhost/litec_mainline_ci_report.json",
             "artifacts/selfhost/litec_replace_check_report.json",
-            "artifacts/release/v2.8.0/manifest.json",
+            "artifacts/release/v2.8.1/manifest.json",
         ];
         for path in &required_paths {
             let full = workspace.join(path);
@@ -1309,8 +1355,8 @@ mod tests {
         let report = ReadinessReport {
             schema_version: 1,
             profile: "full_platform".to_string(),
-            language_version: "2.8.0".to_string(),
-            cli_version: "2.8.0".to_string(),
+            language_version: "2.8.1".to_string(),
+            cli_version: "2.8.1".to_string(),
             started_unix_ms: 0,
             finished_unix_ms: 1,
             all_passed: true,
@@ -1325,7 +1371,7 @@ mod tests {
             manifest: &manifest,
             readiness_report: &report,
             readiness_report_path: &report_path,
-            version: "2.8.0",
+            version: "2.8.1",
             require_gpu_evidence: false,
             skip_release_evidence: false,
             allow_skipped_required_checks: &allowed,

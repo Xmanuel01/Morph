@@ -2,9 +2,33 @@
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.8.0.
+- Current production release line is v2.8.1.
 - v2.6.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v2.8.1 (done)
+- Scale, multi-node, and reliability:
+  - extended `enkai cluster` with additive multi-node host/planning fields:
+    - `dist.hosts`
+    - `dist.host_map`
+    - `workload = "simulation"`
+    - `simulation.target`
+    - `simulation.partition_count`
+    - `simulation.total_steps`
+    - `simulation.step_window`
+    - `simulation.snapshot_interval`
+    - `simulation.recovery_dir`
+    - `simulation.route_policy`
+  - `enkai cluster run` now supervises bounded simulation workloads with windowed `sim run`/`sim replay`, snapshot emission, and bounded retry/recovery
+  - added release-gated cluster scale smoke + verification:
+    - `scripts/readiness_cluster_scale_smoke.py`
+    - `scripts/verify_cluster_scale_evidence.py`
+  - added release-gated degraded registry fallback smoke + verification:
+    - `scripts/readiness_registry_degraded_smoke.py`
+    - `scripts/verify_registry_degraded_evidence.py`
+  - full-platform readiness, blocker verification, strict evidence archiving, and capability reporting now require archived cluster-scale and degraded-registry artifacts
+  - documented the scale/reliability contract in:
+    - `docs/41_scale_reliability.md`
 
 v2.8.0 (done)
 - LLM + AGI data/training/registry convergence:

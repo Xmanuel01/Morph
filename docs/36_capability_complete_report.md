@@ -1,6 +1,6 @@
-# 36. Capability-Complete Report (v2.8.0)
+# 36. Capability-Complete Report (v2.8.1)
 
-This document defines the objective release evidence contract for the `v2.8.0`
+This document defines the objective release evidence contract for the `v2.8.1`
 stability cut.
 
 ## Goal
@@ -47,6 +47,10 @@ Core categories:
   - `adam0_reference_suite_verify.json` (`readiness/adam0_reference_suite_verify.json`) validating archived Adam-0 reference suite evidence consistency
   - `model_registry_convergence.json` (`readiness/model_registry_convergence.json`) summarizing signed registry convergence across checkpoint, simulation, environment, and native-extension artifact kinds
   - `model_registry_convergence_verify.json` (`readiness/model_registry_convergence_verify.json`) validating archived registry convergence evidence consistency
+  - `cluster_scale_smoke.json` (`readiness/cluster_scale_smoke.json`) summarizing bounded multi-node simulation supervision with snapshot/replay recovery
+  - `cluster_scale_evidence_verify.json` (`readiness/cluster_scale_evidence_verify.json`) validating archived cluster scale evidence consistency
+  - `registry_degraded_smoke.json` (`readiness/registry_degraded_smoke.json`) summarizing degraded remote-registry fallback behavior
+  - `registry_degraded_evidence_verify.json` (`readiness/registry_degraded_evidence_verify.json`) validating archived degraded-registry evidence consistency
   - `snn_agent_kernel_smoke.json` (`readiness/snn_agent_kernel_smoke.json`) summarizing the archived SNN/agent kernel smoke workflow
   - `snn_agent_kernel_evidence_verify.json` (`readiness/snn_agent_kernel_evidence_verify.json`) validating archived SNN/agent kernel evidence consistency
   - `production.json` (`readiness/production.json`) as an optional compatibility/reference artifact
@@ -78,8 +82,17 @@ Core categories:
   - `registry/local/registry.json`
   - `registry/remote/registry.json`
   - `registry/cache/registry.json`
-  - `registry/remote/adam0-sim/v2.8.0/remote.manifest.json`
-  - `registry/remote/adam0-sim/v2.8.0/remote.manifest.sig`
+  - `registry/remote/adam0-sim/v2.8.1/remote.manifest.json`
+  - `registry/remote/adam0-sim/v2.8.1/remote.manifest.sig`
+- `cluster_scale/`:
+  - `cluster_scale/run.json`
+  - `cluster_scale/recovery/rank0/window_0000.run.json`
+  - `cluster_scale/recovery/rank1/window_0000.run.json`
+- `registry_degraded/`:
+  - `registry_degraded/cache/registry.json`
+  - `registry_degraded/cache/audit.log.jsonl`
+  - `registry_degraded/remote_offline/adam0-degraded/v2.8.1/remote.manifest.json`
+  - `registry_degraded/remote_offline/adam0-degraded/v2.8.1/remote.manifest.sig`
 - `gpu/` (mandatory for full sign-off):
   - `single_gpu.log`, `single_gpu_evidence.json`
   - `multi_gpu.log`, `multi_gpu_evidence.json`
@@ -111,6 +124,6 @@ In strict mode the archived blocker report must also be present and must show:
 
 The RC wrappers for the current line are:
 
-- `scripts/v2_8_0_rc_pipeline.ps1`
-- `scripts/v2_8_0_rc_pipeline.sh`
+- `scripts/v2_8_1_rc_pipeline.ps1`
+- `scripts/v2_8_1_rc_pipeline.sh`
 

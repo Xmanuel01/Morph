@@ -49,6 +49,10 @@ Note:
     - `artifacts/readiness/adam0_reference_suite_verify.json`
     - `artifacts/readiness/model_registry_convergence.json`
     - `artifacts/readiness/model_registry_convergence_verify.json`
+    - `artifacts/readiness/cluster_scale_smoke.json`
+    - `artifacts/readiness/cluster_scale_evidence_verify.json`
+    - `artifacts/readiness/registry_degraded_smoke.json`
+    - `artifacts/readiness/registry_degraded_evidence_verify.json`
     - `artifacts/readiness/snn_agent_kernel_smoke.json`
     - `artifacts/readiness/snn_agent_kernel_evidence_verify.json`
     - `artifacts/sim/smoke_run.json`
@@ -77,8 +81,10 @@ Note:
     - `artifacts/registry/local/registry.json`
     - `artifacts/registry/remote/registry.json`
     - `artifacts/registry/cache/registry.json`
-    - `artifacts/registry/remote/adam0-sim/v2.8.0/remote.manifest.json`
-    - `artifacts/registry/remote/adam0-sim/v2.8.0/remote.manifest.sig`
+    - `artifacts/registry/remote/adam0-sim/v2.8.1/remote.manifest.json`
+    - `artifacts/registry/remote/adam0-sim/v2.8.1/remote.manifest.sig`
+    - `artifacts/cluster_scale/run.json`
+    - `artifacts/registry_degraded/cache/audit.log.jsonl`
 - [ ] Benchmark target gate (official bounded suite):
   - `enkai bench run --suite official_v2_3_0_matrix --baseline python --iterations 2 --warmup 1 --machine-profile bench/machines/linux_ref.json --output bench/results/official_v2_3_0_matrix.linux.json --target-speedup 15 --target-memory 5 --enforce-target --enforce-class-targets --class-targets bench/suites/official_v2_3_0_targets.json`
   - `enkai bench run --suite official_v2_3_0_matrix --baseline python --iterations 2 --warmup 1 --machine-profile bench/machines/windows_ref.json --output bench/results/official_v2_3_0_matrix.windows.json --target-speedup 15 --target-memory 5 --enforce-target --enforce-class-targets --class-targets bench/suites/official_v2_3_0_targets.json`

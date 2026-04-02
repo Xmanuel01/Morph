@@ -1,6 +1,6 @@
 ﻿[package]
 name = "enkai_native"
-version = "2.8.0"
+version = "2.8.1"
 edition = "2021"
 
 [lib]
@@ -16,6 +16,7 @@ native-tls = "0.2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 postgres = { version = "0.19", default-features = false, features = ["with-serde_json-1"] }
 csv = "1.3"
+
 
 
 

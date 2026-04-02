@@ -267,6 +267,10 @@ def main() -> int:
         "snn_agent_kernel_evidence_verify.json",
         "model_registry_convergence.json",
         "model_registry_convergence_verify.json",
+        "cluster_scale_smoke.json",
+        "cluster_scale_evidence_verify.json",
+        "registry_degraded_smoke.json",
+        "registry_degraded_evidence_verify.json",
     ]
     if readiness_dir.is_dir():
         if args.strict:
@@ -325,8 +329,8 @@ def main() -> int:
         "local/registry.json",
         "remote/registry.json",
         "cache/registry.json",
-        "remote/adam0-sim/v2.8.0/remote.manifest.json",
-        "remote/adam0-sim/v2.8.0/remote.manifest.sig",
+        "remote/adam0-sim/v2.8.1/remote.manifest.json",
+        "remote/adam0-sim/v2.8.1/remote.manifest.sig",
     ]
     if registry_dir.is_dir():
         if args.strict:
@@ -339,6 +343,61 @@ def main() -> int:
     elif args.strict:
         raise RuntimeError(
             f"registry convergence evidence directory not found for strict evidence mode: {registry_dir}"
+        )
+
+    cluster_scale_dir = root / "artifacts" / "cluster_scale"
+    required_cluster_scale = [
+        "validate.json",
+        "plan.json",
+        "run.json",
+        "recovery/rank0/window_0000.run.json",
+        "recovery/rank0/window_0000.snapshot.json",
+        "recovery/rank1/window_0000.run.json",
+        "recovery/rank1/window_0000.snapshot.json",
+    ]
+    if cluster_scale_dir.is_dir():
+        if args.strict:
+            cluster_scale_files = ensure_required_files(
+                cluster_scale_dir, required_cluster_scale, "cluster scale evidence"
+            )
+        else:
+            cluster_scale_files = sorted(path for path in cluster_scale_dir.rglob("*") if path.is_file())
+        file_rows.extend(
+            copy_files(root, cluster_scale_dir, out_root / "cluster_scale", "cluster_scale", cluster_scale_files)
+        )
+    elif args.strict:
+        raise RuntimeError(
+            f"cluster scale evidence directory not found for strict evidence mode: {cluster_scale_dir}"
+        )
+
+    registry_degraded_dir = root / "artifacts" / "registry_degraded"
+    required_registry_degraded = [
+        "cache/registry.json",
+        "cache/audit.log.jsonl",
+        "remote_offline/adam0-degraded/v2.8.1/remote.manifest.json",
+        "remote_offline/adam0-degraded/v2.8.1/remote.manifest.sig",
+    ]
+    if registry_degraded_dir.is_dir():
+        if args.strict:
+            registry_degraded_files = ensure_required_files(
+                registry_degraded_dir, required_registry_degraded, "registry degraded evidence"
+            )
+        else:
+            registry_degraded_files = sorted(
+                path for path in registry_degraded_dir.rglob("*") if path.is_file()
+            )
+        file_rows.extend(
+            copy_files(
+                root,
+                registry_degraded_dir,
+                out_root / "registry_degraded",
+                "registry_degraded",
+                registry_degraded_files,
+            )
+        )
+    elif args.strict:
+        raise RuntimeError(
+            f"registry degraded evidence directory not found for strict evidence mode: {registry_degraded_dir}"
         )
 
     manifest["files"] = file_rows

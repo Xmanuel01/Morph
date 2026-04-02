@@ -299,6 +299,58 @@
       ]
     },
     {
+      "id": "cluster-scale-smoke",
+      "description": "Multi-node simulation cluster scale smoke",
+      "command": [
+        "${PYTHON}",
+        "scripts/readiness_cluster_scale_smoke.py",
+        "--enkai-bin",
+        "${ENKAI_BIN}",
+        "--workspace",
+        ".",
+        "--output",
+        "artifacts/readiness/cluster_scale_smoke.json"
+      ]
+    },
+    {
+      "id": "cluster-scale-evidence-verify",
+      "description": "Multi-node simulation cluster scale evidence verification",
+      "command": [
+        "${PYTHON}",
+        "scripts/verify_cluster_scale_evidence.py",
+        "--summary",
+        "artifacts/readiness/cluster_scale_smoke.json",
+        "--output",
+        "artifacts/readiness/cluster_scale_evidence_verify.json"
+      ]
+    },
+    {
+      "id": "registry-degraded-smoke",
+      "description": "Registry degraded-mode fallback smoke",
+      "command": [
+        "${PYTHON}",
+        "scripts/readiness_registry_degraded_smoke.py",
+        "--enkai-bin",
+        "${ENKAI_BIN}",
+        "--workspace",
+        ".",
+        "--output",
+        "artifacts/readiness/registry_degraded_smoke.json"
+      ]
+    },
+    {
+      "id": "registry-degraded-evidence-verify",
+      "description": "Registry degraded-mode fallback evidence verification",
+      "command": [
+        "${PYTHON}",
+        "scripts/verify_registry_degraded_evidence.py",
+        "--summary",
+        "artifacts/readiness/registry_degraded_smoke.json",
+        "--output",
+        "artifacts/readiness/registry_degraded_evidence_verify.json"
+      ]
+    },
+    {
       "id": "deploy-backend-validate",
       "description": "Generated backend scaffold deploy validation smoke",
       "command": [

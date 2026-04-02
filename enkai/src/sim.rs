@@ -23,6 +23,7 @@ struct SimRunOptions {
     trace_net: bool,
     emit_json_stdout: bool,
     output: Option<PathBuf>,
+    snapshot_output: Option<PathBuf>,
     lineage_output: Option<PathBuf>,
     snapshot_manifest_output: Option<PathBuf>,
 }
@@ -40,6 +41,7 @@ struct SimReplayOptions {
     steps: usize,
     emit_json_stdout: bool,
     output: Option<PathBuf>,
+    snapshot_output: Option<PathBuf>,
     lineage_output: Option<PathBuf>,
     snapshot_manifest_output: Option<PathBuf>,
 }
@@ -93,9 +95,9 @@ pub fn sim_command(args: &[String]) -> i32 {
 }
 
 pub fn print_sim_usage() {
-    eprintln!("  enkai sim run [--trace-vm] [--disasm] [--trace-task] [--trace-net] [--json] [--output <file>] [--lineage-output <file>] [--snapshot-manifest-output <file>] <file|dir>");
-    eprintln!("  enkai sim profile [--trace-vm] [--disasm] [--trace-task] [--trace-net] [--case <id>] --output <file> [--lineage-output <file>] [--snapshot-manifest-output <file>] <file|dir>");
-    eprintln!("  enkai sim replay --snapshot <file> --steps <n> [--json] [--output <file>] [--lineage-output <file>] [--snapshot-manifest-output <file>]");
+    eprintln!("  enkai sim run [--trace-vm] [--disasm] [--trace-task] [--trace-net] [--json] [--output <file>] [--snapshot-output <file>] [--lineage-output <file>] [--snapshot-manifest-output <file>] <file|dir>");
+    eprintln!("  enkai sim profile [--trace-vm] [--disasm] [--trace-task] [--trace-net] [--case <id>] --output <file> [--snapshot-output <file>] [--lineage-output <file>] [--snapshot-manifest-output <file>] <file|dir>");
+    eprintln!("  enkai sim replay --snapshot <file> --steps <n> [--json] [--output <file>] [--snapshot-output <file>] [--lineage-output <file>] [--snapshot-manifest-output <file>]");
 }
 
 fn sim_run_command(args: &[String]) -> i32 {
@@ -216,6 +218,10 @@ fn sim_replay_command(args: &[String]) -> i32 {
         eprintln!("enkai sim replay: {}", err);
         return 1;
     }
+    if let Err(err) = write_snapshot_output(options.snapshot_output.as_deref(), &payload) {
+        eprintln!("enkai sim replay: {}", err);
+        return 1;
+    }
     if let Err(err) = write_sim_manifests(SimManifestRequest {
         command: "sim.replay",
         target: None,
@@ -285,6 +291,7 @@ fn execute_sim_run(
                 options.emit_json_stdout,
                 options.output.as_deref(),
             )?;
+            write_snapshot_output(options.snapshot_output.as_deref(), &payload)?;
             write_sim_manifests(SimManifestRequest {
                 command: "sim.run",
                 target: Some(&options.target),
@@ -368,6 +375,26 @@ fn write_json_outputs(
         .map_err(|err| err.to_string())?;
     }
     Ok(())
+}
+
+fn write_snapshot_output(path: Option<&Path>, payload: &serde_json::Value) -> Result<(), String> {
+    let Some(path) = path else {
+        return Ok(());
+    };
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+        }
+    }
+    let snapshot = payload
+        .get("result")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    fs::write(
+        path,
+        serde_json::to_vec_pretty(&snapshot).map_err(|err| err.to_string())?,
+    )
+    .map_err(|err| err.to_string())
 }
 
 fn value_to_json(value: &Value) -> serde_json::Value {
@@ -574,6 +601,7 @@ fn parse_sim_run_args(args: &[String]) -> Result<SimRunOptions, String> {
     let mut trace_net = false;
     let mut emit_json_stdout = false;
     let mut output: Option<PathBuf> = None;
+    let mut snapshot_output: Option<PathBuf> = None;
     let mut lineage_output: Option<PathBuf> = None;
     let mut snapshot_manifest_output: Option<PathBuf> = None;
     let mut idx = 0usize;
@@ -590,6 +618,13 @@ fn parse_sim_run_args(args: &[String]) -> Result<SimRunOptions, String> {
                     return Err("--output requires a value".to_string());
                 }
                 output = Some(PathBuf::from(&args[idx]));
+            }
+            "--snapshot-output" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err("--snapshot-output requires a value".to_string());
+                }
+                snapshot_output = Some(PathBuf::from(&args[idx]));
             }
             "--lineage-output" => {
                 idx += 1;
@@ -624,6 +659,7 @@ fn parse_sim_run_args(args: &[String]) -> Result<SimRunOptions, String> {
         trace_net,
         emit_json_stdout,
         output,
+        snapshot_output,
         lineage_output,
         snapshot_manifest_output,
     })
@@ -631,6 +667,7 @@ fn parse_sim_run_args(args: &[String]) -> Result<SimRunOptions, String> {
 
 fn parse_sim_profile_args(args: &[String]) -> Result<SimProfileOptions, String> {
     let mut output: Option<PathBuf> = None;
+    let mut snapshot_output: Option<PathBuf> = None;
     let mut lineage_output: Option<PathBuf> = None;
     let mut snapshot_manifest_output: Option<PathBuf> = None;
     let mut case_id = "sim_cli".to_string();
@@ -651,6 +688,13 @@ fn parse_sim_profile_args(args: &[String]) -> Result<SimProfileOptions, String> 
                     return Err("--case requires a value".to_string());
                 }
                 case_id = args[idx].clone();
+            }
+            "--snapshot-output" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err("--snapshot-output requires a value".to_string());
+                }
+                snapshot_output = Some(PathBuf::from(&args[idx]));
             }
             "--lineage-output" => {
                 idx += 1;
@@ -673,6 +717,7 @@ fn parse_sim_profile_args(args: &[String]) -> Result<SimProfileOptions, String> 
     let profile_output =
         output.ok_or_else(|| "sim profile requires --output <file>".to_string())?;
     let mut run = parse_sim_run_args(&passthrough)?;
+    run.snapshot_output = snapshot_output;
     run.lineage_output = lineage_output;
     run.snapshot_manifest_output = snapshot_manifest_output;
     Ok(SimProfileOptions {
@@ -687,6 +732,7 @@ fn parse_sim_replay_args(args: &[String]) -> Result<SimReplayOptions, String> {
     let mut steps: Option<usize> = None;
     let mut emit_json_stdout = false;
     let mut output: Option<PathBuf> = None;
+    let mut snapshot_output: Option<PathBuf> = None;
     let mut lineage_output: Option<PathBuf> = None;
     let mut snapshot_manifest_output: Option<PathBuf> = None;
     let mut idx = 0usize;
@@ -718,6 +764,13 @@ fn parse_sim_replay_args(args: &[String]) -> Result<SimReplayOptions, String> {
                 }
                 output = Some(PathBuf::from(&args[idx]));
             }
+            "--snapshot-output" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err("--snapshot-output requires a value".to_string());
+                }
+                snapshot_output = Some(PathBuf::from(&args[idx]));
+            }
             "--lineage-output" => {
                 idx += 1;
                 if idx >= args.len() {
@@ -741,6 +794,7 @@ fn parse_sim_replay_args(args: &[String]) -> Result<SimReplayOptions, String> {
         steps: steps.ok_or_else(|| "sim replay requires --steps <n>".to_string())?,
         emit_json_stdout,
         output,
+        snapshot_output,
         lineage_output,
         snapshot_manifest_output,
     })
@@ -793,6 +847,7 @@ mod tests {
             trace_net: false,
             emit_json_stdout: false,
             output: Some(out.clone()),
+            snapshot_output: None,
             lineage_output: None,
             snapshot_manifest_output: None,
         };
@@ -821,6 +876,7 @@ mod tests {
             trace_net: false,
             emit_json_stdout: false,
             output: None,
+            snapshot_output: None,
             lineage_output: None,
             snapshot_manifest_output: None,
         };
@@ -868,6 +924,7 @@ mod tests {
             trace_net: false,
             emit_json_stdout: false,
             output: Some(run_out),
+            snapshot_output: None,
             lineage_output: Some(lineage_out.clone()),
             snapshot_manifest_output: Some(snapshot_manifest.clone()),
         };
