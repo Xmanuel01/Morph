@@ -183,6 +183,32 @@
       ]
     },
     {
+      "id": "adam0-reference-suite",
+      "description": "Adam-0 reference stack suite (100/1000/10000 agents)",
+      "command": [
+        "${PYTHON}",
+        "scripts/readiness_adam0_reference_suite.py",
+        "--enkai-bin",
+        "${ENKAI_BIN}",
+        "--workspace",
+        ".",
+        "--output",
+        "artifacts/readiness/adam0_reference_suite.json"
+      ]
+    },
+    {
+      "id": "adam0-reference-suite-verify",
+      "description": "Adam-0 reference stack suite evidence verification",
+      "command": [
+        "${PYTHON}",
+        "scripts/verify_adam0_reference_suite.py",
+        "--summary",
+        "artifacts/readiness/adam0_reference_suite.json",
+        "--output",
+        "artifacts/readiness/adam0_reference_suite_verify.json"
+      ]
+    },
+    {
       "id": "snn-agent-kernel-smoke",
       "description": "SNN agent environment kernel smoke",
       "command": [

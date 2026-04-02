@@ -4,9 +4,9 @@
 Overview
 Enkai is a programming language with block structure defined by :: tokens, a clean
 assignment operator (:=), and an AI-native roadmap (tools, agents, memory, policy).
-This repository contains the v2.7.0 implementation in Rust.
+This repository contains the v2.7.1 implementation in Rust.
 
-Status (v2.7.0)
+Status (v2.7.1)
 - Bytecode VM + globals + type-checking
 - Module system with public/private exports
 - CLI: run/bench/readiness/deploy/model/serve/new/sdk/check/fmt/fmt-lite/lint-lite/tokenizer-lite/dataset-lite/litec/build/test/train/pretrain/eval/migrate/doctor
@@ -30,10 +30,14 @@ Status (v2.7.0)
 - `std::sparse`, `std::event`, and `std::pool` now keep the same public API while using
   native-backed acceleration through `enkai_native` when available; deterministic runtime
   fallbacks remain active when acceleration is unavailable or disabled with `ENKAI_SIM_ACCEL=0`
-- Adam-0 deterministic reference baseline and release evidence:
-  - `examples/adam0_100.enk`
-  - `scripts/readiness_adam0_smoke.py`
-  - `scripts/verify_adam0_evidence.py`
+- Adam-0 reference stack and release evidence:
+  - deterministic baseline: `examples/adam0_100.enk`
+  - bounded reference suite: `examples/adam0_reference.enk`
+  - suite definition: `bench/suites/adam0_reference_v2_7_1.json`
+  - smoke evidence: `scripts/readiness_adam0_smoke.py`
+  - smoke verification: `scripts/verify_adam0_evidence.py`
+  - suite evidence: `scripts/readiness_adam0_reference_suite.py`
+  - suite verification: `scripts/verify_adam0_reference_suite.py`
 - SNN + agent environment kernel baseline and release evidence:
   - `examples/snn_agent_kernel.enk`
   - `scripts/readiness_snn_agent_kernel_smoke.py`
@@ -64,8 +68,8 @@ Status (v2.7.0)
 - Bootstrap-lite/core toolchain path with `litec` stage0/stage1 bytecode equivalence checks, phase staging (`litec stage`), self-host CI corpus validation (`litec selfhost-ci`), and consolidated release lane (`litec release-ci`)
 - Self-host mainline CI lane with deterministic triage artifacts (`litec mainline-ci --triage-dir <dir>`) plus mandatory Stage0 fallback lane
 - Self-host replacement-readiness gate with Stage1/Stage2 fixed-point checks (`litec replace-check`)
-- Compatibility/deprecation governance and self-host fallback workflow docs for v2.7.0 release readiness
-- Version-neutral release pipeline, deterministic packaging, checksum verification, SBOM generation, and RC evidence-archive gates for v2.7.0 sign-off
+- Compatibility/deprecation governance and self-host fallback workflow docs for v2.7.1 release readiness
+- Version-neutral release pipeline, deterministic packaging, checksum verification, SBOM generation, and RC evidence-archive gates for v2.7.1 sign-off
 - Full-platform simulation smoke evidence integrated into release sign-off:
   - `scripts/readiness_sim_smoke.py`
   - `artifacts/readiness/sim_smoke.json`
@@ -78,6 +82,12 @@ Status (v2.7.0)
   - `artifacts/readiness/snn_agent_kernel_evidence_verify.json`
   - `artifacts/sim/snn_agent_kernel_run.json`
   - `artifacts/sim/snn_agent_kernel_profile.json`
+- Adam-0 reference suite evidence integrated into release sign-off:
+  - `artifacts/readiness/adam0_reference_suite.json`
+  - `artifacts/readiness/adam0_reference_suite_verify.json`
+  - `artifacts/sim/adam0_baseline_100_run.json`
+  - `artifacts/sim/adam0_stress_1000_run.json`
+  - `artifacts/sim/adam0_target_10000_run.json`
 - Capability-complete release report generated from archived evidence:
   - `scripts/collect_release_evidence.py --strict`
   - `scripts/generate_capability_report.py --strict`
@@ -98,7 +108,7 @@ Status (v2.7.0)
   - deterministic suites under `bench/suites/`
   - machine profile manifests under `bench/machines/`
   - structured result artifacts under `bench/results/*.json`
-- Strict-contract enforcement in v2.7.0:
+- Strict-contract enforcement in v2.7.1:
   - `enkai train` / `enkai eval` enforce contract checks by default
   - explicit legacy recovery is gated: `--lenient-contracts` + `ENKAI_ALLOW_LEGACY_CONTRACTS=1`
   - readiness audit: `enkai doctor --json [--strict-contracts|--lenient]`

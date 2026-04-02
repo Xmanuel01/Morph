@@ -157,6 +157,14 @@ def main() -> int:
             failures.append(
                 "docs/36_capability_complete_report.md missing simulation stdlib evidence verification reference"
             )
+        if "readiness/adam0_reference_suite.json" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing Adam-0 reference suite summary reference"
+            )
+        if "readiness/adam0_reference_suite_verify.json" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing Adam-0 reference suite verification reference"
+            )
         if "readiness/snn_agent_kernel_smoke.json" not in capability_text:
             failures.append(
                 "docs/36_capability_complete_report.md missing SNN agent kernel smoke reference"
@@ -176,6 +184,10 @@ def main() -> int:
         if "sim/stdlib_smoke_run.json" not in capability_text:
             failures.append(
                 "docs/36_capability_complete_report.md missing simulation stdlib evidence archive reference"
+            )
+        if "sim/adam0_target_10000_run.json" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing Adam-0 reference suite archive reference"
             )
         if "sim/snn_agent_kernel_run.json" not in capability_text:
             failures.append(
@@ -201,10 +213,27 @@ def main() -> int:
             failures.append("docs/37_readiness_matrix.md missing simulation stdlib smoke artifact reference")
         if "artifacts/readiness/sim_stdlib_evidence_verify.json" not in readiness_text:
             failures.append("docs/37_readiness_matrix.md missing simulation stdlib verification artifact reference")
+        if "artifacts/readiness/adam0_reference_suite.json" not in readiness_text:
+            failures.append("docs/37_readiness_matrix.md missing Adam-0 reference suite artifact reference")
+        if "artifacts/readiness/adam0_reference_suite_verify.json" not in readiness_text:
+            failures.append("docs/37_readiness_matrix.md missing Adam-0 reference suite verification artifact reference")
         if "artifacts/readiness/snn_agent_kernel_smoke.json" not in readiness_text:
             failures.append("docs/37_readiness_matrix.md missing SNN agent kernel smoke artifact reference")
         if "artifacts/readiness/snn_agent_kernel_evidence_verify.json" not in readiness_text:
             failures.append("docs/37_readiness_matrix.md missing SNN agent kernel verification artifact reference")
+    adam0_doc = ROOT / "docs/39_adam0_reference_stack.md"
+    if not adam0_doc.is_file():
+        failures.append("missing docs/39_adam0_reference_stack.md")
+    else:
+        adam0_text = adam0_doc.read_text(encoding="utf-8")
+        if "examples/adam0_reference.enk" not in adam0_text:
+            failures.append("docs/39_adam0_reference_stack.md missing Adam-0 reference script reference")
+        if "bench/suites/adam0_reference_v2_7_1.json" not in adam0_text:
+            failures.append("docs/39_adam0_reference_stack.md missing Adam-0 reference suite reference")
+        if "artifacts/readiness/adam0_reference_suite.json" not in adam0_text:
+            failures.append("docs/39_adam0_reference_stack.md missing Adam-0 readiness suite artifact reference")
+        if "artifacts/sim/adam0_target_10000_run.json" not in adam0_text:
+            failures.append("docs/39_adam0_reference_stack.md missing Adam-0 target run artifact reference")
     benchmark_doc = ROOT / "docs/33_benchmark_suite.md"
     if not benchmark_doc.is_file():
         failures.append("missing docs/33_benchmark_suite.md")

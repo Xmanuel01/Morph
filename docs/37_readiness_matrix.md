@@ -32,6 +32,8 @@ Selective pipeline reuse:
   - `artifacts/readiness/sim_native_evidence_verify.json`
   - `artifacts/readiness/sim_stdlib_smoke.json`
   - `artifacts/readiness/sim_stdlib_evidence_verify.json`
+  - `artifacts/readiness/adam0_reference_suite.json`
+  - `artifacts/readiness/adam0_reference_suite_verify.json`
   - `artifacts/readiness/snn_agent_kernel_smoke.json`
   - `artifacts/readiness/snn_agent_kernel_evidence_verify.json`
   - `artifacts/sim/smoke_run.json`
@@ -41,6 +43,18 @@ Selective pipeline reuse:
   - `artifacts/sim/native_smoke_profile.json`
   - `artifacts/sim/stdlib_smoke_run.json`
   - `artifacts/sim/stdlib_smoke_profile.json`
+  - `artifacts/sim/adam0_baseline_100_run.json`
+  - `artifacts/sim/adam0_baseline_100_profile.json`
+  - `artifacts/sim/adam0_baseline_100_snapshot.json`
+  - `artifacts/sim/adam0_baseline_100_replay.json`
+  - `artifacts/sim/adam0_stress_1000_run.json`
+  - `artifacts/sim/adam0_stress_1000_profile.json`
+  - `artifacts/sim/adam0_stress_1000_snapshot.json`
+  - `artifacts/sim/adam0_stress_1000_replay.json`
+  - `artifacts/sim/adam0_target_10000_run.json`
+  - `artifacts/sim/adam0_target_10000_profile.json`
+  - `artifacts/sim/adam0_target_10000_snapshot.json`
+  - `artifacts/sim/adam0_target_10000_replay.json`
   - `artifacts/sim/snn_agent_kernel_run.json`
   - `artifacts/sim/snn_agent_kernel_profile.json`
 
@@ -73,6 +87,8 @@ The command executes a deterministic gate bundle:
 - simulation native FFI evidence verification
 - simulation stdlib primitive smoke with native-backed acceleration proof
 - simulation stdlib evidence verification
+- Adam-0 reference suite (100 / 1000 / 10000 agents)
+- Adam-0 reference suite evidence verification
 - SNN/agent environment kernel smoke
 - SNN/agent environment kernel evidence verification
 - DB core smoke

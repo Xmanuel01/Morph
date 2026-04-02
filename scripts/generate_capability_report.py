@@ -467,6 +467,36 @@ def build_checks(
             ),
         )
     )
+    adam0_reference_suite = has_exact(copied_paths, "/readiness/adam0_reference_suite.json")
+    checks.append(
+        CheckResult(
+            id="readiness_adam0_reference_suite_report",
+            description="Adam-0 reference suite summary is present",
+            required=True,
+            passed=adam0_reference_suite,
+            details=(
+                "readiness/adam0_reference_suite.json"
+                if adam0_reference_suite
+                else "missing readiness/adam0_reference_suite.json"
+            ),
+        )
+    )
+    adam0_reference_verify = has_exact(
+        copied_paths, "/readiness/adam0_reference_suite_verify.json"
+    )
+    checks.append(
+        CheckResult(
+            id="readiness_adam0_reference_suite_verify_report",
+            description="Adam-0 reference suite evidence verification report is present",
+            required=True,
+            passed=adam0_reference_verify,
+            details=(
+                "readiness/adam0_reference_suite_verify.json"
+                if adam0_reference_verify
+                else "missing readiness/adam0_reference_suite_verify.json"
+            ),
+        )
+    )
     snn_agent_smoke = has_exact(copied_paths, "/readiness/snn_agent_kernel_smoke.json")
     checks.append(
         CheckResult(
@@ -534,6 +564,30 @@ def build_checks(
             CheckResult(
                 id=f"simulation_{name.replace('.', '_')}",
                 description=f"Adam-0 100-agent simulation evidence `{name}` is present",
+                required=True,
+                passed=present,
+                details=name if present else f"missing sim/{name}",
+            )
+        )
+    for name in (
+        "adam0_baseline_100_run.json",
+        "adam0_baseline_100_profile.json",
+        "adam0_baseline_100_snapshot.json",
+        "adam0_baseline_100_replay.json",
+        "adam0_stress_1000_run.json",
+        "adam0_stress_1000_profile.json",
+        "adam0_stress_1000_snapshot.json",
+        "adam0_stress_1000_replay.json",
+        "adam0_target_10000_run.json",
+        "adam0_target_10000_profile.json",
+        "adam0_target_10000_snapshot.json",
+        "adam0_target_10000_replay.json",
+    ):
+        present = has_exact(copied_paths, f"/sim/{name}")
+        checks.append(
+            CheckResult(
+                id=f"simulation_{name.replace('.', '_')}",
+                description=f"Adam-0 reference suite evidence `{name}` is present",
                 required=True,
                 passed=present,
                 details=name if present else f"missing sim/{name}",

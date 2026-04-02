@@ -999,6 +999,14 @@ mod tests {
         assert!(manifest
             .checks
             .iter()
+            .any(|check| check.id == "adam0-reference-suite"));
+        assert!(manifest
+            .checks
+            .iter()
+            .any(|check| check.id == "adam0-reference-suite-verify"));
+        assert!(manifest
+            .checks
+            .iter()
             .any(|check| check.id == "deploy-backend-validate"));
         assert!(manifest
             .checks
@@ -1124,6 +1132,8 @@ mod tests {
             "artifacts/readiness/sim_stdlib_evidence_verify.json",
             "artifacts/readiness/adam0_100_smoke.json",
             "artifacts/readiness/adam0_100_evidence_verify.json",
+            "artifacts/readiness/adam0_reference_suite.json",
+            "artifacts/readiness/adam0_reference_suite_verify.json",
             "artifacts/readiness/snn_agent_kernel_smoke.json",
             "artifacts/readiness/snn_agent_kernel_evidence_verify.json",
             "artifacts/sim/smoke_run.json",
@@ -1135,6 +1145,18 @@ mod tests {
             "artifacts/sim/stdlib_smoke_profile.json",
             "artifacts/sim/adam0_100_run.json",
             "artifacts/sim/adam0_100_profile.json",
+            "artifacts/sim/adam0_baseline_100_run.json",
+            "artifacts/sim/adam0_baseline_100_profile.json",
+            "artifacts/sim/adam0_baseline_100_snapshot.json",
+            "artifacts/sim/adam0_baseline_100_replay.json",
+            "artifacts/sim/adam0_stress_1000_run.json",
+            "artifacts/sim/adam0_stress_1000_profile.json",
+            "artifacts/sim/adam0_stress_1000_snapshot.json",
+            "artifacts/sim/adam0_stress_1000_replay.json",
+            "artifacts/sim/adam0_target_10000_run.json",
+            "artifacts/sim/adam0_target_10000_profile.json",
+            "artifacts/sim/adam0_target_10000_snapshot.json",
+            "artifacts/sim/adam0_target_10000_replay.json",
             "artifacts/sim/snn_agent_kernel_run.json",
             "artifacts/sim/snn_agent_kernel_profile.json",
             "bench/results/full_platform_targets.json",
@@ -1211,6 +1233,8 @@ mod tests {
             "artifacts/readiness/sim_stdlib_evidence_verify.json",
             "artifacts/readiness/adam0_100_smoke.json",
             "artifacts/readiness/adam0_100_evidence_verify.json",
+            "artifacts/readiness/adam0_reference_suite.json",
+            "artifacts/readiness/adam0_reference_suite_verify.json",
             "artifacts/readiness/snn_agent_kernel_smoke.json",
             "artifacts/readiness/snn_agent_kernel_evidence_verify.json",
             "artifacts/sim/smoke_run.json",
@@ -1222,6 +1246,18 @@ mod tests {
             "artifacts/sim/stdlib_smoke_profile.json",
             "artifacts/sim/adam0_100_run.json",
             "artifacts/sim/adam0_100_profile.json",
+            "artifacts/sim/adam0_baseline_100_run.json",
+            "artifacts/sim/adam0_baseline_100_profile.json",
+            "artifacts/sim/adam0_baseline_100_snapshot.json",
+            "artifacts/sim/adam0_baseline_100_replay.json",
+            "artifacts/sim/adam0_stress_1000_run.json",
+            "artifacts/sim/adam0_stress_1000_profile.json",
+            "artifacts/sim/adam0_stress_1000_snapshot.json",
+            "artifacts/sim/adam0_stress_1000_replay.json",
+            "artifacts/sim/adam0_target_10000_run.json",
+            "artifacts/sim/adam0_target_10000_profile.json",
+            "artifacts/sim/adam0_target_10000_snapshot.json",
+            "artifacts/sim/adam0_target_10000_replay.json",
             "artifacts/sim/snn_agent_kernel_run.json",
             "artifacts/sim/snn_agent_kernel_profile.json",
             "bench/results/full_platform_targets.json",

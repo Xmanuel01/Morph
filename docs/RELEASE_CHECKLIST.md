@@ -45,6 +45,8 @@ Note:
     - `artifacts/readiness/sim_native_evidence_verify.json`
     - `artifacts/readiness/sim_stdlib_smoke.json`
     - `artifacts/readiness/sim_stdlib_evidence_verify.json`
+    - `artifacts/readiness/adam0_reference_suite.json`
+    - `artifacts/readiness/adam0_reference_suite_verify.json`
     - `artifacts/readiness/snn_agent_kernel_smoke.json`
     - `artifacts/readiness/snn_agent_kernel_evidence_verify.json`
     - `artifacts/sim/smoke_run.json`
@@ -54,6 +56,18 @@ Note:
     - `artifacts/sim/native_smoke_profile.json`
     - `artifacts/sim/stdlib_smoke_run.json`
     - `artifacts/sim/stdlib_smoke_profile.json`
+    - `artifacts/sim/adam0_baseline_100_run.json`
+    - `artifacts/sim/adam0_baseline_100_profile.json`
+    - `artifacts/sim/adam0_baseline_100_snapshot.json`
+    - `artifacts/sim/adam0_baseline_100_replay.json`
+    - `artifacts/sim/adam0_stress_1000_run.json`
+    - `artifacts/sim/adam0_stress_1000_profile.json`
+    - `artifacts/sim/adam0_stress_1000_snapshot.json`
+    - `artifacts/sim/adam0_stress_1000_replay.json`
+    - `artifacts/sim/adam0_target_10000_run.json`
+    - `artifacts/sim/adam0_target_10000_profile.json`
+    - `artifacts/sim/adam0_target_10000_snapshot.json`
+    - `artifacts/sim/adam0_target_10000_replay.json`
     - `artifacts/sim/snn_agent_kernel_run.json`
     - `artifacts/sim/snn_agent_kernel_profile.json`
 - [ ] Benchmark target gate (official bounded suite):
@@ -111,6 +125,8 @@ Note:
     - `readiness/sim_native_evidence_verify.json`
     - `readiness/sim_stdlib_smoke.json`
     - `readiness/sim_stdlib_evidence_verify.json`
+    - `readiness/adam0_reference_suite.json`
+    - `readiness/adam0_reference_suite_verify.json`
     - `readiness/snn_agent_kernel_smoke.json`
     - `readiness/snn_agent_kernel_evidence_verify.json`
     - `sim/smoke_run.json`
@@ -120,6 +136,18 @@ Note:
     - `sim/native_smoke_profile.json`
     - `sim/stdlib_smoke_run.json`
     - `sim/stdlib_smoke_profile.json`
+    - `sim/adam0_baseline_100_run.json`
+    - `sim/adam0_baseline_100_profile.json`
+    - `sim/adam0_baseline_100_snapshot.json`
+    - `sim/adam0_baseline_100_replay.json`
+    - `sim/adam0_stress_1000_run.json`
+    - `sim/adam0_stress_1000_profile.json`
+    - `sim/adam0_stress_1000_snapshot.json`
+    - `sim/adam0_stress_1000_replay.json`
+    - `sim/adam0_target_10000_run.json`
+    - `sim/adam0_target_10000_profile.json`
+    - `sim/adam0_target_10000_snapshot.json`
+    - `sim/adam0_target_10000_replay.json`
     - `sim/snn_agent_kernel_run.json`
     - `sim/snn_agent_kernel_profile.json`
 - [ ] Generate capability-complete report from archived evidence:

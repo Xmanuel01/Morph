@@ -2,9 +2,21 @@
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.7.0.
+- Current production release line is v2.7.1.
 - v2.6.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v2.7.1 (done)
+- Adam-0 reference stack completion:
+  - added bounded Adam-0 reference suite:
+    - `examples/adam0_reference.enk`
+    - `bench/suites/adam0_reference_v2_7_1.json`
+  - added suite evidence generation and semantic verification:
+    - `scripts/readiness_adam0_reference_suite.py`
+    - `scripts/verify_adam0_reference_suite.py`
+  - full-platform readiness now archives and verifies the 100 / 1000 / 10000 agent Adam-0 suite artifacts
+  - documented bounded hardware assumptions and suite contract in:
+    - `docs/39_adam0_reference_stack.md`
 
 v2.7.0 (done)
 - Simulation coroutine, SNN runtime, and agent environment completion:

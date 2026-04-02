@@ -8,6 +8,32 @@
 ### Breaking changes
 - None.
 
+## v2.7.1
+
+### Highlights
+- Advanced the release line to `v2.7.1` with additive compatibility and no syntax changes.
+- Completed the `v2.7.1` Adam-0 reference stack milestone.
+- Added the bounded Adam-0 reference suite:
+  - `examples/adam0_reference.enk`
+  - `bench/suites/adam0_reference_v2_7_1.json`
+
+### Fixes
+- Added release-gated Adam-0 reference suite generation and semantic verification:
+  - `scripts/readiness_adam0_reference_suite.py`
+  - `scripts/verify_adam0_reference_suite.py`
+- Full-platform readiness, blocker verification, strict evidence archiving, and capability reporting now require archived Adam-0 reference suite artifacts for:
+  - `adam0_baseline_100`
+  - `adam0_stress_1000`
+  - `adam0_target_10000`
+- Hardened `enkai sim replay` so large simulation snapshots are compacted before inline restore, avoiding replay failures caused by pretty-printed JSON embedding.
+- Synced docs/spec/release metadata and version surfaces to `v2.7.1`.
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_7_1_rc_pipeline.ps1`
+  - `scripts/v2_7_1_rc_pipeline.sh`
+
+### Breaking changes
+- None.
+
 ## v2.7.0
 
 ### Highlights

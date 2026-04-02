@@ -351,6 +351,16 @@ pub extern "C" fn add_i64(a: i64, b: i64) -> i64 {
 }
 
 #[no_mangle]
+/// # Safety
+/// The caller must pass a valid UTF-8 string buffer.
+pub unsafe extern "C" fn parse_i64(text_ptr: *const u8, text_len: usize) -> i64 {
+    let Some(text) = string_from_raw(text_ptr, text_len) else {
+        return -1;
+    };
+    text.trim().parse::<i64>().unwrap_or(-1)
+}
+
+#[no_mangle]
 pub extern "C" fn handle_new(value: i64) -> *mut c_void {
     make_opaque_handle(OpaqueHandleKind::Example, ExampleHandle { value })
 }

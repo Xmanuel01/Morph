@@ -43,6 +43,8 @@ Core categories:
   - `sim_native_evidence_verify.json` (`readiness/sim_native_evidence_verify.json`) validating archived native FFI simulation evidence consistency
   - `sim_stdlib_smoke.json` (`readiness/sim_stdlib_smoke.json`) summarizing the archived stdlib simulation primitive smoke workflow, including native-backed acceleration requirements
   - `sim_stdlib_evidence_verify.json` (`readiness/sim_stdlib_evidence_verify.json`) validating archived stdlib simulation evidence consistency
+  - `adam0_reference_suite.json` (`readiness/adam0_reference_suite.json`) summarizing the archived Adam-0 reference suite for the 100 / 1000 / 10000 agent cases
+  - `adam0_reference_suite_verify.json` (`readiness/adam0_reference_suite_verify.json`) validating archived Adam-0 reference suite evidence consistency
   - `snn_agent_kernel_smoke.json` (`readiness/snn_agent_kernel_smoke.json`) summarizing the archived SNN/agent kernel smoke workflow
   - `snn_agent_kernel_evidence_verify.json` (`readiness/snn_agent_kernel_evidence_verify.json`) validating archived SNN/agent kernel evidence consistency
   - `production.json` (`readiness/production.json`) as an optional compatibility/reference artifact
@@ -54,6 +56,18 @@ Core categories:
   - `sim/native_smoke_profile.json`
   - `sim/stdlib_smoke_run.json`
   - `sim/stdlib_smoke_profile.json`
+  - `sim/adam0_baseline_100_run.json`
+  - `sim/adam0_baseline_100_profile.json`
+  - `sim/adam0_baseline_100_snapshot.json`
+  - `sim/adam0_baseline_100_replay.json`
+  - `sim/adam0_stress_1000_run.json`
+  - `sim/adam0_stress_1000_profile.json`
+  - `sim/adam0_stress_1000_snapshot.json`
+  - `sim/adam0_stress_1000_replay.json`
+  - `sim/adam0_target_10000_run.json`
+  - `sim/adam0_target_10000_profile.json`
+  - `sim/adam0_target_10000_snapshot.json`
+  - `sim/adam0_target_10000_replay.json`
   - `sim/snn_agent_kernel_run.json`
   - `sim/snn_agent_kernel_profile.json`
 - `gpu/` (mandatory for full sign-off):
@@ -78,7 +92,7 @@ In strict mode the archived blocker report must also be present and must show:
 - `skip_release_evidence: false`
 - no missing/failed/skipped required checks
 - no missing required release artifacts
-- simulation std/runtime, stdlib primitive, native FFI, Adam-0, and SNN/agent kernel evidence artifacts must be present under both `readiness/` and `sim/`
+- simulation std/runtime, stdlib primitive, Adam-0 smoke, Adam-0 reference suite, native FFI, and SNN/agent kernel evidence artifacts must be present under both `readiness/` and `sim/`
 
 ## RC Pipeline Contract
 

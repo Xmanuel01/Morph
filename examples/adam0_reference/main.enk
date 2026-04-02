@@ -1,0 +1,296 @@
+import json
+import std::agent
+import std::env
+import std::event
+import std::pool
+import std::sim
+import std::snn
+import std::sparse
+import std::spatial
+
+native::import "enkai_native" ::
+    fn parse_i64(text: String) -> Int
+::
+
+policy default ::
+    allow env
+::
+
+fn env_string(key: String, fallback: String) -> String ::
+    let raw := env.get(key)
+    if raw != none ::
+        return raw?
+    ::
+    return fallback
+::
+
+fn env_int(key: String, fallback: Int) -> Int ::
+    let raw := env.get(key)
+    if raw != none ::
+        let parsed := parse_i64(raw?)
+        if parsed >= 0 ::
+            return parsed
+        ::
+    ::
+    return fallback
+::
+
+fn env_milli_float(key: String, fallback_milli: Int) -> Float ::
+    return env_int(key, fallback_milli) * 0.001
+::
+
+fn build_connectivity(agent_count: Int, fanout: Int) -> SparseMatrix ::
+    let weights := sparse.matrix()
+    let source := 0
+    while source < agent_count ::
+        let hop := 1
+        while hop <= fanout ::
+            let target := source + hop
+            if target < agent_count ::
+                sparse.set(weights, source, target, 0.07 + hop * 0.01)
+            ::
+            hop := hop + 1
+        ::
+        source := source + 1
+    ::
+    return weights
+::
+
+fn build_feature_weights() -> SparseVector ::
+    let weights := sparse.vector()
+    sparse.set_vector(weights, 0, 0.45)
+    sparse.set_vector(weights, 1, 0.20)
+    sparse.set_vector(weights, 2, 0.15)
+    sparse.set_vector(weights, 3, 0.20)
+    return weights
+::
+
+fn configure_controller(net: SnnNetwork) ::
+    snn.set_threshold(net, 0, 0.25)
+    snn.set_threshold(net, 1, 0.35)
+    snn.set_threshold(net, 2, 0.45)
+    snn.set_threshold(net, 3, 0.55)
+    snn.set_decay(net, 0.92)
+    snn.connect(net, 0, 1, 0.40)
+    snn.connect(net, 1, 2, 0.35)
+    snn.connect(net, 2, 3, 0.30)
+    snn.connect(net, 3, 0, 0.20)
+::
+
+fn init_agents(world: SimWorld, env_ctx: AgentEnv, agent_count: Int, spacing: Float) -> Int ::
+    let agent_id := 0
+    while agent_id < agent_count ::
+        let x := agent_id * spacing
+        let body := json.parse("{}")
+        body.kind := "causal-agent"
+        body.last_action := "idle"
+        body.last_neighbors := 0
+        let memory := json.parse("{}")
+        memory.age := 0
+        memory.bias := 0.0
+        memory.last_spike := 0
+        memory.cause_score := 0.0
+        agent.register(env_ctx, agent_id, body, memory, x, 0.0)
+
+        let entity_state := json.parse("{}")
+        entity_state.x := x
+        entity_state.y := 0.0
+        entity_state.age := 0
+        entity_state.reward := 0.0
+        entity_state.last_spike := 0
+        entity_state.last_action := "idle"
+        entity_state.last_neighbors := 0
+        sim.entity_set(world, agent_id, entity_state)
+        agent_id := agent_id + 1
+    ::
+    return agent_count
+::
+
+fn run_shard(coro: SimCoroutine, start: Int, count: Int, rounds: Int, fanout: Int, agent_count: Int, reusable_capacity: Int, neighbor_radius: Float, move_step: Float, spacing: Float, env_ctx: AgentEnv, index: SpatialIndex, connectivity: SparseMatrix, feature_weights: SparseVector) -> Int ::
+    let world := sim.world(coro)
+    let control := snn.make(4)
+    configure_controller(control)
+    let local_events := event.make()
+    let reusable := pool.make_growable(reusable_capacity)
+
+    let round := 0
+    while round < rounds ::
+        let offset := 0
+        while offset < count ::
+            let agent_id := start + offset
+            let base_x := agent_id * spacing
+            let probe_x := base_x + round * move_step * 0.5
+            let occupancy := spatial.occupancy(index, probe_x - neighbor_radius, -1.0 * neighbor_radius, probe_x + neighbor_radius, neighbor_radius)
+            let neighbors := occupancy
+            if neighbors > 0 ::
+                neighbors := neighbors - 1
+            ::
+            let reward_signal := agent.reward_get(env_ctx, agent_id)
+            let drive := sparse.dot(feature_weights, [neighbors * 1.0, reward_signal + 1.0, round * 0.1, 1.0])
+            let spikes := snn.step(control, [drive, reward_signal + 0.5, neighbors * 0.05, 1.0])
+            let primary_spike := -1
+            if spikes != [] ::
+                primary_spike := spikes[0]
+            ::
+            let action := "scan"
+            let delta_x := 0.0
+            if primary_spike == 0 ::
+                action := "advance"
+                delta_x := move_step
+            ::
+            if primary_spike == 1 ::
+                action := "stabilize"
+                delta_x := move_step * -1.0
+            ::
+            let next_x := base_x + round * move_step + delta_x
+            agent.set_position(env_ctx, agent_id, next_x, 0.0)
+            let reward_delta := drive * 0.02 + neighbors * 0.001
+            if primary_spike == 2 ::
+                reward_delta := reward_delta + 0.05
+            ::
+            agent.reward_add(env_ctx, agent_id, reward_delta)
+            agent.sense_push(env_ctx, agent_id, neighbors)
+            agent.action_push(env_ctx, agent_id, action)
+
+            let body := json.parse("{}")
+            body.kind := "causal-agent"
+            body.last_action := action
+            body.last_neighbors := neighbors
+            agent.set_body(env_ctx, agent_id, body)
+
+            let memory := json.parse("{}")
+            memory.age := round + 1
+            memory.bias := drive
+            memory.last_spike := primary_spike
+            memory.cause_score := reward_delta
+            agent.set_memory(env_ctx, agent_id, memory)
+
+            let state := json.parse("{}")
+            state.x := next_x
+            state.y := 0.0
+            state.age := round + 1
+            state.reward := reward_signal + reward_delta
+            state.last_spike := primary_spike
+            state.last_action := action
+            state.last_neighbors := neighbors
+            sim.entity_set(world, agent_id, state)
+
+            sparse.set_vector(feature_weights, 0, 0.45 + neighbors * 0.001)
+            sparse.set_vector(feature_weights, 1, 0.20 + reward_delta * 0.01)
+            event.push(local_events, sim.time(world) + round * 0.1 + offset * 0.0001, agent_id)
+            offset := offset + 1
+        ::
+
+        while not event.is_empty(local_events) ::
+            event.pop(local_events)?
+            let source := start + round
+            let hop := 1
+            while hop <= fanout ::
+                let target := source + hop
+                if target < agent_count ::
+                    let maybe_weight := sparse.get(connectivity, source, target)
+                    if maybe_weight != none ::
+                        let token := pool.acquire(reusable)
+                        let scheduled := json.parse("{}")
+                        scheduled.kind := "causal-edge"
+                        scheduled.source := source
+                        scheduled.target := target
+                        scheduled.weight := maybe_weight?
+                        sim.schedule(world, sim.time(world) + hop * 0.01, scheduled)
+                        if token == none ::
+                            pool.release(reusable, hop)
+                        ::
+                        else ::
+                            pool.release(reusable, token?)
+                        ::
+                    ::
+                ::
+                hop := hop + 1
+            ::
+        ::
+
+        let report := json.parse("{}")
+        report.start := start
+        report.round := round
+        report.available := pool.available(reusable)
+        report.pending := sim.pending(world)
+        sim.emit(coro, report)
+        round := round + 1
+    ::
+    return count
+::
+
+fn drain_reports(coro: SimCoroutine, rounds: Int) -> Int ::
+    let idx := 0
+    let report_total := 0
+    while idx < rounds ::
+        sim.next(coro)?
+        report_total := report_total + 1
+        idx := idx + 1
+    ::
+    return report_total
+::
+
+fn main() ::
+    let case_id := env_string("ENKAI_ADAM0_CASE_ID", "adam0_baseline_100")
+    let agent_count := env_int("ENKAI_ADAM0_AGENT_COUNT", 100)
+    let shard_size := env_int("ENKAI_ADAM0_SHARD_SIZE", 10)
+    let rounds := env_int("ENKAI_ADAM0_ROUNDS", 3)
+    let fanout := env_int("ENKAI_ADAM0_FANOUT", 4)
+    let pool_capacity := env_int("ENKAI_ADAM0_POOL_CAPACITY", 64)
+    let max_events := env_int("ENKAI_ADAM0_MAX_EVENTS", 8192)
+    let seed := env_int("ENKAI_ADAM0_SEED", 11)
+    let neighbor_radius := env_milli_float("ENKAI_ADAM0_NEIGHBOR_RADIUS_MILLI", 110)
+    let move_step := env_milli_float("ENKAI_ADAM0_MOVE_STEP_MILLI", 15)
+    let spacing := env_milli_float("ENKAI_ADAM0_SPACING_MILLI", 50)
+    let hardware_class := env_string("ENKAI_ADAM0_HARDWARE_CLASS", "single-node-native-ffi")
+    let reference_host := env_string("ENKAI_ADAM0_REFERENCE_HOST", "8c16g-ssd")
+
+    let world := sim.make_seeded(max_events, seed)
+    let index := spatial.make()
+    let env_ctx := agent.make(world, index)
+    let connectivity := build_connectivity(agent_count, fanout)
+    let feature_weights := build_feature_weights()
+    init_agents(world, env_ctx, agent_count, spacing)
+
+    let shard_start := 0
+    let shard_count := 0
+    let joined_total := 0
+    let report_total := 0
+
+    while shard_start < agent_count ::
+        let count := shard_size
+        if shard_start + count > agent_count ::
+            count := agent_count - shard_start
+        ::
+        let coro := sim.coroutine_args(world, run_shard, [shard_start, count, rounds, fanout, agent_count, pool_capacity, neighbor_radius, move_step, spacing, env_ctx, index, connectivity, feature_weights])
+        report_total := report_total + drain_reports(coro, rounds)
+        sim.join(coro)?
+        joined_total := joined_total + count
+        shard_start := shard_start + shard_size
+        shard_count := shard_count + 1
+    ::
+
+    sim.run(world, max_events)
+    let snapshot := sim.snapshot(world)
+    snapshot.example := "adam0_reference"
+    snapshot.case_id := case_id
+    snapshot.agent_count := agent_count
+    snapshot.shard_count := shard_count
+    snapshot.shard_size := shard_size
+    snapshot.rounds := rounds
+    snapshot.fanout := fanout
+    snapshot.joined_total := joined_total
+    snapshot.report_total := report_total
+    snapshot.action_total := joined_total * rounds
+    snapshot.spike_total := 0
+    snapshot.dispatch_total := sparse.nnz(connectivity) * rounds
+    snapshot.reward_total := 0.0
+    snapshot.sparse_edges := sparse.nnz(connectivity)
+    snapshot.feature_nnz := sparse.nnz(feature_weights)
+    snapshot.hardware_class := hardware_class
+    snapshot.reference_host := reference_host
+    return snapshot
+::
+
+main()

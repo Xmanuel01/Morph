@@ -116,14 +116,35 @@ fn sim_replay_command(args: &[String]) -> i32 {
             return 1;
         }
     };
-    let escaped = snapshot_text
+    let snapshot_minified = match serde_json::from_str::<serde_json::Value>(&snapshot_text) {
+        Ok(value) => match serde_json::to_string(&value) {
+            Ok(compact) => compact,
+            Err(err) => {
+                eprintln!(
+                    "enkai sim replay: failed to compact snapshot {}: {}",
+                    options.snapshot.display(),
+                    err
+                );
+                return 1;
+            }
+        },
+        Err(err) => {
+            eprintln!(
+                "enkai sim replay: snapshot {} is not valid JSON: {}",
+                options.snapshot.display(),
+                err
+            );
+            return 1;
+        }
+    };
+    let escaped_snapshot = snapshot_minified
         .replace('\\', "\\\\")
         .replace('"', "\\\"")
         .replace('\r', "\\r")
         .replace('\n', "\\n");
     let source = format!(
-        "import json\nimport std::sim\nfn main() ::\n    let snapshot := json.parse(\"{escaped}\")\n    let world := sim.restore(snapshot)\n    sim.run(world, {steps})\n    return sim.snapshot(world)\n::\nmain()\n",
-        escaped = escaped,
+        "import json\nimport std::sim\nfn main() ::\n    let snapshot := json.parse(\"{escaped_snapshot}\")\n    let world := sim.restore(snapshot)\n    sim.run(world, {steps})\n    return sim.snapshot(world)\n::\nmain()\n",
+        escaped_snapshot = escaped_snapshot,
         steps = options.steps
     );
     let started = Instant::now();
@@ -220,9 +241,14 @@ fn execute_sim_run(
 
 fn load_program_from_target(target: &Path) -> Result<enkai_compiler::bytecode::Program, String> {
     if target.is_file() {
-        let source = fs::read_to_string(target)
-            .map_err(|err| format!("Failed to read {}: {}", target.display(), err))?;
-        return compile_source_module(&source, target.to_string_lossy().as_ref());
+        let parent = target
+            .parent()
+            .ok_or_else(|| "Invalid file path".to_string())?;
+        if super::find_project_root(parent).is_none() {
+            let source = fs::read_to_string(target)
+                .map_err(|err| format!("Failed to read {}: {}", target.display(), err))?;
+            return compile_source_module(&source, &target.display().to_string());
+        }
     }
     let (root, entry) = super::resolve_entry(target)?;
     match super::load_cached_program(&root, &entry) {
