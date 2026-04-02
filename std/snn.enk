@@ -1,0 +1,48 @@
+pub fn make(neuron_count: Int) -> SnnNetwork ::
+    return snn.make(neuron_count)
+::
+
+pub fn connect(network: SnnNetwork, from: Int, to: Int, weight: Float) ::
+    return snn.connect(network, from, to, weight)
+::
+
+pub fn set_potential(network: SnnNetwork, index: Int, value: Float) ::
+    return snn.set_potential(network, index, value)
+::
+
+pub fn get_potential(network: SnnNetwork, index: Int) -> Float ::
+    return snn.get_potential(network, index)
+::
+
+pub fn set_threshold(network: SnnNetwork, index: Int, value: Float) ::
+    return snn.set_threshold(network, index, value)
+::
+
+pub fn get_threshold(network: SnnNetwork, index: Int) -> Float ::
+    return snn.get_threshold(network, index)
+::
+
+pub fn set_decay(network: SnnNetwork, value: Float) ::
+    return snn.set_decay(network, value)
+::
+
+pub fn get_decay(network: SnnNetwork) -> Float ::
+    return snn.get_decay(network)
+::
+
+pub fn step(network: SnnNetwork, input) ::
+    return snn.step(network, input)
+::
+
+pub fn spikes(network: SnnNetwork) ::
+    return snn.spikes(network)
+::
+
+pub fn potentials(network: SnnNetwork) ::
+    return snn.potentials(network)
+::
+
+pub fn synapses(network: SnnNetwork) -> SparseMatrix ::
+    return snn.synapses(network)
+::
+

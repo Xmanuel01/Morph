@@ -33,6 +33,10 @@ pub enum Obj {
     Pool(Box<RefCell<ValuePoolState>>),
     SimWorld(Box<RefCell<SimWorldState>>),
     SimCoroutine(Box<RefCell<SimCoroutineState>>),
+    SpatialIndex(Box<RefCell<SpatialIndexState>>),
+    SnnNetwork(Box<RefCell<SnnNetworkState>>),
+    AgentEnv(Box<RefCell<AgentEnvState>>),
+    RngStream(Box<RefCell<RngStreamState>>),
     TaskHandle(usize),
     Channel(RefCell<ChannelState>),
     TcpListener(RefCell<std::net::TcpListener>),
@@ -61,6 +65,10 @@ impl Obj {
             Obj::Pool(_) => "Pool",
             Obj::SimWorld(_) => "SimWorld",
             Obj::SimCoroutine(_) => "SimCoroutine",
+            Obj::SpatialIndex(_) => "SpatialIndex",
+            Obj::SnnNetwork(_) => "SnnNetwork",
+            Obj::AgentEnv(_) => "AgentEnv",
+            Obj::RngStream(_) => "RngStream",
             Obj::TaskHandle(_) => "TaskHandle",
             Obj::Channel(_) => "Channel",
             Obj::TcpListener(_) => "TcpListener",
@@ -202,6 +210,92 @@ impl ValuePoolState {
             dropped_on_full: 0,
             high_watermark: 0,
             native: None,
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct SpatialIndexState {
+    pub positions: BTreeMap<i64, (f64, f64)>,
+    pub native: Option<Value>,
+}
+
+#[derive(Debug)]
+pub struct SnnNetworkState {
+    pub neuron_count: usize,
+    pub potentials: Vec<f64>,
+    pub thresholds: Vec<f64>,
+    pub decay: f64,
+    pub last_spikes: Vec<bool>,
+    pub synapses: Value,
+    pub native: Option<Value>,
+}
+
+impl SnnNetworkState {
+    pub fn new(neuron_count: usize, synapses: Value, native: Option<Value>) -> Self {
+        Self {
+            neuron_count,
+            potentials: vec![0.0; neuron_count],
+            thresholds: vec![1.0; neuron_count],
+            decay: 0.95,
+            last_spikes: vec![false; neuron_count],
+            synapses,
+            native,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct AgentRecordState {
+    pub body: Value,
+    pub memory: Value,
+    pub reward: f64,
+    pub sensors: VecDeque<Value>,
+    pub actions: VecDeque<Value>,
+    pub x: f64,
+    pub y: f64,
+}
+
+#[derive(Debug)]
+pub struct AgentEnvState {
+    pub world: Value,
+    pub spatial: Value,
+    pub agents: BTreeMap<i64, AgentRecordState>,
+}
+
+impl AgentEnvState {
+    pub fn new(world: Value, spatial: Value) -> Self {
+        Self {
+            world,
+            spatial,
+            agents: BTreeMap::new(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct RngStreamState {
+    pub world_seed: i64,
+    pub stream_id: i64,
+    pub domain: i64,
+    pub state: u64,
+    pub native: Option<Value>,
+}
+
+impl RngStreamState {
+    pub fn new(
+        world_seed: i64,
+        stream_id: i64,
+        domain: i64,
+        state: u64,
+        native: Option<Value>,
+    ) -> Self {
+        Self {
+            world_seed,
+            stream_id,
+            domain,
+            state,
+            native,
         }
     }
 }
@@ -389,6 +483,39 @@ pub fn sim_world_value(max_events: usize, seed: i64) -> Value {
 pub fn sim_coroutine_value(world: Value, state: Option<Value>, task_id: usize) -> Value {
     Value::Obj(ObjRef::new(Obj::SimCoroutine(Box::new(RefCell::new(
         SimCoroutineState::new(world, state, task_id),
+    )))))
+}
+
+pub fn spatial_index_value_with_native(native: Option<Value>) -> Value {
+    Value::Obj(ObjRef::new(Obj::SpatialIndex(Box::new(RefCell::new(
+        SpatialIndexState {
+            native,
+            ..SpatialIndexState::default()
+        },
+    )))))
+}
+
+pub fn snn_network_value(neuron_count: usize, synapses: Value, native: Option<Value>) -> Value {
+    Value::Obj(ObjRef::new(Obj::SnnNetwork(Box::new(RefCell::new(
+        SnnNetworkState::new(neuron_count, synapses, native),
+    )))))
+}
+
+pub fn agent_env_value(world: Value, spatial: Value) -> Value {
+    Value::Obj(ObjRef::new(Obj::AgentEnv(Box::new(RefCell::new(
+        AgentEnvState::new(world, spatial),
+    )))))
+}
+
+pub fn rng_stream_value(
+    world_seed: i64,
+    stream_id: i64,
+    domain: i64,
+    state: u64,
+    native: Option<Value>,
+) -> Value {
+    Value::Obj(ObjRef::new(Obj::RngStream(Box::new(RefCell::new(
+        RngStreamState::new(world_seed, stream_id, domain, state, native),
     )))))
 }
 

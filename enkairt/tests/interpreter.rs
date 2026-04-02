@@ -288,3 +288,83 @@ fn sim_next_surfaces_coroutine_errors() {
     );
     assert!(result.is_err());
 }
+
+#[test]
+fn spatial_queries_and_rng_streams_are_deterministic() {
+    let spatial = run_value(
+        "import std::spatial\n\
+         let idx := spatial.make()\n\
+         spatial.upsert(idx, 1, 0.0, 0.0)\n\
+         spatial.upsert(idx, 2, 0.5, 0.0)\n\
+         spatial.upsert(idx, 3, 4.0, 0.0)\n\
+         let near := spatial.radius(idx, 0.0, 0.0, 1.0)\n\
+         let nearest := spatial.nearest(idx, 0.2, 0.0)?\n\
+         spatial.occupancy(idx, -1.0, -1.0, 1.0, 1.0) * 1000 + near[0] * 100 + near[1] * 10 + nearest\n",
+    );
+    assert_eq!(spatial, Value::Int(2121));
+
+    let rng = run_value(
+        "import std::agent\n\
+         import std::sim\n\
+         import std::spatial\n\
+         let world := sim.make_seeded(8, 11)\n\
+         let idx := spatial.make()\n\
+         let env := agent.make(world, idx)\n\
+         agent.register(env, 7, 1, 2, 0.0, 0.0)\n\
+         let a := agent.stream(env, 7, \"sensor\")\n\
+         let b := agent.stream(env, 7, \"sensor\")\n\
+         let x := agent.next_int(a, 100)\n\
+         let y := agent.next_int(b, 100)\n\
+         if x == y ::\n\
+             return 1\n\
+         ::\n\
+         return 0\n",
+    );
+    assert_eq!(rng, Value::Int(1));
+}
+
+#[test]
+fn snn_runtime_and_agent_environment_kernel_work() {
+    let snn = run_value(
+        "import std::snn\n\
+         import std::sparse\n\
+         let net := snn.make(3)\n\
+         snn.set_threshold(net, 0, 0.4)\n\
+         snn.set_threshold(net, 1, 0.4)\n\
+         snn.set_threshold(net, 2, 0.5)\n\
+         snn.connect(net, 0, 1, 0.5)\n\
+         snn.connect(net, 1, 2, 0.75)\n\
+         let a := snn.step(net, [1.0, 0.0, 0.0])\n\
+         let b := snn.step(net, [0.0, 0.0, 0.0])\n\
+         let c := snn.step(net, [0.0, 0.0, 0.0])\n\
+         sparse.nnz(snn.synapses(net)) * 1000 + a[0] * 100 + b[0] * 10 + c[0]\n",
+    );
+    assert_eq!(snn, Value::Int(2012));
+
+    let agent_kernel = run_value(
+        "import json\n\
+         import std::agent\n\
+         import std::sim\n\
+         import std::spatial\n\
+         let world := sim.make_seeded(16, 3)\n\
+         let idx := spatial.make()\n\
+         let env := agent.make(world, idx)\n\
+         agent.register(env, 1, json.parse(\"{\\\"role\\\":\\\"worker\\\"}\"), json.parse(\"{}\"), 0.0, 0.0)\n\
+         agent.register(env, 2, json.parse(\"{\\\"role\\\":\\\"scout\\\"}\"), json.parse(\"{}\"), 0.5, 0.0)\n\
+         agent.reward_add(env, 1, 1.25)\n\
+         let reward := agent.reward_take(env, 1)\n\
+         agent.sense_push(env, 1, \"food\")\n\
+         let sense := agent.sense_take(env, 1)?\n\
+         agent.action_push(env, 1, \"move\")\n\
+         let action := agent.action_take(env, 1)?\n\
+         agent.set_position(env, 1, 0.25, 0.0)\n\
+         let nearest := spatial.nearest(idx, 0.2, 0.0)?\n\
+         let neighbors := agent.neighbors(env, 1, 1.0)\n\
+         let out := 0\n\
+         if reward > 1.0 and sense == \"food\" and action == \"move\" and nearest == 1 ::\n\
+             out := neighbors[0] * 10 + nearest\n\
+         ::\n\
+         out\n",
+    );
+    assert_eq!(agent_kernel, Value::Int(21));
+}

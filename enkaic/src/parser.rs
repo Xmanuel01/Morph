@@ -136,7 +136,8 @@ impl Parser {
         if self.matches(TokenKind::Model) {
             return Ok(Item::Model(self.parse_model_decl(false)?));
         }
-        if self.matches(TokenKind::Agent) {
+        if self.is_agent_decl_start() {
+            self.advance();
             return Ok(Item::Agent(self.parse_agent_decl(false)?));
         }
         if self.matches(TokenKind::Async) {
@@ -1121,8 +1122,8 @@ impl Parser {
                 span,
             });
         }
-        if self.check_ident() {
-            let (name, span) = self.expect_ident_with_span()?;
+        if self.check_ident() || self.check(TokenKind::Agent) || self.check(TokenKind::Memory) {
+            let (name, span) = self.expect_expr_ident_with_span()?;
             return Ok(Expr::Ident { name, span });
         }
         if self.matches(TokenKind::LBracket) {
@@ -1304,15 +1305,49 @@ impl Parser {
 
     fn parse_import_path_with_spans(&mut self) -> Result<(Vec<String>, Vec<Span>), ParseError> {
         let mut path = Vec::new();
-        let (name, span) = self.expect_ident_with_span()?;
+        let (name, span) = self.expect_import_segment_with_span()?;
         path.push(name);
         let mut spans = vec![span];
         while self.matches(TokenKind::ColonColon) {
-            let (name, span) = self.expect_ident_with_span()?;
+            let (name, span) = self.expect_import_segment_with_span()?;
             path.push(name);
             spans.push(span);
         }
         Ok((path, spans))
+    }
+
+    fn expect_import_segment_with_span(&mut self) -> Result<(String, Span), ParseError> {
+        let token = self.advance();
+        match token.kind {
+            TokenKind::Ident(name) => {
+                let span = Span::with_length(token.line, token.col, name.len());
+                Ok((name, span))
+            }
+            TokenKind::Agent => Ok((
+                "agent".to_string(),
+                Span::with_length(token.line, token.col, 5),
+            )),
+            _ => Err(self.error("Expected identifier", &token)),
+        }
+    }
+
+    fn expect_expr_ident_with_span(&mut self) -> Result<(String, Span), ParseError> {
+        let token = self.advance();
+        match token.kind {
+            TokenKind::Ident(name) => {
+                let span = Span::with_length(token.line, token.col, name.len());
+                Ok((name, span))
+            }
+            TokenKind::Agent => Ok((
+                "agent".to_string(),
+                Span::with_length(token.line, token.col, 5),
+            )),
+            TokenKind::Memory => Ok((
+                "memory".to_string(),
+                Span::with_length(token.line, token.col, 6),
+            )),
+            _ => Err(self.error("Expected identifier", &token)),
+        }
     }
 
     fn parse_capability_path(&mut self) -> Result<Vec<String>, ParseError> {
@@ -1345,6 +1380,8 @@ impl Parser {
         let token = self.advance();
         match token.kind {
             TokenKind::Ident(name) => Ok(name),
+            TokenKind::Agent => Ok("agent".to_string()),
+            TokenKind::Memory => Ok("memory".to_string()),
             TokenKind::Spawn => Ok("spawn".to_string()),
             _ => Err(self.error("Expected identifier", &token)),
         }
@@ -1382,7 +1419,10 @@ impl Parser {
     }
 
     fn check_ident(&self) -> bool {
-        matches!(self.peek().kind, TokenKind::Ident(_))
+        matches!(
+            self.peek().kind,
+            TokenKind::Ident(_) | TokenKind::Agent | TokenKind::Memory
+        )
     }
 
     fn check_string(&self) -> bool {
@@ -1419,6 +1459,18 @@ impl Parser {
             )
     }
 
+    fn is_agent_decl_start(&self) -> bool {
+        matches!(self.peek().kind, TokenKind::Agent)
+            && matches!(
+                self.tokens.get(self.pos + 1).map(|t| &t.kind),
+                Some(TokenKind::Ident(_))
+            )
+            && matches!(
+                self.tokens.get(self.pos + 2).map(|t| &t.kind),
+                Some(TokenKind::BlockStart)
+            )
+    }
+
     fn matches(&mut self, kind: TokenKind) -> bool {
         if self.check(kind.clone()) {
             self.advance();
@@ -1439,20 +1491,30 @@ impl Parser {
 
     fn expect_ident(&mut self) -> Result<String, ParseError> {
         let token = self.advance();
-        if let TokenKind::Ident(name) = token.kind {
-            Ok(name)
-        } else {
-            Err(self.error("Expected identifier", &token))
+        match token.kind {
+            TokenKind::Ident(name) => Ok(name),
+            TokenKind::Agent => Ok("agent".to_string()),
+            TokenKind::Memory => Ok("memory".to_string()),
+            _ => Err(self.error("Expected identifier", &token)),
         }
     }
 
     fn expect_ident_with_span(&mut self) -> Result<(String, Span), ParseError> {
         let token = self.advance();
-        if let TokenKind::Ident(name) = token.kind {
-            let span = Span::with_length(token.line, token.col, name.len());
-            Ok((name, span))
-        } else {
-            Err(self.error("Expected identifier", &token))
+        match token.kind {
+            TokenKind::Ident(name) => {
+                let span = Span::with_length(token.line, token.col, name.len());
+                Ok((name, span))
+            }
+            TokenKind::Agent => Ok((
+                "agent".to_string(),
+                Span::with_length(token.line, token.col, 5),
+            )),
+            TokenKind::Memory => Ok((
+                "memory".to_string(),
+                Span::with_length(token.line, token.col, 6),
+            )),
+            _ => Err(self.error("Expected identifier", &token)),
         }
     }
 

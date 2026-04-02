@@ -29,6 +29,9 @@ enum OpaqueHandleKind {
     SparseMatrix = 3,
     EventQueue = 4,
     Pool = 5,
+    SpatialIndex = 6,
+    SnnNetwork = 7,
+    RngStream = 8,
 }
 
 #[derive(Debug)]
@@ -105,6 +108,39 @@ impl NativePool {
             releases: 0,
             dropped_on_full: 0,
             high_watermark: 0,
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct NativeSpatialIndex {
+    positions: BTreeMap<i64, (f64, f64)>,
+}
+
+#[derive(Debug)]
+struct NativeRngStream {
+    state: u64,
+}
+
+#[derive(Debug)]
+struct NativeSnnNetwork {
+    neuron_count: usize,
+    potentials: Vec<f64>,
+    thresholds: Vec<f64>,
+    decay: f64,
+    synapses: BTreeMap<(usize, usize), f64>,
+    last_spikes: Vec<u8>,
+}
+
+impl NativeSnnNetwork {
+    fn new(neuron_count: usize) -> Self {
+        Self {
+            neuron_count,
+            potentials: vec![0.0; neuron_count],
+            thresholds: vec![1.0; neuron_count],
+            decay: 0.95,
+            synapses: BTreeMap::new(),
+            last_spikes: vec![0; neuron_count],
         }
     }
 }
@@ -204,6 +240,42 @@ fn f64_vec_slice(values: Vec<f64>) -> FfiSlice {
     make_slice(bytes)
 }
 
+fn i64_vec_slice(values: Vec<i64>) -> FfiSlice {
+    let mut bytes = Vec::with_capacity(values.len() * 8);
+    for value in values {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    make_slice(bytes)
+}
+
+fn snn_step_slice(potentials: &[f64], spikes: &[u8]) -> FfiSlice {
+    let mut bytes = Vec::with_capacity(potentials.len() * 9);
+    for value in potentials {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    bytes.extend_from_slice(spikes);
+    make_slice(bytes)
+}
+
+fn mix_seed(world_seed: i64, stream_id: i64, domain: i64) -> u64 {
+    let mut state = (world_seed as u64)
+        ^ (stream_id as u64).rotate_left(21)
+        ^ (domain as u64).rotate_left(42)
+        ^ 0x9E37_79B9_7F4A_7C15;
+    if state == 0 {
+        state = 0xA076_1D64_78BD_642F;
+    }
+    state
+}
+
+fn splitmix64_next(state: &mut u64) -> u64 {
+    *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    let mut z = *state;
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
 fn event_meta_slice(time: f64, seq: u64) -> FfiSlice {
     let mut bytes = Vec::with_capacity(16);
     bytes.extend_from_slice(&time.to_le_bytes());
@@ -259,6 +331,15 @@ pub unsafe extern "C" fn enkai_handle_free(ptr: *mut c_void) {
         }
         OpaqueHandleKind::Pool => {
             let _ = unsafe { Box::from_raw(handle.ptr as *mut NativePool) };
+        }
+        OpaqueHandleKind::SpatialIndex => {
+            let _ = unsafe { Box::from_raw(handle.ptr as *mut NativeSpatialIndex) };
+        }
+        OpaqueHandleKind::SnnNetwork => {
+            let _ = unsafe { Box::from_raw(handle.ptr as *mut NativeSnnNetwork) };
+        }
+        OpaqueHandleKind::RngStream => {
+            let _ = unsafe { Box::from_raw(handle.ptr as *mut NativeRngStream) };
         }
     }
     HANDLE_LIVE_COUNT.fetch_sub(1, Ordering::SeqCst);
@@ -584,6 +665,367 @@ pub unsafe extern "C" fn sim_pool_stats(ptr: *mut c_void) -> FfiSlice {
         return null_slice();
     };
     pool_stats_slice(pool)
+}
+
+#[no_mangle]
+pub extern "C" fn sim_spatial_index_new() -> *mut c_void {
+    make_opaque_handle(
+        OpaqueHandleKind::SpatialIndex,
+        NativeSpatialIndex::default(),
+    )
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid spatial-index handle previously returned by this library.
+pub unsafe extern "C" fn sim_spatial_upsert(
+    ptr: *mut c_void,
+    entity_id: i64,
+    x: f64,
+    y: f64,
+) -> u8 {
+    let Some(index) =
+        (unsafe { typed_handle_mut::<NativeSpatialIndex>(ptr, OpaqueHandleKind::SpatialIndex) })
+    else {
+        return 0;
+    };
+    if entity_id < 0 || !x.is_finite() || !y.is_finite() {
+        return 0;
+    }
+    index.positions.insert(entity_id, (x, y));
+    1
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid spatial-index handle previously returned by this library.
+pub unsafe extern "C" fn sim_spatial_remove(ptr: *mut c_void, entity_id: i64) -> u8 {
+    let Some(index) =
+        (unsafe { typed_handle_mut::<NativeSpatialIndex>(ptr, OpaqueHandleKind::SpatialIndex) })
+    else {
+        return 0;
+    };
+    if entity_id < 0 {
+        return 0;
+    }
+    u8::from(index.positions.remove(&entity_id).is_some())
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid spatial-index handle previously returned by this library.
+pub unsafe extern "C" fn sim_spatial_radius(
+    ptr: *mut c_void,
+    x: f64,
+    y: f64,
+    radius: f64,
+) -> FfiSlice {
+    let Some(index) =
+        (unsafe { typed_handle_ref::<NativeSpatialIndex>(ptr, OpaqueHandleKind::SpatialIndex) })
+    else {
+        return null_slice();
+    };
+    if !x.is_finite() || !y.is_finite() || !radius.is_finite() || radius < 0.0 {
+        return null_slice();
+    }
+    let radius_sq = radius * radius;
+    let mut hits = index
+        .positions
+        .iter()
+        .filter_map(|(entity_id, (px, py))| {
+            let dx = *px - x;
+            let dy = *py - y;
+            let dist_sq = dx * dx + dy * dy;
+            if dist_sq <= radius_sq {
+                Some((*entity_id, dist_sq))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    hits.sort_by(|a, b| {
+        a.1.partial_cmp(&b.1)
+            .unwrap_or(CmpOrdering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    i64_vec_slice(hits.into_iter().map(|(entity_id, _)| entity_id).collect())
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid spatial-index handle previously returned by this library.
+pub unsafe extern "C" fn sim_spatial_nearest(ptr: *mut c_void, x: f64, y: f64) -> i64 {
+    let Some(index) =
+        (unsafe { typed_handle_ref::<NativeSpatialIndex>(ptr, OpaqueHandleKind::SpatialIndex) })
+    else {
+        return -1;
+    };
+    if !x.is_finite() || !y.is_finite() {
+        return -1;
+    }
+    index
+        .positions
+        .iter()
+        .map(|(entity_id, (px, py))| {
+            let dx = *px - x;
+            let dy = *py - y;
+            (*entity_id, dx * dx + dy * dy)
+        })
+        .min_by(|a, b| {
+            a.1.partial_cmp(&b.1)
+                .unwrap_or(CmpOrdering::Equal)
+                .then_with(|| a.0.cmp(&b.0))
+        })
+        .map(|(entity_id, _)| entity_id)
+        .unwrap_or(-1)
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid spatial-index handle previously returned by this library.
+pub unsafe extern "C" fn sim_spatial_occupancy(
+    ptr: *mut c_void,
+    min_x: f64,
+    min_y: f64,
+    max_x: f64,
+    max_y: f64,
+) -> i64 {
+    let Some(index) =
+        (unsafe { typed_handle_ref::<NativeSpatialIndex>(ptr, OpaqueHandleKind::SpatialIndex) })
+    else {
+        return -1;
+    };
+    if !min_x.is_finite()
+        || !min_y.is_finite()
+        || !max_x.is_finite()
+        || !max_y.is_finite()
+        || min_x > max_x
+        || min_y > max_y
+    {
+        return -1;
+    }
+    index
+        .positions
+        .values()
+        .filter(|(x, y)| *x >= min_x && *x <= max_x && *y >= min_y && *y <= max_y)
+        .count() as i64
+}
+
+#[no_mangle]
+pub extern "C" fn sim_rng_stream_new(world_seed: i64, stream_id: i64, domain: i64) -> *mut c_void {
+    make_opaque_handle(
+        OpaqueHandleKind::RngStream,
+        NativeRngStream {
+            state: mix_seed(world_seed, stream_id, domain),
+        },
+    )
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid RNG-stream handle previously returned by this library.
+pub unsafe extern "C" fn sim_rng_stream_next_float(ptr: *mut c_void) -> f64 {
+    let Some(stream) =
+        (unsafe { typed_handle_mut::<NativeRngStream>(ptr, OpaqueHandleKind::RngStream) })
+    else {
+        return f64::NAN;
+    };
+    let raw = splitmix64_next(&mut stream.state) >> 11;
+    (raw as f64) / ((1u64 << 53) as f64)
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid RNG-stream handle previously returned by this library.
+pub unsafe extern "C" fn sim_rng_stream_next_int(ptr: *mut c_void, upper: i64) -> i64 {
+    let Some(stream) =
+        (unsafe { typed_handle_mut::<NativeRngStream>(ptr, OpaqueHandleKind::RngStream) })
+    else {
+        return -1;
+    };
+    if upper <= 0 {
+        return -1;
+    }
+    (splitmix64_next(&mut stream.state) % (upper as u64)) as i64
+}
+
+#[no_mangle]
+pub extern "C" fn sim_snn_network_new(neuron_count: i64) -> *mut c_void {
+    if neuron_count <= 0 {
+        return std::ptr::null_mut();
+    }
+    make_opaque_handle(
+        OpaqueHandleKind::SnnNetwork,
+        NativeSnnNetwork::new(neuron_count as usize),
+    )
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid SNN handle previously returned by this library.
+pub unsafe extern "C" fn sim_snn_set_potential(ptr: *mut c_void, index: i64, value: f64) -> u8 {
+    let Some(net) =
+        (unsafe { typed_handle_mut::<NativeSnnNetwork>(ptr, OpaqueHandleKind::SnnNetwork) })
+    else {
+        return 0;
+    };
+    if index < 0 || !value.is_finite() {
+        return 0;
+    }
+    let idx = index as usize;
+    let Some(slot) = net.potentials.get_mut(idx) else {
+        return 0;
+    };
+    *slot = value;
+    1
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid SNN handle previously returned by this library.
+pub unsafe extern "C" fn sim_snn_get_potential(ptr: *mut c_void, index: i64) -> f64 {
+    let Some(net) =
+        (unsafe { typed_handle_ref::<NativeSnnNetwork>(ptr, OpaqueHandleKind::SnnNetwork) })
+    else {
+        return f64::NAN;
+    };
+    if index < 0 {
+        return f64::NAN;
+    }
+    net.potentials
+        .get(index as usize)
+        .copied()
+        .unwrap_or(f64::NAN)
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid SNN handle previously returned by this library.
+pub unsafe extern "C" fn sim_snn_set_threshold(ptr: *mut c_void, index: i64, value: f64) -> u8 {
+    let Some(net) =
+        (unsafe { typed_handle_mut::<NativeSnnNetwork>(ptr, OpaqueHandleKind::SnnNetwork) })
+    else {
+        return 0;
+    };
+    if index < 0 || !value.is_finite() || value <= 0.0 {
+        return 0;
+    }
+    let idx = index as usize;
+    let Some(slot) = net.thresholds.get_mut(idx) else {
+        return 0;
+    };
+    *slot = value;
+    1
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid SNN handle previously returned by this library.
+pub unsafe extern "C" fn sim_snn_get_threshold(ptr: *mut c_void, index: i64) -> f64 {
+    let Some(net) =
+        (unsafe { typed_handle_ref::<NativeSnnNetwork>(ptr, OpaqueHandleKind::SnnNetwork) })
+    else {
+        return f64::NAN;
+    };
+    if index < 0 {
+        return f64::NAN;
+    }
+    net.thresholds
+        .get(index as usize)
+        .copied()
+        .unwrap_or(f64::NAN)
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid SNN handle previously returned by this library.
+pub unsafe extern "C" fn sim_snn_set_decay(ptr: *mut c_void, value: f64) -> u8 {
+    let Some(net) =
+        (unsafe { typed_handle_mut::<NativeSnnNetwork>(ptr, OpaqueHandleKind::SnnNetwork) })
+    else {
+        return 0;
+    };
+    if !value.is_finite() || !(0.0..=1.0).contains(&value) {
+        return 0;
+    }
+    net.decay = value;
+    1
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid SNN handle previously returned by this library.
+pub unsafe extern "C" fn sim_snn_get_decay(ptr: *mut c_void) -> f64 {
+    let Some(net) =
+        (unsafe { typed_handle_ref::<NativeSnnNetwork>(ptr, OpaqueHandleKind::SnnNetwork) })
+    else {
+        return f64::NAN;
+    };
+    net.decay
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid SNN handle previously returned by this library.
+pub unsafe extern "C" fn sim_snn_connect(ptr: *mut c_void, from: i64, to: i64, weight: f64) -> u8 {
+    let Some(net) =
+        (unsafe { typed_handle_mut::<NativeSnnNetwork>(ptr, OpaqueHandleKind::SnnNetwork) })
+    else {
+        return 0;
+    };
+    if from < 0 || to < 0 || !weight.is_finite() {
+        return 0;
+    }
+    let from = from as usize;
+    let to = to as usize;
+    if from >= net.neuron_count || to >= net.neuron_count {
+        return 0;
+    }
+    if weight == 0.0 {
+        net.synapses.remove(&(from, to));
+    } else {
+        net.synapses.insert((from, to), weight);
+    }
+    1
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid SNN handle and readable dense f64 input buffer.
+pub unsafe extern "C" fn sim_snn_step(
+    ptr: *mut c_void,
+    input_ptr: *const u8,
+    input_len: usize,
+) -> FfiSlice {
+    let Some(net) =
+        (unsafe { typed_handle_mut::<NativeSnnNetwork>(ptr, OpaqueHandleKind::SnnNetwork) })
+    else {
+        return null_slice();
+    };
+    let Some(inputs) = f64_vec_from_raw(input_ptr, input_len) else {
+        return null_slice();
+    };
+    if inputs.len() != net.neuron_count {
+        return null_slice();
+    }
+    let mut recurrent = vec![0.0; net.neuron_count];
+    for ((from, to), weight) in &net.synapses {
+        if net.last_spikes.get(*from).copied().unwrap_or(0) != 0 {
+            recurrent[*to] += *weight;
+        }
+    }
+    let mut spikes = vec![0u8; net.neuron_count];
+    for idx in 0..net.neuron_count {
+        let next = net.potentials[idx] * net.decay + inputs[idx] + recurrent[idx];
+        if next >= net.thresholds[idx] {
+            net.potentials[idx] = 0.0;
+            spikes[idx] = 1;
+        } else {
+            net.potentials[idx] = next;
+        }
+    }
+    net.last_spikes.clone_from(&spikes);
+    snn_step_slice(&net.potentials, &spikes)
 }
 
 #[no_mangle]
@@ -3813,6 +4255,66 @@ mod tests {
             enkai_free(stats.ptr, stats.len);
             enkai_handle_free(queue);
             enkai_handle_free(pool);
+        }
+    }
+
+    #[test]
+    fn sim_spatial_and_rng_handles_work() {
+        let index = sim_spatial_index_new();
+        assert!(!index.is_null());
+        unsafe {
+            assert_eq!(sim_spatial_upsert(index, 1, 0.0, 0.0), 1);
+            assert_eq!(sim_spatial_upsert(index, 2, 0.5, 0.0), 1);
+            assert_eq!(sim_spatial_upsert(index, 3, 3.0, 0.0), 1);
+            assert_eq!(sim_spatial_occupancy(index, -1.0, -1.0, 1.0, 1.0), 2);
+            assert_eq!(sim_spatial_nearest(index, 0.2, 0.0), 1);
+        }
+        let radius = unsafe { sim_spatial_radius(index, 0.0, 0.0, 1.0) };
+        assert_eq!(radius.len, 16);
+        unsafe {
+            enkai_free(radius.ptr, radius.len);
+        }
+
+        let a = sim_rng_stream_new(11, 7, 9);
+        let b = sim_rng_stream_new(11, 7, 9);
+        assert!(!a.is_null());
+        assert!(!b.is_null());
+        let a0 = unsafe { sim_rng_stream_next_int(a, 100) };
+        let b0 = unsafe { sim_rng_stream_next_int(b, 100) };
+        assert_eq!(a0, b0);
+        let af = unsafe { sim_rng_stream_next_float(a) };
+        assert!((0.0..1.0).contains(&af));
+        unsafe {
+            enkai_handle_free(index);
+            enkai_handle_free(a);
+            enkai_handle_free(b);
+        }
+    }
+
+    #[test]
+    fn sim_snn_handles_work() {
+        let network = sim_snn_network_new(3);
+        assert!(!network.is_null());
+        unsafe {
+            assert_eq!(sim_snn_set_threshold(network, 0, 0.4), 1);
+            assert_eq!(sim_snn_set_threshold(network, 1, 0.4), 1);
+            assert_eq!(sim_snn_set_threshold(network, 2, 0.5), 1);
+            assert_eq!(sim_snn_connect(network, 0, 1, 0.5), 1);
+            assert_eq!(sim_snn_connect(network, 1, 2, 0.75), 1);
+        }
+        let mut input = Vec::new();
+        for value in [1.0_f64, 0.0, 0.0] {
+            input.extend_from_slice(&value.to_le_bytes());
+        }
+        let out = unsafe { sim_snn_step(network, input.as_ptr(), input.len()) };
+        assert_eq!(out.len, 27);
+        unsafe {
+            enkai_free(out.ptr, out.len);
+        }
+        assert_eq!(unsafe { sim_snn_get_potential(network, 0) }, 0.0);
+        assert_eq!(unsafe { sim_snn_get_decay(network) }, 0.95);
+        unsafe {
+            enkai_handle_free(network);
         }
     }
 

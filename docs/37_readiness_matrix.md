@@ -32,6 +32,8 @@ Selective pipeline reuse:
   - `artifacts/readiness/sim_native_evidence_verify.json`
   - `artifacts/readiness/sim_stdlib_smoke.json`
   - `artifacts/readiness/sim_stdlib_evidence_verify.json`
+  - `artifacts/readiness/snn_agent_kernel_smoke.json`
+  - `artifacts/readiness/snn_agent_kernel_evidence_verify.json`
   - `artifacts/sim/smoke_run.json`
   - `artifacts/sim/smoke_profile.json`
   - `artifacts/sim/smoke_replay.json`
@@ -39,6 +41,8 @@ Selective pipeline reuse:
   - `artifacts/sim/native_smoke_profile.json`
   - `artifacts/sim/stdlib_smoke_run.json`
   - `artifacts/sim/stdlib_smoke_profile.json`
+  - `artifacts/sim/snn_agent_kernel_run.json`
+  - `artifacts/sim/snn_agent_kernel_profile.json`
 
 Manifest:
 - `enkai/contracts/readiness_full_platform_v2_5_0.json`
@@ -69,6 +73,8 @@ The command executes a deterministic gate bundle:
 - simulation native FFI evidence verification
 - simulation stdlib primitive smoke with native-backed acceleration proof
 - simulation stdlib evidence verification
+- SNN/agent environment kernel smoke
+- SNN/agent environment kernel evidence verification
 - DB core smoke
 - generated backend/fullstack deploy validation smoke
 - bootstrap mainline + Stage0 fallback lanes

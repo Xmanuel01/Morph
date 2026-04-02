@@ -255,6 +255,8 @@ def main() -> int:
         "sim_stdlib_evidence_verify.json",
         "adam0_100_smoke.json",
         "adam0_100_evidence_verify.json",
+        "snn_agent_kernel_smoke.json",
+        "snn_agent_kernel_evidence_verify.json",
     ]
     if readiness_dir.is_dir():
         if args.strict:
@@ -281,6 +283,8 @@ def main() -> int:
         "stdlib_smoke_profile.json",
         "adam0_100_run.json",
         "adam0_100_profile.json",
+        "snn_agent_kernel_run.json",
+        "snn_agent_kernel_profile.json",
     ]
     if sim_dir.is_dir():
         if args.strict:

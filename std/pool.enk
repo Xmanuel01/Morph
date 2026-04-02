@@ -1,0 +1,32 @@
+pub fn make(capacity: Int) -> Pool ::
+    return pool.make(capacity)
+::
+
+pub fn make_growable(capacity: Int) -> Pool ::
+    return pool.make_growable(capacity)
+::
+
+pub fn acquire(pool_value: Pool) ::
+    return pool.acquire(pool_value)
+::
+
+pub fn release(pool_value: Pool, value) -> Bool ::
+    return pool.release(pool_value, value)
+::
+
+pub fn reset(pool_value: Pool) ::
+    return pool.reset(pool_value)
+::
+
+pub fn available(pool_value: Pool) -> Int ::
+    return pool.available(pool_value)
+::
+
+pub fn capacity(pool_value: Pool) -> Int ::
+    return pool.capacity(pool_value)
+::
+
+pub fn stats(pool_value: Pool) ::
+    return pool.stats(pool_value)
+::
+

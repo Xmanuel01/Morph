@@ -1,13 +1,13 @@
-Enkai Roadmap
+﻿Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.6.9.
+- Current production release line is v2.7.0.
 - v2.6.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
 
-v2.6.9 (done)
-- Simulation coroutine and Adam-0 reference completion:
+v2.7.0 (done)
+- Simulation coroutine, SNN runtime, and agent environment completion:
   - added task-backed coroutine/generator-facing APIs under `std::sim`:
     - `sim.coroutine`
     - `sim.coroutine_with`
@@ -19,10 +19,19 @@ v2.6.9 (done)
   - added `SimCoroutine` runtime/typechecker support without syntax changes
   - added the deterministic 100-agent Adam-0 reference workload:
     - `examples/adam0_100.enk`
+  - added the deterministic SNN + agent environment kernel reference workload:
+    - `examples/snn_agent_kernel.enk`
+  - added additive runtime/std modules:
+    - `std::spatial`
+    - `std::snn`
+    - `std::agent`
+  - added release-gated SNN/agent kernel evidence generation and semantic verification:
+    - `scripts/readiness_snn_agent_kernel_smoke.py`
+    - `scripts/verify_snn_agent_kernel_evidence.py`
   - added release-gated Adam-0 evidence generation and semantic verification:
     - `scripts/readiness_adam0_smoke.py`
     - `scripts/verify_adam0_evidence.py`
-  - full-platform readiness now archives and verifies Adam-0 smoke/profile artifacts
+  - full-platform readiness now archives and verifies both Adam-0 and SNN/agent kernel smoke/profile artifacts
 
 v2.6.8 (done)
 - Native-backed simulation primitive completion:
@@ -616,6 +625,7 @@ v0.3 (done)
 - Local path dependencies in Enkai.toml
 - Expand stdlib: strings + fs (policy-gated)
 - Keep AI primitives as stubs unless testable
+
 
 
 

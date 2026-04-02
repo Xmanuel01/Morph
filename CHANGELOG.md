@@ -8,6 +8,44 @@
 ### Breaking changes
 - None.
 
+## v2.7.0
+
+### Highlights
+- Advanced the release line to `v2.7.0` with additive compatibility and no syntax changes.
+- Completed the `v2.7.0` SNN runtime + agent environment base milestone.
+- Added additive simulation/runtime modules:
+  - `std::spatial`
+  - `std::snn`
+  - `std::agent`
+- Added the in-tree SNN/agent environment kernel reference workload:
+  - `examples/snn_agent_kernel.enk`
+
+### Fixes
+- Added native-backed spatial query hooks behind the stable `std::spatial` interface:
+  - `radius`
+  - `nearest`
+  - `occupancy`
+- Added deterministic RNG streams for simulation workloads through `agent.stream`, `agent.next_float`, and `agent.next_int`.
+- Added SNN runtime support under `std::snn` with native-backed batched neuron update hooks and stable synapse access through `SparseMatrix`.
+- Added agent environment/runtime support under `std::agent` for:
+  - registration
+  - body/memory/state access
+  - reward accounting
+  - sensor/action queues
+  - spatial neighbor queries
+- Added release-gated SNN/agent kernel smoke + evidence verification:
+  - `scripts/readiness_snn_agent_kernel_smoke.py`
+  - `scripts/verify_snn_agent_kernel_evidence.py`
+- Full-platform readiness, blocker verification, strict evidence archiving, and capability reporting now require archived SNN/agent kernel run/profile artifacts.
+- Added root `enkai.toml` so in-tree examples resolve project-root modules and `std/` imports consistently.
+- Synced docs/spec/release metadata and version surfaces to `v2.7.0`.
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_7_0_rc_pipeline.ps1`
+  - `scripts/v2_7_0_rc_pipeline.sh`
+
+### Breaking changes
+- None.
+
 ## v2.6.9
 
 ### Highlights

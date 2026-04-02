@@ -1,0 +1,58 @@
+import json
+import std::agent
+import std::sim
+import std::snn
+import std::sparse
+import std::spatial
+
+fn main() ::
+    let world := sim.make_seeded(64, 17)
+    let index := spatial.make()
+    let env := agent.make(world, index)
+    agent.register(env, 1, json.parse("{\"kind\":\"worker\"}"), json.parse("{\"epoch\":0}"), 0.0, 0.0)
+    agent.register(env, 2, json.parse("{\"kind\":\"worker\"}"), json.parse("{\"epoch\":0}"), 0.5, 0.0)
+    agent.register(env, 3, json.parse("{\"kind\":\"scout\"}"), json.parse("{\"epoch\":0}"), 3.0, 0.0)
+
+    let net := snn.make(3)
+    snn.set_threshold(net, 0, 0.4)
+    snn.set_threshold(net, 1, 0.4)
+    snn.set_threshold(net, 2, 0.5)
+    snn.connect(net, 0, 1, 0.5)
+    snn.connect(net, 1, 2, 0.75)
+
+    let spikes_0 := snn.step(net, [1.0, 0.0, 0.0])
+    let spikes_1 := snn.step(net, [0.0, 0.0, 0.0])
+    let spikes_2 := snn.step(net, [0.0, 0.0, 0.0])
+
+    agent.reward_add(env, 1, 0.25)
+    agent.reward_add(env, 1, 0.75)
+    let reward := agent.reward_take(env, 1)
+    agent.sense_push(env, 1, "food")
+    agent.action_push(env, 1, "move")
+    agent.set_position(env, 1, 0.25, 0.0)
+
+    let stream_a := agent.stream(env, 1, "sensor")
+    let stream_b := agent.stream(env, 1, "sensor")
+    let rand_a := agent.next_int(stream_a, 100)
+    let rand_b := agent.next_int(stream_b, 100)
+    let rand_float := agent.next_float(stream_a)
+
+    let out := json.parse("{}")
+    out.nearest := spatial.nearest(index, 0.2, 0.0)
+    out.occupancy := spatial.occupancy(index, -1.0, -1.0, 1.0, 1.0)
+    out.neighbors := agent.neighbors(env, 1, 1.0)
+    out.reward := reward
+    out.sense := agent.sense_take(env, 1)
+    out.action := agent.action_take(env, 1)
+    out.rand_match := rand_a == rand_b
+    out.rand_float := rand_float
+    out.spikes_0 := spikes_0
+    out.spikes_1 := spikes_1
+    out.spikes_2 := spikes_2
+    out.synapse_nnz := sparse.nnz(snn.synapses(net))
+    out.potentials := snn.potentials(net)
+    out.agent_state := agent.state(env, 1)
+    return out
+::
+
+main()

@@ -170,6 +170,9 @@ impl<'a> ProgramBuilder<'a> {
         let _ = self.ensure_global("event");
         let _ = self.ensure_global("pool");
         let _ = self.ensure_global("sim");
+        let _ = self.ensure_global("spatial");
+        let _ = self.ensure_global("snn");
+        let _ = self.ensure_global("agent");
     }
 
     fn ensure_global(&mut self, name: &str) -> u16 {

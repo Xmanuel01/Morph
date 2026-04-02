@@ -1,0 +1,24 @@
+pub fn make() -> SpatialIndex ::
+    return spatial.make()
+::
+
+pub fn upsert(index: SpatialIndex, entity_id: Int, x: Float, y: Float) ::
+    return spatial.upsert(index, entity_id, x, y)
+::
+
+pub fn remove(index: SpatialIndex, entity_id: Int) -> Bool ::
+    return spatial.remove(index, entity_id)
+::
+
+pub fn radius(index: SpatialIndex, x: Float, y: Float, radius: Float) ::
+    return spatial.radius(index, x, y, radius)
+::
+
+pub fn nearest(index: SpatialIndex, x: Float, y: Float) -> Int? ::
+    return spatial.nearest(index, x, y)
+::
+
+pub fn occupancy(index: SpatialIndex, min_x: Float, min_y: Float, max_x: Float, max_y: Float) -> Int ::
+    return spatial.occupancy(index, min_x, min_y, max_x, max_y)
+::
+

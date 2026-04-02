@@ -991,6 +991,14 @@ mod tests {
         assert!(manifest
             .checks
             .iter()
+            .any(|check| check.id == "snn-agent-kernel-smoke"));
+        assert!(manifest
+            .checks
+            .iter()
+            .any(|check| check.id == "snn-agent-kernel-evidence-verify"));
+        assert!(manifest
+            .checks
+            .iter()
             .any(|check| check.id == "deploy-backend-validate"));
         assert!(manifest
             .checks
@@ -1116,6 +1124,8 @@ mod tests {
             "artifacts/readiness/sim_stdlib_evidence_verify.json",
             "artifacts/readiness/adam0_100_smoke.json",
             "artifacts/readiness/adam0_100_evidence_verify.json",
+            "artifacts/readiness/snn_agent_kernel_smoke.json",
+            "artifacts/readiness/snn_agent_kernel_evidence_verify.json",
             "artifacts/sim/smoke_run.json",
             "artifacts/sim/smoke_profile.json",
             "artifacts/sim/smoke_replay.json",
@@ -1125,6 +1135,8 @@ mod tests {
             "artifacts/sim/stdlib_smoke_profile.json",
             "artifacts/sim/adam0_100_run.json",
             "artifacts/sim/adam0_100_profile.json",
+            "artifacts/sim/snn_agent_kernel_run.json",
+            "artifacts/sim/snn_agent_kernel_profile.json",
             "bench/results/full_platform_targets.json",
             "artifacts/selfhost/litec_mainline_ci_report.json",
             "artifacts/selfhost/litec_replace_check_report.json",
@@ -1199,6 +1211,8 @@ mod tests {
             "artifacts/readiness/sim_stdlib_evidence_verify.json",
             "artifacts/readiness/adam0_100_smoke.json",
             "artifacts/readiness/adam0_100_evidence_verify.json",
+            "artifacts/readiness/snn_agent_kernel_smoke.json",
+            "artifacts/readiness/snn_agent_kernel_evidence_verify.json",
             "artifacts/sim/smoke_run.json",
             "artifacts/sim/smoke_profile.json",
             "artifacts/sim/smoke_replay.json",
@@ -1208,6 +1222,8 @@ mod tests {
             "artifacts/sim/stdlib_smoke_profile.json",
             "artifacts/sim/adam0_100_run.json",
             "artifacts/sim/adam0_100_profile.json",
+            "artifacts/sim/snn_agent_kernel_run.json",
+            "artifacts/sim/snn_agent_kernel_profile.json",
             "bench/results/full_platform_targets.json",
             "artifacts/selfhost/litec_mainline_ci_report.json",
             "artifacts/selfhost/litec_replace_check_report.json",

@@ -1,0 +1,24 @@
+pub fn make() -> EventQueue ::
+    return event.make()
+::
+
+pub fn push(queue: EventQueue, time: Float, value) ::
+    return event.push(queue, time, value)
+::
+
+pub fn pop(queue: EventQueue) ::
+    return event.pop(queue)
+::
+
+pub fn peek(queue: EventQueue) ::
+    return event.peek(queue)
+::
+
+pub fn len(queue: EventQueue) -> Int ::
+    return event.len(queue)
+::
+
+pub fn is_empty(queue: EventQueue) -> Bool ::
+    return event.is_empty(queue)
+::
+

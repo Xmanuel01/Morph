@@ -1,0 +1,44 @@
+pub fn vector() -> SparseVector ::
+    return sparse.vector()
+::
+
+pub fn matrix() -> SparseMatrix ::
+    return sparse.matrix()
+::
+
+pub fn get(matrix: SparseMatrix, row: Int, col: Int) -> Float? ::
+    return sparse.get(matrix, row, col)
+::
+
+pub fn set(matrix: SparseMatrix, row: Int, col: Int, value: Float) ::
+    return sparse.set(matrix, row, col, value)
+::
+
+pub fn get_vector(vector: SparseVector, index: Int) -> Float? ::
+    return sparse.get_vector(vector, index)
+::
+
+pub fn set_vector(vector: SparseVector, index: Int, value: Float) ::
+    return sparse.set_vector(vector, index, value)
+::
+
+pub fn nonzero(matrix: SparseMatrix) ::
+    return sparse.nonzero(matrix)
+::
+
+pub fn nonzero_vector(vector: SparseVector) ::
+    return sparse.nonzero_vector(vector)
+::
+
+pub fn dot(vector: SparseVector, dense) -> Float ::
+    return sparse.dot(vector, dense)
+::
+
+pub fn matvec(matrix: SparseMatrix, dense) ::
+    return sparse.matvec(matrix, dense)
+::
+
+pub fn nnz(value) -> Int ::
+    return sparse.nnz(value)
+::
+

@@ -121,6 +121,29 @@ fn simulation_coroutines_typecheck() {
 }
 
 #[test]
+fn spatial_snn_and_agent_modules_typecheck() {
+    assert!(type_ok(
+        "import json\n\
+         import std::agent\n\
+         import std::sim\n\
+         import std::snn\n\
+         import std::spatial\n\
+         let world: SimWorld := sim.make_seeded(16, 9)\n\
+         let idx: SpatialIndex := spatial.make()\n\
+         let env: AgentEnv := agent.make(world, idx)\n\
+         agent.register(env, 1, json.parse(\"{}\"), json.parse(\"{}\"), 0.0, 0.0)\n\
+         let stream: RngStream := agent.stream(env, 1, \"sense\")\n\
+         let n: SnnNetwork := snn.make(4)\n\
+         snn.connect(n, 0, 1, 0.5)\n\
+         let spikes := snn.step(n, [1.0, 0.0, 0.0, 0.0])\n\
+         let nearest := spatial.nearest(idx, 0.0, 0.0)\n\
+         let state := agent.state(env, 1)\n\
+         let reward: Float := agent.reward_take(env, 1)\n\
+         let value: Int := agent.next_int(stream, 8)\n"
+    ));
+}
+
+#[test]
 fn unknown_callee_call_is_permitted() {
     assert!(type_ok(
         "type Boxed ::\n    value: Int\n::\n\

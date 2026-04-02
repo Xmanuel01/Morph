@@ -557,6 +557,10 @@ fn type_from_ref(r: TypeRef) -> Type {
                 Some("Pool") => Type::Pool,
                 Some("SimWorld") => Type::SimWorld,
                 Some("SimCoroutine") => Type::SimCoroutine,
+                Some("SpatialIndex") => Type::SpatialIndex,
+                Some("SnnNetwork") => Type::SnnNetwork,
+                Some("AgentEnv") => Type::AgentEnv,
+                Some("RngStream") => Type::RngStream,
                 Some("Tokenizer") => Type::Tokenizer,
                 Some("DataStream") => Type::DataStream,
                 Some("Batch") => Type::Batch,
@@ -1197,6 +1201,249 @@ fn inject_builtins(
         Type::Function(vec![Type::SimCoroutine], Box::new(Type::Bool)),
     );
     exports.entry(std_sim_id).or_insert(sim_exports);
+    let std_spatial_id = ModuleId(vec!["std".to_string(), "spatial".to_string()]);
+    imports
+        .entry("spatial".to_string())
+        .or_insert(std_spatial_id.clone());
+    let mut spatial_exports = std::collections::HashMap::new();
+    spatial_exports.insert(
+        "make".to_string(),
+        Type::Function(Vec::new(), Box::new(Type::SpatialIndex)),
+    );
+    spatial_exports.insert(
+        "upsert".to_string(),
+        Type::Function(
+            vec![Type::SpatialIndex, Type::Int, Type::Float, Type::Float],
+            Box::new(Type::Void),
+        ),
+    );
+    spatial_exports.insert(
+        "remove".to_string(),
+        Type::Function(vec![Type::SpatialIndex, Type::Int], Box::new(Type::Bool)),
+    );
+    spatial_exports.insert(
+        "radius".to_string(),
+        Type::Function(
+            vec![Type::SpatialIndex, Type::Float, Type::Float, Type::Float],
+            Box::new(Type::Unknown),
+        ),
+    );
+    spatial_exports.insert(
+        "nearest".to_string(),
+        Type::Function(
+            vec![Type::SpatialIndex, Type::Float, Type::Float],
+            Box::new(Type::Optional(Box::new(Type::Int))),
+        ),
+    );
+    spatial_exports.insert(
+        "occupancy".to_string(),
+        Type::Function(
+            vec![
+                Type::SpatialIndex,
+                Type::Float,
+                Type::Float,
+                Type::Float,
+                Type::Float,
+            ],
+            Box::new(Type::Int),
+        ),
+    );
+    exports.entry(std_spatial_id).or_insert(spatial_exports);
+    let std_snn_id = ModuleId(vec!["std".to_string(), "snn".to_string()]);
+    imports
+        .entry("snn".to_string())
+        .or_insert(std_snn_id.clone());
+    let mut snn_exports = std::collections::HashMap::new();
+    snn_exports.insert(
+        "make".to_string(),
+        Type::Function(vec![Type::Int], Box::new(Type::SnnNetwork)),
+    );
+    snn_exports.insert(
+        "connect".to_string(),
+        Type::Function(
+            vec![Type::SnnNetwork, Type::Int, Type::Int, Type::Float],
+            Box::new(Type::Void),
+        ),
+    );
+    snn_exports.insert(
+        "set_potential".to_string(),
+        Type::Function(
+            vec![Type::SnnNetwork, Type::Int, Type::Float],
+            Box::new(Type::Void),
+        ),
+    );
+    snn_exports.insert(
+        "get_potential".to_string(),
+        Type::Function(
+            vec![Type::SnnNetwork, Type::Int],
+            Box::new(Type::Optional(Box::new(Type::Float))),
+        ),
+    );
+    snn_exports.insert(
+        "set_threshold".to_string(),
+        Type::Function(
+            vec![Type::SnnNetwork, Type::Int, Type::Float],
+            Box::new(Type::Void),
+        ),
+    );
+    snn_exports.insert(
+        "get_threshold".to_string(),
+        Type::Function(
+            vec![Type::SnnNetwork, Type::Int],
+            Box::new(Type::Optional(Box::new(Type::Float))),
+        ),
+    );
+    snn_exports.insert(
+        "set_decay".to_string(),
+        Type::Function(vec![Type::SnnNetwork, Type::Float], Box::new(Type::Void)),
+    );
+    snn_exports.insert(
+        "get_decay".to_string(),
+        Type::Function(vec![Type::SnnNetwork], Box::new(Type::Float)),
+    );
+    snn_exports.insert(
+        "step".to_string(),
+        Type::Function(
+            vec![Type::SnnNetwork, Type::Unknown],
+            Box::new(Type::Unknown),
+        ),
+    );
+    snn_exports.insert(
+        "spikes".to_string(),
+        Type::Function(vec![Type::SnnNetwork], Box::new(Type::Unknown)),
+    );
+    snn_exports.insert(
+        "potentials".to_string(),
+        Type::Function(vec![Type::SnnNetwork], Box::new(Type::Unknown)),
+    );
+    snn_exports.insert(
+        "synapses".to_string(),
+        Type::Function(vec![Type::SnnNetwork], Box::new(Type::SparseMatrix)),
+    );
+    exports.entry(std_snn_id).or_insert(snn_exports);
+    let std_agent_id = ModuleId(vec!["std".to_string(), "agent".to_string()]);
+    imports
+        .entry("agent".to_string())
+        .or_insert(std_agent_id.clone());
+    let mut agent_exports = std::collections::HashMap::new();
+    agent_exports.insert(
+        "make".to_string(),
+        Type::Function(
+            vec![Type::SimWorld, Type::SpatialIndex],
+            Box::new(Type::AgentEnv),
+        ),
+    );
+    agent_exports.insert(
+        "register".to_string(),
+        Type::Function(
+            vec![
+                Type::AgentEnv,
+                Type::Int,
+                Type::Unknown,
+                Type::Unknown,
+                Type::Float,
+                Type::Float,
+            ],
+            Box::new(Type::Void),
+        ),
+    );
+    agent_exports.insert(
+        "state".to_string(),
+        Type::Function(vec![Type::AgentEnv, Type::Int], Box::new(Type::Unknown)),
+    );
+    agent_exports.insert(
+        "body".to_string(),
+        Type::Function(vec![Type::AgentEnv, Type::Int], Box::new(Type::Unknown)),
+    );
+    agent_exports.insert(
+        "memory".to_string(),
+        Type::Function(vec![Type::AgentEnv, Type::Int], Box::new(Type::Unknown)),
+    );
+    agent_exports.insert(
+        "set_body".to_string(),
+        Type::Function(
+            vec![Type::AgentEnv, Type::Int, Type::Unknown],
+            Box::new(Type::Void),
+        ),
+    );
+    agent_exports.insert(
+        "set_memory".to_string(),
+        Type::Function(
+            vec![Type::AgentEnv, Type::Int, Type::Unknown],
+            Box::new(Type::Void),
+        ),
+    );
+    agent_exports.insert(
+        "position".to_string(),
+        Type::Function(vec![Type::AgentEnv, Type::Int], Box::new(Type::Unknown)),
+    );
+    agent_exports.insert(
+        "set_position".to_string(),
+        Type::Function(
+            vec![Type::AgentEnv, Type::Int, Type::Float, Type::Float],
+            Box::new(Type::Void),
+        ),
+    );
+    agent_exports.insert(
+        "neighbors".to_string(),
+        Type::Function(
+            vec![Type::AgentEnv, Type::Int, Type::Float],
+            Box::new(Type::Unknown),
+        ),
+    );
+    agent_exports.insert(
+        "reward_add".to_string(),
+        Type::Function(
+            vec![Type::AgentEnv, Type::Int, Type::Float],
+            Box::new(Type::Void),
+        ),
+    );
+    agent_exports.insert(
+        "reward_get".to_string(),
+        Type::Function(vec![Type::AgentEnv, Type::Int], Box::new(Type::Float)),
+    );
+    agent_exports.insert(
+        "reward_take".to_string(),
+        Type::Function(vec![Type::AgentEnv, Type::Int], Box::new(Type::Float)),
+    );
+    agent_exports.insert(
+        "sense_push".to_string(),
+        Type::Function(
+            vec![Type::AgentEnv, Type::Int, Type::Unknown],
+            Box::new(Type::Void),
+        ),
+    );
+    agent_exports.insert(
+        "sense_take".to_string(),
+        Type::Function(vec![Type::AgentEnv, Type::Int], Box::new(Type::Unknown)),
+    );
+    agent_exports.insert(
+        "action_push".to_string(),
+        Type::Function(
+            vec![Type::AgentEnv, Type::Int, Type::Unknown],
+            Box::new(Type::Void),
+        ),
+    );
+    agent_exports.insert(
+        "action_take".to_string(),
+        Type::Function(vec![Type::AgentEnv, Type::Int], Box::new(Type::Unknown)),
+    );
+    agent_exports.insert(
+        "stream".to_string(),
+        Type::Function(
+            vec![Type::AgentEnv, Type::Int, Type::String],
+            Box::new(Type::RngStream),
+        ),
+    );
+    agent_exports.insert(
+        "next_float".to_string(),
+        Type::Function(vec![Type::RngStream], Box::new(Type::Float)),
+    );
+    agent_exports.insert(
+        "next_int".to_string(),
+        Type::Function(vec![Type::RngStream, Type::Int], Box::new(Type::Int)),
+    );
+    exports.entry(std_agent_id).or_insert(agent_exports);
     let std_nn_id = ModuleId(vec!["std".to_string(), "nn".to_string()]);
     let mut nn_exports = std::collections::HashMap::new();
     nn_exports.insert(

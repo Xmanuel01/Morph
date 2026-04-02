@@ -1,0 +1,80 @@
+pub fn make(world: SimWorld, spatial_index: SpatialIndex) -> AgentEnv ::
+    return agent.make(world, spatial_index)
+::
+
+pub fn register(env: AgentEnv, agent_id: Int, body, memory, x: Float, y: Float) ::
+    return agent.register(env, agent_id, body, memory, x, y)
+::
+
+pub fn state(env: AgentEnv, agent_id: Int) ::
+    return agent.state(env, agent_id)
+::
+
+pub fn body(env: AgentEnv, agent_id: Int) ::
+    return agent.body(env, agent_id)
+::
+
+pub fn memory(env: AgentEnv, agent_id: Int) ::
+    return agent.memory(env, agent_id)
+::
+
+pub fn set_body(env: AgentEnv, agent_id: Int, body_value) ::
+    return agent.set_body(env, agent_id, body_value)
+::
+
+pub fn set_memory(env: AgentEnv, agent_id: Int, memory_value) ::
+    return agent.set_memory(env, agent_id, memory_value)
+::
+
+pub fn position(env: AgentEnv, agent_id: Int) ::
+    return agent.position(env, agent_id)
+::
+
+pub fn set_position(env: AgentEnv, agent_id: Int, x: Float, y: Float) ::
+    return agent.set_position(env, agent_id, x, y)
+::
+
+pub fn neighbors(env: AgentEnv, agent_id: Int, radius: Float) ::
+    return agent.neighbors(env, agent_id, radius)
+::
+
+pub fn reward_add(env: AgentEnv, agent_id: Int, delta: Float) ::
+    return agent.reward_add(env, agent_id, delta)
+::
+
+pub fn reward_get(env: AgentEnv, agent_id: Int) -> Float ::
+    return agent.reward_get(env, agent_id)
+::
+
+pub fn reward_take(env: AgentEnv, agent_id: Int) -> Float ::
+    return agent.reward_take(env, agent_id)
+::
+
+pub fn sense_push(env: AgentEnv, agent_id: Int, value) ::
+    return agent.sense_push(env, agent_id, value)
+::
+
+pub fn sense_take(env: AgentEnv, agent_id: Int) ::
+    return agent.sense_take(env, agent_id)
+::
+
+pub fn action_push(env: AgentEnv, agent_id: Int, value) ::
+    return agent.action_push(env, agent_id, value)
+::
+
+pub fn action_take(env: AgentEnv, agent_id: Int) ::
+    return agent.action_take(env, agent_id)
+::
+
+pub fn stream(env: AgentEnv, agent_id: Int, domain: String) -> RngStream ::
+    return agent.stream(env, agent_id, domain)
+::
+
+pub fn next_float(stream: RngStream) -> Float ::
+    return agent.next_float(stream)
+::
+
+pub fn next_int(stream: RngStream, upper: Int) -> Int ::
+    return agent.next_int(stream, upper)
+::
+

@@ -157,6 +157,14 @@ def main() -> int:
             failures.append(
                 "docs/36_capability_complete_report.md missing simulation stdlib evidence verification reference"
             )
+        if "readiness/snn_agent_kernel_smoke.json" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing SNN agent kernel smoke reference"
+            )
+        if "readiness/snn_agent_kernel_evidence_verify.json" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing SNN agent kernel evidence verification reference"
+            )
         if "sim/smoke_run.json" not in capability_text:
             failures.append(
                 "docs/36_capability_complete_report.md missing simulation evidence archive reference"
@@ -168,6 +176,10 @@ def main() -> int:
         if "sim/stdlib_smoke_run.json" not in capability_text:
             failures.append(
                 "docs/36_capability_complete_report.md missing simulation stdlib evidence archive reference"
+            )
+        if "sim/snn_agent_kernel_run.json" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing SNN agent kernel evidence archive reference"
             )
 
     readiness_doc = ROOT / "docs/37_readiness_matrix.md"
@@ -189,6 +201,10 @@ def main() -> int:
             failures.append("docs/37_readiness_matrix.md missing simulation stdlib smoke artifact reference")
         if "artifacts/readiness/sim_stdlib_evidence_verify.json" not in readiness_text:
             failures.append("docs/37_readiness_matrix.md missing simulation stdlib verification artifact reference")
+        if "artifacts/readiness/snn_agent_kernel_smoke.json" not in readiness_text:
+            failures.append("docs/37_readiness_matrix.md missing SNN agent kernel smoke artifact reference")
+        if "artifacts/readiness/snn_agent_kernel_evidence_verify.json" not in readiness_text:
+            failures.append("docs/37_readiness_matrix.md missing SNN agent kernel verification artifact reference")
     benchmark_doc = ROOT / "docs/33_benchmark_suite.md"
     if not benchmark_doc.is_file():
         failures.append("missing docs/33_benchmark_suite.md")

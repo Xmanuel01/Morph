@@ -467,6 +467,34 @@ def build_checks(
             ),
         )
     )
+    snn_agent_smoke = has_exact(copied_paths, "/readiness/snn_agent_kernel_smoke.json")
+    checks.append(
+        CheckResult(
+            id="readiness_snn_agent_kernel_smoke_report",
+            description="SNN agent kernel smoke summary is present",
+            required=True,
+            passed=snn_agent_smoke,
+            details=(
+                "readiness/snn_agent_kernel_smoke.json"
+                if snn_agent_smoke
+                else "missing readiness/snn_agent_kernel_smoke.json"
+            ),
+        )
+    )
+    snn_agent_verify = has_exact(copied_paths, "/readiness/snn_agent_kernel_evidence_verify.json")
+    checks.append(
+        CheckResult(
+            id="readiness_snn_agent_kernel_evidence_verify_report",
+            description="SNN agent kernel evidence verification report is present",
+            required=True,
+            passed=snn_agent_verify,
+            details=(
+                "readiness/snn_agent_kernel_evidence_verify.json"
+                if snn_agent_verify
+                else "missing readiness/snn_agent_kernel_evidence_verify.json"
+            ),
+        )
+    )
     for name in ("smoke_run.json", "smoke_profile.json", "smoke_replay.json"):
         present = has_exact(copied_paths, f"/sim/{name}")
         checks.append(
@@ -506,6 +534,17 @@ def build_checks(
             CheckResult(
                 id=f"simulation_{name.replace('.', '_')}",
                 description=f"Adam-0 100-agent simulation evidence `{name}` is present",
+                required=True,
+                passed=present,
+                details=name if present else f"missing sim/{name}",
+            )
+        )
+    for name in ("snn_agent_kernel_run.json", "snn_agent_kernel_profile.json"):
+        present = has_exact(copied_paths, f"/sim/{name}")
+        checks.append(
+            CheckResult(
+                id=f"simulation_{name.replace('.', '_')}",
+                description=f"SNN agent kernel evidence `{name}` is present",
                 required=True,
                 passed=present,
                 details=name if present else f"missing sim/{name}",

@@ -1,0 +1,100 @@
+pub fn make(max_events: Int) -> SimWorld ::
+    return sim.make(max_events)
+::
+
+pub fn make_seeded(max_events: Int, seed: Int) -> SimWorld ::
+    return sim.make_seeded(max_events, seed)
+::
+
+pub fn time(world: SimWorld) -> Float ::
+    return sim.time(world)
+::
+
+pub fn seed(world: SimWorld) -> Int ::
+    return sim.seed(world)
+::
+
+pub fn pending(world: SimWorld) -> Int ::
+    return sim.pending(world)
+::
+
+pub fn schedule(world: SimWorld, time: Float, event_value) ::
+    return sim.schedule(world, time, event_value)
+::
+
+pub fn step(world: SimWorld) ::
+    return sim.step(world)
+::
+
+pub fn run(world: SimWorld, max_steps: Int) ::
+    return sim.run(world, max_steps)
+::
+
+pub fn snapshot(world: SimWorld) ::
+    return sim.snapshot(world)
+::
+
+pub fn restore(snapshot_value) -> SimWorld ::
+    return sim.restore(snapshot_value)
+::
+
+pub fn replay(log, max_events: Int, seed: Int) -> SimWorld ::
+    return sim.replay(log, max_events, seed)
+::
+
+pub fn log(world: SimWorld) ::
+    return sim.log(world)
+::
+
+pub fn entity_set(world: SimWorld, id: Int, value) ::
+    return sim.entity_set(world, id, value)
+::
+
+pub fn entity_get(world: SimWorld, id: Int) ::
+    return sim.entity_get(world, id)
+::
+
+pub fn entity_remove(world: SimWorld, id: Int) -> Bool ::
+    return sim.entity_remove(world, id)
+::
+
+pub fn entity_ids(world: SimWorld) ::
+    return sim.entity_ids(world)
+::
+
+pub fn coroutine(world: SimWorld, worker) -> SimCoroutine ::
+    return sim.coroutine(world, worker)
+::
+
+pub fn coroutine_with(world: SimWorld, worker, state) -> SimCoroutine ::
+    return sim.coroutine_with(world, worker, state)
+::
+
+pub fn coroutine_args(world: SimWorld, worker, args) -> SimCoroutine ::
+    return sim.coroutine_args(world, worker, args)
+::
+
+pub fn world(coro: SimCoroutine) -> SimWorld ::
+    return sim.world(coro)
+::
+
+pub fn state(coro: SimCoroutine) ::
+    return sim.state(coro)
+::
+
+pub fn emit(coro: SimCoroutine, value) ::
+    return sim.emit(coro, value)
+::
+
+pub fn next(coro: SimCoroutine) ::
+    return sim.next(coro)
+::
+
+pub fn join(coro: SimCoroutine) ::
+    return sim.join(coro)
+::
+
+pub fn done(coro: SimCoroutine) -> Bool ::
+    return sim.done(coro)
+::
+

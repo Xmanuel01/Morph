@@ -30,11 +30,11 @@ use crate::error::{RuntimeError, RuntimeFrame};
 use crate::ffi::FfiFunction;
 use crate::ffi::{ffi_stats_snapshot, FfiLoader, FfiStats};
 use crate::object::{
-    buffer_value, channel_value, event_queue_value_with_native, function_value,
-    pool_value_with_native, record_value, sim_coroutine_value, sim_world_value,
-    sparse_matrix_value_with_native, sparse_vector_value_with_native, string_value,
-    task_handle_value, BoundFunctionObj, HttpStream, NativeFunction, NativeImpl, Obj,
-    StreamCommand, WebSocketHandle, WsCommand, WsIncoming,
+    agent_env_value, buffer_value, channel_value, event_queue_value_with_native, function_value,
+    pool_value_with_native, record_value, rng_stream_value, sim_coroutine_value, sim_world_value,
+    snn_network_value, sparse_matrix_value_with_native, sparse_vector_value_with_native,
+    spatial_index_value_with_native, string_value, task_handle_value, BoundFunctionObj, HttpStream,
+    NativeFunction, NativeImpl, Obj, StreamCommand, WebSocketHandle, WsCommand, WsIncoming,
 };
 use crate::tokenizer::{bytes_to_ids, ids_to_bytes, Tokenizer, TrainConfig};
 use crate::value::{object_allocation_count, ObjRef, Value};
@@ -110,6 +110,24 @@ struct SimAccelBindings {
     pool_available: FfiFunction,
     pool_capacity: FfiFunction,
     pool_stats: FfiFunction,
+    spatial_index_new: FfiFunction,
+    spatial_upsert: FfiFunction,
+    spatial_remove: FfiFunction,
+    spatial_radius: FfiFunction,
+    spatial_nearest: FfiFunction,
+    spatial_occupancy: FfiFunction,
+    rng_stream_new: FfiFunction,
+    rng_stream_next_float: FfiFunction,
+    rng_stream_next_int: FfiFunction,
+    snn_network_new: FfiFunction,
+    snn_set_potential: FfiFunction,
+    snn_get_potential: FfiFunction,
+    snn_set_threshold: FfiFunction,
+    snn_get_threshold: FfiFunction,
+    snn_set_decay: FfiFunction,
+    snn_get_decay: FfiFunction,
+    snn_connect: FfiFunction,
+    snn_step: FfiFunction,
 }
 
 impl SimAccelBindings {
@@ -219,6 +237,125 @@ impl SimAccelBindings {
                 loader,
                 "sim_pool_stats",
                 vec![FfiType::Handle],
+                FfiType::Buffer,
+            )?,
+            spatial_index_new: bind(loader, "sim_spatial_index_new", vec![], FfiType::Handle)?,
+            spatial_upsert: bind(
+                loader,
+                "sim_spatial_upsert",
+                vec![
+                    FfiType::Handle,
+                    FfiType::Int,
+                    FfiType::Float,
+                    FfiType::Float,
+                ],
+                FfiType::Bool,
+            )?,
+            spatial_remove: bind(
+                loader,
+                "sim_spatial_remove",
+                vec![FfiType::Handle, FfiType::Int],
+                FfiType::Bool,
+            )?,
+            spatial_radius: bind(
+                loader,
+                "sim_spatial_radius",
+                vec![
+                    FfiType::Handle,
+                    FfiType::Float,
+                    FfiType::Float,
+                    FfiType::Float,
+                ],
+                FfiType::Buffer,
+            )?,
+            spatial_nearest: bind(
+                loader,
+                "sim_spatial_nearest",
+                vec![FfiType::Handle, FfiType::Float, FfiType::Float],
+                FfiType::Int,
+            )?,
+            spatial_occupancy: bind(
+                loader,
+                "sim_spatial_occupancy",
+                vec![
+                    FfiType::Handle,
+                    FfiType::Float,
+                    FfiType::Float,
+                    FfiType::Float,
+                    FfiType::Float,
+                ],
+                FfiType::Int,
+            )?,
+            rng_stream_new: bind(
+                loader,
+                "sim_rng_stream_new",
+                vec![FfiType::Int, FfiType::Int, FfiType::Int],
+                FfiType::Handle,
+            )?,
+            rng_stream_next_float: bind(
+                loader,
+                "sim_rng_stream_next_float",
+                vec![FfiType::Handle],
+                FfiType::Float,
+            )?,
+            rng_stream_next_int: bind(
+                loader,
+                "sim_rng_stream_next_int",
+                vec![FfiType::Handle, FfiType::Int],
+                FfiType::Int,
+            )?,
+            snn_network_new: bind(
+                loader,
+                "sim_snn_network_new",
+                vec![FfiType::Int],
+                FfiType::Handle,
+            )?,
+            snn_set_potential: bind(
+                loader,
+                "sim_snn_set_potential",
+                vec![FfiType::Handle, FfiType::Int, FfiType::Float],
+                FfiType::Bool,
+            )?,
+            snn_get_potential: bind(
+                loader,
+                "sim_snn_get_potential",
+                vec![FfiType::Handle, FfiType::Int],
+                FfiType::Float,
+            )?,
+            snn_set_threshold: bind(
+                loader,
+                "sim_snn_set_threshold",
+                vec![FfiType::Handle, FfiType::Int, FfiType::Float],
+                FfiType::Bool,
+            )?,
+            snn_get_threshold: bind(
+                loader,
+                "sim_snn_get_threshold",
+                vec![FfiType::Handle, FfiType::Int],
+                FfiType::Float,
+            )?,
+            snn_set_decay: bind(
+                loader,
+                "sim_snn_set_decay",
+                vec![FfiType::Handle, FfiType::Float],
+                FfiType::Bool,
+            )?,
+            snn_get_decay: bind(
+                loader,
+                "sim_snn_get_decay",
+                vec![FfiType::Handle],
+                FfiType::Float,
+            )?,
+            snn_connect: bind(
+                loader,
+                "sim_snn_connect",
+                vec![FfiType::Handle, FfiType::Int, FfiType::Int, FfiType::Float],
+                FfiType::Bool,
+            )?,
+            snn_step: bind(
+                loader,
+                "sim_snn_step",
+                vec![FfiType::Handle, FfiType::Buffer],
                 FfiType::Buffer,
             )?,
         })
@@ -1794,6 +1931,107 @@ impl VM {
             self.globals_map
                 .insert("sim".to_string(), self.globals.len() as u16);
             self.globals.push(sim_value);
+        }
+        let mut spatial_record = std::collections::HashMap::new();
+        for (name, arity) in [
+            ("make", 0),
+            ("upsert", 4),
+            ("remove", 2),
+            ("radius", 4),
+            ("nearest", 3),
+            ("occupancy", 5),
+        ] {
+            spatial_record.insert(
+                name.to_string(),
+                Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                    name: format!("spatial.{}", name),
+                    arity,
+                    kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                    bound: None,
+                }))),
+            );
+        }
+        let spatial_value = record_value(spatial_record);
+        if let Some(idx) = self.globals_map.get("spatial").copied() {
+            self.globals[idx as usize] = spatial_value;
+        } else {
+            self.globals_map
+                .insert("spatial".to_string(), self.globals.len() as u16);
+            self.globals.push(spatial_value);
+        }
+        let mut snn_record = std::collections::HashMap::new();
+        for (name, arity) in [
+            ("make", 1),
+            ("connect", 4),
+            ("set_potential", 3),
+            ("get_potential", 2),
+            ("set_threshold", 3),
+            ("get_threshold", 2),
+            ("set_decay", 2),
+            ("get_decay", 1),
+            ("step", 2),
+            ("spikes", 1),
+            ("potentials", 1),
+            ("synapses", 1),
+        ] {
+            snn_record.insert(
+                name.to_string(),
+                Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                    name: format!("snn.{}", name),
+                    arity,
+                    kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                    bound: None,
+                }))),
+            );
+        }
+        let snn_value = record_value(snn_record);
+        if let Some(idx) = self.globals_map.get("snn").copied() {
+            self.globals[idx as usize] = snn_value;
+        } else {
+            self.globals_map
+                .insert("snn".to_string(), self.globals.len() as u16);
+            self.globals.push(snn_value);
+        }
+        let mut agent_record = std::collections::HashMap::new();
+        for (name, arity) in [
+            ("make", 2),
+            ("register", 6),
+            ("state", 2),
+            ("body", 2),
+            ("memory", 2),
+            ("set_body", 3),
+            ("set_memory", 3),
+            ("position", 2),
+            ("set_position", 4),
+            ("neighbors", 3),
+            ("reward_add", 3),
+            ("reward_get", 2),
+            ("reward_take", 2),
+            ("sense_push", 3),
+            ("sense_take", 2),
+            ("action_push", 3),
+            ("action_take", 2),
+            ("stream", 3),
+            ("next_float", 1),
+            ("next_int", 2),
+        ] {
+            agent_record.insert(
+                name.to_string(),
+                Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                    name: format!("agent.{}", name),
+                    arity,
+                    kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                    bound: None,
+                }))),
+            );
+        }
+        let agent_value = record_value(agent_record);
+        if let Some(idx) = self.globals_map.get("agent").copied() {
+            self.globals[idx as usize] = agent_value;
+        } else {
+            self.globals_map
+                .insert("agent".to_string(), self.globals.len() as u16);
+            self.globals.push(agent_value);
         }
         Ok(())
     }
@@ -5382,6 +5620,557 @@ impl VM {
                                 .push(Value::Bool(self.sim_coroutine_done(coroutine)?));
                             return Ok(());
                         }
+                        if nf.name == "spatial.make" {
+                            self.stack.truncate(callee_index);
+                            let value = self.spatial_make();
+                            self.stack.push(value);
+                            return Ok(());
+                        }
+                        if nf.name == "spatial.upsert" {
+                            let spatial = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("spatial.upsert expects index"))?;
+                            let entity_id = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("spatial.upsert expects entity id")
+                            })?;
+                            let x = args
+                                .get(2)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("spatial.upsert expects x"))?;
+                            let y = args
+                                .get(3)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("spatial.upsert expects y"))?;
+                            self.stack.truncate(callee_index);
+                            self.spatial_upsert(spatial, entity_id, x, y)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "spatial.remove" {
+                            let spatial = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("spatial.remove expects index"))?;
+                            let entity_id = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("spatial.remove expects entity id")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let removed = self.spatial_remove(spatial, entity_id)?;
+                            self.stack.push(Value::Bool(removed));
+                            return Ok(());
+                        }
+                        if nf.name == "spatial.radius" {
+                            let spatial = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("spatial.radius expects index"))?;
+                            let x = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("spatial.radius expects x"))?;
+                            let y = args
+                                .get(2)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("spatial.radius expects y"))?;
+                            let radius = args.get(3).cloned().ok_or_else(|| {
+                                RuntimeError::new("spatial.radius expects radius")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let value = self.spatial_radius(spatial, x, y, radius)?;
+                            self.stack.push(value);
+                            return Ok(());
+                        }
+                        if nf.name == "spatial.nearest" {
+                            let spatial = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("spatial.nearest expects index")
+                            })?;
+                            let x = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("spatial.nearest expects x"))?;
+                            let y = args
+                                .get(2)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("spatial.nearest expects y"))?;
+                            self.stack.truncate(callee_index);
+                            let value = self.spatial_nearest(spatial, x, y)?;
+                            self.stack.push(value);
+                            return Ok(());
+                        }
+                        if nf.name == "spatial.occupancy" {
+                            let spatial = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("spatial.occupancy expects index")
+                            })?;
+                            let min_x = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("spatial.occupancy expects min_x")
+                            })?;
+                            let min_y = args.get(2).cloned().ok_or_else(|| {
+                                RuntimeError::new("spatial.occupancy expects min_y")
+                            })?;
+                            let max_x = args.get(3).cloned().ok_or_else(|| {
+                                RuntimeError::new("spatial.occupancy expects max_x")
+                            })?;
+                            let max_y = args.get(4).cloned().ok_or_else(|| {
+                                RuntimeError::new("spatial.occupancy expects max_y")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let value =
+                                self.spatial_occupancy(spatial, min_x, min_y, max_x, max_y)?;
+                            self.stack.push(Value::Int(value));
+                            return Ok(());
+                        }
+                        if nf.name == "snn.make" {
+                            let neuron_count = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("snn.make expects neuron_count")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let value = self.snn_make(neuron_count)?;
+                            self.stack.push(value);
+                            return Ok(());
+                        }
+                        if nf.name == "snn.connect" {
+                            let network = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("snn.connect expects network"))?;
+                            let from = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("snn.connect expects from"))?;
+                            let to = args
+                                .get(2)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("snn.connect expects to"))?;
+                            let weight = args
+                                .get(3)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("snn.connect expects weight"))?;
+                            self.stack.truncate(callee_index);
+                            self.snn_connect(network, from, to, weight)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "snn.set_potential" {
+                            let network = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("snn.set_potential expects network")
+                            })?;
+                            let index = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("snn.set_potential expects index")
+                            })?;
+                            let value = args.get(2).cloned().ok_or_else(|| {
+                                RuntimeError::new("snn.set_potential expects value")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            self.snn_set_potential(network, index, value)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "snn.get_potential" {
+                            let network = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("snn.get_potential expects network")
+                            })?;
+                            let index = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("snn.get_potential expects index")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let value = self.snn_get_potential(network, index)?;
+                            self.stack.push(Value::Float(value));
+                            return Ok(());
+                        }
+                        if nf.name == "snn.set_threshold" {
+                            let network = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("snn.set_threshold expects network")
+                            })?;
+                            let index = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("snn.set_threshold expects index")
+                            })?;
+                            let value = args.get(2).cloned().ok_or_else(|| {
+                                RuntimeError::new("snn.set_threshold expects value")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            self.snn_set_threshold(network, index, value)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "snn.get_threshold" {
+                            let network = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("snn.get_threshold expects network")
+                            })?;
+                            let index = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("snn.get_threshold expects index")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let value = self.snn_get_threshold(network, index)?;
+                            self.stack.push(Value::Float(value));
+                            return Ok(());
+                        }
+                        if nf.name == "snn.set_decay" {
+                            let network = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("snn.set_decay expects network")
+                            })?;
+                            let value = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("snn.set_decay expects value"))?;
+                            self.stack.truncate(callee_index);
+                            self.snn_set_decay(network, value)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "snn.get_decay" {
+                            let network = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("snn.get_decay expects network")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let value = self.snn_get_decay(network)?;
+                            self.stack.push(Value::Float(value));
+                            return Ok(());
+                        }
+                        if nf.name == "snn.step" {
+                            let network = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("snn.step expects network"))?;
+                            let input = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("snn.step expects input"))?;
+                            self.stack.truncate(callee_index);
+                            let value = self.snn_step(network, input)?;
+                            self.stack.push(value);
+                            return Ok(());
+                        }
+                        if nf.name == "snn.spikes" {
+                            let network = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("snn.spikes expects network"))?;
+                            self.stack.truncate(callee_index);
+                            let value = self.snn_spikes(network)?;
+                            self.stack.push(value);
+                            return Ok(());
+                        }
+                        if nf.name == "snn.potentials" {
+                            let network = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("snn.potentials expects network")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let value = self.snn_potentials(network)?;
+                            self.stack.push(value);
+                            return Ok(());
+                        }
+                        if nf.name == "snn.synapses" {
+                            let network = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("snn.synapses expects network"))?;
+                            self.stack.truncate(callee_index);
+                            let value = self.snn_synapses(network)?;
+                            self.stack.push(value);
+                            return Ok(());
+                        }
+                        if nf.name == "agent.make" {
+                            let world = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("agent.make expects world"))?;
+                            let spatial = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("agent.make expects spatial"))?;
+                            self.stack.truncate(callee_index);
+                            let value = self.agent_make(world, spatial)?;
+                            self.stack.push(value);
+                            return Ok(());
+                        }
+                        if nf.name == "agent.register" {
+                            let env = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("agent.register expects env"))?;
+                            let agent_id = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.register expects agent id")
+                            })?;
+                            let body = args
+                                .get(2)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("agent.register expects body"))?;
+                            let memory = args.get(3).cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.register expects memory")
+                            })?;
+                            let x = args
+                                .get(4)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("agent.register expects x"))?;
+                            let y = args
+                                .get(5)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("agent.register expects y"))?;
+                            self.stack.truncate(callee_index);
+                            self.agent_register(env, agent_id, body, memory, x, y)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "agent.state" {
+                            let env = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("agent.state expects env"))?;
+                            let agent_id = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("agent.state expects agent id"))?;
+                            self.stack.truncate(callee_index);
+                            let value = self.agent_state(env, agent_id)?;
+                            self.stack.push(value);
+                            return Ok(());
+                        }
+                        if nf.name == "agent.body" {
+                            let env = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("agent.body expects env"))?;
+                            let agent_id = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("agent.body expects agent id"))?;
+                            self.stack.truncate(callee_index);
+                            let value = self.agent_body(env, agent_id)?;
+                            self.stack.push(value);
+                            return Ok(());
+                        }
+                        if nf.name == "agent.memory" {
+                            let env = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("agent.memory expects env"))?;
+                            let agent_id = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.memory expects agent id")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let value = self.agent_memory(env, agent_id)?;
+                            self.stack.push(value);
+                            return Ok(());
+                        }
+                        if nf.name == "agent.set_body" {
+                            let env = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("agent.set_body expects env"))?;
+                            let agent_id = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.set_body expects agent id")
+                            })?;
+                            let body = args
+                                .get(2)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("agent.set_body expects body"))?;
+                            self.stack.truncate(callee_index);
+                            self.agent_set_body(env, agent_id, body)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "agent.set_memory" {
+                            let env = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("agent.set_memory expects env"))?;
+                            let agent_id = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.set_memory expects agent id")
+                            })?;
+                            let memory = args.get(2).cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.set_memory expects memory")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            self.agent_set_memory(env, agent_id, memory)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "agent.position" {
+                            let env = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("agent.position expects env"))?;
+                            let agent_id = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.position expects agent id")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let value = self.agent_position(env, agent_id)?;
+                            self.stack.push(value);
+                            return Ok(());
+                        }
+                        if nf.name == "agent.set_position" {
+                            let env = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.set_position expects env")
+                            })?;
+                            let agent_id = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.set_position expects agent id")
+                            })?;
+                            let x = args
+                                .get(2)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("agent.set_position expects x"))?;
+                            let y = args
+                                .get(3)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("agent.set_position expects y"))?;
+                            self.stack.truncate(callee_index);
+                            self.agent_set_position(env, agent_id, x, y)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "agent.neighbors" {
+                            let env = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("agent.neighbors expects env"))?;
+                            let agent_id = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.neighbors expects agent id")
+                            })?;
+                            let radius = args.get(2).cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.neighbors expects radius")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let value = self.agent_neighbors(env, agent_id, radius)?;
+                            self.stack.push(value);
+                            return Ok(());
+                        }
+                        if nf.name == "agent.reward_add" {
+                            let env = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("agent.reward_add expects env"))?;
+                            let agent_id = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.reward_add expects agent id")
+                            })?;
+                            let delta = args.get(2).cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.reward_add expects delta")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            self.agent_reward_add(env, agent_id, delta)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "agent.reward_get" {
+                            let env = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("agent.reward_get expects env"))?;
+                            let agent_id = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.reward_get expects agent id")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let value = self.agent_reward_get(env, agent_id)?;
+                            self.stack.push(Value::Float(value));
+                            return Ok(());
+                        }
+                        if nf.name == "agent.reward_take" {
+                            let env = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.reward_take expects env")
+                            })?;
+                            let agent_id = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.reward_take expects agent id")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let value = self.agent_reward_take(env, agent_id)?;
+                            self.stack.push(Value::Float(value));
+                            return Ok(());
+                        }
+                        if nf.name == "agent.sense_push" {
+                            let env = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("agent.sense_push expects env"))?;
+                            let agent_id = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.sense_push expects agent id")
+                            })?;
+                            let value = args.get(2).cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.sense_push expects value")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            self.agent_sense_push(env, agent_id, value)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "agent.sense_take" {
+                            let env = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("agent.sense_take expects env"))?;
+                            let agent_id = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.sense_take expects agent id")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let value = self.agent_sense_take(env, agent_id)?;
+                            self.stack.push(value);
+                            return Ok(());
+                        }
+                        if nf.name == "agent.action_push" {
+                            let env = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.action_push expects env")
+                            })?;
+                            let agent_id = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.action_push expects agent id")
+                            })?;
+                            let value = args.get(2).cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.action_push expects value")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            self.agent_action_push(env, agent_id, value)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "agent.action_take" {
+                            let env = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.action_take expects env")
+                            })?;
+                            let agent_id = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.action_take expects agent id")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let value = self.agent_action_take(env, agent_id)?;
+                            self.stack.push(value);
+                            return Ok(());
+                        }
+                        if nf.name == "agent.stream" {
+                            let env = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("agent.stream expects env"))?;
+                            let agent_id = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.stream expects agent id")
+                            })?;
+                            let domain = args
+                                .get(2)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("agent.stream expects domain"))?;
+                            self.stack.truncate(callee_index);
+                            let value = self.agent_stream(env, agent_id, domain)?;
+                            self.stack.push(value);
+                            return Ok(());
+                        }
+                        if nf.name == "agent.next_float" {
+                            let stream = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.next_float expects stream")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let value = self.agent_next_float(stream)?;
+                            self.stack.push(Value::Float(value));
+                            return Ok(());
+                        }
+                        if nf.name == "agent.next_int" {
+                            let stream = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("agent.next_int expects stream")
+                            })?;
+                            let upper = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("agent.next_int expects upper"))?;
+                            self.stack.truncate(callee_index);
+                            let value = self.agent_next_int(stream, upper)?;
+                            self.stack.push(Value::Int(value));
+                            return Ok(());
+                        }
                         let result = match &nf.kind {
                             NativeImpl::Rust(func) => (func)(self, &args)?,
                             NativeImpl::Ffi(func) => func.call(&args)?,
@@ -8751,6 +9540,1072 @@ impl VM {
         }
     }
 
+    fn spatial_make(&mut self) -> Value {
+        let native = self
+            .sim_accel_bindings()
+            .and_then(|bindings| bindings.spatial_index_new.call(&[]).ok());
+        spatial_index_value_with_native(native)
+    }
+
+    fn spatial_upsert(
+        &mut self,
+        spatial: Value,
+        entity_id: Value,
+        x: Value,
+        y: Value,
+    ) -> Result<(), RuntimeError> {
+        let entity_id = value_as_int(&entity_id)?;
+        let x = value_as_float_like(&x)?;
+        let y = value_as_float_like(&y)?;
+        match spatial {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SpatialIndex(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    inner.positions.insert(entity_id, (x, y));
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        let _ = bindings.spatial_upsert.call(&[
+                            handle,
+                            Value::Int(entity_id),
+                            Value::Float(x),
+                            Value::Float(y),
+                        ]);
+                    }
+                    Ok(())
+                }
+                _ => Err(RuntimeError::new("spatial.upsert expects SpatialIndex")),
+            },
+            _ => Err(RuntimeError::new("spatial.upsert expects SpatialIndex")),
+        }
+    }
+
+    fn spatial_remove(&mut self, spatial: Value, entity_id: Value) -> Result<bool, RuntimeError> {
+        let entity_id = value_as_int(&entity_id)?;
+        match spatial {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SpatialIndex(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    let removed = inner.positions.remove(&entity_id).is_some();
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        if let Ok(Value::Bool(native_removed)) = bindings
+                            .spatial_remove
+                            .call(&[handle, Value::Int(entity_id)])
+                        {
+                            return Ok(native_removed || removed);
+                        }
+                    }
+                    Ok(removed)
+                }
+                _ => Err(RuntimeError::new("spatial.remove expects SpatialIndex")),
+            },
+            _ => Err(RuntimeError::new("spatial.remove expects SpatialIndex")),
+        }
+    }
+
+    fn spatial_radius(
+        &mut self,
+        spatial: Value,
+        x: Value,
+        y: Value,
+        radius: Value,
+    ) -> Result<Value, RuntimeError> {
+        let x = value_as_float_like(&x)?;
+        let y = value_as_float_like(&y)?;
+        let radius = value_as_float_like(&radius)?;
+        if radius < 0.0 || !radius.is_finite() {
+            return Err(RuntimeError::new(
+                "spatial.radius expects finite radius >= 0",
+            ));
+        }
+        match spatial {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SpatialIndex(inner) => {
+                    let inner = inner.borrow();
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        if let Ok(buffer) = bindings.spatial_radius.call(&[
+                            handle,
+                            Value::Float(x),
+                            Value::Float(y),
+                            Value::Float(radius),
+                        ]) {
+                            if let Ok(ids) = decode_i64_buffer(buffer, "sim_spatial_radius") {
+                                return Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                                    ids.into_iter().map(Value::Int).collect(),
+                                )))));
+                            }
+                        }
+                    }
+                    let radius_sq = radius * radius;
+                    let mut ids: Vec<(f64, i64)> = inner
+                        .positions
+                        .iter()
+                        .filter_map(|(id, (px, py))| {
+                            let dx = px - x;
+                            let dy = py - y;
+                            let dist_sq = dx * dx + dy * dy;
+                            (dist_sq <= radius_sq).then_some((dist_sq, *id))
+                        })
+                        .collect();
+                    ids.sort_by(|left, right| {
+                        left.0
+                            .partial_cmp(&right.0)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                            .then_with(|| left.1.cmp(&right.1))
+                    });
+                    Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                        ids.into_iter().map(|(_, id)| Value::Int(id)).collect(),
+                    )))))
+                }
+                _ => Err(RuntimeError::new("spatial.radius expects SpatialIndex")),
+            },
+            _ => Err(RuntimeError::new("spatial.radius expects SpatialIndex")),
+        }
+    }
+
+    fn spatial_nearest(
+        &mut self,
+        spatial: Value,
+        x: Value,
+        y: Value,
+    ) -> Result<Value, RuntimeError> {
+        let x = value_as_float_like(&x)?;
+        let y = value_as_float_like(&y)?;
+        match spatial {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SpatialIndex(inner) => {
+                    let inner = inner.borrow();
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        if let Ok(Value::Int(id)) = bindings.spatial_nearest.call(&[
+                            handle,
+                            Value::Float(x),
+                            Value::Float(y),
+                        ]) {
+                            return Ok(if id >= 0 { Value::Int(id) } else { Value::Null });
+                        }
+                    }
+                    let nearest = inner
+                        .positions
+                        .iter()
+                        .map(|(id, (px, py))| {
+                            let dx = px - x;
+                            let dy = py - y;
+                            (dx * dx + dy * dy, *id)
+                        })
+                        .min_by(|left, right| {
+                            left.0
+                                .partial_cmp(&right.0)
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                                .then_with(|| left.1.cmp(&right.1))
+                        });
+                    Ok(nearest.map(|(_, id)| Value::Int(id)).unwrap_or(Value::Null))
+                }
+                _ => Err(RuntimeError::new("spatial.nearest expects SpatialIndex")),
+            },
+            _ => Err(RuntimeError::new("spatial.nearest expects SpatialIndex")),
+        }
+    }
+
+    fn spatial_occupancy(
+        &mut self,
+        spatial: Value,
+        min_x: Value,
+        min_y: Value,
+        max_x: Value,
+        max_y: Value,
+    ) -> Result<i64, RuntimeError> {
+        let min_x = value_as_float_like(&min_x)?;
+        let min_y = value_as_float_like(&min_y)?;
+        let max_x = value_as_float_like(&max_x)?;
+        let max_y = value_as_float_like(&max_y)?;
+        match spatial {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SpatialIndex(inner) => {
+                    let inner = inner.borrow();
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        if let Ok(Value::Int(count)) = bindings.spatial_occupancy.call(&[
+                            handle,
+                            Value::Float(min_x),
+                            Value::Float(min_y),
+                            Value::Float(max_x),
+                            Value::Float(max_y),
+                        ]) {
+                            return Ok(count.max(0));
+                        }
+                    }
+                    Ok(inner
+                        .positions
+                        .values()
+                        .filter(|(x, y)| *x >= min_x && *x <= max_x && *y >= min_y && *y <= max_y)
+                        .count() as i64)
+                }
+                _ => Err(RuntimeError::new("spatial.occupancy expects SpatialIndex")),
+            },
+            _ => Err(RuntimeError::new("spatial.occupancy expects SpatialIndex")),
+        }
+    }
+
+    fn snn_make(&mut self, neuron_count: Value) -> Result<Value, RuntimeError> {
+        let neuron_count =
+            value_as_non_negative_int(&neuron_count, "snn.make expects neuron_count >= 0")?
+                as usize;
+        let sparse_native = self
+            .sim_accel_bindings()
+            .and_then(|bindings| bindings.sparse_matrix_new.call(&[]).ok());
+        let network_native = self.sim_accel_bindings().and_then(|bindings| {
+            bindings
+                .snn_network_new
+                .call(&[Value::Int(neuron_count as i64)])
+                .ok()
+        });
+        let synapses = sparse_matrix_value_with_native(sparse_native);
+        Ok(snn_network_value(neuron_count, synapses, network_native))
+    }
+
+    fn snn_connect(
+        &mut self,
+        network: Value,
+        from: Value,
+        to: Value,
+        weight: Value,
+    ) -> Result<(), RuntimeError> {
+        let from_idx = value_as_non_negative_int(&from, "snn.connect expects from >= 0")?;
+        let to_idx = value_as_non_negative_int(&to, "snn.connect expects to >= 0")?;
+        let weight = value_as_float_like(&weight)?;
+        match network {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SnnNetwork(inner) => {
+                    let handle = {
+                        let inner = inner.borrow();
+                        if from_idx as usize >= inner.neuron_count
+                            || to_idx as usize >= inner.neuron_count
+                        {
+                            return Err(RuntimeError::new("snn.connect index out of range"));
+                        }
+                        inner.native.clone()
+                    };
+                    let synapses = {
+                        let inner = inner.borrow();
+                        inner.synapses.clone()
+                    };
+                    self.sparse_set(
+                        synapses,
+                        Value::Int(from_idx),
+                        Value::Int(to_idx),
+                        Value::Float(weight),
+                    )?;
+                    if let (Some(handle), Some(bindings)) = (handle, self.sim_accel_bindings()) {
+                        let _ = bindings.snn_connect.call(&[
+                            handle,
+                            Value::Int(from_idx),
+                            Value::Int(to_idx),
+                            Value::Float(weight),
+                        ]);
+                    }
+                    Ok(())
+                }
+                _ => Err(RuntimeError::new("snn.connect expects SnnNetwork")),
+            },
+            _ => Err(RuntimeError::new("snn.connect expects SnnNetwork")),
+        }
+    }
+
+    fn snn_set_potential(
+        &mut self,
+        network: Value,
+        index: Value,
+        value: Value,
+    ) -> Result<(), RuntimeError> {
+        let index = value_as_non_negative_int(&index, "snn.set_potential expects index >= 0")?;
+        let value = value_as_float_like(&value)?;
+        match network {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SnnNetwork(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    let slot = inner
+                        .potentials
+                        .get_mut(index as usize)
+                        .ok_or_else(|| RuntimeError::new("snn.set_potential index out of range"))?;
+                    *slot = value;
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        let _ = bindings.snn_set_potential.call(&[
+                            handle,
+                            Value::Int(index),
+                            Value::Float(value),
+                        ]);
+                    }
+                    Ok(())
+                }
+                _ => Err(RuntimeError::new("snn.set_potential expects SnnNetwork")),
+            },
+            _ => Err(RuntimeError::new("snn.set_potential expects SnnNetwork")),
+        }
+    }
+
+    fn snn_get_potential(&mut self, network: Value, index: Value) -> Result<f64, RuntimeError> {
+        let index = value_as_non_negative_int(&index, "snn.get_potential expects index >= 0")?;
+        match network {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SnnNetwork(inner) => {
+                    let inner = inner.borrow();
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        if let Ok(Value::Float(value)) = bindings
+                            .snn_get_potential
+                            .call(&[handle, Value::Int(index)])
+                        {
+                            return Ok(value);
+                        }
+                    }
+                    inner
+                        .potentials
+                        .get(index as usize)
+                        .copied()
+                        .ok_or_else(|| RuntimeError::new("snn.get_potential index out of range"))
+                }
+                _ => Err(RuntimeError::new("snn.get_potential expects SnnNetwork")),
+            },
+            _ => Err(RuntimeError::new("snn.get_potential expects SnnNetwork")),
+        }
+    }
+
+    fn snn_set_threshold(
+        &mut self,
+        network: Value,
+        index: Value,
+        value: Value,
+    ) -> Result<(), RuntimeError> {
+        let index = value_as_non_negative_int(&index, "snn.set_threshold expects index >= 0")?;
+        let value = value_as_float_like(&value)?;
+        match network {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SnnNetwork(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    let slot = inner
+                        .thresholds
+                        .get_mut(index as usize)
+                        .ok_or_else(|| RuntimeError::new("snn.set_threshold index out of range"))?;
+                    *slot = value;
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        let _ = bindings.snn_set_threshold.call(&[
+                            handle,
+                            Value::Int(index),
+                            Value::Float(value),
+                        ]);
+                    }
+                    Ok(())
+                }
+                _ => Err(RuntimeError::new("snn.set_threshold expects SnnNetwork")),
+            },
+            _ => Err(RuntimeError::new("snn.set_threshold expects SnnNetwork")),
+        }
+    }
+
+    fn snn_get_threshold(&mut self, network: Value, index: Value) -> Result<f64, RuntimeError> {
+        let index = value_as_non_negative_int(&index, "snn.get_threshold expects index >= 0")?;
+        match network {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SnnNetwork(inner) => {
+                    let inner = inner.borrow();
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        if let Ok(Value::Float(value)) = bindings
+                            .snn_get_threshold
+                            .call(&[handle, Value::Int(index)])
+                        {
+                            return Ok(value);
+                        }
+                    }
+                    inner
+                        .thresholds
+                        .get(index as usize)
+                        .copied()
+                        .ok_or_else(|| RuntimeError::new("snn.get_threshold index out of range"))
+                }
+                _ => Err(RuntimeError::new("snn.get_threshold expects SnnNetwork")),
+            },
+            _ => Err(RuntimeError::new("snn.get_threshold expects SnnNetwork")),
+        }
+    }
+
+    fn snn_set_decay(&mut self, network: Value, value: Value) -> Result<(), RuntimeError> {
+        let value = value_as_float_like(&value)?;
+        match network {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SnnNetwork(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    inner.decay = value;
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        let _ = bindings.snn_set_decay.call(&[handle, Value::Float(value)]);
+                    }
+                    Ok(())
+                }
+                _ => Err(RuntimeError::new("snn.set_decay expects SnnNetwork")),
+            },
+            _ => Err(RuntimeError::new("snn.set_decay expects SnnNetwork")),
+        }
+    }
+
+    fn snn_get_decay(&mut self, network: Value) -> Result<f64, RuntimeError> {
+        match network {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SnnNetwork(inner) => {
+                    let inner = inner.borrow();
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        if let Ok(Value::Float(value)) = bindings.snn_get_decay.call(&[handle]) {
+                            return Ok(value);
+                        }
+                    }
+                    Ok(inner.decay)
+                }
+                _ => Err(RuntimeError::new("snn.get_decay expects SnnNetwork")),
+            },
+            _ => Err(RuntimeError::new("snn.get_decay expects SnnNetwork")),
+        }
+    }
+
+    fn snn_step(&mut self, network: Value, input: Value) -> Result<Value, RuntimeError> {
+        let dense = value_as_dense_f64(&input)?;
+        match network {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SnnNetwork(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    let neuron_count = inner.neuron_count;
+                    let mut input_vec = vec![0.0; neuron_count];
+                    for (idx, value) in dense.into_iter().take(neuron_count).enumerate() {
+                        input_vec[idx] = value;
+                    }
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        let encoded = encode_f64_buffer(&input_vec);
+                        if let Ok(buffer) = bindings.snn_step.call(&[handle, encoded]) {
+                            if let Ok((potentials, spikes)) =
+                                decode_snn_step_buffer(buffer, neuron_count)
+                            {
+                                inner.potentials = potentials;
+                                inner.last_spikes = spikes.clone();
+                                return Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                                    spikes
+                                        .into_iter()
+                                        .enumerate()
+                                        .filter_map(|(idx, fired)| {
+                                            fired.then_some(Value::Int(idx as i64))
+                                        })
+                                        .collect(),
+                                )))));
+                            }
+                        }
+                    }
+                    let mut recurrent = vec![0.0; neuron_count];
+                    let synapses = inner.synapses.clone();
+                    if let Value::Obj(syn_obj) = synapses {
+                        if let Obj::SparseMatrix(matrix) = syn_obj.as_obj() {
+                            for ((from, to), weight) in matrix.borrow().data.iter() {
+                                let from_idx = *from as usize;
+                                let to_idx = *to as usize;
+                                if from_idx < inner.last_spikes.len()
+                                    && to_idx < recurrent.len()
+                                    && inner.last_spikes[from_idx]
+                                {
+                                    recurrent[to_idx] += *weight;
+                                }
+                            }
+                        }
+                    }
+                    let mut spikes = vec![false; neuron_count];
+                    for idx in 0..neuron_count {
+                        let mut next = inner.potentials[idx] * inner.decay + input_vec[idx];
+                        next += recurrent[idx];
+                        let fired = next >= inner.thresholds[idx];
+                        if fired {
+                            next = 0.0;
+                        }
+                        inner.potentials[idx] = next;
+                        spikes[idx] = fired;
+                    }
+                    inner.last_spikes = spikes.clone();
+                    Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                        spikes
+                            .into_iter()
+                            .enumerate()
+                            .filter_map(|(idx, fired)| fired.then_some(Value::Int(idx as i64)))
+                            .collect(),
+                    )))))
+                }
+                _ => Err(RuntimeError::new("snn.step expects SnnNetwork")),
+            },
+            _ => Err(RuntimeError::new("snn.step expects SnnNetwork")),
+        }
+    }
+
+    fn snn_spikes(&self, network: Value) -> Result<Value, RuntimeError> {
+        match network {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SnnNetwork(inner) => Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                    inner
+                        .borrow()
+                        .last_spikes
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(idx, fired)| fired.then_some(Value::Int(idx as i64)))
+                        .collect(),
+                ))))),
+                _ => Err(RuntimeError::new("snn.spikes expects SnnNetwork")),
+            },
+            _ => Err(RuntimeError::new("snn.spikes expects SnnNetwork")),
+        }
+    }
+
+    fn snn_potentials(&self, network: Value) -> Result<Value, RuntimeError> {
+        match network {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SnnNetwork(inner) => Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                    inner
+                        .borrow()
+                        .potentials
+                        .iter()
+                        .copied()
+                        .map(Value::Float)
+                        .collect(),
+                ))))),
+                _ => Err(RuntimeError::new("snn.potentials expects SnnNetwork")),
+            },
+            _ => Err(RuntimeError::new("snn.potentials expects SnnNetwork")),
+        }
+    }
+
+    fn snn_synapses(&self, network: Value) -> Result<Value, RuntimeError> {
+        match network {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SnnNetwork(inner) => Ok(inner.borrow().synapses.clone()),
+                _ => Err(RuntimeError::new("snn.synapses expects SnnNetwork")),
+            },
+            _ => Err(RuntimeError::new("snn.synapses expects SnnNetwork")),
+        }
+    }
+
+    fn agent_make(&self, world: Value, spatial: Value) -> Result<Value, RuntimeError> {
+        match (&world, &spatial) {
+            (Value::Obj(world_obj), Value::Obj(spatial_obj))
+                if matches!(world_obj.as_obj(), Obj::SimWorld(_))
+                    && matches!(spatial_obj.as_obj(), Obj::SpatialIndex(_)) =>
+            {
+                Ok(agent_env_value(world, spatial))
+            }
+            _ => Err(RuntimeError::new(
+                "agent.make expects (SimWorld, SpatialIndex)",
+            )),
+        }
+    }
+
+    fn agent_register(
+        &mut self,
+        env: Value,
+        agent_id: Value,
+        body: Value,
+        memory: Value,
+        x: Value,
+        y: Value,
+    ) -> Result<(), RuntimeError> {
+        let agent_id = value_as_int(&agent_id)?;
+        let x = value_as_float_like(&x)?;
+        let y = value_as_float_like(&y)?;
+        let snapshot = record_value(HashMap::from([
+            ("body".to_string(), body.clone()),
+            ("memory".to_string(), memory.clone()),
+            ("reward".to_string(), Value::Float(0.0)),
+            (
+                "position".to_string(),
+                record_value(HashMap::from([
+                    ("x".to_string(), Value::Float(x)),
+                    ("y".to_string(), Value::Float(y)),
+                ])),
+            ),
+        ]));
+        let (world, spatial) = match env {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::AgentEnv(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    inner.agents.insert(
+                        agent_id,
+                        crate::object::AgentRecordState {
+                            body,
+                            memory,
+                            reward: 0.0,
+                            sensors: VecDeque::new(),
+                            actions: VecDeque::new(),
+                            x,
+                            y,
+                        },
+                    );
+                    (inner.world.clone(), inner.spatial.clone())
+                }
+                _ => return Err(RuntimeError::new("agent.register expects AgentEnv")),
+            },
+            _ => return Err(RuntimeError::new("agent.register expects AgentEnv")),
+        };
+        self.spatial_upsert(
+            spatial,
+            Value::Int(agent_id),
+            Value::Float(x),
+            Value::Float(y),
+        )?;
+        self.sim_entity_set(world, Value::Int(agent_id), snapshot)?;
+        Ok(())
+    }
+
+    fn agent_state(&self, env: Value, agent_id: Value) -> Result<Value, RuntimeError> {
+        let agent_id = value_as_int(&agent_id)?;
+        match env {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::AgentEnv(inner) => {
+                    let inner = inner.borrow();
+                    let record = inner.agents.get(&agent_id).ok_or_else(|| {
+                        RuntimeError::new("agent.state expects a registered agent")
+                    })?;
+                    Ok(record_value(HashMap::from([
+                        ("body".to_string(), record.body.clone()),
+                        ("memory".to_string(), record.memory.clone()),
+                        ("reward".to_string(), Value::Float(record.reward)),
+                        (
+                            "position".to_string(),
+                            record_value(HashMap::from([
+                                ("x".to_string(), Value::Float(record.x)),
+                                ("y".to_string(), Value::Float(record.y)),
+                            ])),
+                        ),
+                        (
+                            "senses_pending".to_string(),
+                            Value::Int(record.sensors.len() as i64),
+                        ),
+                        (
+                            "actions_pending".to_string(),
+                            Value::Int(record.actions.len() as i64),
+                        ),
+                    ])))
+                }
+                _ => Err(RuntimeError::new("agent.state expects AgentEnv")),
+            },
+            _ => Err(RuntimeError::new("agent.state expects AgentEnv")),
+        }
+    }
+
+    fn agent_body(&self, env: Value, agent_id: Value) -> Result<Value, RuntimeError> {
+        let agent_id = value_as_int(&agent_id)?;
+        match env {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::AgentEnv(inner) => inner
+                    .borrow()
+                    .agents
+                    .get(&agent_id)
+                    .map(|record| record.body.clone())
+                    .ok_or_else(|| RuntimeError::new("agent.body expects a registered agent")),
+                _ => Err(RuntimeError::new("agent.body expects AgentEnv")),
+            },
+            _ => Err(RuntimeError::new("agent.body expects AgentEnv")),
+        }
+    }
+
+    fn agent_memory(&self, env: Value, agent_id: Value) -> Result<Value, RuntimeError> {
+        let agent_id = value_as_int(&agent_id)?;
+        match env {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::AgentEnv(inner) => inner
+                    .borrow()
+                    .agents
+                    .get(&agent_id)
+                    .map(|record| record.memory.clone())
+                    .ok_or_else(|| RuntimeError::new("agent.memory expects a registered agent")),
+                _ => Err(RuntimeError::new("agent.memory expects AgentEnv")),
+            },
+            _ => Err(RuntimeError::new("agent.memory expects AgentEnv")),
+        }
+    }
+
+    fn agent_set_body(
+        &mut self,
+        env: Value,
+        agent_id: Value,
+        body: Value,
+    ) -> Result<(), RuntimeError> {
+        let agent_id_num = value_as_int(&agent_id)?;
+        let world = match &env {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::AgentEnv(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    let record = inner.agents.get_mut(&agent_id_num).ok_or_else(|| {
+                        RuntimeError::new("agent.set_body expects a registered agent")
+                    })?;
+                    record.body = body;
+                    inner.world.clone()
+                }
+                _ => return Err(RuntimeError::new("agent.set_body expects AgentEnv")),
+            },
+            _ => return Err(RuntimeError::new("agent.set_body expects AgentEnv")),
+        };
+        let snapshot = self.agent_state(env, Value::Int(agent_id_num))?;
+        self.sim_entity_set(world, Value::Int(agent_id_num), snapshot)?;
+        Ok(())
+    }
+
+    fn agent_set_memory(
+        &mut self,
+        env: Value,
+        agent_id: Value,
+        memory: Value,
+    ) -> Result<(), RuntimeError> {
+        let agent_id_num = value_as_int(&agent_id)?;
+        let world = match &env {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::AgentEnv(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    let record = inner.agents.get_mut(&agent_id_num).ok_or_else(|| {
+                        RuntimeError::new("agent.set_memory expects a registered agent")
+                    })?;
+                    record.memory = memory;
+                    inner.world.clone()
+                }
+                _ => return Err(RuntimeError::new("agent.set_memory expects AgentEnv")),
+            },
+            _ => return Err(RuntimeError::new("agent.set_memory expects AgentEnv")),
+        };
+        let snapshot = self.agent_state(env, Value::Int(agent_id_num))?;
+        self.sim_entity_set(world, Value::Int(agent_id_num), snapshot)?;
+        Ok(())
+    }
+
+    fn agent_position(&self, env: Value, agent_id: Value) -> Result<Value, RuntimeError> {
+        let agent_id = value_as_int(&agent_id)?;
+        match env {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::AgentEnv(inner) => {
+                    let inner = inner.borrow();
+                    let record = inner.agents.get(&agent_id).ok_or_else(|| {
+                        RuntimeError::new("agent.position expects a registered agent")
+                    })?;
+                    Ok(record_value(HashMap::from([
+                        ("x".to_string(), Value::Float(record.x)),
+                        ("y".to_string(), Value::Float(record.y)),
+                    ])))
+                }
+                _ => Err(RuntimeError::new("agent.position expects AgentEnv")),
+            },
+            _ => Err(RuntimeError::new("agent.position expects AgentEnv")),
+        }
+    }
+
+    fn agent_set_position(
+        &mut self,
+        env: Value,
+        agent_id: Value,
+        x: Value,
+        y: Value,
+    ) -> Result<(), RuntimeError> {
+        let agent_id_num = value_as_int(&agent_id)?;
+        let x = value_as_float_like(&x)?;
+        let y = value_as_float_like(&y)?;
+        let (world, spatial) = match &env {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::AgentEnv(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    let record = inner.agents.get_mut(&agent_id_num).ok_or_else(|| {
+                        RuntimeError::new("agent.set_position expects a registered agent")
+                    })?;
+                    record.x = x;
+                    record.y = y;
+                    (inner.world.clone(), inner.spatial.clone())
+                }
+                _ => return Err(RuntimeError::new("agent.set_position expects AgentEnv")),
+            },
+            _ => return Err(RuntimeError::new("agent.set_position expects AgentEnv")),
+        };
+        self.spatial_upsert(
+            spatial,
+            Value::Int(agent_id_num),
+            Value::Float(x),
+            Value::Float(y),
+        )?;
+        let snapshot = self.agent_state(env, Value::Int(agent_id_num))?;
+        self.sim_entity_set(world, Value::Int(agent_id_num), snapshot)?;
+        Ok(())
+    }
+
+    fn agent_neighbors(
+        &mut self,
+        env: Value,
+        agent_id: Value,
+        radius: Value,
+    ) -> Result<Value, RuntimeError> {
+        let agent_id_num = value_as_int(&agent_id)?;
+        let radius_f = value_as_float_like(&radius)?;
+        let (x, y, spatial) = match env {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::AgentEnv(inner) => {
+                    let inner = inner.borrow();
+                    let record = inner.agents.get(&agent_id_num).ok_or_else(|| {
+                        RuntimeError::new("agent.neighbors expects a registered agent")
+                    })?;
+                    (record.x, record.y, inner.spatial.clone())
+                }
+                _ => return Err(RuntimeError::new("agent.neighbors expects AgentEnv")),
+            },
+            _ => return Err(RuntimeError::new("agent.neighbors expects AgentEnv")),
+        };
+        let neighbors = self.spatial_radius(
+            spatial,
+            Value::Float(x),
+            Value::Float(y),
+            Value::Float(radius_f),
+        )?;
+        let list = value_as_list(&neighbors)?
+            .into_iter()
+            .filter(|value| !matches!(value, Value::Int(id) if *id == agent_id_num))
+            .collect();
+        Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(list)))))
+    }
+
+    fn agent_reward_add(
+        &mut self,
+        env: Value,
+        agent_id: Value,
+        delta: Value,
+    ) -> Result<(), RuntimeError> {
+        let agent_id = value_as_int(&agent_id)?;
+        let delta = value_as_float_like(&delta)?;
+        match env {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::AgentEnv(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    let record = inner.agents.get_mut(&agent_id).ok_or_else(|| {
+                        RuntimeError::new("agent.reward_add expects a registered agent")
+                    })?;
+                    record.reward += delta;
+                    Ok(())
+                }
+                _ => Err(RuntimeError::new("agent.reward_add expects AgentEnv")),
+            },
+            _ => Err(RuntimeError::new("agent.reward_add expects AgentEnv")),
+        }
+    }
+
+    fn agent_reward_get(&self, env: Value, agent_id: Value) -> Result<f64, RuntimeError> {
+        let agent_id = value_as_int(&agent_id)?;
+        match env {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::AgentEnv(inner) => inner
+                    .borrow()
+                    .agents
+                    .get(&agent_id)
+                    .map(|record| record.reward)
+                    .ok_or_else(|| {
+                        RuntimeError::new("agent.reward_get expects a registered agent")
+                    }),
+                _ => Err(RuntimeError::new("agent.reward_get expects AgentEnv")),
+            },
+            _ => Err(RuntimeError::new("agent.reward_get expects AgentEnv")),
+        }
+    }
+
+    fn agent_reward_take(&mut self, env: Value, agent_id: Value) -> Result<f64, RuntimeError> {
+        let agent_id = value_as_int(&agent_id)?;
+        match env {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::AgentEnv(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    let record = inner.agents.get_mut(&agent_id).ok_or_else(|| {
+                        RuntimeError::new("agent.reward_take expects a registered agent")
+                    })?;
+                    let reward = record.reward;
+                    record.reward = 0.0;
+                    Ok(reward)
+                }
+                _ => Err(RuntimeError::new("agent.reward_take expects AgentEnv")),
+            },
+            _ => Err(RuntimeError::new("agent.reward_take expects AgentEnv")),
+        }
+    }
+
+    fn agent_sense_push(
+        &mut self,
+        env: Value,
+        agent_id: Value,
+        value: Value,
+    ) -> Result<(), RuntimeError> {
+        let agent_id = value_as_int(&agent_id)?;
+        match env {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::AgentEnv(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    let record = inner.agents.get_mut(&agent_id).ok_or_else(|| {
+                        RuntimeError::new("agent.sense_push expects a registered agent")
+                    })?;
+                    record.sensors.push_back(value);
+                    Ok(())
+                }
+                _ => Err(RuntimeError::new("agent.sense_push expects AgentEnv")),
+            },
+            _ => Err(RuntimeError::new("agent.sense_push expects AgentEnv")),
+        }
+    }
+
+    fn agent_sense_take(&mut self, env: Value, agent_id: Value) -> Result<Value, RuntimeError> {
+        let agent_id = value_as_int(&agent_id)?;
+        match env {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::AgentEnv(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    let record = inner.agents.get_mut(&agent_id).ok_or_else(|| {
+                        RuntimeError::new("agent.sense_take expects a registered agent")
+                    })?;
+                    Ok(record.sensors.pop_front().unwrap_or(Value::Null))
+                }
+                _ => Err(RuntimeError::new("agent.sense_take expects AgentEnv")),
+            },
+            _ => Err(RuntimeError::new("agent.sense_take expects AgentEnv")),
+        }
+    }
+
+    fn agent_action_push(
+        &mut self,
+        env: Value,
+        agent_id: Value,
+        value: Value,
+    ) -> Result<(), RuntimeError> {
+        let agent_id = value_as_int(&agent_id)?;
+        match env {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::AgentEnv(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    let record = inner.agents.get_mut(&agent_id).ok_or_else(|| {
+                        RuntimeError::new("agent.action_push expects a registered agent")
+                    })?;
+                    record.actions.push_back(value);
+                    Ok(())
+                }
+                _ => Err(RuntimeError::new("agent.action_push expects AgentEnv")),
+            },
+            _ => Err(RuntimeError::new("agent.action_push expects AgentEnv")),
+        }
+    }
+
+    fn agent_action_take(&mut self, env: Value, agent_id: Value) -> Result<Value, RuntimeError> {
+        let agent_id = value_as_int(&agent_id)?;
+        match env {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::AgentEnv(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    let record = inner.agents.get_mut(&agent_id).ok_or_else(|| {
+                        RuntimeError::new("agent.action_take expects a registered agent")
+                    })?;
+                    Ok(record.actions.pop_front().unwrap_or(Value::Null))
+                }
+                _ => Err(RuntimeError::new("agent.action_take expects AgentEnv")),
+            },
+            _ => Err(RuntimeError::new("agent.action_take expects AgentEnv")),
+        }
+    }
+
+    fn agent_stream(
+        &mut self,
+        env: Value,
+        agent_id: Value,
+        domain: Value,
+    ) -> Result<Value, RuntimeError> {
+        let agent_id = value_as_int(&agent_id)?;
+        let domain_name = value_as_string(&domain)?;
+        let world_seed = match env {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::AgentEnv(inner) => self.sim_seed(inner.borrow().world.clone())?,
+                _ => return Err(RuntimeError::new("agent.stream expects AgentEnv")),
+            },
+            _ => return Err(RuntimeError::new("agent.stream expects AgentEnv")),
+        };
+        let domain_id = stable_domain_hash(&domain_name);
+        let state = mix_rng_seed(world_seed, agent_id, domain_id);
+        let native = self.sim_accel_bindings().and_then(|bindings| {
+            bindings
+                .rng_stream_new
+                .call(&[
+                    Value::Int(world_seed),
+                    Value::Int(agent_id),
+                    Value::Int(domain_id),
+                ])
+                .ok()
+        });
+        Ok(rng_stream_value(
+            world_seed, agent_id, domain_id, state, native,
+        ))
+    }
+
+    fn agent_next_float(&mut self, stream: Value) -> Result<f64, RuntimeError> {
+        match stream {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::RngStream(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        if let Ok(Value::Float(value)) =
+                            bindings.rng_stream_next_float.call(&[handle])
+                        {
+                            return Ok(value);
+                        }
+                    }
+                    let raw = splitmix64_next(&mut inner.state) >> 11;
+                    Ok((raw as f64) * (1.0 / ((1u64 << 53) as f64)))
+                }
+                _ => Err(RuntimeError::new("agent.next_float expects RngStream")),
+            },
+            _ => Err(RuntimeError::new("agent.next_float expects RngStream")),
+        }
+    }
+
+    fn agent_next_int(&mut self, stream: Value, upper: Value) -> Result<i64, RuntimeError> {
+        let upper = value_as_non_negative_int(&upper, "agent.next_int expects upper > 0")?;
+        if upper <= 0 {
+            return Err(RuntimeError::new("agent.next_int expects upper > 0"));
+        }
+        match stream {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::RngStream(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        if let Ok(Value::Int(value)) = bindings
+                            .rng_stream_next_int
+                            .call(&[handle, Value::Int(upper)])
+                        {
+                            return Ok(value);
+                        }
+                    }
+                    Ok((splitmix64_next(&mut inner.state) % upper as u64) as i64)
+                }
+                _ => Err(RuntimeError::new("agent.next_int expects RngStream")),
+            },
+            _ => Err(RuntimeError::new("agent.next_int expects RngStream")),
+        }
+    }
+
     fn sim_make(&self, max_events: Value, seed: Value) -> Result<Value, RuntimeError> {
         let max_events =
             value_as_non_negative_int(&max_events, "sim.make expects max_events >= 0")?;
@@ -9629,6 +11484,78 @@ fn decode_pool_stats_buffer(value: Value) -> Result<[i64; 5], RuntimeError> {
         out[idx] = i64::from_le_bytes(raw);
     }
     Ok(out)
+}
+
+fn decode_i64_buffer(value: Value, name: &str) -> Result<Vec<i64>, RuntimeError> {
+    let bytes = value_as_buffer(&value)?;
+    if bytes.len() % 8 != 0 {
+        return Err(RuntimeError::new(&format!(
+            "{} returned invalid i64 buffer length",
+            name
+        )));
+    }
+    let mut out = Vec::with_capacity(bytes.len() / 8);
+    for chunk in bytes.chunks_exact(8) {
+        let mut raw = [0u8; 8];
+        raw.copy_from_slice(chunk);
+        out.push(i64::from_le_bytes(raw));
+    }
+    Ok(out)
+}
+
+fn decode_snn_step_buffer(
+    value: Value,
+    neuron_count: usize,
+) -> Result<(Vec<f64>, Vec<bool>), RuntimeError> {
+    let bytes = value_as_buffer(&value)?;
+    let expected = neuron_count
+        .checked_mul(9)
+        .ok_or_else(|| RuntimeError::new("native SNN payload size overflow"))?;
+    if bytes.len() != expected {
+        return Err(RuntimeError::new(
+            "native SNN step returned invalid payload length",
+        ));
+    }
+    let potentials_bytes_len = neuron_count * 8;
+    let mut potentials = Vec::with_capacity(neuron_count);
+    for chunk in bytes[..potentials_bytes_len].chunks_exact(8) {
+        let mut raw = [0u8; 8];
+        raw.copy_from_slice(chunk);
+        potentials.push(f64::from_le_bytes(raw));
+    }
+    let spikes = bytes[potentials_bytes_len..]
+        .iter()
+        .map(|flag| *flag != 0)
+        .collect();
+    Ok((potentials, spikes))
+}
+
+fn stable_domain_hash(value: &str) -> i64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in value.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    (hash & i64::MAX as u64) as i64
+}
+
+fn mix_rng_seed(world_seed: i64, stream_id: i64, domain: i64) -> u64 {
+    let mut state = (world_seed as u64)
+        ^ (stream_id as u64).rotate_left(21)
+        ^ (domain as u64).rotate_left(42)
+        ^ 0x9E37_79B9_7F4A_7C15;
+    if state == 0 {
+        state = 0xA076_1D64_78BD_642F;
+    }
+    state
+}
+
+fn splitmix64_next(state: &mut u64) -> u64 {
+    *state = state.wrapping_add(0x9e3779b97f4a7c15);
+    let mut z = *state;
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
+    z ^ (z >> 31)
 }
 
 fn write_http_response(mut stream: TcpStream, resp: HttpResponseData) -> std::io::Result<()> {
@@ -11370,6 +13297,22 @@ fn display_value(v: &Value) -> String {
                     inner.finished
                 )
             }
+            Obj::SpatialIndex(inner) => {
+                format!("<spatial_index {}>", inner.borrow().positions.len())
+            }
+            Obj::SnnNetwork(inner) => {
+                let inner = inner.borrow();
+                format!(
+                    "<snn_network neurons={} synapses={}>",
+                    inner.neuron_count,
+                    self::display_snn_synapse_count(&inner.synapses)
+                )
+            }
+            Obj::AgentEnv(inner) => format!("<agent_env {}>", inner.borrow().agents.len()),
+            Obj::RngStream(inner) => {
+                let inner = inner.borrow();
+                format!("<rng_stream {}:{}>", inner.stream_id, inner.domain)
+            }
             Obj::TaskHandle(id) => format!("<task {}>", id),
             Obj::Channel(_) => "<channel>".to_string(),
             Obj::TcpListener(_) => "<tcp_listener>".to_string(),
@@ -11380,5 +13323,15 @@ fn display_value(v: &Value) -> String {
             Obj::DatasetStream(_) => "<dataset>".to_string(),
             Obj::Record(_) => "<record>".to_string(),
         },
+    }
+}
+
+fn display_snn_synapse_count(value: &Value) -> usize {
+    match value {
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::SparseMatrix(inner) => inner.borrow().data.len(),
+            _ => 0,
+        },
+        _ => 0,
     }
 }
