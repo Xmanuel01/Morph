@@ -149,6 +149,14 @@ def main() -> int:
             failures.append(
                 "docs/36_capability_complete_report.md missing simulation native evidence verification reference"
             )
+        if "readiness/sim_stdlib_smoke.json" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing simulation stdlib smoke reference"
+            )
+        if "readiness/sim_stdlib_evidence_verify.json" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing simulation stdlib evidence verification reference"
+            )
         if "sim/smoke_run.json" not in capability_text:
             failures.append(
                 "docs/36_capability_complete_report.md missing simulation evidence archive reference"
@@ -156,6 +164,10 @@ def main() -> int:
         if "sim/native_smoke_run.json" not in capability_text:
             failures.append(
                 "docs/36_capability_complete_report.md missing simulation native evidence archive reference"
+            )
+        if "sim/stdlib_smoke_run.json" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing simulation stdlib evidence archive reference"
             )
 
     readiness_doc = ROOT / "docs/37_readiness_matrix.md"
@@ -173,6 +185,10 @@ def main() -> int:
             failures.append("docs/37_readiness_matrix.md missing simulation native smoke artifact reference")
         if "artifacts/readiness/sim_native_evidence_verify.json" not in readiness_text:
             failures.append("docs/37_readiness_matrix.md missing simulation native verification artifact reference")
+        if "artifacts/readiness/sim_stdlib_smoke.json" not in readiness_text:
+            failures.append("docs/37_readiness_matrix.md missing simulation stdlib smoke artifact reference")
+        if "artifacts/readiness/sim_stdlib_evidence_verify.json" not in readiness_text:
+            failures.append("docs/37_readiness_matrix.md missing simulation stdlib verification artifact reference")
     benchmark_doc = ROOT / "docs/33_benchmark_suite.md"
     if not benchmark_doc.is_file():
         failures.append("missing docs/33_benchmark_suite.md")

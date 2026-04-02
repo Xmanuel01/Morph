@@ -251,6 +251,8 @@ def main() -> int:
         "sim_evidence_verify.json",
         "sim_native_smoke.json",
         "sim_native_evidence_verify.json",
+        "sim_stdlib_smoke.json",
+        "sim_stdlib_evidence_verify.json",
     ]
     if readiness_dir.is_dir():
         if args.strict:
@@ -273,6 +275,8 @@ def main() -> int:
         "smoke_replay.json",
         "native_smoke_run.json",
         "native_smoke_profile.json",
+        "stdlib_smoke_run.json",
+        "stdlib_smoke_profile.json",
     ]
     if sim_dir.is_dir():
         if args.strict:

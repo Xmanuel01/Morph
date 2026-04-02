@@ -983,6 +983,14 @@ mod tests {
         assert!(manifest
             .checks
             .iter()
+            .any(|check| check.id == "simulation-stdlib-smoke"));
+        assert!(manifest
+            .checks
+            .iter()
+            .any(|check| check.id == "simulation-stdlib-evidence-verify"));
+        assert!(manifest
+            .checks
+            .iter()
             .any(|check| check.id == "deploy-backend-validate"));
         assert!(manifest
             .checks
@@ -1104,11 +1112,15 @@ mod tests {
             "artifacts/readiness/sim_evidence_verify.json",
             "artifacts/readiness/sim_native_smoke.json",
             "artifacts/readiness/sim_native_evidence_verify.json",
+            "artifacts/readiness/sim_stdlib_smoke.json",
+            "artifacts/readiness/sim_stdlib_evidence_verify.json",
             "artifacts/sim/smoke_run.json",
             "artifacts/sim/smoke_profile.json",
             "artifacts/sim/smoke_replay.json",
             "artifacts/sim/native_smoke_run.json",
             "artifacts/sim/native_smoke_profile.json",
+            "artifacts/sim/stdlib_smoke_run.json",
+            "artifacts/sim/stdlib_smoke_profile.json",
             "bench/results/full_platform_targets.json",
             "artifacts/selfhost/litec_mainline_ci_report.json",
             "artifacts/selfhost/litec_replace_check_report.json",
@@ -1180,11 +1192,15 @@ mod tests {
             "artifacts/readiness/sim_evidence_verify.json",
             "artifacts/readiness/sim_native_smoke.json",
             "artifacts/readiness/sim_native_evidence_verify.json",
+            "artifacts/readiness/sim_stdlib_smoke.json",
+            "artifacts/readiness/sim_stdlib_evidence_verify.json",
             "artifacts/sim/smoke_run.json",
             "artifacts/sim/smoke_profile.json",
             "artifacts/sim/smoke_replay.json",
             "artifacts/sim/native_smoke_run.json",
             "artifacts/sim/native_smoke_profile.json",
+            "artifacts/sim/stdlib_smoke_run.json",
+            "artifacts/sim/stdlib_smoke_profile.json",
             "bench/results/full_platform_targets.json",
             "artifacts/selfhost/litec_mainline_ci_report.json",
             "artifacts/selfhost/litec_replace_check_report.json",

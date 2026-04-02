@@ -8,6 +8,32 @@
 ### Breaking changes
 - None.
 
+## v2.6.7
+
+### Highlights
+- Advanced the release line to `v2.6.7` with additive compatibility and no syntax changes.
+- Hardened the AGI/simulation release path with stdlib primitive smoke verification:
+  - new smoke runner:
+    - `scripts/readiness_sim_stdlib_smoke.py`
+  - new verifier:
+    - `scripts/verify_sim_stdlib_evidence.py`
+  - new readiness artifacts:
+    - `artifacts/readiness/sim_stdlib_smoke.json`
+    - `artifacts/readiness/sim_stdlib_evidence_verify.json`
+
+### Fixes
+- Full-platform readiness now proves `std::sparse`, `std::event`, and `std::pool` remain production-safe in the simulation CLI path before release sign-off.
+- Strict release evidence and capability reporting now require archived stdlib primitive simulation smoke artifacts:
+  - `artifacts/sim/stdlib_smoke_run.json`
+  - `artifacts/sim/stdlib_smoke_profile.json`
+- Synced docs/spec/release metadata and version surfaces to `v2.6.7`.
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_6_7_rc_pipeline.ps1`
+  - `scripts/v2_6_7_rc_pipeline.sh`
+
+### Breaking changes
+- None.
+
 ## v2.6.6
 
 ### Highlights

@@ -2,9 +2,22 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.6.6.
+- Current production release line is v2.6.7.
 - v2.6.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v2.6.7 (done)
+- Simulation stdlib evidence hardening:
+  - added stdlib primitive smoke workflow via:
+    - `scripts/readiness_sim_stdlib_smoke.py`
+  - added stdlib smoke evidence verifier via:
+    - `scripts/verify_sim_stdlib_evidence.py`
+  - full-platform readiness now emits:
+    - `artifacts/readiness/sim_stdlib_smoke.json`
+    - `artifacts/readiness/sim_stdlib_evidence_verify.json`
+    - `artifacts/sim/stdlib_smoke_run.json`
+    - `artifacts/sim/stdlib_smoke_profile.json`
+  - strict release evidence and capability reporting now require the stdlib primitive verification artifact
 
 v2.6.6 (done)
 - Simulation native FFI evidence hardening:
