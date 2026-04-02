@@ -8,6 +8,27 @@
 ### Breaking changes
 - None.
 
+## v2.6.5
+
+### Highlights
+- Advanced the release line to `v2.6.5` with additive compatibility and no syntax changes.
+- Hardened simulation release evidence with semantic verification:
+  - new verifier:
+    - `scripts/verify_sim_evidence.py`
+  - new readiness artifact:
+    - `artifacts/readiness/sim_evidence_verify.json`
+
+### Fixes
+- Full-platform readiness now verifies that simulation smoke reports, replay output, and profile output are mutually consistent before release sign-off.
+- Strict release evidence and capability reporting now require the simulation evidence verification artifact in addition to the archived simulation smoke payloads.
+- Synced docs/spec/release metadata and version surfaces to `v2.6.5`.
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_6_5_rc_pipeline.ps1`
+  - `scripts/v2_6_5_rc_pipeline.sh`
+
+### Breaking changes
+- None.
+
 ## v2.6.4
 
 ### Highlights

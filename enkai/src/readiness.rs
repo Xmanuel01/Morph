@@ -971,6 +971,10 @@ mod tests {
         assert!(manifest
             .checks
             .iter()
+            .any(|check| check.id == "simulation-evidence-verify"));
+        assert!(manifest
+            .checks
+            .iter()
             .any(|check| check.id == "deploy-backend-validate"));
         assert!(manifest
             .checks
@@ -1089,6 +1093,7 @@ mod tests {
         let required_paths = [
             "artifacts/readiness/full_platform.json",
             "artifacts/readiness/sim_smoke.json",
+            "artifacts/readiness/sim_evidence_verify.json",
             "artifacts/sim/smoke_run.json",
             "artifacts/sim/smoke_profile.json",
             "artifacts/sim/smoke_replay.json",
@@ -1160,6 +1165,7 @@ mod tests {
         let required_paths = [
             "artifacts/readiness/full_platform.json",
             "artifacts/readiness/sim_smoke.json",
+            "artifacts/readiness/sim_evidence_verify.json",
             "artifacts/sim/smoke_run.json",
             "artifacts/sim/smoke_profile.json",
             "artifacts/sim/smoke_replay.json",

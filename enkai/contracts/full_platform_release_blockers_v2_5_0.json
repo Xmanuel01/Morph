@@ -15,6 +15,7 @@
         "backend-http-contract",
         "llm-runtime-smoke",
         "simulation-smoke",
+        "simulation-evidence-verify",
         "db-core-smoke",
         "deploy-backend-validate",
         "deploy-fullstack-validate",
@@ -46,6 +47,7 @@
       "required_artifacts": [
         "artifacts/readiness/full_platform.json",
         "artifacts/readiness/sim_smoke.json",
+        "artifacts/readiness/sim_evidence_verify.json",
         "artifacts/sim/smoke_run.json",
         "artifacts/sim/smoke_profile.json",
         "artifacts/sim/smoke_replay.json",

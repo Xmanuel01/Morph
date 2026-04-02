@@ -369,6 +369,20 @@ def build_checks(
             ),
         )
     )
+    sim_verify = has_exact(copied_paths, "/readiness/sim_evidence_verify.json")
+    checks.append(
+        CheckResult(
+            id="readiness_sim_evidence_verify_report",
+            description="Simulation evidence verification report is present",
+            required=True,
+            passed=sim_verify,
+            details=(
+                "readiness/sim_evidence_verify.json"
+                if sim_verify
+                else "missing readiness/sim_evidence_verify.json"
+            ),
+        )
+    )
     for name in ("smoke_run.json", "smoke_profile.json", "smoke_replay.json"):
         present = has_exact(copied_paths, f"/sim/{name}")
         checks.append(

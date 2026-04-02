@@ -2,9 +2,17 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.6.4.
+- Current production release line is v2.6.5.
 - v2.6.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v2.6.5 (done)
+- Simulation evidence verification hardening:
+  - added semantic verification for archived simulation smoke artifacts via:
+    - `scripts/verify_sim_evidence.py`
+  - full-platform readiness now emits:
+    - `artifacts/readiness/sim_evidence_verify.json`
+  - strict release evidence and capability reporting now require the verification artifact
 
 v2.6.4 (done)
 - Simulation production-readiness integration:

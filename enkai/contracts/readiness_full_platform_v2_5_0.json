@@ -75,6 +75,24 @@
       ]
     },
     {
+      "id": "simulation-evidence-verify",
+      "description": "Simulation smoke evidence semantic verification",
+      "command": [
+        "${PYTHON}",
+        "scripts/verify_sim_evidence.py",
+        "--summary",
+        "artifacts/readiness/sim_smoke.json",
+        "--run-report",
+        "artifacts/sim/smoke_run.json",
+        "--profile-report",
+        "artifacts/sim/smoke_profile.json",
+        "--replay-report",
+        "artifacts/sim/smoke_replay.json",
+        "--output",
+        "artifacts/readiness/sim_evidence_verify.json"
+      ]
+    },
+    {
       "id": "db-core-smoke",
       "description": "Database core smoke test (SQLite/native)",
       "command": ["cargo", "test", "-p", "enkai_native", "sqlite_exec_many_transaction_roundtrip"]

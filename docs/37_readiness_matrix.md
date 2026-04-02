@@ -27,6 +27,7 @@ Selective pipeline reuse:
   - `artifacts/readiness/deploy_fullstack_smoke.json`
 - Generated simulation smoke reports emitted by the full-platform profile:
   - `artifacts/readiness/sim_smoke.json`
+  - `artifacts/readiness/sim_evidence_verify.json`
   - `artifacts/sim/smoke_run.json`
   - `artifacts/sim/smoke_profile.json`
   - `artifacts/sim/smoke_replay.json`
@@ -55,6 +56,7 @@ The command executes a deterministic gate bundle:
 - backend HTTP contract smoke
 - LLM runtime smoke
 - simulation std/runtime CLI smoke
+- simulation smoke evidence semantic verification
 - DB core smoke
 - generated backend/fullstack deploy validation smoke
 - bootstrap mainline + Stage0 fallback lanes

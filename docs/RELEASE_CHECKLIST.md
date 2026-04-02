@@ -40,6 +40,7 @@ Note:
     - `artifacts/readiness/deploy_fullstack.json`
   - simulation smoke artifacts expected from full-platform readiness:
     - `artifacts/readiness/sim_smoke.json`
+    - `artifacts/readiness/sim_evidence_verify.json`
     - `artifacts/sim/smoke_run.json`
     - `artifacts/sim/smoke_profile.json`
     - `artifacts/sim/smoke_replay.json`
@@ -93,6 +94,7 @@ Note:
     - `readiness/full_platform.json`
     - `readiness/full_platform_blockers.json`
     - `readiness/sim_smoke.json`
+    - `readiness/sim_evidence_verify.json`
     - `sim/smoke_run.json`
     - `sim/smoke_profile.json`
     - `sim/smoke_replay.json`

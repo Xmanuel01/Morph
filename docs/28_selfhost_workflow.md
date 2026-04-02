@@ -1,4 +1,4 @@
-﻿# Self-Host Workflow (v2.6.4)
+﻿# Self-Host Workflow (v2.6.5)
 
 ## Purpose
 
@@ -64,6 +64,7 @@ If any self-host command fails:
    - docs update if behavior changed.
 
 Self-host failures do not permit replacing Stage0 for release builds.
+
 
 
 

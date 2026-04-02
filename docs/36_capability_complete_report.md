@@ -38,6 +38,7 @@ Core categories:
   - `full_platform.json` (`readiness/full_platform.json`) for the v2.5+ full-platform line
   - `full_platform_blockers.json` (`readiness/full_platform_blockers.json`) as the archived blocker-verification verdict for the current release line
   - `sim_smoke.json` (`readiness/sim_smoke.json`) summarizing the archived simulation smoke workflow
+  - `sim_evidence_verify.json` (`readiness/sim_evidence_verify.json`) validating archived simulation evidence consistency
   - `production.json` (`readiness/production.json`) as an optional compatibility/reference artifact
 - `sim/`:
   - `sim/smoke_run.json`

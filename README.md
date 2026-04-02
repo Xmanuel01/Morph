@@ -4,9 +4,9 @@
 Overview
 Enkai is a programming language with block structure defined by :: tokens, a clean
 assignment operator (:=), and an AI-native roadmap (tools, agents, memory, policy).
-This repository contains the v2.6.4 implementation in Rust.
+This repository contains the v2.6.5 implementation in Rust.
 
-Status (v2.6.4)
+Status (v2.6.5)
 - Bytecode VM + globals + type-checking
 - Module system with public/private exports
 - CLI: run/bench/readiness/deploy/model/serve/new/sdk/check/fmt/fmt-lite/lint-lite/tokenizer-lite/dataset-lite/litec/build/test/train/pretrain/eval/migrate/doctor
@@ -42,11 +42,12 @@ Status (v2.6.4)
 - Bootstrap-lite/core toolchain path with `litec` stage0/stage1 bytecode equivalence checks, phase staging (`litec stage`), self-host CI corpus validation (`litec selfhost-ci`), and consolidated release lane (`litec release-ci`)
 - Self-host mainline CI lane with deterministic triage artifacts (`litec mainline-ci --triage-dir <dir>`) plus mandatory Stage0 fallback lane
 - Self-host replacement-readiness gate with Stage1/Stage2 fixed-point checks (`litec replace-check`)
-- Compatibility/deprecation governance and self-host fallback workflow docs for v2.6.4 release readiness
-- Version-neutral release pipeline, deterministic packaging, checksum verification, SBOM generation, and RC evidence-archive gates for v2.6.4 sign-off
+- Compatibility/deprecation governance and self-host fallback workflow docs for v2.6.5 release readiness
+- Version-neutral release pipeline, deterministic packaging, checksum verification, SBOM generation, and RC evidence-archive gates for v2.6.5 sign-off
 - Full-platform simulation smoke evidence integrated into release sign-off:
   - `scripts/readiness_sim_smoke.py`
   - `artifacts/readiness/sim_smoke.json`
+  - `artifacts/readiness/sim_evidence_verify.json`
   - `artifacts/sim/smoke_run.json`
   - `artifacts/sim/smoke_profile.json`
   - `artifacts/sim/smoke_replay.json`
@@ -70,7 +71,7 @@ Status (v2.6.4)
   - deterministic suites under `bench/suites/`
   - machine profile manifests under `bench/machines/`
   - structured result artifacts under `bench/results/*.json`
-- Strict-contract enforcement in v2.6.4:
+- Strict-contract enforcement in v2.6.5:
   - `enkai train` / `enkai eval` enforce contract checks by default
   - explicit legacy recovery is gated: `--lenient-contracts` + `ENKAI_ALLOW_LEGACY_CONTRACTS=1`
   - readiness audit: `enkai doctor --json [--strict-contracts|--lenient]`
@@ -146,6 +147,7 @@ Apache 2.0
 
 Created by
 Emmanuel Odhiambo Onyango
+
 
 
 

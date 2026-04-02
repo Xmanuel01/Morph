@@ -244,7 +244,12 @@ def main() -> int:
             f"contract snapshot directory not found for strict evidence mode: {contracts_dir}"
         )
 
-    required_readiness = ["full_platform.json", "full_platform_blockers.json", "sim_smoke.json"]
+    required_readiness = [
+        "full_platform.json",
+        "full_platform_blockers.json",
+        "sim_smoke.json",
+        "sim_evidence_verify.json",
+    ]
     if readiness_dir.is_dir():
         if args.strict:
             readiness_files = ensure_required_files(
