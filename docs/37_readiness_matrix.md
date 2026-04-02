@@ -25,6 +25,11 @@ Selective pipeline reuse:
   - `artifacts/readiness/deploy_fullstack.json`
   - `artifacts/readiness/deploy_backend_smoke.json`
   - `artifacts/readiness/deploy_fullstack_smoke.json`
+- Generated simulation smoke reports emitted by the full-platform profile:
+  - `artifacts/readiness/sim_smoke.json`
+  - `artifacts/sim/smoke_run.json`
+  - `artifacts/sim/smoke_profile.json`
+  - `artifacts/sim/smoke_replay.json`
 
 Manifest:
 - `enkai/contracts/readiness_full_platform_v2_5_0.json`
@@ -49,6 +54,7 @@ The command executes a deterministic gate bundle:
 - frontend/backend contract snapshot tests
 - backend HTTP contract smoke
 - LLM runtime smoke
+- simulation std/runtime CLI smoke
 - DB core smoke
 - generated backend/fullstack deploy validation smoke
 - bootstrap mainline + Stage0 fallback lanes

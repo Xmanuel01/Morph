@@ -14,6 +14,7 @@
         "frontend-contract",
         "backend-http-contract",
         "llm-runtime-smoke",
+        "simulation-smoke",
         "db-core-smoke",
         "deploy-backend-validate",
         "deploy-fullstack-validate",
@@ -44,6 +45,10 @@
     "release_evidence": {
       "required_artifacts": [
         "artifacts/readiness/full_platform.json",
+        "artifacts/readiness/sim_smoke.json",
+        "artifacts/sim/smoke_run.json",
+        "artifacts/sim/smoke_profile.json",
+        "artifacts/sim/smoke_replay.json",
         "bench/results/full_platform_targets.json",
         "artifacts/selfhost/litec_mainline_ci_report.json",
         "artifacts/selfhost/litec_replace_check_report.json",

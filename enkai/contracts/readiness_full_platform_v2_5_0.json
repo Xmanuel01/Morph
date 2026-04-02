@@ -61,6 +61,20 @@
       "command": ["cargo", "test", "-p", "enkai_tensor", "--test", "tinylm_smoke"]
     },
     {
+      "id": "simulation-smoke",
+      "description": "Simulation std/runtime CLI smoke test",
+      "command": [
+        "${PYTHON}",
+        "scripts/readiness_sim_smoke.py",
+        "--enkai-bin",
+        "${ENKAI_BIN}",
+        "--workspace",
+        ".",
+        "--output",
+        "artifacts/readiness/sim_smoke.json"
+      ]
+    },
+    {
       "id": "db-core-smoke",
       "description": "Database core smoke test (SQLite/native)",
       "command": ["cargo", "test", "-p", "enkai_native", "sqlite_exec_many_transaction_roundtrip"]

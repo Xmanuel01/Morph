@@ -2,9 +2,20 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.6.3.
+- Current production release line is v2.6.4.
 - v2.6.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v2.6.4 (done)
+- Simulation production-readiness integration:
+  - full-platform readiness now executes a simulation smoke gate via:
+    - `scripts/readiness_sim_smoke.py`
+  - archived release evidence now includes:
+    - `artifacts/readiness/sim_smoke.json`
+    - `artifacts/sim/smoke_run.json`
+    - `artifacts/sim/smoke_profile.json`
+    - `artifacts/sim/smoke_replay.json`
+  - strict capability reporting now requires the archived simulation evidence set
 
 v2.6.3 (done)
 - Simulation CLI hardening:

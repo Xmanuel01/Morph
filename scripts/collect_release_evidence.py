@@ -51,6 +51,11 @@ def parse_args() -> argparse.Namespace:
         help="Readiness report source directory",
     )
     parser.add_argument(
+        "--sim-dir",
+        default="artifacts/sim",
+        help="Simulation evidence source directory",
+    )
+    parser.add_argument(
         "--out-dir",
         default="artifacts/release",
         help="Output directory for evidence bundle",
@@ -168,6 +173,7 @@ def main() -> int:
     selfhost_dir = (root / args.selfhost_dir).resolve()
     contracts_dir = (root / args.contracts_dir).resolve()
     readiness_dir = (root / args.readiness_dir).resolve()
+    sim_dir = (root / args.sim_dir).resolve()
     out_root = (root / args.out_dir / f"v{version}").resolve()
     out_root.mkdir(parents=True, exist_ok=True)
 
@@ -238,7 +244,7 @@ def main() -> int:
             f"contract snapshot directory not found for strict evidence mode: {contracts_dir}"
         )
 
-    required_readiness = ["full_platform.json", "full_platform_blockers.json"]
+    required_readiness = ["full_platform.json", "full_platform_blockers.json", "sim_smoke.json"]
     if readiness_dir.is_dir():
         if args.strict:
             readiness_files = ensure_required_files(
@@ -252,6 +258,22 @@ def main() -> int:
     elif args.strict:
         raise RuntimeError(
             f"readiness directory not found for strict evidence mode: {readiness_dir}"
+        )
+
+    required_sim = [
+        "smoke_run.json",
+        "smoke_profile.json",
+        "smoke_replay.json",
+    ]
+    if sim_dir.is_dir():
+        if args.strict:
+            sim_files = ensure_required_files(sim_dir, required_sim, "simulation evidence")
+        else:
+            sim_files = sorted(path for path in sim_dir.glob("*.json") if path.is_file())
+        file_rows.extend(copy_files(root, sim_dir, out_root / "sim", "sim", sim_files))
+    elif args.strict:
+        raise RuntimeError(
+            f"simulation evidence directory not found for strict evidence mode: {sim_dir}"
         )
 
     manifest["files"] = file_rows

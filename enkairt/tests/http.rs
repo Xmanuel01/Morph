@@ -116,6 +116,20 @@ fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
     path
 }
 
+fn connect_with_retry(port: u16, attempts: usize, delay_ms: u64) -> TcpStream {
+    let mut last_err = None;
+    for _ in 0..attempts {
+        match TcpStream::connect(("127.0.0.1", port)) {
+            Ok(stream) => return stream,
+            Err(err) => {
+                last_err = Some(err);
+                std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+            }
+        }
+    }
+    panic!("connect: {:?}", last_err.expect("connection error"));
+}
+
 fn response_body(value: &Value) -> Option<Vec<u8>> {
     match value {
         Value::Obj(obj) => match obj.as_obj() {
@@ -520,14 +534,13 @@ fn http_websocket_upgrade_and_send_text() {
     let source = format!(
         "fn handler(req: Request) -> Response ::\n    let ws := http.ws_open(req)\n    http.ws_send(ws, \"hello\")\n    http.ws_close(ws)\n    return none\n::\n\
          http.serve(\"127.0.0.1\", {port}, handler)\n\
-         task.sleep(200)\n"
+         task.sleep(1500)\n"
     );
     let server = std::thread::spawn(move || {
         let _ = run_value(&source);
     });
 
-    std::thread::sleep(std::time::Duration::from_millis(50));
-    let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+    let mut stream = connect_with_retry(port, 80, 25);
     let request = b"GET /chat HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n";
     stream.write_all(request).expect("write");
     stream
@@ -560,14 +573,13 @@ fn http_websocket_recv_and_echo() {
     let source = format!(
         "fn handler(req: Request) -> Response ::\n    let ws := http.ws_open(req)\n    let msg := http.ws_recv(ws, 1000)\n    if msg != none ::\n        http.ws_send(ws, msg)\n    ::\n    http.ws_close(ws)\n    return none\n::\n\
          http.serve(\"127.0.0.1\", {port}, handler)\n\
-         task.sleep(200)\n"
+         task.sleep(1500)\n"
     );
     let server = std::thread::spawn(move || {
         let _ = run_value(&source);
     });
 
-    std::thread::sleep(std::time::Duration::from_millis(50));
-    let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+    let mut stream = connect_with_retry(port, 80, 25);
     let request = b"GET /chat HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n";
     stream.write_all(request).expect("write");
     stream

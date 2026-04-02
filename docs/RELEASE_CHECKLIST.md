@@ -38,6 +38,11 @@ Note:
   - deploy-validation smoke artifacts expected from full-platform readiness:
     - `artifacts/readiness/deploy_backend.json`
     - `artifacts/readiness/deploy_fullstack.json`
+  - simulation smoke artifacts expected from full-platform readiness:
+    - `artifacts/readiness/sim_smoke.json`
+    - `artifacts/sim/smoke_run.json`
+    - `artifacts/sim/smoke_profile.json`
+    - `artifacts/sim/smoke_replay.json`
 - [ ] Benchmark target gate (official bounded suite):
   - `enkai bench run --suite official_v2_3_0_matrix --baseline python --iterations 2 --warmup 1 --machine-profile bench/machines/linux_ref.json --output bench/results/official_v2_3_0_matrix.linux.json --target-speedup 15 --target-memory 5 --enforce-target --enforce-class-targets --class-targets bench/suites/official_v2_3_0_targets.json`
   - `enkai bench run --suite official_v2_3_0_matrix --baseline python --iterations 2 --warmup 1 --machine-profile bench/machines/windows_ref.json --output bench/results/official_v2_3_0_matrix.windows.json --target-speedup 15 --target-memory 5 --enforce-target --enforce-class-targets --class-targets bench/suites/official_v2_3_0_targets.json`
@@ -87,6 +92,10 @@ Note:
   - strict archive must include:
     - `readiness/full_platform.json`
     - `readiness/full_platform_blockers.json`
+    - `readiness/sim_smoke.json`
+    - `sim/smoke_run.json`
+    - `sim/smoke_profile.json`
+    - `sim/smoke_replay.json`
 - [ ] Generate capability-complete report from archived evidence:
   - `python3 scripts/generate_capability_report.py --require-gpu --strict`
   - expected outputs:

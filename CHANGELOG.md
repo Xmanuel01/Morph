@@ -8,6 +8,32 @@
 ### Breaking changes
 - None.
 
+## v2.6.4
+
+### Highlights
+- Advanced the release line to `v2.6.4` with additive compatibility and no syntax changes.
+- Integrated simulation runtime smoke into the full-platform readiness and release-evidence contract:
+  - new readiness smoke script:
+    - `scripts/readiness_sim_smoke.py`
+  - new readiness check:
+    - `simulation-smoke`
+  - archived strict evidence now includes:
+    - `artifacts/readiness/sim_smoke.json`
+    - `artifacts/sim/smoke_run.json`
+    - `artifacts/sim/smoke_profile.json`
+    - `artifacts/sim/smoke_replay.json`
+
+### Fixes
+- Added blocker-matrix enforcement for simulation smoke artifacts in the full-platform release line.
+- Extended strict capability reporting to require archived simulation smoke evidence.
+- Synced docs/spec/release metadata and version surfaces to `v2.6.4`.
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_6_4_rc_pipeline.ps1`
+  - `scripts/v2_6_4_rc_pipeline.sh`
+
+### Breaking changes
+- None.
+
 ## v2.6.3
 
 ### Highlights

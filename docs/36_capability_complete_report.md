@@ -37,7 +37,12 @@ Core categories:
 - `readiness/`:
   - `full_platform.json` (`readiness/full_platform.json`) for the v2.5+ full-platform line
   - `full_platform_blockers.json` (`readiness/full_platform_blockers.json`) as the archived blocker-verification verdict for the current release line
+  - `sim_smoke.json` (`readiness/sim_smoke.json`) summarizing the archived simulation smoke workflow
   - `production.json` (`readiness/production.json`) as an optional compatibility/reference artifact
+- `sim/`:
+  - `sim/smoke_run.json`
+  - `sim/smoke_profile.json`
+  - `sim/smoke_replay.json`
 - `gpu/` (mandatory for full sign-off):
   - `single_gpu.log`, `single_gpu_evidence.json`
   - `multi_gpu.log`, `multi_gpu_evidence.json`
@@ -60,6 +65,7 @@ In strict mode the archived blocker report must also be present and must show:
 - `skip_release_evidence: false`
 - no missing/failed/skipped required checks
 - no missing required release artifacts
+- simulation evidence artifacts must be present under both `readiness/` and `sim/`
 
 ## RC Pipeline Contract
 

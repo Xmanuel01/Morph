@@ -133,6 +133,14 @@ def main() -> int:
             failures.append(
                 "docs/36_capability_complete_report.md missing blocker readiness evidence reference"
             )
+        if "readiness/sim_smoke.json" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing simulation readiness evidence reference"
+            )
+        if "sim/smoke_run.json" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing simulation evidence archive reference"
+            )
 
     readiness_doc = ROOT / "docs/37_readiness_matrix.md"
     if not readiness_doc.is_file():
@@ -141,6 +149,8 @@ def main() -> int:
         readiness_text = readiness_doc.read_text(encoding="utf-8")
         if "enkai readiness verify-blockers --profile full_platform" not in readiness_text:
             failures.append("docs/37_readiness_matrix.md missing blocker verification reference")
+        if "artifacts/readiness/sim_smoke.json" not in readiness_text:
+            failures.append("docs/37_readiness_matrix.md missing simulation smoke artifact reference")
     benchmark_doc = ROOT / "docs/33_benchmark_suite.md"
     if not benchmark_doc.is_file():
         failures.append("missing docs/33_benchmark_suite.md")

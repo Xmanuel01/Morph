@@ -355,6 +355,31 @@ def build_checks(
             details=blocker_report_detail,
         )
     )
+    sim_smoke = has_exact(copied_paths, "/readiness/sim_smoke.json")
+    checks.append(
+        CheckResult(
+            id="readiness_sim_smoke_report",
+            description="Simulation readiness smoke summary is present",
+            required=True,
+            passed=sim_smoke,
+            details=(
+                "readiness/sim_smoke.json"
+                if sim_smoke
+                else "missing readiness/sim_smoke.json"
+            ),
+        )
+    )
+    for name in ("smoke_run.json", "smoke_profile.json", "smoke_replay.json"):
+        present = has_exact(copied_paths, f"/sim/{name}")
+        checks.append(
+            CheckResult(
+                id=f"simulation_{name.replace('.', '_')}",
+                description=f"Simulation evidence `{name}` is present",
+                required=True,
+                passed=present,
+                details=name if present else f"missing sim/{name}",
+            )
+        )
 
     for name in (
         "single_gpu.log",

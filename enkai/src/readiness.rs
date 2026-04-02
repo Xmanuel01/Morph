@@ -967,6 +967,10 @@ mod tests {
         assert!(manifest
             .checks
             .iter()
+            .any(|check| check.id == "simulation-smoke"));
+        assert!(manifest
+            .checks
+            .iter()
             .any(|check| check.id == "deploy-backend-validate"));
         assert!(manifest
             .checks
@@ -1084,6 +1088,10 @@ mod tests {
         let workspace = temp_dir("enkai_readiness_blockers_ok");
         let required_paths = [
             "artifacts/readiness/full_platform.json",
+            "artifacts/readiness/sim_smoke.json",
+            "artifacts/sim/smoke_run.json",
+            "artifacts/sim/smoke_profile.json",
+            "artifacts/sim/smoke_replay.json",
             "bench/results/full_platform_targets.json",
             "artifacts/selfhost/litec_mainline_ci_report.json",
             "artifacts/selfhost/litec_replace_check_report.json",
@@ -1151,6 +1159,10 @@ mod tests {
         let workspace = temp_dir("enkai_readiness_blockers_waived");
         let required_paths = [
             "artifacts/readiness/full_platform.json",
+            "artifacts/readiness/sim_smoke.json",
+            "artifacts/sim/smoke_run.json",
+            "artifacts/sim/smoke_profile.json",
+            "artifacts/sim/smoke_replay.json",
             "bench/results/full_platform_targets.json",
             "artifacts/selfhost/litec_mainline_ci_report.json",
             "artifacts/selfhost/litec_replace_check_report.json",
