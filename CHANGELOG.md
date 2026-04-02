@@ -8,6 +8,24 @@
 ### Breaking changes
 - None.
 
+## v2.6.3
+
+### Highlights
+- Advanced the release line to `v2.6.3` with additive compatibility and no syntax changes.
+- Added simulation CLI surfaces:
+  - `enkai sim run`
+  - `enkai sim profile`
+  - `enkai sim replay`
+- Added deterministic JSON reporting for simulation runs and replay flows.
+
+### Fixes
+- Added VM-profile output support for simulation CLI runs through `ENKAI_BENCH_PROFILE_OUT` / `ENKAI_BENCH_PROFILE_CASE`.
+- Added simulation CLI parsing, run, replay, and profile tests.
+- Synced docs/spec/release metadata and version surfaces to `v2.6.3`.
+- Added current-line RC wrapper scripts:
+  - `scripts/v2_6_3_rc_pipeline.ps1`
+  - `scripts/v2_6_3_rc_pipeline.sh`
+
 ## v2.6.2
 
 ### Highlights

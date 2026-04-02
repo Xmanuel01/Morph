@@ -2,9 +2,17 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.6.2.
+- Current production release line is v2.6.3.
 - v2.6.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v2.6.3 (done)
+- Simulation CLI hardening:
+  - `enkai sim run`
+  - `enkai sim profile`
+  - `enkai sim replay`
+  - deterministic JSON run reports for simulation workloads
+  - VM profile artifact generation for simulation runs
 
 v2.6.2 (done)
 - Deterministic simulation scheduler/runtime helpers:

@@ -24,6 +24,7 @@ mod frontend;
 mod migrate;
 mod model;
 mod readiness;
+mod sim;
 mod train;
 
 pub(crate) fn env_guard() -> std::sync::MutexGuard<'static, ()> {
@@ -98,6 +99,7 @@ fn main() {
         "sdk" => frontend::sdk_command(&args[2..]),
         "readiness" => readiness::readiness_command(&args[2..]),
         "deploy" => deploy::deploy_command(&args[2..]),
+        "sim" => sim::sim_command(&args[2..]),
         "fmt-lite" => bootstrap::fmt_lite_command(&args[2..]),
         "lint-lite" => bootstrap::lint_lite_command(&args[2..]),
         "tokenizer-lite" => bootstrap::tokenizer_lite_command(&args[2..]),
@@ -1031,6 +1033,7 @@ fn print_usage() {
     readiness::print_readiness_usage();
     eprintln!("  enkai cluster <validate|plan|run> <config.enk> [--json] [--dry-run]");
     deploy::print_deploy_usage();
+    sim::print_sim_usage();
     bootstrap::print_usage();
     eprintln!("  enkai check <file|dir>");
     eprintln!("  enkai fmt [--check] <file|dir>");
