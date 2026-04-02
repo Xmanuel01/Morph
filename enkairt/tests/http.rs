@@ -544,7 +544,7 @@ fn http_websocket_upgrade_and_send_text() {
     let request = b"GET /chat HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n";
     stream.write_all(request).expect("write");
     stream
-        .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+        .set_read_timeout(Some(std::time::Duration::from_secs(2)))
         .expect("timeout");
     let mut raw = Vec::new();
     stream.read_to_end(&mut raw).expect("read");

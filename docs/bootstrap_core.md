@@ -1,8 +1,8 @@
-﻿# Enkai Bootstrap Core (v2.6.7)
+# Enkai Bootstrap Core (v2.6.8)
 
 ## Purpose
 
-`v2.6.7` promotes bootstrap mainline as the default release/dev compile path while
+`v2.6.8` promotes bootstrap mainline as the default release/dev compile path while
 keeping Stage0 as an emergency fallback path with deterministic triage artifacts.
 The objective is to validate deterministic Stage1/Stage2 fixed-point behavior and
 runtime parity for the bootstrap release corpus.
@@ -113,6 +113,7 @@ The subset intentionally rejects:
 - release script shortcut:
   - `powershell -ExecutionPolicy Bypass -File scripts/release_pipeline.ps1`
   - `sh scripts/release_pipeline.sh`
+
 
 
 

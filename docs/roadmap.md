@@ -2,22 +2,23 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.6.7.
+- Current production release line is v2.6.8.
 - v2.6.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
 
-v2.6.7 (done)
-- Simulation stdlib evidence hardening:
-  - added stdlib primitive smoke workflow via:
-    - `scripts/readiness_sim_stdlib_smoke.py`
-  - added stdlib smoke evidence verifier via:
-    - `scripts/verify_sim_stdlib_evidence.py`
-  - full-platform readiness now emits:
-    - `artifacts/readiness/sim_stdlib_smoke.json`
-    - `artifacts/readiness/sim_stdlib_evidence_verify.json`
-    - `artifacts/sim/stdlib_smoke_run.json`
-    - `artifacts/sim/stdlib_smoke_profile.json`
-  - strict release evidence and capability reporting now require the stdlib primitive verification artifact
+v2.6.8 (done)
+- Native-backed simulation primitive completion:
+  - added internal `enkai_native` acceleration bindings for:
+    - sparse vector handles
+    - sparse matrix handles
+    - event queue handles
+    - pool handles
+  - kept the public Enkai interfaces unchanged while enabling native-backed execution under:
+    - `std::sparse`
+    - `std::event`
+    - `std::pool`
+  - preserved deterministic fallback behavior when `enkai_native` is unavailable or `ENKAI_SIM_ACCEL=0`
+  - tightened stdlib simulation smoke verification so archived VM profiles now prove the native acceleration path is live
 
 v2.6.6 (done)
 - Simulation native FFI evidence hardening:
@@ -597,6 +598,7 @@ v0.3 (done)
 - Local path dependencies in Enkai.toml
 - Expand stdlib: strings + fs (policy-gated)
 - Keep AI primitives as stubs unless testable
+
 
 
 

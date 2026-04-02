@@ -1,8 +1,8 @@
-﻿# Enkai Language Specification (v0.1 -> v2.6.7)
+# Enkai Language Specification (v0.1 -> v2.6.8)
 
 Status: stable.
 Grammar and CLI contracts are frozen at the v0.9.3 baseline for the v1.x/v2.x line.
-This document is the normative language and runtime surface for Enkai v2.6.7,
+This document is the normative language and runtime surface for Enkai v2.6.8,
 including compatibility constraints carried from v0.1 onward.
 
 -------------------------------------------------------------------------------
@@ -13,7 +13,7 @@ This specification covers:
 - Core syntax and block rules.
 - Module/import semantics.
 - Type and expression forms supported by parser, checker, compiler, and VM.
-- Built-in runtime modules shipped in v2.6.7.
+- Built-in runtime modules shipped in v2.6.8.
 - CLI entrypoints used in production.
 
 This specification does not claim features that are still stubbed or not yet implemented.
@@ -54,7 +54,7 @@ Compatibility baseline:
   (`use`/`type`/`enum`/`impl` + non-capturing lambda), and self-host CI lane coverage.
 - v1.8: compatibility/deprecation policy, legacy config/checkpoint compatibility
   gates, and documented self-host daily workflow + fallback process.
-- v1.9-v2.6.7: stage1 execution command (`enkai litec run`), unified master pipeline smoke test, GPU evidence verification scripts for operator-run soak gates, frontend/serve contract snapshot freeze with persisted conversation schema v1, deterministic packaging/checksum/SBOM release gates, RC evidence-archive tooling, capability-complete release reporting from archived evidence manifests, additive multi-node orchestration controls (`dist.topology`, `dist.rendezvous`, `dist.retry_budget`, `dist.device_map`) plus `enkai cluster validate|plan|run`, additive readiness filtering via `--skip-check <id>`, and archived simulation std/runtime plus native FFI smoke evidence for the `enkai sim` command line.
+- v1.9-v2.6.8: stage1 execution command (`enkai litec run`), unified master pipeline smoke test, GPU evidence verification scripts for operator-run soak gates, frontend/serve contract snapshot freeze with persisted conversation schema v1, deterministic packaging/checksum/SBOM release gates, RC evidence-archive tooling, capability-complete release reporting from archived evidence manifests, additive multi-node orchestration controls (`dist.topology`, `dist.rendezvous`, `dist.retry_budget`, `dist.device_map`) plus `enkai cluster validate|plan|run`, additive readiness filtering via `--skip-check <id>`, and archived simulation std/runtime plus native FFI smoke evidence for the `enkai sim` command line.
 
 Compatibility policy:
 - `.enk` and `.en` are primary source extensions.
@@ -62,7 +62,7 @@ Compatibility policy:
   primary contract unless listed explicitly.
 
 -------------------------------------------------------------------------------
-1.2 Validation Gate Status (v2.6.7)
+1.2 Validation Gate Status (v2.6.8)
 -------------------------------------------------------------------------------
 
 Current verification status:
@@ -303,7 +303,7 @@ Assignment form:
 8. Types
 -------------------------------------------------------------------------------
 
-Core types used in v2.6.7:
+Core types used in v2.6.8:
 - `Int`, `Float`, `Bool`, `String`, `Buffer`, `Handle`, `Void`
 - Optional: `T?`
 - Function: `fn(T1, T2) -> R`
@@ -344,7 +344,7 @@ Formatting and tests:
 - Project test runner (`enkai test`) compiles and executes test files.
 
 -------------------------------------------------------------------------------
-10. Built-in Runtime Modules (v2.6.7)
+10. Built-in Runtime Modules (v2.6.8)
 -------------------------------------------------------------------------------
 
 Concurrency:
@@ -451,7 +451,11 @@ Native-backed std modules:
 - `std::analysis` (CSV/JSONL ingest, typed schema inference/validation, filter/project/join/group aggregates, describe/histogram/quantiles/rolling stats, deterministic pipeline manifests)
 - `std::algo` (sorting/searching/path, priority/merge/stream helpers, ML metric/eval/scheduler helpers)
 
-`std::analysis` additive APIs (v2.6.7):
+`std::sparse`, `std::event`, and `std::pool` keep stable Enkai-level APIs while using
+native-backed acceleration through `enkai_native` when available. When native acceleration
+is unavailable or `ENKAI_SIM_ACCEL=0`, they fall back to deterministic VM/runtime behavior.
+
+`std::analysis` additive APIs (v2.6.8):
 - `read_csv(path, delimiter, has_header)`
 - `read_jsonl(path)`
 - `infer_schema(rows)`
@@ -468,7 +472,7 @@ Native-backed std modules:
 - `rolling_mean(values, window)`
 - `run_pipeline(rows, pipeline)` -> `{ rows, manifest }` with deterministic stage stats + hashes
 
-`std::algo` additive APIs (v2.6.7):
+`std::algo` additive APIs (v2.6.8):
 - software/algorithm primitives:
   - `sort_ints(values)`
   - `binary_search_ints(values, target)`
@@ -489,7 +493,7 @@ Native-backed std modules:
   - `split_indices(total, test_ratio, seed, shuffle)`
   - `scheduler_linear_warmup(step, total_steps, warmup_steps, base_lr, min_lr)`
 
-Tensor backend (`std::tensor`, v2.6.7 surface):
+Tensor backend (`std::tensor`, v2.6.8 surface):
 - device/tensor creation, math ops, shape/dtype/device transforms
 - autograd and optimizer helper APIs
 - AMP scaler/autocast APIs
@@ -508,7 +512,7 @@ Tensor C ABI checkpoint/distributed hooks:
 For full tensor C ABI contracts and safety preconditions, see `docs/tensor_api.md` and `docs/gpu_backend.md`.
 
 -------------------------------------------------------------------------------
-11. CLI Contract (v2.6.7)
+11. CLI Contract (v2.6.8)
 -------------------------------------------------------------------------------
 
 Commands:
@@ -565,7 +569,7 @@ Commands:
 - `enkai doctor [path] [--json] [--strict-contracts|--lenient]`
 
 Contract enforcement note:
-- In v2.6.7, train/eval run strict contracts by default.
+- In v2.6.8, train/eval run strict contracts by default.
 - `--lenient-contracts` requires `ENKAI_ALLOW_LEGACY_CONTRACTS=1`.
 
 Serve model-selection contract:
@@ -635,7 +639,7 @@ Build caching and lockfile:
 
 Benchmarking:
 - `enkai bench run` executes deterministic suites from `bench/suites/*.json`.
-- Official v2.6.7 bounded claim suite: `official_v2_3_0_matrix`.
+- Official v2.6.8 bounded claim suite: `official_v2_3_0_matrix`.
 - `--enforce-target` validates suite-level median targets.
 - `--enforce-all-cases` additionally requires every individual case target to pass.
 - Baseline comparisons are bounded to pinned suite/machine profiles and emit structured JSON reports.
@@ -673,7 +677,7 @@ Train/Eval config schema:
 - Optional v1.2+ fields include `world_size`, `rank`, `grad_accum_steps`, `grad_clip_norm`,
   `amp { enabled, dtype, init_scale, growth_factor, backoff_factor, growth_interval }`,
   `shuffle`, and `prefetch_batches`.
-- Optional v2.6.7 additive distributed orchestration fields include:
+- Optional v2.6.8 additive distributed orchestration fields include:
   - `dist.topology` (`standalone|single-node|multi-node`)
   - `dist.rendezvous` (non-empty string; required tcp endpoint for `multi-node`)
   - `dist.retry_budget` (`Int >= 0`)
@@ -694,7 +698,7 @@ Train/Eval config schema:
   - `run_state.json` (resumable run identity + status),
   - `runs/index.jsonl` (append-only run events),
   - `checkpoint_lifecycle.json` (integrity digests + tiered retention metadata).
-- v2.6.7 strict behavior rejects configs missing `config_version`.
+- v2.6.8 strict behavior rejects configs missing `config_version`.
 - Optional legacy recovery mode:
   - `--lenient-contracts` is accepted only when `ENKAI_ALLOW_LEGACY_CONTRACTS=1`.
 
@@ -709,7 +713,7 @@ Checkpoint format:
     with machine-readable output via `--json`.
 
 -------------------------------------------------------------------------------
-12. Known Limits in v2.6.7
+12. Known Limits in v2.6.8
 -------------------------------------------------------------------------------
 
 The following are intentionally not fully implemented yet:
@@ -759,9 +763,9 @@ The following are intentionally not fully implemented yet:
 - `enkai litec mainline-ci` composes `selfhost-ci --no-compare-stage0` and
   `replace-check --no-compare-stage0` to make the Enkai-built compiler path the
   default CI self-host lane while preserving a separate mandatory Stage0 fallback lane.
-- `enkai cluster run` is a deterministic planner output in v2.6.7; first-party
+- `enkai cluster run` is a deterministic planner output in v2.6.8; first-party
   process supervisor execution remains operator-managed.
-- v2.6.7 validation note:
+- v2.6.8 validation note:
   - CPU-mode single-device soak requires operator-run evidence on production hardware.
   - CUDA single-GPU long-soak and distributed (2-GPU/4-GPU) reliability remain
     operator-run requirements and are not auto-proven by repository state alone.
@@ -770,6 +774,9 @@ The following are intentionally not fully implemented yet:
     and governed by:
     `enkai/contracts/readiness_full_platform_v2_5_0.json`,
     `enkai/contracts/full_platform_release_blockers_v2_5_0.json`.
+- v2.6.8 native-backed simulation note:
+  - stdlib simulation primitive verification now requires profile evidence that the native
+    acceleration path was used for `std::sparse`/`std::event`/`std::pool` hot operations.
 - Machine-readable blocker verification is executed with:
   `enkai readiness verify-blockers --profile full_platform --report artifacts/readiness/full_platform.json --json --output artifacts/readiness/full_platform_blockers.json`
   and validates required readiness checks plus required evidence artifacts for the current version line.
@@ -805,11 +812,12 @@ These limits are part of the current stable contract and should be treated as pr
 13. Change Control
 -------------------------------------------------------------------------------
 
-For any language/runtime surface change after v2.6.7:
+For any language/runtime surface change after v2.6.8:
 1) Implement the change and add/adjust compiler/runtime tests.
 2) Update this specification to match the shipped behavior.
 3) Update changelog and targeted docs (`docs/xx_*.md`, `docs/tensor_api.md`, etc.).
 4) If compatibility/deprecation behavior changes, update `docs/29_compatibility_policy.md`.
+
 
 
 

@@ -316,10 +316,18 @@ fn library_candidates(name: &str) -> Vec<PathBuf> {
             if dir_set.insert(dir_path.clone()) {
                 dirs.push(dir_path);
             }
+            let deps_path = dir.join("deps");
+            if dir_set.insert(deps_path.clone()) {
+                dirs.push(deps_path);
+            }
             if let Some(parent) = dir.parent() {
                 let parent_path = parent.to_path_buf();
                 if dir_set.insert(parent_path.clone()) {
                     dirs.push(parent_path);
+                }
+                let parent_deps_path = parent.join("deps");
+                if dir_set.insert(parent_deps_path.clone()) {
+                    dirs.push(parent_deps_path);
                 }
             }
         }

@@ -67,7 +67,7 @@ The command executes a deterministic gate bundle:
 - simulation smoke evidence semantic verification
 - simulation native FFI smoke
 - simulation native FFI evidence verification
-- simulation stdlib primitive smoke
+- simulation stdlib primitive smoke with native-backed acceleration proof
 - simulation stdlib evidence verification
 - DB core smoke
 - generated backend/fullstack deploy validation smoke

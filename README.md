@@ -1,21 +1,24 @@
-﻿ENKAI PROGRAMMING LANGUAGE
+ENKAI PROGRAMMING LANGUAGE
 [![CI](https://github.com/Xmanuel01/Enkai/actions/workflows/ci.yml/badge.svg)](https://github.com/Xmanuel01/Enkai/actions/workflows/ci.yml)
 
 Overview
 Enkai is a programming language with block structure defined by :: tokens, a clean
 assignment operator (:=), and an AI-native roadmap (tools, agents, memory, policy).
-This repository contains the v2.6.7 implementation in Rust.
+This repository contains the v2.6.8 implementation in Rust.
 
-Status (v2.6.7)
+Status (v2.6.8)
 - Bytecode VM + globals + type-checking
 - Module system with public/private exports
 - CLI: run/bench/readiness/deploy/model/serve/new/sdk/check/fmt/fmt-lite/lint-lite/tokenizer-lite/dataset-lite/litec/build/test/train/pretrain/eval/migrate/doctor
 - FFI runtime + native std modules (fsx/zstd/hash/db/tls)
 - Core simulation std/runtime modules:
-  - `std::sparse`
-  - `std::event`
-  - `std::pool`
-  - `std::sim`
+- `std::sparse`
+- `std::event`
+- `std::pool`
+- `std::sim`
+- `std::sparse`, `std::event`, and `std::pool` now keep the same public API while using
+  native-backed acceleration through `enkai_native` when available; deterministic runtime
+  fallbacks remain active when acceleration is unavailable or disabled with `ENKAI_SIM_ACCEL=0`
 - Simulation CLI surfaces:
   - `enkai sim run`
   - `enkai sim profile`
@@ -42,8 +45,8 @@ Status (v2.6.7)
 - Bootstrap-lite/core toolchain path with `litec` stage0/stage1 bytecode equivalence checks, phase staging (`litec stage`), self-host CI corpus validation (`litec selfhost-ci`), and consolidated release lane (`litec release-ci`)
 - Self-host mainline CI lane with deterministic triage artifacts (`litec mainline-ci --triage-dir <dir>`) plus mandatory Stage0 fallback lane
 - Self-host replacement-readiness gate with Stage1/Stage2 fixed-point checks (`litec replace-check`)
-- Compatibility/deprecation governance and self-host fallback workflow docs for v2.6.7 release readiness
-- Version-neutral release pipeline, deterministic packaging, checksum verification, SBOM generation, and RC evidence-archive gates for v2.6.7 sign-off
+- Compatibility/deprecation governance and self-host fallback workflow docs for v2.6.8 release readiness
+- Version-neutral release pipeline, deterministic packaging, checksum verification, SBOM generation, and RC evidence-archive gates for v2.6.8 sign-off
 - Full-platform simulation smoke evidence integrated into release sign-off:
   - `scripts/readiness_sim_smoke.py`
   - `artifacts/readiness/sim_smoke.json`
@@ -71,7 +74,7 @@ Status (v2.6.7)
   - deterministic suites under `bench/suites/`
   - machine profile manifests under `bench/machines/`
   - structured result artifacts under `bench/results/*.json`
-- Strict-contract enforcement in v2.6.7:
+- Strict-contract enforcement in v2.6.8:
   - `enkai train` / `enkai eval` enforce contract checks by default
   - explicit legacy recovery is gated: `--lenient-contracts` + `ENKAI_ALLOW_LEGACY_CONTRACTS=1`
   - readiness audit: `enkai doctor --json [--strict-contracts|--lenient]`
@@ -147,6 +150,7 @@ Apache 2.0
 
 Created by
 Emmanuel Odhiambo Onyango
+
 
 
 

@@ -127,11 +127,13 @@ impl Drop for NativeHandle {
 #[derive(Debug, Default)]
 pub struct SparseVectorState {
     pub data: BTreeMap<i64, f64>,
+    pub native: Option<Value>,
 }
 
 #[derive(Debug, Default)]
 pub struct SparseMatrixState {
     pub data: BTreeMap<(i64, i64), f64>,
+    pub native: Option<Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -169,6 +171,8 @@ impl Ord for ScheduledEvent {
 pub struct EventQueueState {
     pub next_seq: u64,
     pub items: BinaryHeap<ScheduledEvent>,
+    pub native: Option<Value>,
+    pub payloads: BTreeMap<u64, Value>,
 }
 
 #[derive(Debug)]
@@ -181,6 +185,7 @@ pub struct ValuePoolState {
     pub releases: u64,
     pub dropped_on_full: u64,
     pub high_watermark: usize,
+    pub native: Option<Value>,
 }
 
 impl ValuePoolState {
@@ -194,6 +199,7 @@ impl ValuePoolState {
             releases: 0,
             dropped_on_full: 0,
             high_watermark: 0,
+            native: None,
         }
     }
 }
@@ -296,26 +302,54 @@ pub fn native_handle_value(ptr: *mut c_void, dropper: Rc<NativeHandleDrop>) -> V
 }
 
 pub fn sparse_vector_value() -> Value {
+    sparse_vector_value_with_native(None)
+}
+
+pub fn sparse_vector_value_with_native(native: Option<Value>) -> Value {
     Value::Obj(ObjRef::new(Obj::SparseVector(Box::new(RefCell::new(
-        SparseVectorState::default(),
+        SparseVectorState {
+            native,
+            ..SparseVectorState::default()
+        },
     )))))
 }
 
 pub fn sparse_matrix_value() -> Value {
+    sparse_matrix_value_with_native(None)
+}
+
+pub fn sparse_matrix_value_with_native(native: Option<Value>) -> Value {
     Value::Obj(ObjRef::new(Obj::SparseMatrix(Box::new(RefCell::new(
-        SparseMatrixState::default(),
+        SparseMatrixState {
+            native,
+            ..SparseMatrixState::default()
+        },
     )))))
 }
 
 pub fn event_queue_value() -> Value {
+    event_queue_value_with_native(None)
+}
+
+pub fn event_queue_value_with_native(native: Option<Value>) -> Value {
     Value::Obj(ObjRef::new(Obj::EventQueue(Box::new(RefCell::new(
-        EventQueueState::default(),
+        EventQueueState {
+            native,
+            ..EventQueueState::default()
+        },
     )))))
 }
 
 pub fn pool_value(capacity: usize, growable: bool) -> Value {
+    pool_value_with_native(capacity, growable, None)
+}
+
+pub fn pool_value_with_native(capacity: usize, growable: bool, native: Option<Value>) -> Value {
     Value::Obj(ObjRef::new(Obj::Pool(Box::new(RefCell::new(
-        ValuePoolState::new(capacity, growable),
+        ValuePoolState {
+            native,
+            ..ValuePoolState::new(capacity, growable)
+        },
     )))))
 }
 

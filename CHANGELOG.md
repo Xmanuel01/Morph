@@ -8,28 +8,25 @@
 ### Breaking changes
 - None.
 
-## v2.6.7
+## v2.6.8
 
 ### Highlights
-- Advanced the release line to `v2.6.7` with additive compatibility and no syntax changes.
-- Hardened the AGI/simulation release path with stdlib primitive smoke verification:
-  - new smoke runner:
-    - `scripts/readiness_sim_stdlib_smoke.py`
-  - new verifier:
-    - `scripts/verify_sim_stdlib_evidence.py`
-  - new readiness artifacts:
-    - `artifacts/readiness/sim_stdlib_smoke.json`
-    - `artifacts/readiness/sim_stdlib_evidence_verify.json`
+- Advanced the release line to `v2.6.8` with additive compatibility and no syntax changes.
+- Completed the missing `v2.6.1` native-backed acceleration requirement behind the existing public interfaces for:
+  - `std::sparse`
+  - `std::event`
+  - `std::pool`
+- Added internal simulation acceleration bindings that use `enkai_native` when available and fall back to deterministic runtime implementations when unavailable or disabled.
 
 ### Fixes
-- Full-platform readiness now proves `std::sparse`, `std::event`, and `std::pool` remain production-safe in the simulation CLI path before release sign-off.
-- Strict release evidence and capability reporting now require archived stdlib primitive simulation smoke artifacts:
-  - `artifacts/sim/stdlib_smoke_run.json`
-  - `artifacts/sim/stdlib_smoke_profile.json`
-- Synced docs/spec/release metadata and version surfaces to `v2.6.7`.
+- `sparse.dot` and `sparse.matvec` now use native-backed handles and packed f64 buffers under the same Enkai API surface.
+- `event.make`/`event.push`/`event.pop`/`event.peek`/`event.len` now maintain a native heap mirror behind the existing queue interface.
+- `pool.make`/`pool.release`/`pool.acquire`/`pool.reset`/`pool.available`/`pool.capacity`/`pool.stats` now maintain native-backed capacity and counter state behind the existing pool interface.
+- `scripts/readiness_sim_stdlib_smoke.py` and `scripts/verify_sim_stdlib_evidence.py` now prove that stdlib simulation primitives use the native acceleration path in profile artifacts instead of only the VM fallback path.
+- Synced docs/spec/release metadata and version surfaces to `v2.6.8`.
 - Added current-line RC wrapper scripts:
-  - `scripts/v2_6_7_rc_pipeline.ps1`
-  - `scripts/v2_6_7_rc_pipeline.sh`
+  - `scripts/v2_6_8_rc_pipeline.ps1`
+  - `scripts/v2_6_8_rc_pipeline.sh`
 
 ### Breaking changes
 - None.
@@ -1365,6 +1362,7 @@
 
 ### Breaking changes
 - IO and tool calls are now policy-gated; code that called `print` or tools without a policy will fail until a policy allows those capabilities.
+
 
 
 

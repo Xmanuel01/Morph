@@ -51,8 +51,8 @@ def main() -> int:
     counters = profile_report.get("counters")
     if not isinstance(counters, dict):
         fail("simulation stdlib profile counters must be an object")
-    if int(counters.get("ffi_calls", 0)) != 0:
-        fail("simulation stdlib profile ffi_calls must be 0")
+    if summary.get("require_native_accel") is True and int(counters.get("ffi_calls", 0)) <= 0:
+        fail("simulation stdlib profile ffi_calls must be > 0 when native accel is required")
     if int(counters.get("native_function_calls", 0)) <= 0:
         fail("simulation stdlib profile native_function_calls must be > 0")
     if int(counters.get("opcode_dispatch", 0)) <= 0:
@@ -63,8 +63,8 @@ def main() -> int:
     timing = profile_report.get("timing_ms")
     if not isinstance(timing, dict):
         fail("simulation stdlib profile timing_ms must be an object")
-    if float(timing.get("native_calls", 0.0)) != 0.0:
-        fail("simulation stdlib profile native_calls timing must be 0")
+    if summary.get("require_native_accel") is True and float(timing.get("native_calls", 0.0)) <= 0.0:
+        fail("simulation stdlib profile native_calls timing must be > 0 when native accel is required")
     if float(timing.get("vm_exec", 0.0)) <= 0.0:
         fail("simulation stdlib profile vm_exec timing must be > 0")
 
@@ -74,6 +74,7 @@ def main() -> int:
         "run_report": str(run_report_path),
         "profile_report": str(profile_report_path),
         "all_passed": True,
+        "ffi_calls": counters.get("ffi_calls", 0),
         "opcode_dispatch": counters.get("opcode_dispatch", 0),
         "object_allocations": counters.get("object_allocations", 0),
     }

@@ -12,7 +12,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
 use enkaic::ast::{Arg, Block, Expr, Item, LValue, Module, Stmt};
-use enkaic::bytecode::{Constant, Instruction, Program};
+use enkaic::bytecode::{Constant, FfiSignature, FfiType, Instruction, NativeFunctionDecl, Program};
 use enkaic::compiler::compile_package;
 use enkaic::formatter::{check_format, format_source};
 use enkaic::modules::load_package;
@@ -26,12 +26,13 @@ use crate::checkpoint::{
 };
 use crate::dataset::{resolve_dataset_paths, Batch, DatasetConfig, DatasetStream};
 use crate::error::{RuntimeError, RuntimeFrame};
+use crate::ffi::FfiFunction;
 use crate::ffi::{ffi_stats_snapshot, FfiLoader, FfiStats};
 use crate::object::{
-    buffer_value, channel_value, event_queue_value, function_value, pool_value, record_value,
-    sim_world_value, sparse_matrix_value, sparse_vector_value, string_value, task_handle_value,
-    BoundFunctionObj, HttpStream, NativeFunction, NativeImpl, Obj, StreamCommand, WebSocketHandle,
-    WsCommand, WsIncoming,
+    buffer_value, channel_value, event_queue_value_with_native, function_value,
+    pool_value_with_native, record_value, sim_world_value, sparse_matrix_value_with_native,
+    sparse_vector_value_with_native, string_value, task_handle_value, BoundFunctionObj, HttpStream,
+    NativeFunction, NativeImpl, Obj, StreamCommand, WebSocketHandle, WsCommand, WsIncoming,
 };
 use crate::tokenizer::{bytes_to_ids, ids_to_bytes, Tokenizer, TrainConfig};
 use crate::value::{object_allocation_count, ObjRef, Value};
@@ -80,6 +81,146 @@ enum IoResult {
     ReadAll(Result<Vec<u8>, String>),
     Write(Result<usize, String>),
     HttpResponse(Result<HttpResponseData, String>),
+}
+
+enum SimAccelState {
+    Uninitialized,
+    Disabled,
+    Ready(Box<SimAccelBindings>),
+}
+
+struct SimAccelBindings {
+    sparse_vector_new: FfiFunction,
+    sparse_vector_set: FfiFunction,
+    sparse_vector_dot: FfiFunction,
+    sparse_matrix_new: FfiFunction,
+    sparse_matrix_set: FfiFunction,
+    sparse_matrix_matvec: FfiFunction,
+    event_queue_new: FfiFunction,
+    event_queue_push: FfiFunction,
+    event_queue_pop: FfiFunction,
+    event_queue_peek: FfiFunction,
+    event_queue_len: FfiFunction,
+    pool_new: FfiFunction,
+    pool_release: FfiFunction,
+    pool_acquire: FfiFunction,
+    pool_reset: FfiFunction,
+    pool_available: FfiFunction,
+    pool_capacity: FfiFunction,
+    pool_stats: FfiFunction,
+}
+
+impl SimAccelBindings {
+    fn load(loader: &mut FfiLoader) -> Result<Self, RuntimeError> {
+        fn bind(
+            loader: &mut FfiLoader,
+            name: &str,
+            params: Vec<FfiType>,
+            ret: FfiType,
+        ) -> Result<FfiFunction, RuntimeError> {
+            loader.bind(&NativeFunctionDecl {
+                library: "enkai_native".to_string(),
+                name: name.to_string(),
+                signature: FfiSignature { params, ret },
+            })
+        }
+
+        Ok(Self {
+            sparse_vector_new: bind(loader, "sim_sparse_vector_new", vec![], FfiType::Handle)?,
+            sparse_vector_set: bind(
+                loader,
+                "sim_sparse_vector_set",
+                vec![FfiType::Handle, FfiType::Int, FfiType::Float],
+                FfiType::Bool,
+            )?,
+            sparse_vector_dot: bind(
+                loader,
+                "sim_sparse_vector_dot",
+                vec![FfiType::Handle, FfiType::Buffer],
+                FfiType::Float,
+            )?,
+            sparse_matrix_new: bind(loader, "sim_sparse_matrix_new", vec![], FfiType::Handle)?,
+            sparse_matrix_set: bind(
+                loader,
+                "sim_sparse_matrix_set",
+                vec![FfiType::Handle, FfiType::Int, FfiType::Int, FfiType::Float],
+                FfiType::Bool,
+            )?,
+            sparse_matrix_matvec: bind(
+                loader,
+                "sim_sparse_matrix_matvec",
+                vec![FfiType::Handle, FfiType::Buffer],
+                FfiType::Buffer,
+            )?,
+            event_queue_new: bind(loader, "sim_event_queue_new", vec![], FfiType::Handle)?,
+            event_queue_push: bind(
+                loader,
+                "sim_event_queue_push",
+                vec![FfiType::Handle, FfiType::Float, FfiType::Int],
+                FfiType::Bool,
+            )?,
+            event_queue_pop: bind(
+                loader,
+                "sim_event_queue_pop",
+                vec![FfiType::Handle],
+                FfiType::Buffer,
+            )?,
+            event_queue_peek: bind(
+                loader,
+                "sim_event_queue_peek",
+                vec![FfiType::Handle],
+                FfiType::Buffer,
+            )?,
+            event_queue_len: bind(
+                loader,
+                "sim_event_queue_len",
+                vec![FfiType::Handle],
+                FfiType::Int,
+            )?,
+            pool_new: bind(
+                loader,
+                "sim_pool_new",
+                vec![FfiType::Int, FfiType::Bool],
+                FfiType::Handle,
+            )?,
+            pool_release: bind(
+                loader,
+                "sim_pool_release",
+                vec![FfiType::Handle],
+                FfiType::Bool,
+            )?,
+            pool_acquire: bind(
+                loader,
+                "sim_pool_acquire",
+                vec![FfiType::Handle],
+                FfiType::Bool,
+            )?,
+            pool_reset: bind(
+                loader,
+                "sim_pool_reset",
+                vec![FfiType::Handle],
+                FfiType::Void,
+            )?,
+            pool_available: bind(
+                loader,
+                "sim_pool_available",
+                vec![FfiType::Handle],
+                FfiType::Int,
+            )?,
+            pool_capacity: bind(
+                loader,
+                "sim_pool_capacity",
+                vec![FfiType::Handle],
+                FfiType::Int,
+            )?,
+            pool_stats: bind(
+                loader,
+                "sim_pool_stats",
+                vec![FfiType::Handle],
+                FfiType::Buffer,
+            )?,
+        })
+    }
 }
 
 struct IoEvent {
@@ -322,6 +463,7 @@ pub struct VM {
     policies: HashMap<String, Policy>,
     active_policy: Option<String>,
     bench_profile: Option<VmBenchProfile>,
+    sim_accel: SimAccelState,
 }
 
 impl VM {
@@ -369,6 +511,7 @@ impl VM {
             policies: HashMap::new(),
             active_policy: None,
             bench_profile,
+            sim_accel: SimAccelState::Uninitialized,
         }
     }
 
@@ -4568,12 +4711,18 @@ impl VM {
                         }
                         if nf.name == "sparse.vector" {
                             self.stack.truncate(callee_index);
-                            self.stack.push(sparse_vector_value());
+                            let native = self
+                                .sim_accel_bindings()
+                                .and_then(|bindings| bindings.sparse_vector_new.call(&[]).ok());
+                            self.stack.push(sparse_vector_value_with_native(native));
                             return Ok(());
                         }
                         if nf.name == "sparse.matrix" {
                             self.stack.truncate(callee_index);
-                            self.stack.push(sparse_matrix_value());
+                            let native = self
+                                .sim_accel_bindings()
+                                .and_then(|bindings| bindings.sparse_matrix_new.call(&[]).ok());
+                            self.stack.push(sparse_matrix_value_with_native(native));
                             return Ok(());
                         }
                         if nf.name == "sparse.get" {
@@ -4590,7 +4739,8 @@ impl VM {
                                 .cloned()
                                 .ok_or_else(|| RuntimeError::new("sparse.get expects col"))?;
                             self.stack.truncate(callee_index);
-                            self.stack.push(self.sparse_get(matrix, row, col)?);
+                            let value = self.sparse_get(matrix, row, col)?;
+                            self.stack.push(value);
                             return Ok(());
                         }
                         if nf.name == "sparse.set" {
@@ -4623,7 +4773,8 @@ impl VM {
                                 RuntimeError::new("sparse.get_vector expects index")
                             })?;
                             self.stack.truncate(callee_index);
-                            self.stack.push(self.sparse_vector_get(vector, index)?);
+                            let value = self.sparse_vector_get(vector, index)?;
+                            self.stack.push(value);
                             return Ok(());
                         }
                         if nf.name == "sparse.set_vector" {
@@ -4646,7 +4797,8 @@ impl VM {
                                 RuntimeError::new("sparse.nonzero expects matrix")
                             })?;
                             self.stack.truncate(callee_index);
-                            self.stack.push(self.sparse_nonzero(matrix)?);
+                            let value = self.sparse_nonzero(matrix)?;
+                            self.stack.push(value);
                             return Ok(());
                         }
                         if nf.name == "sparse.nonzero_vector" {
@@ -4654,7 +4806,8 @@ impl VM {
                                 RuntimeError::new("sparse.nonzero_vector expects vector")
                             })?;
                             self.stack.truncate(callee_index);
-                            self.stack.push(self.sparse_vector_nonzero(vector)?);
+                            let value = self.sparse_vector_nonzero(vector)?;
+                            self.stack.push(value);
                             return Ok(());
                         }
                         if nf.name == "sparse.dot" {
@@ -4667,8 +4820,8 @@ impl VM {
                                 .cloned()
                                 .ok_or_else(|| RuntimeError::new("sparse.dot expects dense"))?;
                             self.stack.truncate(callee_index);
-                            self.stack
-                                .push(Value::Float(self.sparse_dot(vector, dense)?));
+                            let value = self.sparse_dot(vector, dense)?;
+                            self.stack.push(Value::Float(value));
                             return Ok(());
                         }
                         if nf.name == "sparse.matvec" {
@@ -4681,7 +4834,8 @@ impl VM {
                                 .cloned()
                                 .ok_or_else(|| RuntimeError::new("sparse.matvec expects dense"))?;
                             self.stack.truncate(callee_index);
-                            self.stack.push(self.sparse_matvec(matrix, dense)?);
+                            let value = self.sparse_matvec(matrix, dense)?;
+                            self.stack.push(value);
                             return Ok(());
                         }
                         if nf.name == "sparse.nnz" {
@@ -4690,12 +4844,16 @@ impl VM {
                                 .cloned()
                                 .ok_or_else(|| RuntimeError::new("sparse.nnz expects value"))?;
                             self.stack.truncate(callee_index);
-                            self.stack.push(Value::Int(self.sparse_nnz(value)? as i64));
+                            let value = self.sparse_nnz(value)?;
+                            self.stack.push(Value::Int(value as i64));
                             return Ok(());
                         }
                         if nf.name == "event.make" {
                             self.stack.truncate(callee_index);
-                            self.stack.push(event_queue_value());
+                            let native = self
+                                .sim_accel_bindings()
+                                .and_then(|bindings| bindings.event_queue_new.call(&[]).ok());
+                            self.stack.push(event_queue_value_with_native(native));
                             return Ok(());
                         }
                         if nf.name == "event.push" {
@@ -4722,7 +4880,8 @@ impl VM {
                                 .cloned()
                                 .ok_or_else(|| RuntimeError::new("event.pop expects queue"))?;
                             self.stack.truncate(callee_index);
-                            self.stack.push(self.event_pop(queue)?);
+                            let value = self.event_pop(queue)?;
+                            self.stack.push(value);
                             return Ok(());
                         }
                         if nf.name == "event.peek" {
@@ -4731,7 +4890,8 @@ impl VM {
                                 .cloned()
                                 .ok_or_else(|| RuntimeError::new("event.peek expects queue"))?;
                             self.stack.truncate(callee_index);
-                            self.stack.push(self.event_peek(queue)?);
+                            let value = self.event_peek(queue)?;
+                            self.stack.push(value);
                             return Ok(());
                         }
                         if nf.name == "event.len" {
@@ -4740,7 +4900,8 @@ impl VM {
                                 .cloned()
                                 .ok_or_else(|| RuntimeError::new("event.len expects queue"))?;
                             self.stack.truncate(callee_index);
-                            self.stack.push(Value::Int(self.event_len(queue)? as i64));
+                            let value = self.event_len(queue)?;
+                            self.stack.push(Value::Int(value as i64));
                             return Ok(());
                         }
                         if nf.name == "event.is_empty" {
@@ -4749,7 +4910,8 @@ impl VM {
                                 .cloned()
                                 .ok_or_else(|| RuntimeError::new("event.is_empty expects queue"))?;
                             self.stack.truncate(callee_index);
-                            self.stack.push(Value::Bool(self.event_len(queue)? == 0));
+                            let value = self.event_len(queue)?;
+                            self.stack.push(Value::Bool(value == 0));
                             return Ok(());
                         }
                         if nf.name == "pool.make" {
@@ -4758,7 +4920,8 @@ impl VM {
                                 .cloned()
                                 .ok_or_else(|| RuntimeError::new("pool.make expects capacity"))?;
                             self.stack.truncate(callee_index);
-                            self.stack.push(self.pool_make(capacity, false)?);
+                            let value = self.pool_make(capacity, false)?;
+                            self.stack.push(value);
                             return Ok(());
                         }
                         if nf.name == "pool.make_growable" {
@@ -4766,7 +4929,8 @@ impl VM {
                                 RuntimeError::new("pool.make_growable expects capacity")
                             })?;
                             self.stack.truncate(callee_index);
-                            self.stack.push(self.pool_make(capacity, true)?);
+                            let value = self.pool_make(capacity, true)?;
+                            self.stack.push(value);
                             return Ok(());
                         }
                         if nf.name == "pool.acquire" {
@@ -4775,7 +4939,8 @@ impl VM {
                                 .cloned()
                                 .ok_or_else(|| RuntimeError::new("pool.acquire expects pool"))?;
                             self.stack.truncate(callee_index);
-                            self.stack.push(self.pool_acquire(pool)?);
+                            let value = self.pool_acquire(pool)?;
+                            self.stack.push(value);
                             return Ok(());
                         }
                         if nf.name == "pool.release" {
@@ -4788,8 +4953,8 @@ impl VM {
                                 .cloned()
                                 .ok_or_else(|| RuntimeError::new("pool.release expects value"))?;
                             self.stack.truncate(callee_index);
-                            self.stack
-                                .push(Value::Bool(self.pool_release(pool, value)?));
+                            let released = self.pool_release(pool, value)?;
+                            self.stack.push(Value::Bool(released));
                             return Ok(());
                         }
                         if nf.name == "pool.reset" {
@@ -4808,8 +4973,8 @@ impl VM {
                                 .cloned()
                                 .ok_or_else(|| RuntimeError::new("pool.available expects pool"))?;
                             self.stack.truncate(callee_index);
-                            self.stack
-                                .push(Value::Int(self.pool_available(pool)? as i64));
+                            let value = self.pool_available(pool)?;
+                            self.stack.push(Value::Int(value as i64));
                             return Ok(());
                         }
                         if nf.name == "pool.capacity" {
@@ -4818,8 +4983,8 @@ impl VM {
                                 .cloned()
                                 .ok_or_else(|| RuntimeError::new("pool.capacity expects pool"))?;
                             self.stack.truncate(callee_index);
-                            self.stack
-                                .push(Value::Int(self.pool_capacity(pool)? as i64));
+                            let value = self.pool_capacity(pool)?;
+                            self.stack.push(Value::Int(value as i64));
                             return Ok(());
                         }
                         if nf.name == "pool.stats" {
@@ -4828,7 +4993,8 @@ impl VM {
                                 .cloned()
                                 .ok_or_else(|| RuntimeError::new("pool.stats expects pool"))?;
                             self.stack.truncate(callee_index);
-                            self.stack.push(self.pool_stats(pool)?);
+                            let value = self.pool_stats(pool)?;
+                            self.stack.push(value);
                             return Ok(());
                         }
                         if nf.name == "sim.make" {
@@ -7806,7 +7972,7 @@ impl VM {
         Ok(())
     }
 
-    fn sparse_get(&self, matrix: Value, row: Value, col: Value) -> Result<Value, RuntimeError> {
+    fn sparse_get(&mut self, matrix: Value, row: Value, col: Value) -> Result<Value, RuntimeError> {
         let row = value_as_non_negative_int(&row, "sparse.get expects row >= 0")?;
         let col = value_as_non_negative_int(&col, "sparse.get expects col >= 0")?;
         match matrix {
@@ -7825,7 +7991,7 @@ impl VM {
     }
 
     fn sparse_set(
-        &self,
+        &mut self,
         matrix: Value,
         row: Value,
         col: Value,
@@ -7846,6 +8012,16 @@ impl VM {
                     } else {
                         inner.data.insert((row, col), value);
                     }
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        let _ = bindings.sparse_matrix_set.call(&[
+                            handle,
+                            Value::Int(row),
+                            Value::Int(col),
+                            Value::Float(value),
+                        ]);
+                    }
                 }
                 _ => return Err(RuntimeError::new("sparse.set expects SparseMatrix")),
             },
@@ -7854,7 +8030,7 @@ impl VM {
         Ok(())
     }
 
-    fn sparse_vector_get(&self, vector: Value, index: Value) -> Result<Value, RuntimeError> {
+    fn sparse_vector_get(&mut self, vector: Value, index: Value) -> Result<Value, RuntimeError> {
         let index = value_as_non_negative_int(&index, "sparse.get_vector expects index >= 0")?;
         match vector {
             Value::Obj(obj) => match obj.as_obj() {
@@ -7872,7 +8048,7 @@ impl VM {
     }
 
     fn sparse_vector_set(
-        &self,
+        &mut self,
         vector: Value,
         index: Value,
         value: Value,
@@ -7891,6 +8067,15 @@ impl VM {
                     } else {
                         inner.data.insert(index, value);
                     }
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        let _ = bindings.sparse_vector_set.call(&[
+                            handle,
+                            Value::Int(index),
+                            Value::Float(value),
+                        ]);
+                    }
                 }
                 _ => return Err(RuntimeError::new("sparse.set_vector expects SparseVector")),
             },
@@ -7899,7 +8084,7 @@ impl VM {
         Ok(())
     }
 
-    fn sparse_nonzero(&self, matrix: Value) -> Result<Value, RuntimeError> {
+    fn sparse_nonzero(&mut self, matrix: Value) -> Result<Value, RuntimeError> {
         match matrix {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::SparseMatrix(inner) => {
@@ -7920,7 +8105,7 @@ impl VM {
         }
     }
 
-    fn sparse_vector_nonzero(&self, vector: Value) -> Result<Value, RuntimeError> {
+    fn sparse_vector_nonzero(&mut self, vector: Value) -> Result<Value, RuntimeError> {
         match vector {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::SparseVector(inner) => {
@@ -7944,13 +8129,26 @@ impl VM {
         }
     }
 
-    fn sparse_dot(&self, vector: Value, dense: Value) -> Result<f64, RuntimeError> {
+    fn sparse_dot(&mut self, vector: Value, dense: Value) -> Result<f64, RuntimeError> {
         let dense = value_as_dense_f64(&dense)?;
         match vector {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::SparseVector(inner) => {
+                    let inner = inner.borrow();
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        let encoded = encode_f64_buffer(&dense);
+                        if let Ok(Value::Float(out)) =
+                            bindings.sparse_vector_dot.call(&[handle, encoded])
+                        {
+                            if out.is_finite() {
+                                return Ok(out);
+                            }
+                        }
+                    }
                     let mut out = 0.0;
-                    for (index, value) in inner.borrow().data.iter() {
+                    for (index, value) in inner.data.iter() {
                         let idx = *index as usize;
                         if let Some(dense_value) = dense.get(idx) {
                             out += value * dense_value;
@@ -7964,12 +8162,24 @@ impl VM {
         }
     }
 
-    fn sparse_matvec(&self, matrix: Value, dense: Value) -> Result<Value, RuntimeError> {
+    fn sparse_matvec(&mut self, matrix: Value, dense: Value) -> Result<Value, RuntimeError> {
         let dense = value_as_dense_f64(&dense)?;
         match matrix {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::SparseMatrix(inner) => {
                     let inner = inner.borrow();
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        let encoded = encode_f64_buffer(&dense);
+                        if let Ok(buffer) = bindings.sparse_matrix_matvec.call(&[handle, encoded]) {
+                            if let Ok(out) = decode_f64_buffer(buffer) {
+                                return Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                                    out.into_iter().map(Value::Float).collect(),
+                                )))));
+                            }
+                        }
+                    }
                     let max_row = inner
                         .data
                         .keys()
@@ -7997,7 +8207,7 @@ impl VM {
         }
     }
 
-    fn sparse_nnz(&self, value: Value) -> Result<usize, RuntimeError> {
+    fn sparse_nnz(&mut self, value: Value) -> Result<usize, RuntimeError> {
         match value {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::SparseMatrix(inner) => Ok(inner.borrow().data.len()),
@@ -8012,7 +8222,7 @@ impl VM {
         }
     }
 
-    fn event_push(&self, queue: Value, time: Value, event: Value) -> Result<(), RuntimeError> {
+    fn event_push(&mut self, queue: Value, time: Value, event: Value) -> Result<(), RuntimeError> {
         let time = value_as_float_like(&time)?;
         if !time.is_finite() {
             return Err(RuntimeError::new("event.push expects finite time"));
@@ -8023,9 +8233,21 @@ impl VM {
                     let mut inner = inner.borrow_mut();
                     let seq = inner.next_seq;
                     inner.next_seq = inner.next_seq.saturating_add(1);
-                    inner
-                        .items
-                        .push(crate::object::ScheduledEvent { time, seq, event });
+                    inner.items.push(crate::object::ScheduledEvent {
+                        time,
+                        seq,
+                        event: event.clone(),
+                    });
+                    inner.payloads.insert(seq, event);
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        let _ = bindings.event_queue_push.call(&[
+                            handle,
+                            Value::Float(time),
+                            Value::Int(seq as i64),
+                        ]);
+                    }
                     Ok(())
                 }
                 _ => Err(RuntimeError::new("event.push expects EventQueue")),
@@ -8034,48 +8256,97 @@ impl VM {
         }
     }
 
-    fn event_pop(&self, queue: Value) -> Result<Value, RuntimeError> {
+    fn event_pop(&mut self, queue: Value) -> Result<Value, RuntimeError> {
         match queue {
             Value::Obj(obj) => match obj.as_obj() {
-                Obj::EventQueue(inner) => Ok(inner
-                    .borrow_mut()
-                    .items
-                    .pop()
-                    .map(event_record_value)
-                    .unwrap_or(Value::Null)),
+                Obj::EventQueue(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        if let Ok(Some((time, seq))) = decode_event_meta(
+                            bindings.event_queue_pop.call(&[handle])?,
+                            "sim_event_queue_pop",
+                        ) {
+                            let event = inner.payloads.remove(&seq).unwrap_or(Value::Null);
+                            let _ = inner.items.pop();
+                            return Ok(event_record_value(crate::object::ScheduledEvent {
+                                time,
+                                seq,
+                                event,
+                            }));
+                        }
+                    }
+                    Ok(match inner.items.pop() {
+                        Some(item) => {
+                            inner.payloads.remove(&item.seq);
+                            event_record_value(item)
+                        }
+                        None => Value::Null,
+                    })
+                }
                 _ => Err(RuntimeError::new("event.pop expects EventQueue")),
             },
             _ => Err(RuntimeError::new("event.pop expects EventQueue")),
         }
     }
 
-    fn event_peek(&self, queue: Value) -> Result<Value, RuntimeError> {
+    fn event_peek(&mut self, queue: Value) -> Result<Value, RuntimeError> {
         match queue {
             Value::Obj(obj) => match obj.as_obj() {
-                Obj::EventQueue(inner) => Ok(inner
-                    .borrow()
-                    .items
-                    .peek()
-                    .cloned()
-                    .map(event_record_value)
-                    .unwrap_or(Value::Null)),
+                Obj::EventQueue(inner) => {
+                    let inner = inner.borrow();
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        if let Ok(Some((time, seq))) = decode_event_meta(
+                            bindings.event_queue_peek.call(&[handle])?,
+                            "sim_event_queue_peek",
+                        ) {
+                            let event = inner.payloads.get(&seq).cloned().unwrap_or(Value::Null);
+                            return Ok(event_record_value(crate::object::ScheduledEvent {
+                                time,
+                                seq,
+                                event,
+                            }));
+                        }
+                    }
+                    Ok(inner
+                        .items
+                        .peek()
+                        .cloned()
+                        .map(event_record_value)
+                        .unwrap_or(Value::Null))
+                }
                 _ => Err(RuntimeError::new("event.peek expects EventQueue")),
             },
             _ => Err(RuntimeError::new("event.peek expects EventQueue")),
         }
     }
 
-    fn event_len(&self, queue: Value) -> Result<usize, RuntimeError> {
+    fn event_len(&mut self, queue: Value) -> Result<usize, RuntimeError> {
         match queue {
             Value::Obj(obj) => match obj.as_obj() {
-                Obj::EventQueue(inner) => Ok(inner.borrow().items.len()),
+                Obj::EventQueue(inner) => {
+                    let inner = inner.borrow();
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        if let Ok(Value::Int(len)) = bindings.event_queue_len.call(&[handle]) {
+                            if len >= 0 {
+                                return Ok(len as usize);
+                            }
+                        }
+                    }
+                    Ok(inner.items.len())
+                }
                 _ => Err(RuntimeError::new("event.len expects EventQueue")),
             },
             _ => Err(RuntimeError::new("event.len expects EventQueue")),
         }
     }
 
-    fn pool_make(&self, capacity: Value, growable: bool) -> Result<Value, RuntimeError> {
+    fn pool_make(&mut self, capacity: Value, growable: bool) -> Result<Value, RuntimeError> {
         let capacity = value_as_non_negative_int(
             &capacity,
             if growable {
@@ -8084,14 +8355,26 @@ impl VM {
                 "pool.make expects capacity >= 0"
             },
         )?;
-        Ok(pool_value(capacity as usize, growable))
+        let capacity = capacity as usize;
+        let native = self.sim_accel_bindings().and_then(|bindings| {
+            bindings
+                .pool_new
+                .call(&[Value::Int(capacity as i64), Value::Bool(growable)])
+                .ok()
+        });
+        Ok(pool_value_with_native(capacity, growable, native))
     }
 
-    fn pool_acquire(&self, pool: Value) -> Result<Value, RuntimeError> {
+    fn pool_acquire(&mut self, pool: Value) -> Result<Value, RuntimeError> {
         match pool {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::Pool(inner) => {
                     let mut inner = inner.borrow_mut();
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        let _ = bindings.pool_acquire.call(&[handle]);
+                    }
                     if let Some(value) = inner.items.pop() {
                         inner.acquire_hits = inner.acquire_hits.saturating_add(1);
                         Ok(value)
@@ -8106,11 +8389,29 @@ impl VM {
         }
     }
 
-    fn pool_release(&self, pool: Value, value: Value) -> Result<bool, RuntimeError> {
+    fn pool_release(&mut self, pool: Value, value: Value) -> Result<bool, RuntimeError> {
         match pool {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::Pool(inner) => {
                     let mut inner = inner.borrow_mut();
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        if let Ok(Value::Bool(accepted)) =
+                            bindings.pool_release.call(std::slice::from_ref(&handle))
+                        {
+                            if !accepted {
+                                inner.dropped_on_full = inner.dropped_on_full.saturating_add(1);
+                                return Ok(false);
+                            }
+                            if let Ok(Value::Int(capacity)) = bindings.pool_capacity.call(&[handle])
+                            {
+                                if capacity >= 0 {
+                                    inner.capacity = capacity as usize;
+                                }
+                            }
+                        }
+                    }
                     if inner.items.len() >= inner.capacity {
                         if inner.growable {
                             inner.capacity = inner
@@ -8134,11 +8435,17 @@ impl VM {
         }
     }
 
-    fn pool_reset(&self, pool: Value) -> Result<(), RuntimeError> {
+    fn pool_reset(&mut self, pool: Value) -> Result<(), RuntimeError> {
         match pool {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::Pool(inner) => {
-                    inner.borrow_mut().items.clear();
+                    let mut inner = inner.borrow_mut();
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        let _ = bindings.pool_reset.call(&[handle]);
+                    }
+                    inner.items.clear();
                     Ok(())
                 }
                 _ => Err(RuntimeError::new("pool.reset expects Pool")),
@@ -8147,55 +8454,94 @@ impl VM {
         }
     }
 
-    fn pool_available(&self, pool: Value) -> Result<usize, RuntimeError> {
+    fn pool_available(&mut self, pool: Value) -> Result<usize, RuntimeError> {
         match pool {
             Value::Obj(obj) => match obj.as_obj() {
-                Obj::Pool(inner) => Ok(inner.borrow().items.len()),
+                Obj::Pool(inner) => {
+                    let inner = inner.borrow();
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        if let Ok(Value::Int(available)) = bindings.pool_available.call(&[handle]) {
+                            if available >= 0 {
+                                return Ok(available as usize);
+                            }
+                        }
+                    }
+                    Ok(inner.items.len())
+                }
                 _ => Err(RuntimeError::new("pool.available expects Pool")),
             },
             _ => Err(RuntimeError::new("pool.available expects Pool")),
         }
     }
 
-    fn pool_capacity(&self, pool: Value) -> Result<usize, RuntimeError> {
+    fn pool_capacity(&mut self, pool: Value) -> Result<usize, RuntimeError> {
         match pool {
             Value::Obj(obj) => match obj.as_obj() {
-                Obj::Pool(inner) => Ok(inner.borrow().capacity),
+                Obj::Pool(inner) => {
+                    let inner = inner.borrow();
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        if let Ok(Value::Int(capacity)) = bindings.pool_capacity.call(&[handle]) {
+                            if capacity >= 0 {
+                                return Ok(capacity as usize);
+                            }
+                        }
+                    }
+                    Ok(inner.capacity)
+                }
                 _ => Err(RuntimeError::new("pool.capacity expects Pool")),
             },
             _ => Err(RuntimeError::new("pool.capacity expects Pool")),
         }
     }
 
-    fn pool_stats(&self, pool: Value) -> Result<Value, RuntimeError> {
+    fn pool_stats(&mut self, pool: Value) -> Result<Value, RuntimeError> {
         match pool {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::Pool(inner) => {
                     let inner = inner.borrow();
+                    let mut available = inner.items.len() as i64;
+                    let mut capacity = inner.capacity as i64;
+                    let mut acquire_hits = inner.acquire_hits as i64;
+                    let mut acquire_misses = inner.acquire_misses as i64;
+                    let mut releases = inner.releases as i64;
+                    let mut dropped_on_full = inner.dropped_on_full as i64;
+                    let mut high_watermark = inner.high_watermark as i64;
+                    if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        if let Ok(stats) = bindings.pool_stats.call(std::slice::from_ref(&handle)) {
+                            if let Ok(decoded) = decode_pool_stats_buffer(stats) {
+                                available = decoded[0];
+                                capacity = decoded[1];
+                                acquire_hits = decoded[2];
+                                acquire_misses = decoded[3];
+                                releases = decoded[4];
+                            }
+                        }
+                        if let Ok(Value::Int(value)) =
+                            bindings.pool_capacity.call(std::slice::from_ref(&handle))
+                        {
+                            capacity = value;
+                        }
+                        if let Ok(Value::Int(value)) = bindings.pool_available.call(&[handle]) {
+                            available = value;
+                        }
+                        dropped_on_full = inner.dropped_on_full as i64;
+                        high_watermark = inner.high_watermark as i64;
+                    }
                     Ok(record_value(HashMap::from([
-                        (
-                            "available".to_string(),
-                            Value::Int(inner.items.len() as i64),
-                        ),
-                        ("capacity".to_string(), Value::Int(inner.capacity as i64)),
+                        ("available".to_string(), Value::Int(available)),
+                        ("capacity".to_string(), Value::Int(capacity)),
                         ("growable".to_string(), Value::Bool(inner.growable)),
-                        (
-                            "acquire_hits".to_string(),
-                            Value::Int(inner.acquire_hits as i64),
-                        ),
-                        (
-                            "acquire_misses".to_string(),
-                            Value::Int(inner.acquire_misses as i64),
-                        ),
-                        ("releases".to_string(), Value::Int(inner.releases as i64)),
-                        (
-                            "dropped_on_full".to_string(),
-                            Value::Int(inner.dropped_on_full as i64),
-                        ),
-                        (
-                            "high_watermark".to_string(),
-                            Value::Int(inner.high_watermark as i64),
-                        ),
+                        ("acquire_hits".to_string(), Value::Int(acquire_hits)),
+                        ("acquire_misses".to_string(), Value::Int(acquire_misses)),
+                        ("releases".to_string(), Value::Int(releases)),
+                        ("dropped_on_full".to_string(), Value::Int(dropped_on_full)),
+                        ("high_watermark".to_string(), Value::Int(high_watermark)),
                     ])))
                 }
                 _ => Err(RuntimeError::new("pool.stats expects Pool")),
@@ -8715,6 +9061,94 @@ impl VM {
             }
         })
     }
+
+    fn sim_accel_bindings(&mut self) -> Option<&mut SimAccelBindings> {
+        match &self.sim_accel {
+            SimAccelState::Ready(_) => {}
+            SimAccelState::Disabled => return None,
+            SimAccelState::Uninitialized => {
+                let enabled = std::env::var("ENKAI_SIM_ACCEL")
+                    .ok()
+                    .map(|value| value.trim().to_ascii_lowercase())
+                    .map(|value| !matches!(value.as_str(), "0" | "false" | "off" | "no"))
+                    .unwrap_or(true);
+                if !enabled {
+                    self.sim_accel = SimAccelState::Disabled;
+                    return None;
+                }
+                self.sim_accel = match SimAccelBindings::load(&mut self.ffi_loader) {
+                    Ok(bindings) => SimAccelState::Ready(Box::new(bindings)),
+                    Err(_) => SimAccelState::Disabled,
+                };
+            }
+        }
+        match &mut self.sim_accel {
+            SimAccelState::Ready(bindings) => Some(bindings.as_mut()),
+            SimAccelState::Disabled | SimAccelState::Uninitialized => None,
+        }
+    }
+}
+
+fn encode_f64_buffer(values: &[f64]) -> Value {
+    let mut bytes = Vec::with_capacity(values.len() * 8);
+    for value in values {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    buffer_value(bytes)
+}
+
+fn decode_f64_buffer(value: Value) -> Result<Vec<f64>, RuntimeError> {
+    let bytes = value_as_buffer(&value)?;
+    if bytes.len() % 8 != 0 {
+        return Err(RuntimeError::new(
+            "native sparse acceleration returned invalid f64 buffer length",
+        ));
+    }
+    Ok(bytes
+        .chunks_exact(8)
+        .map(|chunk| {
+            let mut raw = [0u8; 8];
+            raw.copy_from_slice(chunk);
+            f64::from_le_bytes(raw)
+        })
+        .collect())
+}
+
+fn decode_event_meta(value: Value, name: &str) -> Result<Option<(f64, u64)>, RuntimeError> {
+    let bytes = value_as_buffer(&value)?;
+    if bytes.is_empty() {
+        return Ok(None);
+    }
+    if bytes.len() != 16 {
+        return Err(RuntimeError::new(&format!(
+            "{} returned invalid event metadata length",
+            name
+        )));
+    }
+    let mut time_raw = [0u8; 8];
+    let mut seq_raw = [0u8; 8];
+    time_raw.copy_from_slice(&bytes[..8]);
+    seq_raw.copy_from_slice(&bytes[8..]);
+    Ok(Some((
+        f64::from_le_bytes(time_raw),
+        u64::from_le_bytes(seq_raw),
+    )))
+}
+
+fn decode_pool_stats_buffer(value: Value) -> Result<[i64; 5], RuntimeError> {
+    let bytes = value_as_buffer(&value)?;
+    if bytes.len() != 40 {
+        return Err(RuntimeError::new(
+            "native pool stats returned invalid payload length",
+        ));
+    }
+    let mut out = [0i64; 5];
+    for (idx, chunk) in bytes.chunks_exact(8).enumerate() {
+        let mut raw = [0u8; 8];
+        raw.copy_from_slice(chunk);
+        out[idx] = i64::from_le_bytes(raw);
+    }
+    Ok(out)
 }
 
 fn write_http_response(mut stream: TcpStream, resp: HttpResponseData) -> std::io::Result<()> {
@@ -9779,6 +10213,16 @@ fn value_as_list(value: &Value) -> Result<Vec<Value>, RuntimeError> {
             _ => Err(RuntimeError::new("Expected List value")),
         },
         _ => Err(RuntimeError::new("Expected List value")),
+    }
+}
+
+fn value_as_buffer(value: &Value) -> Result<Vec<u8>, RuntimeError> {
+    match value {
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::Buffer(bytes) => Ok(bytes.clone()),
+            _ => Err(RuntimeError::new("Expected Buffer value")),
+        },
+        _ => Err(RuntimeError::new("Expected Buffer value")),
     }
 }
 

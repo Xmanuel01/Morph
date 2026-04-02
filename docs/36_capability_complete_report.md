@@ -41,7 +41,7 @@ Core categories:
   - `sim_evidence_verify.json` (`readiness/sim_evidence_verify.json`) validating archived simulation evidence consistency
   - `sim_native_smoke.json` (`readiness/sim_native_smoke.json`) summarizing the archived native FFI simulation smoke workflow
   - `sim_native_evidence_verify.json` (`readiness/sim_native_evidence_verify.json`) validating archived native FFI simulation evidence consistency
-  - `sim_stdlib_smoke.json` (`readiness/sim_stdlib_smoke.json`) summarizing the archived stdlib simulation primitive smoke workflow
+- `sim_stdlib_smoke.json` (`readiness/sim_stdlib_smoke.json`) summarizing the archived stdlib simulation primitive smoke workflow, including native-backed acceleration requirements
   - `sim_stdlib_evidence_verify.json` (`readiness/sim_stdlib_evidence_verify.json`) validating archived stdlib simulation evidence consistency
   - `production.json` (`readiness/production.json`) as an optional compatibility/reference artifact
 - `sim/`:

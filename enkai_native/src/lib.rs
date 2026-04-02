@@ -21,6 +21,94 @@ struct ExampleHandle {
     value: i64,
 }
 
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OpaqueHandleKind {
+    Example = 1,
+    SparseVector = 2,
+    SparseMatrix = 3,
+    EventQueue = 4,
+    Pool = 5,
+}
+
+#[derive(Debug)]
+struct OpaqueHandle {
+    kind: OpaqueHandleKind,
+    ptr: *mut c_void,
+}
+
+#[derive(Debug, Default)]
+struct NativeSparseVector {
+    data: BTreeMap<i64, f64>,
+}
+
+#[derive(Debug, Default)]
+struct NativeSparseMatrix {
+    data: BTreeMap<(i64, i64), f64>,
+}
+
+#[derive(Debug, Clone)]
+struct NativeScheduledEvent {
+    time: f64,
+    seq: u64,
+}
+
+impl PartialEq for NativeScheduledEvent {
+    fn eq(&self, other: &Self) -> bool {
+        self.time.to_bits() == other.time.to_bits() && self.seq == other.seq
+    }
+}
+
+impl Eq for NativeScheduledEvent {}
+
+impl PartialOrd for NativeScheduledEvent {
+    fn partial_cmp(&self, other: &Self) -> Option<CmpOrdering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for NativeScheduledEvent {
+    fn cmp(&self, other: &Self) -> CmpOrdering {
+        other
+            .time
+            .partial_cmp(&self.time)
+            .unwrap_or(CmpOrdering::Equal)
+            .then_with(|| other.seq.cmp(&self.seq))
+    }
+}
+
+#[derive(Debug, Default)]
+struct NativeEventQueue {
+    items: BinaryHeap<NativeScheduledEvent>,
+}
+
+#[derive(Debug)]
+struct NativePool {
+    available: usize,
+    capacity: usize,
+    growable: bool,
+    acquire_hits: u64,
+    acquire_misses: u64,
+    releases: u64,
+    dropped_on_full: u64,
+    high_watermark: usize,
+}
+
+impl NativePool {
+    fn new(capacity: usize, growable: bool) -> Self {
+        Self {
+            available: 0,
+            capacity,
+            growable,
+            acquire_hits: 0,
+            acquire_misses: 0,
+            releases: 0,
+            dropped_on_full: 0,
+            high_watermark: 0,
+        }
+    }
+}
+
 #[repr(C)]
 pub struct FfiSlice {
     pub ptr: *mut u8,
@@ -69,6 +157,75 @@ fn string_slice(value: String) -> FfiSlice {
     make_slice(value.into_bytes())
 }
 
+fn make_opaque_handle<T>(kind: OpaqueHandleKind, value: T) -> *mut c_void {
+    HANDLE_LIVE_COUNT.fetch_add(1, Ordering::SeqCst);
+    let inner = Box::into_raw(Box::new(value)) as *mut c_void;
+    Box::into_raw(Box::new(OpaqueHandle { kind, ptr: inner })) as *mut c_void
+}
+
+unsafe fn typed_handle_ref<T>(ptr: *mut c_void, expected: OpaqueHandleKind) -> Option<&'static T> {
+    let handle = (ptr as *mut OpaqueHandle).as_ref()?;
+    if handle.kind != expected || handle.ptr.is_null() {
+        return None;
+    }
+    (handle.ptr as *mut T).as_ref()
+}
+
+unsafe fn typed_handle_mut<T>(
+    ptr: *mut c_void,
+    expected: OpaqueHandleKind,
+) -> Option<&'static mut T> {
+    let handle = (ptr as *mut OpaqueHandle).as_mut()?;
+    if handle.kind != expected || handle.ptr.is_null() {
+        return None;
+    }
+    (handle.ptr as *mut T).as_mut()
+}
+
+fn f64_vec_from_raw(ptr: *const u8, len: usize) -> Option<Vec<f64>> {
+    let bytes = slice_from_raw(ptr, len)?;
+    if bytes.len() % 8 != 0 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(bytes.len() / 8);
+    for chunk in bytes.chunks_exact(8) {
+        let mut raw = [0u8; 8];
+        raw.copy_from_slice(chunk);
+        out.push(f64::from_le_bytes(raw));
+    }
+    Some(out)
+}
+
+fn f64_vec_slice(values: Vec<f64>) -> FfiSlice {
+    let mut bytes = Vec::with_capacity(values.len() * 8);
+    for value in values {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    make_slice(bytes)
+}
+
+fn event_meta_slice(time: f64, seq: u64) -> FfiSlice {
+    let mut bytes = Vec::with_capacity(16);
+    bytes.extend_from_slice(&time.to_le_bytes());
+    bytes.extend_from_slice(&seq.to_le_bytes());
+    make_slice(bytes)
+}
+
+fn pool_stats_slice(pool: &NativePool) -> FfiSlice {
+    let values = [
+        pool.available as i64,
+        pool.capacity as i64,
+        pool.acquire_hits as i64,
+        pool.acquire_misses as i64,
+        pool.releases as i64,
+    ];
+    let mut bytes = Vec::with_capacity(values.len() * 8);
+    for value in values {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    make_slice(bytes)
+}
+
 #[no_mangle]
 pub extern "C" fn enkai_abi_version() -> i64 {
     1
@@ -81,12 +238,29 @@ pub extern "C" fn enkai_symbol_table() -> FfiSlice {
 
 #[no_mangle]
 /// # Safety
-/// The caller must pass a pointer previously returned by `handle_new` from this library.
+/// The caller must pass a pointer previously returned by this library as an opaque handle.
 pub unsafe extern "C" fn enkai_handle_free(ptr: *mut c_void) {
     if ptr.is_null() {
         return;
     }
-    let _ = unsafe { Box::from_raw(ptr as *mut ExampleHandle) };
+    let handle = unsafe { Box::from_raw(ptr as *mut OpaqueHandle) };
+    match handle.kind {
+        OpaqueHandleKind::Example => {
+            let _ = unsafe { Box::from_raw(handle.ptr as *mut ExampleHandle) };
+        }
+        OpaqueHandleKind::SparseVector => {
+            let _ = unsafe { Box::from_raw(handle.ptr as *mut NativeSparseVector) };
+        }
+        OpaqueHandleKind::SparseMatrix => {
+            let _ = unsafe { Box::from_raw(handle.ptr as *mut NativeSparseMatrix) };
+        }
+        OpaqueHandleKind::EventQueue => {
+            let _ = unsafe { Box::from_raw(handle.ptr as *mut NativeEventQueue) };
+        }
+        OpaqueHandleKind::Pool => {
+            let _ = unsafe { Box::from_raw(handle.ptr as *mut NativePool) };
+        }
+    }
     HANDLE_LIVE_COUNT.fetch_sub(1, Ordering::SeqCst);
 }
 
@@ -97,13 +271,16 @@ pub extern "C" fn add_i64(a: i64, b: i64) -> i64 {
 
 #[no_mangle]
 pub extern "C" fn handle_new(value: i64) -> *mut c_void {
-    HANDLE_LIVE_COUNT.fetch_add(1, Ordering::SeqCst);
-    Box::into_raw(Box::new(ExampleHandle { value })) as *mut c_void
+    make_opaque_handle(OpaqueHandleKind::Example, ExampleHandle { value })
 }
 
 #[no_mangle]
-pub extern "C" fn handle_read(ptr: *mut c_void) -> i64 {
-    let Some(handle) = (unsafe { (ptr as *mut ExampleHandle).as_ref() }) else {
+/// # Safety
+/// The caller must pass a valid opaque handle previously returned by this library.
+pub unsafe extern "C" fn handle_read(ptr: *mut c_void) -> i64 {
+    let Some(handle) =
+        (unsafe { typed_handle_ref::<ExampleHandle>(ptr, OpaqueHandleKind::Example) })
+    else {
         return 0;
     };
     handle.value
@@ -120,6 +297,293 @@ pub extern "C" fn handle_maybe_new(flag: u8, value: i64) -> *mut c_void {
 #[no_mangle]
 pub extern "C" fn handle_live_count() -> i64 {
     HANDLE_LIVE_COUNT.load(Ordering::SeqCst)
+}
+
+#[no_mangle]
+pub extern "C" fn sim_sparse_vector_new() -> *mut c_void {
+    make_opaque_handle(
+        OpaqueHandleKind::SparseVector,
+        NativeSparseVector::default(),
+    )
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid sparse-vector handle previously returned by this library.
+pub unsafe extern "C" fn sim_sparse_vector_set(ptr: *mut c_void, index: i64, value: f64) -> u8 {
+    let Some(vector) =
+        (unsafe { typed_handle_mut::<NativeSparseVector>(ptr, OpaqueHandleKind::SparseVector) })
+    else {
+        return 0;
+    };
+    if !value.is_finite() || index < 0 {
+        return 0;
+    }
+    if value == 0.0 {
+        vector.data.remove(&index);
+    } else {
+        vector.data.insert(index, value);
+    }
+    1
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid sparse-vector handle and a readable dense buffer of f64 bytes.
+pub unsafe extern "C" fn sim_sparse_vector_dot(
+    ptr: *mut c_void,
+    dense_ptr: *const u8,
+    dense_len: usize,
+) -> f64 {
+    let Some(vector) =
+        (unsafe { typed_handle_ref::<NativeSparseVector>(ptr, OpaqueHandleKind::SparseVector) })
+    else {
+        return f64::NAN;
+    };
+    let Some(dense) = f64_vec_from_raw(dense_ptr, dense_len) else {
+        return f64::NAN;
+    };
+    let mut out = 0.0;
+    for (index, value) in &vector.data {
+        let idx = *index as usize;
+        if let Some(dense_value) = dense.get(idx) {
+            out += *value * *dense_value;
+        }
+    }
+    out
+}
+
+#[no_mangle]
+pub extern "C" fn sim_sparse_matrix_new() -> *mut c_void {
+    make_opaque_handle(
+        OpaqueHandleKind::SparseMatrix,
+        NativeSparseMatrix::default(),
+    )
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid sparse-matrix handle previously returned by this library.
+pub unsafe extern "C" fn sim_sparse_matrix_set(
+    ptr: *mut c_void,
+    row: i64,
+    col: i64,
+    value: f64,
+) -> u8 {
+    let Some(matrix) =
+        (unsafe { typed_handle_mut::<NativeSparseMatrix>(ptr, OpaqueHandleKind::SparseMatrix) })
+    else {
+        return 0;
+    };
+    if !value.is_finite() || row < 0 || col < 0 {
+        return 0;
+    }
+    if value == 0.0 {
+        matrix.data.remove(&(row, col));
+    } else {
+        matrix.data.insert((row, col), value);
+    }
+    1
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid sparse-matrix handle and a readable dense buffer of f64 bytes.
+pub unsafe extern "C" fn sim_sparse_matrix_matvec(
+    ptr: *mut c_void,
+    dense_ptr: *const u8,
+    dense_len: usize,
+) -> FfiSlice {
+    let Some(matrix) =
+        (unsafe { typed_handle_ref::<NativeSparseMatrix>(ptr, OpaqueHandleKind::SparseMatrix) })
+    else {
+        return null_slice();
+    };
+    let Some(dense) = f64_vec_from_raw(dense_ptr, dense_len) else {
+        return null_slice();
+    };
+    let max_row = matrix
+        .data
+        .keys()
+        .map(|(row, _)| *row as usize)
+        .max()
+        .unwrap_or(0);
+    let mut out = if matrix.data.is_empty() {
+        Vec::new()
+    } else {
+        vec![0.0; max_row + 1]
+    };
+    for ((row, col), value) in &matrix.data {
+        let col = *col as usize;
+        if let Some(dense_value) = dense.get(col) {
+            out[*row as usize] += *value * *dense_value;
+        }
+    }
+    f64_vec_slice(out)
+}
+
+#[no_mangle]
+pub extern "C" fn sim_event_queue_new() -> *mut c_void {
+    make_opaque_handle(OpaqueHandleKind::EventQueue, NativeEventQueue::default())
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid event-queue handle previously returned by this library.
+pub unsafe extern "C" fn sim_event_queue_push(ptr: *mut c_void, time: f64, seq: i64) -> u8 {
+    let Some(queue) =
+        (unsafe { typed_handle_mut::<NativeEventQueue>(ptr, OpaqueHandleKind::EventQueue) })
+    else {
+        return 0;
+    };
+    if !time.is_finite() || seq < 0 {
+        return 0;
+    }
+    queue.items.push(NativeScheduledEvent {
+        time,
+        seq: seq as u64,
+    });
+    1
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid event-queue handle previously returned by this library.
+pub unsafe extern "C" fn sim_event_queue_pop(ptr: *mut c_void) -> FfiSlice {
+    let Some(queue) =
+        (unsafe { typed_handle_mut::<NativeEventQueue>(ptr, OpaqueHandleKind::EventQueue) })
+    else {
+        return null_slice();
+    };
+    match queue.items.pop() {
+        Some(event) => event_meta_slice(event.time, event.seq),
+        None => null_slice(),
+    }
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid event-queue handle previously returned by this library.
+pub unsafe extern "C" fn sim_event_queue_peek(ptr: *mut c_void) -> FfiSlice {
+    let Some(queue) =
+        (unsafe { typed_handle_ref::<NativeEventQueue>(ptr, OpaqueHandleKind::EventQueue) })
+    else {
+        return null_slice();
+    };
+    match queue.items.peek() {
+        Some(event) => event_meta_slice(event.time, event.seq),
+        None => null_slice(),
+    }
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid event-queue handle previously returned by this library.
+pub unsafe extern "C" fn sim_event_queue_len(ptr: *mut c_void) -> i64 {
+    let Some(queue) =
+        (unsafe { typed_handle_ref::<NativeEventQueue>(ptr, OpaqueHandleKind::EventQueue) })
+    else {
+        return -1;
+    };
+    queue.items.len() as i64
+}
+
+#[no_mangle]
+pub extern "C" fn sim_pool_new(capacity: i64, growable: u8) -> *mut c_void {
+    if capacity < 0 {
+        return std::ptr::null_mut();
+    }
+    make_opaque_handle(
+        OpaqueHandleKind::Pool,
+        NativePool::new(capacity as usize, growable != 0),
+    )
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid pool handle previously returned by this library.
+pub unsafe extern "C" fn sim_pool_release(ptr: *mut c_void) -> u8 {
+    let Some(pool) = (unsafe { typed_handle_mut::<NativePool>(ptr, OpaqueHandleKind::Pool) })
+    else {
+        return 0;
+    };
+    if pool.available >= pool.capacity {
+        if pool.growable {
+            pool.capacity = pool
+                .capacity
+                .max(1)
+                .saturating_mul(2)
+                .max(pool.available.saturating_add(1));
+        } else {
+            pool.dropped_on_full = pool.dropped_on_full.saturating_add(1);
+            return 0;
+        }
+    }
+    pool.available = pool.available.saturating_add(1);
+    pool.releases = pool.releases.saturating_add(1);
+    pool.high_watermark = pool.high_watermark.max(pool.available);
+    1
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid pool handle previously returned by this library.
+pub unsafe extern "C" fn sim_pool_acquire(ptr: *mut c_void) -> u8 {
+    let Some(pool) = (unsafe { typed_handle_mut::<NativePool>(ptr, OpaqueHandleKind::Pool) })
+    else {
+        return 0;
+    };
+    if pool.available == 0 {
+        pool.acquire_misses = pool.acquire_misses.saturating_add(1);
+        return 0;
+    }
+    pool.available = pool.available.saturating_sub(1);
+    pool.acquire_hits = pool.acquire_hits.saturating_add(1);
+    1
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid pool handle previously returned by this library.
+pub unsafe extern "C" fn sim_pool_reset(ptr: *mut c_void) {
+    let Some(pool) = (unsafe { typed_handle_mut::<NativePool>(ptr, OpaqueHandleKind::Pool) })
+    else {
+        return;
+    };
+    pool.available = 0;
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid pool handle previously returned by this library.
+pub unsafe extern "C" fn sim_pool_available(ptr: *mut c_void) -> i64 {
+    let Some(pool) = (unsafe { typed_handle_ref::<NativePool>(ptr, OpaqueHandleKind::Pool) })
+    else {
+        return -1;
+    };
+    pool.available as i64
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid pool handle previously returned by this library.
+pub unsafe extern "C" fn sim_pool_capacity(ptr: *mut c_void) -> i64 {
+    let Some(pool) = (unsafe { typed_handle_ref::<NativePool>(ptr, OpaqueHandleKind::Pool) })
+    else {
+        return -1;
+    };
+    pool.capacity as i64
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid pool handle previously returned by this library.
+pub unsafe extern "C" fn sim_pool_stats(ptr: *mut c_void) -> FfiSlice {
+    let Some(pool) = (unsafe { typed_handle_ref::<NativePool>(ptr, OpaqueHandleKind::Pool) })
+    else {
+        return null_slice();
+    };
+    pool_stats_slice(pool)
 }
 
 #[no_mangle]
@@ -3285,6 +3749,71 @@ mod tests {
         let out = hash_sha256_many(payload.as_ptr(), payload.len(), 4);
         assert_eq!(out.len, 32 * 4);
         unsafe { enkai_free(out.ptr, out.len) };
+    }
+
+    #[test]
+    fn sim_sparse_handles_work() {
+        let vector = sim_sparse_vector_new();
+        assert!(!vector.is_null());
+        unsafe {
+            assert_eq!(sim_sparse_vector_set(vector, 0, 1.5), 1);
+            assert_eq!(sim_sparse_vector_set(vector, 3, 2.0), 1);
+        }
+        let dense = [4.0_f64, 1.0, 9.0, 5.0];
+        let mut dense_bytes = Vec::new();
+        for value in dense {
+            dense_bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        let dot = unsafe { sim_sparse_vector_dot(vector, dense_bytes.as_ptr(), dense_bytes.len()) };
+        assert!((dot - 16.0).abs() < f64::EPSILON);
+
+        let matrix = sim_sparse_matrix_new();
+        assert!(!matrix.is_null());
+        unsafe {
+            assert_eq!(sim_sparse_matrix_set(matrix, 0, 1, 3.0), 1);
+            assert_eq!(sim_sparse_matrix_set(matrix, 1, 3, 2.0), 1);
+        }
+        let out =
+            unsafe { sim_sparse_matrix_matvec(matrix, dense_bytes.as_ptr(), dense_bytes.len()) };
+        assert_eq!(out.len, 16);
+        unsafe {
+            enkai_free(out.ptr, out.len);
+            enkai_handle_free(vector);
+            enkai_handle_free(matrix);
+        }
+    }
+
+    #[test]
+    fn sim_event_queue_and_pool_handles_work() {
+        let queue = sim_event_queue_new();
+        assert!(!queue.is_null());
+        unsafe {
+            assert_eq!(sim_event_queue_push(queue, 1.0, 10), 1);
+            assert_eq!(sim_event_queue_push(queue, 1.0, 20), 1);
+            assert_eq!(sim_event_queue_push(queue, 0.5, 5), 1);
+            assert_eq!(sim_event_queue_len(queue), 3);
+        }
+        let first = unsafe { sim_event_queue_pop(queue) };
+        assert_eq!(first.len, 16);
+        unsafe {
+            enkai_free(first.ptr, first.len);
+        }
+
+        let pool = sim_pool_new(1, 0);
+        assert!(!pool.is_null());
+        unsafe {
+            assert_eq!(sim_pool_release(pool), 1);
+            assert_eq!(sim_pool_release(pool), 0);
+            assert_eq!(sim_pool_acquire(pool), 1);
+            assert_eq!(sim_pool_available(pool), 0);
+        }
+        let stats = unsafe { sim_pool_stats(pool) };
+        assert_eq!(stats.len, 40);
+        unsafe {
+            enkai_free(stats.ptr, stats.len);
+            enkai_handle_free(queue);
+            enkai_handle_free(pool);
+        }
     }
 
     #[test]

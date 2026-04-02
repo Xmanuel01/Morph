@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -18,8 +19,8 @@ EXPECTED_RESULT = [
 PROFILE_CASE = "readiness_sim_stdlib_smoke"
 
 
-def run(cmd: list[str], cwd: Path) -> None:
-    result = subprocess.run(cmd, cwd=cwd)
+def run(cmd: list[str], cwd: Path, env: dict[str, str] | None = None) -> None:
+    result = subprocess.run(cmd, cwd=cwd, env=env)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
@@ -43,6 +44,8 @@ def main() -> int:
     workspace = Path(args.workspace).resolve()
     enkai_bin = Path(args.enkai_bin)
     output = workspace / args.output
+    env = dict(os.environ)
+    env["ENKAI_SIM_ACCEL"] = "1"
 
     if not enkai_bin.exists():
         raise SystemExit(f"enkai binary not found: {enkai_bin}")
@@ -91,6 +94,7 @@ def main() -> int:
         run(
             [str(enkai_bin), "sim", "run", "--output", str(run_report), str(script)],
             workspace,
+            env,
         )
         run_payload = read_json(run_report)
         if run_payload.get("command") != "sim.run":
@@ -110,6 +114,7 @@ def main() -> int:
                 str(script),
             ],
             workspace,
+            env,
         )
         profile_payload = read_json(profile_report)
         if profile_payload.get("case") != PROFILE_CASE:
@@ -124,6 +129,7 @@ def main() -> int:
             "profile_report": str(profile_report),
             "expected_result": EXPECTED_RESULT,
             "profile_case": PROFILE_CASE,
+            "require_native_accel": True,
         }
         write_json(output, summary)
 
