@@ -3,10 +3,17 @@
 ## Unreleased
 
 ### Highlights
-- None yet.
+- Staged `v3.0.0` non-hardware publication assets and GPU-host operator preflight tooling.
+- Added the remaining `v3.0.0` runbooks and RC wrapper scripts required before final GPU sign-off.
 
 ### Breaking changes
 - None.
+
+### Pending release blockers
+- Real GPU/operator evidence is still required before `v3.0.0` can be cut:
+  - single GPU evidence
+  - multi-GPU parity evidence
+  - 4-GPU soak evidence
 
 ## v2.9.0
 

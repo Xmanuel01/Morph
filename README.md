@@ -120,6 +120,11 @@ Status (v2.9.0)
   - `artifacts/readiness/grpc_evidence_verify.json`
   - `artifacts/grpc/probe.json`
   - `artifacts/grpc/server.jsonl`
+- Real GPU host preflight for final hardware sign-off:
+  - `scripts/gpu_preflight.py`
+  - `scripts/gpu_preflight.ps1`
+  - `scripts/gpu_preflight.sh`
+  - `docs/47_gpu_operator_preflight.md`
 - Capability-complete release report generated from archived evidence:
   - `scripts/collect_release_evidence.py --strict`
   - `scripts/generate_capability_report.py --strict`

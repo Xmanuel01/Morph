@@ -6,6 +6,26 @@ Note:
 - v2.6.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
 
+v3.0.0 (pending final sign-off)
+- Stability cut for the first AGI + LLM platform release:
+  - non-hardware full-platform readiness is complete on the current line
+  - publication assets staged:
+    - `docs/42_agi_runbook.md`
+    - `docs/43_llm_runbook.md`
+    - `docs/44_native_extension_abi_policy.md`
+    - `docs/45_deployment_rollback_runbook.md`
+    - `docs/46_benchmark_profiling_guide.md`
+    - `docs/47_gpu_operator_preflight.md`
+  - operator-ready GPU preflight added:
+    - `scripts/gpu_preflight.py`
+    - `scripts/gpu_preflight.ps1`
+    - `scripts/gpu_preflight.sh`
+  - current hard blocker for the final cut:
+    - operator-run GPU evidence package required by the RC pipeline and blocker verifier
+  - RC wrapper prepared:
+    - `scripts/v3_0_0_rc_pipeline.ps1`
+    - `scripts/v3_0_0_rc_pipeline.sh`
+
 v2.9.0 (done)
 - Scale, multi-node, and reliability:
   - extended `enkai cluster` with additive multi-node host/planning fields:

@@ -77,3 +77,20 @@ If CUDA validation fails:
 - On Windows, verify `torch\\lib\\cudart64_*.dll` exists and that the script prepends it to `PATH`.
 - If you see `STATUS_DLL_NOT_FOUND`, run `scripts\\verify_torch.ps1` from a new PowerShell session.
 
+## Operator preflight
+
+Before any real sign-off soak/parity run, execute the GPU preflight:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/gpu_preflight.ps1 -Profile full -Output artifacts/gpu/preflight.json
+```
+
+This validates:
+
+- `enkai` binary resolution
+- tensor native library presence
+- train config presence
+- required soak/parity scripts
+- `nvidia-smi`
+- PyTorch CUDA visibility
+- required GPU count for the chosen profile

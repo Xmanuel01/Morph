@@ -108,6 +108,9 @@ Note:
   - `powershell -ExecutionPolicy Bypass -File scripts/rc_pipeline.ps1`
   - or `sh scripts/rc_pipeline.sh`
 - [ ] If GPU soak runs were executed, verify artifacts:
+  - Preflight the GPU host first:
+    - `powershell -ExecutionPolicy Bypass -File scripts/gpu_preflight.ps1 -Profile full -Output artifacts/gpu/preflight.json`
+    - or `sh scripts/gpu_preflight.sh full configs/enkai_50m.enk artifacts/gpu/preflight.json artifacts/gpu`
   - `powershell -ExecutionPolicy Bypass -File scripts/verify_gpu_gates.ps1 -LogDir artifacts/gpu`
   - or `sh scripts/verify_gpu_gates.sh artifacts/gpu`
 - [ ] Complete `VALIDATION.md` gates for the target release
