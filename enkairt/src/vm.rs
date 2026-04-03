@@ -6319,10 +6319,13 @@ impl VM {
             | "db_sqlite_close"
             | "db_postgres_open"
             | "db_postgres_exec"
-            | "db_postgres_close" => {
+            | "db_postgres_close"
+            | "db_mysql_open"
+            | "db_mysql_exec"
+            | "db_mysql_close" => {
                 capability = Some(vec!["db".to_string(), "write".to_string()]);
             }
-            "db_sqlite_query" | "db_postgres_query" => {
+            "db_sqlite_query" | "db_postgres_query" | "db_mysql_query" => {
                 capability = Some(vec!["db".to_string(), "read".to_string()]);
             }
             "tls_fetch_server_info" => {

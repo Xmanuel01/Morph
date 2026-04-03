@@ -7,16 +7,25 @@
     "ENKAI_API_VERSION",
     "ENKAI_SERVE_HOST",
     "ENKAI_SERVE_PORT",
+    "ENKAI_GRPC_PORT",
     "ENKAI_CONVERSATION_DIR",
-    "ENKAI_CONVERSATION_DB"
+    "ENKAI_CONVERSATION_DB",
+    "ENKAI_DB_ENGINE",
+    "ENKAI_DB_POOL_MAX",
+    "ENKAI_WORKER_QUEUE_DIR",
+    "ENKAI_WORKER_MAX_ATTEMPTS"
   ],
   "optional_env": [
     "ENKAI_MODEL_REGISTRY",
     "ENKAI_API_TOKEN",
-    "ENKAI_LOG_PATH"
+    "ENKAI_LOG_PATH",
+    "ENKAI_DB_URL"
   ],
   "constraints": {
     "ENKAI_SERVE_PORT": "integer 1..65535",
+    "ENKAI_GRPC_PORT": "integer 1..65535",
+    "ENKAI_DB_POOL_MAX": "integer 1..64",
+    "ENKAI_DB_ENGINE": "sqlite|postgres|mysql",
     "ENKAI_API_VERSION": "must equal scaffold api version"
   }
 }

@@ -21,11 +21,13 @@ mod bootstrap;
 mod cluster;
 mod deploy;
 mod frontend;
+mod grpc;
 mod migrate;
 mod model;
 mod readiness;
 mod sim;
 mod train;
+mod worker;
 
 pub(crate) fn env_guard() -> std::sync::MutexGuard<'static, ()> {
     static ENV_GUARD: OnceLock<Mutex<()>> = OnceLock::new();
@@ -99,7 +101,9 @@ fn main() {
         "sdk" => frontend::sdk_command(&args[2..]),
         "readiness" => readiness::readiness_command(&args[2..]),
         "deploy" => deploy::deploy_command(&args[2..]),
+        "grpc" => grpc::grpc_command(&args[2..]),
         "sim" => sim::sim_command(&args[2..]),
+        "worker" => worker::worker_command(&args[2..]),
         "fmt-lite" => bootstrap::fmt_lite_command(&args[2..]),
         "lint-lite" => bootstrap::lint_lite_command(&args[2..]),
         "tokenizer-lite" => bootstrap::tokenizer_lite_command(&args[2..]),
@@ -213,6 +217,8 @@ fn run_command(args: &[String]) -> i32 {
 fn serve_command(args: &[String]) -> i32 {
     let mut host: Option<String> = None;
     let mut port: Option<String> = None;
+    let mut grpc_host: Option<String> = None;
+    let mut grpc_port: Option<String> = None;
     let mut registry: Option<String> = None;
     let mut model: Option<String> = None;
     let mut model_version: Option<String> = None;
@@ -241,6 +247,22 @@ fn serve_command(args: &[String]) -> i32 {
                     return 1;
                 }
                 port = Some(args[idx].clone());
+            }
+            "--grpc-host" => {
+                idx += 1;
+                if idx >= args.len() {
+                    eprintln!("enkai serve --grpc-host requires a value");
+                    return 1;
+                }
+                grpc_host = Some(args[idx].clone());
+            }
+            "--grpc-port" => {
+                idx += 1;
+                if idx >= args.len() {
+                    eprintln!("enkai serve --grpc-port requires a value");
+                    return 1;
+                }
+                grpc_port = Some(args[idx].clone());
             }
             "--registry" => {
                 idx += 1;
@@ -345,11 +367,29 @@ fn serve_command(args: &[String]) -> i32 {
             }
         }
     };
-    if let Some(host) = host {
+    if let Some(ref host) = host {
         env::set_var("ENKAI_SERVE_HOST", host);
     }
-    if let Some(port) = port {
+    if let Some(ref port) = port {
         env::set_var("ENKAI_SERVE_PORT", port);
+    }
+    if let Some(grpc_host) = &grpc_host {
+        env::set_var("ENKAI_GRPC_HOST", grpc_host);
+    }
+    if let Some(grpc_port) = &grpc_port {
+        env::set_var("ENKAI_GRPC_PORT", grpc_port);
+    }
+    let http_port_check = port.clone().or_else(|| env::var("ENKAI_SERVE_PORT").ok());
+    let grpc_port_check = grpc_port
+        .clone()
+        .or_else(|| env::var("ENKAI_GRPC_PORT").ok());
+    if let (Some(http_port), Some(grpc_port)) =
+        (http_port_check.as_deref(), grpc_port_check.as_deref())
+    {
+        if http_port.trim() == grpc_port.trim() && !http_port.trim().is_empty() {
+            eprintln!("enkai serve: --port and --grpc-port must be different");
+            return 1;
+        }
     }
     if let Some(selection) = model_selection {
         env::set_var(
@@ -369,8 +409,20 @@ fn serve_command(args: &[String]) -> i32 {
             );
         }
     }
+    let grpc_handle =
+        match grpc::maybe_start_grpc_server(grpc_host.as_deref(), grpc_port.as_deref()) {
+            Ok(handle) => handle,
+            Err(err) => {
+                eprintln!("enkai serve: {}", err);
+                return 1;
+            }
+        };
     run_args.push(target.unwrap_or_else(|| ".".to_string()));
-    run_command(&run_args)
+    let exit_code = run_command(&run_args);
+    if let Some(handle) = grpc_handle {
+        handle.shutdown();
+    }
+    exit_code
 }
 
 fn resolve_serve_model_selection(
@@ -1024,7 +1076,7 @@ fn print_usage() {
     eprintln!("  enkai --version");
     eprintln!("  enkai run [--trace-vm] [--disasm] [--trace-task] [--trace-net] <file|dir>");
     eprintln!(
-        "  enkai serve [--host <host>] [--port <port>] [--registry <dir> --model <name> [--model-version <v>|--latest] [--require-loaded] | --multi-model --registry <dir> | --checkpoint <path>] [--trace-vm] [--disasm] [--trace-task] [--trace-net] [file|dir]"
+        "  enkai serve [--host <host>] [--port <port>] [--grpc-host <host>] [--grpc-port <port>] [--registry <dir> --model <name> [--model-version <v>|--latest] [--require-loaded] | --multi-model --registry <dir> | --checkpoint <path>] [--trace-vm] [--disasm] [--trace-task] [--trace-net] [file|dir]"
     );
     bench::print_bench_usage();
     model::print_model_usage();
@@ -1033,7 +1085,9 @@ fn print_usage() {
     readiness::print_readiness_usage();
     eprintln!("  enkai cluster <validate|plan|run> <config.enk> [--json] [--dry-run]");
     deploy::print_deploy_usage();
+    grpc::print_grpc_usage();
     sim::print_sim_usage();
+    worker::print_worker_usage();
     bootstrap::print_usage();
     eprintln!("  enkai check <file|dir>");
     eprintln!("  enkai fmt [--check] <file|dir>");

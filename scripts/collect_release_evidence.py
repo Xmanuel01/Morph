@@ -61,6 +61,11 @@ def parse_args() -> argparse.Namespace:
         help="Registry convergence evidence source directory",
     )
     parser.add_argument(
+        "--grpc-dir",
+        default="artifacts/grpc",
+        help="gRPC evidence source directory",
+    )
+    parser.add_argument(
         "--out-dir",
         default="artifacts/release",
         help="Output directory for evidence bundle",
@@ -180,6 +185,7 @@ def main() -> int:
     readiness_dir = (root / args.readiness_dir).resolve()
     sim_dir = (root / args.sim_dir).resolve()
     registry_dir = (root / args.registry_dir).resolve()
+    grpc_dir = (root / args.grpc_dir).resolve()
     out_root = (root / args.out_dir / f"v{version}").resolve()
     out_root.mkdir(parents=True, exist_ok=True)
 
@@ -235,6 +241,9 @@ def main() -> int:
     required_contracts = [
         "backend_api_v1.snapshot.json",
         "sdk_api_v1.snapshot.json",
+        "grpc_api_v1.snapshot.json",
+        "worker_queue_v1.snapshot.json",
+        "db_engines_v1.snapshot.json",
         "conversation_state_v1.schema.json",
     ]
     if contracts_dir.is_dir():
@@ -253,6 +262,8 @@ def main() -> int:
     required_readiness = [
         "full_platform.json",
         "full_platform_blockers.json",
+        "grpc_smoke.json",
+        "grpc_evidence_verify.json",
         "sim_smoke.json",
         "sim_evidence_verify.json",
         "sim_native_smoke.json",
@@ -271,6 +282,11 @@ def main() -> int:
         "cluster_scale_evidence_verify.json",
         "registry_degraded_smoke.json",
         "registry_degraded_evidence_verify.json",
+        "deploy_mobile.json",
+        "deploy_mobile_smoke.json",
+        "deploy_mobile_evidence_verify.json",
+        "worker_queue_smoke.json",
+        "worker_queue_evidence_verify.json",
     ]
     if readiness_dir.is_dir():
         if args.strict:
@@ -323,14 +339,31 @@ def main() -> int:
             f"simulation evidence directory not found for strict evidence mode: {sim_dir}"
         )
 
+    required_grpc = [
+        "probe.json",
+        "server.jsonl",
+        "conversation_state.json",
+        "conversation_state.backup.json",
+    ]
+    if grpc_dir.is_dir():
+        if args.strict:
+            grpc_files = ensure_required_files(grpc_dir, required_grpc, "grpc evidence")
+        else:
+            grpc_files = sorted(path for path in grpc_dir.rglob("*") if path.is_file())
+        file_rows.extend(copy_files(root, grpc_dir, out_root / "grpc", "grpc", grpc_files))
+    elif args.strict:
+        raise RuntimeError(
+            f"grpc evidence directory not found for strict evidence mode: {grpc_dir}"
+        )
+
     required_registry = [
         "sim_lineage.json",
         "sim_snapshot.manifest.json",
         "local/registry.json",
         "remote/registry.json",
         "cache/registry.json",
-        "remote/adam0-sim/v2.8.1/remote.manifest.json",
-        "remote/adam0-sim/v2.8.1/remote.manifest.sig",
+        "remote/adam0-sim/v2.9.0/remote.manifest.json",
+        "remote/adam0-sim/v2.9.0/remote.manifest.sig",
     ]
     if registry_dir.is_dir():
         if args.strict:
@@ -374,8 +407,8 @@ def main() -> int:
     required_registry_degraded = [
         "cache/registry.json",
         "cache/audit.log.jsonl",
-        "remote_offline/adam0-degraded/v2.8.1/remote.manifest.json",
-        "remote_offline/adam0-degraded/v2.8.1/remote.manifest.sig",
+        "remote_offline/adam0-degraded/v2.9.0/remote.manifest.json",
+        "remote_offline/adam0-degraded/v2.9.0/remote.manifest.sig",
     ]
     if registry_degraded_dir.is_dir():
         if args.strict:
@@ -398,6 +431,58 @@ def main() -> int:
     elif args.strict:
         raise RuntimeError(
             f"registry degraded evidence directory not found for strict evidence mode: {registry_degraded_dir}"
+        )
+
+    mobile_dir = root / "artifacts" / "mobile"
+    required_mobile = [
+        "sdk_api.snapshot.json",
+        "app.json",
+        "package.json",
+    ]
+    if mobile_dir.is_dir():
+        if args.strict:
+            mobile_files = ensure_required_files(
+                mobile_dir, required_mobile, "mobile scaffold evidence"
+            )
+        else:
+            mobile_files = sorted(path for path in mobile_dir.rglob("*") if path.is_file())
+        file_rows.extend(
+            copy_files(root, mobile_dir, out_root / "mobile", "mobile", mobile_files)
+        )
+    elif args.strict:
+        raise RuntimeError(
+            f"mobile scaffold evidence directory not found for strict evidence mode: {mobile_dir}"
+        )
+
+    worker_queue_dir = root / "artifacts" / "worker_queue"
+    required_worker_queue = [
+        "run_01.json",
+        "run_02.json",
+        "run_03.json",
+        "queues/default/dead_letter.jsonl",
+        "queues/default/pending.jsonl",
+    ]
+    if worker_queue_dir.is_dir():
+        if args.strict:
+            worker_queue_files = ensure_required_files(
+                worker_queue_dir, required_worker_queue, "worker queue evidence"
+            )
+        else:
+            worker_queue_files = sorted(
+                path for path in worker_queue_dir.rglob("*") if path.is_file()
+            )
+        file_rows.extend(
+            copy_files(
+                root,
+                worker_queue_dir,
+                out_root / "worker_queue",
+                "worker_queue",
+                worker_queue_files,
+            )
+        )
+    elif args.strict:
+        raise RuntimeError(
+            f"worker queue evidence directory not found for strict evidence mode: {worker_queue_dir}"
         )
 
     manifest["files"] = file_rows

@@ -49,7 +49,7 @@ def main() -> int:
     staging.mkdir(parents=True, exist_ok=True)
 
     env = dict(os.environ)
-    env["ENKAI_MODEL_SIGNING_KEY"] = "enkai-v2.8.1-registry-degraded-key"
+    env["ENKAI_MODEL_SIGNING_KEY"] = "enkai-v2.9.0-registry-degraded-key"
 
     artifact = staging / "simulation_snapshot.json"
     write_json(
@@ -82,7 +82,7 @@ def main() -> int:
     )
 
     model_name = "adam0-degraded"
-    version = "v2.8.1"
+    version = "v2.9.0"
     run(
         [
             str(enkai_bin),

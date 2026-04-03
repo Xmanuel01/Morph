@@ -2,11 +2,11 @@
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.8.1.
+- Current production release line is v2.9.0.
 - v2.6.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
 
-v2.8.1 (done)
+v2.9.0 (done)
 - Scale, multi-node, and reliability:
   - extended `enkai cluster` with additive multi-node host/planning fields:
     - `dist.hosts`

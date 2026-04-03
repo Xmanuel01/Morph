@@ -295,6 +295,9 @@ def build_checks(
     for name in (
         "backend_api_v1.snapshot.json",
         "sdk_api_v1.snapshot.json",
+        "grpc_api_v1.snapshot.json",
+        "worker_queue_v1.snapshot.json",
+        "db_engines_v1.snapshot.json",
         "conversation_state_v1.schema.json",
     ):
         present = has_exact(copied_paths, f"/contracts/{name}")
@@ -589,6 +592,94 @@ def build_checks(
             ),
         )
     )
+    deploy_mobile = has_exact(copied_paths, "/readiness/deploy_mobile_smoke.json")
+    checks.append(
+        CheckResult(
+            id="readiness_deploy_mobile_smoke_report",
+            description="Mobile scaffold deploy validation summary is present",
+            required=True,
+            passed=deploy_mobile,
+            details=(
+                "readiness/deploy_mobile_smoke.json"
+                if deploy_mobile
+                else "missing readiness/deploy_mobile_smoke.json"
+            ),
+        )
+    )
+    deploy_mobile_verify = has_exact(
+        copied_paths, "/readiness/deploy_mobile_evidence_verify.json"
+    )
+    checks.append(
+        CheckResult(
+            id="readiness_deploy_mobile_evidence_verify_report",
+            description="Mobile scaffold evidence verification report is present",
+            required=True,
+            passed=deploy_mobile_verify,
+            details=(
+                "readiness/deploy_mobile_evidence_verify.json"
+                if deploy_mobile_verify
+                else "missing readiness/deploy_mobile_evidence_verify.json"
+            ),
+        )
+    )
+    grpc_smoke = has_exact(copied_paths, "/readiness/grpc_smoke.json")
+    checks.append(
+        CheckResult(
+            id="readiness_grpc_smoke_report",
+            description="gRPC runtime smoke summary is present",
+            required=True,
+            passed=grpc_smoke,
+            details=(
+                "readiness/grpc_smoke.json"
+                if grpc_smoke
+                else "missing readiness/grpc_smoke.json"
+            ),
+        )
+    )
+    grpc_verify = has_exact(copied_paths, "/readiness/grpc_evidence_verify.json")
+    checks.append(
+        CheckResult(
+            id="readiness_grpc_evidence_verify_report",
+            description="gRPC runtime evidence verification report is present",
+            required=True,
+            passed=grpc_verify,
+            details=(
+                "readiness/grpc_evidence_verify.json"
+                if grpc_verify
+                else "missing readiness/grpc_evidence_verify.json"
+            ),
+        )
+    )
+    worker_queue_smoke = has_exact(copied_paths, "/readiness/worker_queue_smoke.json")
+    checks.append(
+        CheckResult(
+            id="readiness_worker_queue_smoke_report",
+            description="Worker queue smoke summary is present",
+            required=True,
+            passed=worker_queue_smoke,
+            details=(
+                "readiness/worker_queue_smoke.json"
+                if worker_queue_smoke
+                else "missing readiness/worker_queue_smoke.json"
+            ),
+        )
+    )
+    worker_queue_verify = has_exact(
+        copied_paths, "/readiness/worker_queue_evidence_verify.json"
+    )
+    checks.append(
+        CheckResult(
+            id="readiness_worker_queue_evidence_verify_report",
+            description="Worker queue evidence verification report is present",
+            required=True,
+            passed=worker_queue_verify,
+            details=(
+                "readiness/worker_queue_evidence_verify.json"
+                if worker_queue_verify
+                else "missing readiness/worker_queue_evidence_verify.json"
+            ),
+        )
+    )
     snn_agent_smoke = has_exact(copied_paths, "/readiness/snn_agent_kernel_smoke.json")
     checks.append(
         CheckResult(
@@ -721,8 +812,8 @@ def build_checks(
         "local/registry.json",
         "remote/registry.json",
         "cache/registry.json",
-        "remote/adam0-sim/v2.8.1/remote.manifest.json",
-        "remote/adam0-sim/v2.8.1/remote.manifest.sig",
+        "remote/adam0-sim/v2.9.0/remote.manifest.json",
+        "remote/adam0-sim/v2.9.0/remote.manifest.sig",
     ):
         present = has_exact(copied_paths, f"/registry/{name}")
         checks.append(
@@ -737,8 +828,8 @@ def build_checks(
     for name in (
         "cache/registry.json",
         "cache/audit.log.jsonl",
-        "remote_offline/adam0-degraded/v2.8.1/remote.manifest.json",
-        "remote_offline/adam0-degraded/v2.8.1/remote.manifest.sig",
+        "remote_offline/adam0-degraded/v2.9.0/remote.manifest.json",
+        "remote_offline/adam0-degraded/v2.9.0/remote.manifest.sig",
     ):
         present = has_exact(copied_paths, f"/registry_degraded/{name}")
         checks.append(
@@ -748,6 +839,57 @@ def build_checks(
                 required=True,
                 passed=present,
                 details=name if present else f"missing registry_degraded/{name}",
+            )
+        )
+
+    for name in (
+        "sdk_api.snapshot.json",
+        "app.json",
+        "package.json",
+    ):
+        present = has_exact(copied_paths, f"/mobile/{name}")
+        checks.append(
+            CheckResult(
+                id=f"mobile_{name.replace('/', '_').replace('.', '_')}",
+                description=f"Mobile scaffold evidence `{name}` is present",
+                required=True,
+                passed=present,
+                details=name if present else f"missing mobile/{name}",
+            )
+        )
+
+    for name in (
+        "probe.json",
+        "server.jsonl",
+        "conversation_state.json",
+        "conversation_state.backup.json",
+    ):
+        present = has_exact(copied_paths, f"/grpc/{name}")
+        checks.append(
+            CheckResult(
+                id=f"grpc_{name.replace('/', '_').replace('.', '_')}",
+                description=f"gRPC runtime evidence `{name}` is present",
+                required=True,
+                passed=present,
+                details=name if present else f"missing grpc/{name}",
+            )
+        )
+
+    for name in (
+        "run_01.json",
+        "run_02.json",
+        "run_03.json",
+        "queues/default/dead_letter.jsonl",
+        "queues/default/pending.jsonl",
+    ):
+        present = has_exact(copied_paths, f"/worker_queue/{name}")
+        checks.append(
+            CheckResult(
+                id=f"worker_queue_{name.replace('/', '_').replace('.', '_')}",
+                description=f"Worker queue evidence `{name}` is present",
+                required=True,
+                passed=present,
+                details=name if present else f"missing worker_queue/{name}",
             )
         )
 

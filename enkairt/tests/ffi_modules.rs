@@ -363,6 +363,18 @@ fn std_db_postgres_open_failure_is_none() {
 }
 
 #[test]
+#[cfg_attr(windows, ignore = "mysql ffi test is flaky under libtest on windows")]
+fn std_db_mysql_open_failure_is_none() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    copy_std_modules(temp.path());
+    let source = "import std::db\n\
+        let h := db.mysql_open(\"mysql://enkai:enkai@127.0.0.1:1/enkai\")\n\
+        h == none\n";
+    let value = run_package(temp.path(), "main.enk", source).expect("run");
+    assert_eq!(value, Value::Bool(true));
+}
+
+#[test]
 fn std_analysis_csv_group_and_describe() {
     let temp = tempfile::tempdir().expect("tempdir");
     copy_std_modules(temp.path());

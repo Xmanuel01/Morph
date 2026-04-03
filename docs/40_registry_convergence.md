@@ -1,6 +1,6 @@
-# 40. Registry Convergence (v2.8.1)
+# 40. Registry Convergence (v2.9.0)
 
-This document defines the `v2.8.1` convergence contract between LLM run artifacts,
+This document defines the `v2.9.0` convergence contract between LLM run artifacts,
 Adam-0/simulation artifacts, environment assets, and native extension bundles.
 
 ## Goal
@@ -15,7 +15,7 @@ without changing Enkai language syntax.
 
 ## CLI Surface
 
-Additive model-registry commands in `v2.8.1`:
+Additive model-registry commands in `v2.9.0`:
 
 - `enkai model register <registry_dir> <name> <version> <artifact_path> [--activate] [--artifact-kind <checkpoint|simulation|environment|native-extension>] [--artifact-manifest <file>] [--lineage-manifest <file>]`
 - `enkai model push <registry_dir> <name> <version> --registry <remote_registry_dir> [--sign]`
@@ -34,8 +34,8 @@ Full-platform readiness now archives and verifies:
 - `artifacts/registry/local/registry.json`
 - `artifacts/registry/remote/registry.json`
 - `artifacts/registry/cache/registry.json`
-- `artifacts/registry/remote/adam0-sim/v2.8.1/remote.manifest.json`
-- `artifacts/registry/remote/adam0-sim/v2.8.1/remote.manifest.sig`
+- `artifacts/registry/remote/adam0-sim/v2.9.0/remote.manifest.json`
+- `artifacts/registry/remote/adam0-sim/v2.9.0/remote.manifest.sig`
 
 ## Lineage Contract
 
@@ -58,7 +58,7 @@ one shared registry/audit flow.
 
 ## Sign-Off
 
-`v2.8.1` is complete only when:
+`v2.9.0` is complete only when:
 - simulation lineage manifests are emitted and archived
 - non-checkpoint artifact kinds register/push/pull/verify successfully
 - remote signed manifests verify cleanly

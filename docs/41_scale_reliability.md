@@ -1,13 +1,13 @@
-# 41. Scale And Reliability (v2.8.1)
+# 41. Scale And Reliability (v2.9.0)
 
-This document defines the `v2.8.1` contract for bounded multi-node simulation
+This document defines the `v2.9.0` contract for bounded multi-node simulation
 supervision and degraded registry fallback.
 
 ## Cluster Supervision
 
 `enkai cluster` remains additive and syntax-neutral.
 
-Supported `v2.8.1` planning/supervision fields:
+Supported `v2.9.0` planning/supervision fields:
 - `dist.hosts`
 - `dist.host_map`
 - `workload = "simulation"`
@@ -24,7 +24,7 @@ Command surface:
 - `enkai cluster plan <config.enk> [--json] [--output <file>]`
 - `enkai cluster run <config.enk> [--dry-run] [--json] [--output <file>]`
 
-`enkai cluster run` in `v2.8.1` executes bounded simulation workloads by:
+`enkai cluster run` in `v2.9.0` executes bounded simulation workloads by:
 - spawning rank-local `enkai sim run`
 - continuing with windowed `enkai sim replay`
 - persisting per-window reports, logs, manifests, and snapshots
@@ -38,7 +38,7 @@ Train multi-node execution remains operator-managed in this release line.
 Remote registry pull flows now have release-gated degraded-mode validation using:
 - `enkai model pull <registry_dir> <name> <version> --registry <remote> --verify-signature --fallback-local`
 
-`v2.8.1` readiness evidence requires proof that:
+`v2.9.0` readiness evidence requires proof that:
 - a signed remote pull succeeds when the remote registry is available
 - a later pull succeeds with `--fallback-local` when the remote registry is unavailable
 - the local audit log records:
@@ -65,12 +65,12 @@ Cluster supervision evidence:
 Registry degraded evidence:
 - `artifacts/registry_degraded/cache/registry.json`
 - `artifacts/registry_degraded/cache/audit.log.jsonl`
-- `artifacts/registry_degraded/remote_offline/adam0-degraded/v2.8.1/remote.manifest.json`
-- `artifacts/registry_degraded/remote_offline/adam0-degraded/v2.8.1/remote.manifest.sig`
+- `artifacts/registry_degraded/remote_offline/adam0-degraded/v2.9.0/remote.manifest.json`
+- `artifacts/registry_degraded/remote_offline/adam0-degraded/v2.9.0/remote.manifest.sig`
 
 ## Exit Criteria
 
-`v2.8.1` is complete only when:
+`v2.9.0` is complete only when:
 - cluster scale smoke and semantic verification both pass
 - at least one partition demonstrates snapshot-based retry recovery
 - degraded registry fallback smoke and semantic verification both pass

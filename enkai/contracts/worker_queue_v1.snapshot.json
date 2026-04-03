@@ -1,0 +1,14 @@
+{
+  "snapshot_version": 1,
+  "queue_kind": "file_jsonl",
+  "guarantees": {
+    "durable_enqueue": true,
+    "durable_retry": true,
+    "dead_letter": true,
+    "idempotency_key": "message.id"
+  },
+  "commands": [
+    "enkai worker enqueue",
+    "enkai worker run"
+  ]
+}

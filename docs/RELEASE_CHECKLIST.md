@@ -39,6 +39,8 @@ Note:
     - `artifacts/readiness/deploy_backend.json`
     - `artifacts/readiness/deploy_fullstack.json`
   - simulation smoke artifacts expected from full-platform readiness:
+    - `artifacts/readiness/grpc_smoke.json`
+    - `artifacts/readiness/grpc_evidence_verify.json`
     - `artifacts/readiness/sim_smoke.json`
     - `artifacts/readiness/sim_evidence_verify.json`
     - `artifacts/readiness/sim_native_smoke.json`
@@ -76,13 +78,16 @@ Note:
     - `artifacts/sim/adam0_target_10000_replay.json`
     - `artifacts/sim/snn_agent_kernel_run.json`
     - `artifacts/sim/snn_agent_kernel_profile.json`
+    - `artifacts/grpc/probe.json`
+    - `artifacts/grpc/server.jsonl`
+    - `artifacts/grpc/conversation_state.json`
     - `artifacts/registry/sim_lineage.json`
     - `artifacts/registry/sim_snapshot.manifest.json`
     - `artifacts/registry/local/registry.json`
     - `artifacts/registry/remote/registry.json`
     - `artifacts/registry/cache/registry.json`
-    - `artifacts/registry/remote/adam0-sim/v2.8.1/remote.manifest.json`
-    - `artifacts/registry/remote/adam0-sim/v2.8.1/remote.manifest.sig`
+    - `artifacts/registry/remote/adam0-sim/v2.9.0/remote.manifest.json`
+    - `artifacts/registry/remote/adam0-sim/v2.9.0/remote.manifest.sig`
     - `artifacts/cluster_scale/run.json`
     - `artifacts/registry_degraded/cache/audit.log.jsonl`
 - [ ] Benchmark target gate (official bounded suite):
@@ -134,6 +139,8 @@ Note:
   - strict archive must include:
     - `readiness/full_platform.json`
     - `readiness/full_platform_blockers.json`
+    - `readiness/grpc_smoke.json`
+    - `readiness/grpc_evidence_verify.json`
     - `readiness/sim_smoke.json`
     - `readiness/sim_evidence_verify.json`
     - `readiness/sim_native_smoke.json`
@@ -165,6 +172,9 @@ Note:
     - `sim/adam0_target_10000_replay.json`
     - `sim/snn_agent_kernel_run.json`
     - `sim/snn_agent_kernel_profile.json`
+    - `grpc/probe.json`
+    - `grpc/server.jsonl`
+    - `grpc/conversation_state.json`
 - [ ] Generate capability-complete report from archived evidence:
   - `python3 scripts/generate_capability_report.py --require-gpu --strict`
   - expected outputs:

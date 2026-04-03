@@ -1,0 +1,17 @@
+{
+  "snapshot_version": 1,
+  "engines": [
+    "sqlite",
+    "postgres",
+    "mysql"
+  ],
+  "pooling": {
+    "env_key": "ENKAI_DB_POOL_MAX",
+    "min": 1,
+    "max": 64
+  },
+  "migration": {
+    "drift_detection": true,
+    "schema_table": "schema_migrations"
+  }
+}

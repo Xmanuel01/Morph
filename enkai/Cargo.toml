@@ -1,6 +1,6 @@
 ﻿[package]
 name = "enkai"
-version = "2.8.1"
+version = "2.9.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Enkai CLI (run, fmt, test)."
@@ -19,9 +19,18 @@ sha2 = "0.10"
 toml = "0.8"
 bincode = "1.3"
 semver = "1.0"
+tokio = { version = "1.48", features = ["rt-multi-thread", "sync", "time", "net"] }
+tokio-stream = { version = "0.1", features = ["net"] }
+tonic = { version = "0.12", features = ["transport"] }
+prost = "0.13"
 
 [dev-dependencies]
 tempfile = "3.10"
+tokio = { version = "1.48", features = ["macros", "rt-multi-thread"] }
+
+[build-dependencies]
+tonic-build = "0.12"
+protoc-bin-vendored = "3"
 
 
 

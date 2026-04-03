@@ -26,6 +26,8 @@ Selective pipeline reuse:
   - `artifacts/readiness/deploy_backend_smoke.json`
   - `artifacts/readiness/deploy_fullstack_smoke.json`
 - Generated simulation smoke reports emitted by the full-platform profile:
+  - `artifacts/readiness/grpc_smoke.json`
+  - `artifacts/readiness/grpc_evidence_verify.json`
   - `artifacts/readiness/sim_smoke.json`
   - `artifacts/readiness/sim_evidence_verify.json`
   - `artifacts/readiness/sim_native_smoke.json`
@@ -63,13 +65,16 @@ Selective pipeline reuse:
   - `artifacts/sim/adam0_target_10000_replay.json`
   - `artifacts/sim/snn_agent_kernel_run.json`
   - `artifacts/sim/snn_agent_kernel_profile.json`
+  - `artifacts/grpc/probe.json`
+  - `artifacts/grpc/server.jsonl`
+  - `artifacts/grpc/conversation_state.json`
   - `artifacts/registry/sim_lineage.json`
   - `artifacts/registry/sim_snapshot.manifest.json`
   - `artifacts/registry/local/registry.json`
   - `artifacts/registry/remote/registry.json`
   - `artifacts/registry/cache/registry.json`
-  - `artifacts/registry/remote/adam0-sim/v2.8.1/remote.manifest.json`
-  - `artifacts/registry/remote/adam0-sim/v2.8.1/remote.manifest.sig`
+  - `artifacts/registry/remote/adam0-sim/v2.9.0/remote.manifest.json`
+  - `artifacts/registry/remote/adam0-sim/v2.9.0/remote.manifest.sig`
   - `artifacts/cluster_scale/run.json`
   - `artifacts/registry_degraded/cache/audit.log.jsonl`
 
@@ -95,6 +100,8 @@ The command executes a deterministic gate bundle:
 - docs/spec consistency
 - frontend/backend contract snapshot tests
 - backend HTTP contract smoke
+- backend gRPC runtime smoke
+- backend gRPC runtime evidence verification
 - LLM runtime smoke
 - simulation std/runtime CLI smoke
 - simulation smoke evidence semantic verification

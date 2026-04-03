@@ -8,6 +8,33 @@
 ### Breaking changes
 - None.
 
+## v2.9.0
+
+### Highlights
+- Advanced the release line to `v2.9.0` with additive compatibility and no syntax changes.
+- Completed the `v2.9.0` full-platform completion milestone.
+- Added real gRPC serve/runtime support alongside the existing HTTP/SSE/WebSocket stack.
+- Added release-blocking gRPC smoke and evidence verification to the full-platform readiness path.
+
+### Fixes
+- Added a real tonic-backed gRPC server/client runtime behind `enkai serve --grpc-port ...` and `enkai grpc probe ...`.
+- Added gRPC persistence/logging evidence artifacts and strict archive verification:
+  - `scripts/readiness_grpc_smoke.py`
+  - `scripts/verify_grpc_evidence.py`
+- Integrated gRPC runtime evidence into:
+  - full-platform readiness
+  - blocker verification
+  - strict release evidence
+  - capability reporting
+- Completed the remaining `v2.9.0` platform surfaces already staged on the branch:
+  - real MySQL runtime support
+  - durable worker queue runtime + evidence gates
+  - mobile scaffold/deploy validation + evidence gates
+- Fixed Windows release-pipeline metadata decoding issues in:
+  - `scripts/license_audit.py`
+  - `scripts/generate_sbom.py`
+- Synced docs/spec/release metadata and version surfaces to `v2.9.0`.
+
 ## v2.8.1
 
 ### Highlights

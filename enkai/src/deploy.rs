@@ -7,7 +7,7 @@ use serde::Serialize;
 
 pub fn print_deploy_usage() {
     eprintln!(
-        "  enkai deploy validate <project_dir> --profile <backend|fullstack> --strict [--json] [--output <file>]"
+        "  enkai deploy validate <project_dir> --profile <backend|fullstack|mobile> --strict [--json] [--output <file>]"
     );
 }
 
@@ -30,6 +30,7 @@ pub fn deploy_command(args: &[String]) -> i32 {
 enum DeployProfile {
     Backend,
     Fullstack,
+    Mobile,
 }
 
 #[derive(Debug, Clone)]
@@ -76,6 +77,7 @@ fn deploy_validate_command(args: &[String]) -> i32 {
     match parsed.profile {
         DeployProfile::Backend => validate_backend_project(&parsed.project_dir, &mut issues),
         DeployProfile::Fullstack => validate_fullstack_project(&parsed.project_dir, &mut issues),
+        DeployProfile::Mobile => validate_mobile_project(&parsed.project_dir, &mut issues),
     }
     let success = issues.is_empty();
     let report = ValidationReport {
@@ -179,8 +181,9 @@ fn parse_profile(raw: &str) -> Result<DeployProfile, String> {
     match raw.trim() {
         "backend" => Ok(DeployProfile::Backend),
         "fullstack" => Ok(DeployProfile::Fullstack),
+        "mobile" => Ok(DeployProfile::Mobile),
         other => Err(format!(
-            "invalid --profile '{}'; expected backend|fullstack",
+            "invalid --profile '{}'; expected backend|fullstack|mobile",
             other
         )),
     }
@@ -190,6 +193,7 @@ fn profile_name(profile: DeployProfile) -> &'static str {
     match profile {
         DeployProfile::Backend => "backend",
         DeployProfile::Fullstack => "fullstack",
+        DeployProfile::Mobile => "mobile",
     }
 }
 
@@ -215,6 +219,26 @@ fn validate_backend_project(root: &Path, issues: &mut Vec<ValidationIssue>) {
             root.join("contracts")
                 .join("conversation_state.schema.json"),
             "conversation schema snapshot missing",
+        ),
+        (
+            "missing_grpc_contract_snapshot",
+            root.join("contracts").join("grpc_api.snapshot.json"),
+            "gRPC contract snapshot missing",
+        ),
+        (
+            "missing_worker_queue_snapshot",
+            root.join("contracts").join("worker_queue.snapshot.json"),
+            "worker queue contract snapshot missing",
+        ),
+        (
+            "missing_db_engines_snapshot",
+            root.join("contracts").join("db_engines.snapshot.json"),
+            "DB engines contract snapshot missing",
+        ),
+        (
+            "missing_grpc_proto",
+            root.join("contracts").join("enkai_chat.proto"),
+            "gRPC proto missing",
         ),
         (
             "missing_deploy_env_snapshot",
@@ -243,6 +267,11 @@ fn validate_backend_project(root: &Path, issues: &mut Vec<ValidationIssue>) {
             "migration 002 missing",
         ),
         (
+            "missing_worker_handler",
+            root.join("worker").join("handler.enk"),
+            "worker handler missing",
+        ),
+        (
             "missing_backend_dockerfile",
             root.join("deploy").join("docker").join("Dockerfile"),
             "backend deploy Dockerfile missing",
@@ -251,6 +280,13 @@ fn validate_backend_project(root: &Path, issues: &mut Vec<ValidationIssue>) {
             "missing_backend_compose",
             root.join("deploy").join("docker-compose.yml"),
             "backend deploy docker-compose profile missing",
+        ),
+        (
+            "missing_worker_systemd_unit",
+            root.join("deploy")
+                .join("systemd")
+                .join("enkai-worker.service"),
+            "worker deploy systemd unit missing",
         ),
         (
             "missing_backend_systemd_unit",
@@ -356,9 +392,135 @@ fn validate_fullstack_project(root: &Path, issues: &mut Vec<ValidationIssue>) {
     validate_fullstack_frontend_assets(&frontend_dir, issues);
 }
 
+fn validate_mobile_project(root: &Path, issues: &mut Vec<ValidationIssue>) {
+    for (code, path, msg) in [
+        (
+            "missing_mobile_manifest",
+            root.join("enkai.toml"),
+            "mobile manifest missing",
+        ),
+        (
+            "missing_mobile_package",
+            root.join("package.json"),
+            "mobile package.json missing",
+        ),
+        (
+            "missing_mobile_app_json",
+            root.join("app.json"),
+            "mobile app.json missing",
+        ),
+        (
+            "missing_mobile_app_entry",
+            root.join("src").join("App.tsx"),
+            "mobile App.tsx missing",
+        ),
+        (
+            "missing_mobile_sdk_snapshot",
+            root.join("contracts").join("sdk_api.snapshot.json"),
+            "mobile SDK snapshot missing",
+        ),
+        (
+            "missing_mobile_sdk",
+            root.join("src").join("sdk").join("enkaiClient.ts"),
+            "mobile SDK source missing",
+        ),
+        (
+            "missing_mobile_env_example",
+            root.join(".env.example"),
+            "mobile .env.example missing",
+        ),
+    ] {
+        if !path.is_file() {
+            issues.push(ValidationIssue {
+                code,
+                message: format!("{}: {}", msg, path.display()),
+            });
+        }
+    }
+    validate_mobile_assets(root, issues);
+}
+
 fn validate_backend_contract_assets(root: &Path, issues: &mut Vec<ValidationIssue>) {
     validate_migration_contract(root, issues);
     validate_backend_deploy_assets(root, issues);
+    validate_backend_protocol_contracts(root, issues);
+}
+
+fn validate_backend_protocol_contracts(root: &Path, issues: &mut Vec<ValidationIssue>) {
+    let grpc_snapshot = root.join("contracts").join("grpc_api.snapshot.json");
+    if let Ok(text) = fs::read_to_string(&grpc_snapshot) {
+        for fragment in [
+            "\"package\": \"enkai.chat.v1\"",
+            "\"name\": \"ChatService\"",
+            "\"name\": \"StreamChat\"",
+        ] {
+            if !text.contains(fragment) {
+                issues.push(ValidationIssue {
+                    code: "grpc_contract_mismatch",
+                    message: format!(
+                        "gRPC contract snapshot missing '{}' in {}",
+                        fragment,
+                        grpc_snapshot.display()
+                    ),
+                });
+            }
+        }
+    }
+    let worker_snapshot = root.join("contracts").join("worker_queue.snapshot.json");
+    if let Ok(text) = fs::read_to_string(&worker_snapshot) {
+        for fragment in [
+            "\"queue_kind\": \"file_jsonl\"",
+            "\"durable_enqueue\": true",
+            "\"dead_letter\": true",
+        ] {
+            if !text.contains(fragment) {
+                issues.push(ValidationIssue {
+                    code: "worker_queue_contract_mismatch",
+                    message: format!(
+                        "worker queue snapshot missing '{}' in {}",
+                        fragment,
+                        worker_snapshot.display()
+                    ),
+                });
+            }
+        }
+    }
+    let db_snapshot = root.join("contracts").join("db_engines.snapshot.json");
+    if let Ok(text) = fs::read_to_string(&db_snapshot) {
+        for fragment in [
+            "\"sqlite\"",
+            "\"postgres\"",
+            "\"mysql\"",
+            "\"schema_migrations\"",
+        ] {
+            if !text.contains(fragment) {
+                issues.push(ValidationIssue {
+                    code: "db_engine_contract_mismatch",
+                    message: format!(
+                        "DB engine snapshot missing '{}' in {}",
+                        fragment,
+                        db_snapshot.display()
+                    ),
+                });
+            }
+        }
+    }
+    let proto = root.join("contracts").join("enkai_chat.proto");
+    if let Ok(text) = fs::read_to_string(&proto) {
+        for fragment in [
+            "service ChatService",
+            "rpc Chat",
+            "rpc StreamChat",
+            "package enkai.chat.v1;",
+        ] {
+            if !text.contains(fragment) {
+                issues.push(ValidationIssue {
+                    code: "grpc_proto_contract_mismatch",
+                    message: format!("gRPC proto missing '{}' in {}", fragment, proto.display()),
+                });
+            }
+        }
+    }
 }
 
 fn validate_migration_contract(root: &Path, issues: &mut Vec<ValidationIssue>) {
@@ -486,6 +648,13 @@ fn validate_backend_deploy_assets(root: &Path, issues: &mut Vec<ValidationIssue>
     if systemd_unit.is_file() {
         validate_systemd_unit(&systemd_unit, profile, issues);
     }
+    let worker_unit = root
+        .join("deploy")
+        .join("systemd")
+        .join("enkai-worker.service");
+    if worker_unit.is_file() {
+        validate_worker_systemd_unit(&worker_unit, issues);
+    }
 }
 
 fn validate_deploy_file_contains_env(
@@ -543,6 +712,45 @@ fn validate_systemd_unit(path: &Path, profile: &str, issues: &mut Vec<Validation
     }
 }
 
+fn validate_worker_systemd_unit(path: &Path, issues: &mut Vec<ValidationIssue>) {
+    let Ok(text) = fs::read_to_string(path) else {
+        return;
+    };
+    for fragment in ["EnvironmentFile=/opt/enkai-app/.env", "Restart=on-failure"] {
+        if !text.contains(fragment) {
+            issues.push(ValidationIssue {
+                code: "worker_systemd_contract_mismatch",
+                message: format!(
+                    "required worker systemd fragment '{}' missing from {}",
+                    fragment,
+                    path.display()
+                ),
+            });
+        }
+    }
+
+    let exec_line = text
+        .lines()
+        .find(|line| line.trim_start().starts_with("ExecStart="))
+        .unwrap_or_default();
+    for fragment in [
+        "/usr/local/bin/enkai worker run",
+        "--queue default",
+        "--handler worker/handler.enk",
+    ] {
+        if !exec_line.contains(fragment) {
+            issues.push(ValidationIssue {
+                code: "worker_systemd_contract_mismatch",
+                message: format!(
+                    "worker systemd ExecStart missing '{}' in {}",
+                    fragment,
+                    path.display()
+                ),
+            });
+        }
+    }
+}
+
 fn validate_fullstack_frontend_assets(frontend_dir: &Path, issues: &mut Vec<ValidationIssue>) {
     let package_json = frontend_dir.join("package.json");
     let sdk_source = frontend_dir.join("src").join("sdk").join("enkaiClient.ts");
@@ -577,6 +785,57 @@ fn validate_fullstack_frontend_assets(frontend_dir: &Path, issues: &mut Vec<Vali
                     sdk_source.display()
                 ),
             });
+        }
+    }
+}
+
+fn validate_mobile_assets(root: &Path, issues: &mut Vec<ValidationIssue>) {
+    let package_json = root.join("package.json");
+    let sdk_source = root.join("src").join("sdk").join("enkaiClient.ts");
+    let env_example = root.join(".env.example");
+    if let Ok(package_text) = fs::read_to_string(&package_json) {
+        for fragment in ["expo", "react-native", "typescript"] {
+            if !package_text.contains(fragment) {
+                issues.push(ValidationIssue {
+                    code: "mobile_package_contract_mismatch",
+                    message: format!(
+                        "mobile package missing '{}' in {}",
+                        fragment,
+                        package_json.display()
+                    ),
+                });
+            }
+        }
+    }
+    if let Ok(sdk_text) = fs::read_to_string(&sdk_source) {
+        for fragment in ["generated target: mobile", "streamChat(", "streamChatWs("] {
+            if !sdk_text.contains(fragment) {
+                issues.push(ValidationIssue {
+                    code: "mobile_sdk_contract_mismatch",
+                    message: format!(
+                        "mobile SDK missing required fragment '{}' in {}",
+                        fragment,
+                        sdk_source.display()
+                    ),
+                });
+            }
+        }
+    }
+    if let Ok(env_text) = fs::read_to_string(&env_example) {
+        for fragment in [
+            "EXPO_PUBLIC_ENKAI_API_BASE_URL",
+            "EXPO_PUBLIC_ENKAI_API_VERSION",
+        ] {
+            if !env_text.contains(fragment) {
+                issues.push(ValidationIssue {
+                    code: "mobile_env_contract_mismatch",
+                    message: format!(
+                        "mobile env example missing '{}' in {}",
+                        fragment,
+                        env_example.display()
+                    ),
+                });
+            }
         }
     }
 }
@@ -848,6 +1107,19 @@ mod tests {
             parsed.output.as_deref(),
             Some(Path::new("artifacts/report.json"))
         );
+    }
+
+    #[test]
+    fn parse_validate_args_accepts_mobile_profile() {
+        let dir = tempdir().expect("tempdir");
+        let parsed = parse_validate_args(&[
+            dir.path().to_string_lossy().to_string(),
+            "--profile".to_string(),
+            "mobile".to_string(),
+            "--strict".to_string(),
+        ])
+        .expect("parse");
+        assert_eq!(parsed.profile, DeployProfile::Mobile);
     }
 
     #[test]

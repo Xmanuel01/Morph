@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package enkai.chat.v1;
+
+message HealthRequest {}
+message HealthReply {
+  string status = 1;
+  string api_version = 2;
+}
+
+message ReadyRequest {}
+message ReadyReply {
+  string status = 1;
+  string api_version = 2;
+}
+
+message ChatRequest {
+  string prompt = 1;
+  string conversation_id = 2;
+  string api_version = 3;
+}
+
+message ChatReply {
+  string id = 1;
+  string reply = 2;
+  string api_version = 3;
+}
+
+message StreamEvent {
+  string event = 1;
+  string value = 2;
+  string conversation_id = 3;
+  string api_version = 4;
+}
+
+service ChatService {
+  rpc Health(HealthRequest) returns (HealthReply);
+  rpc Ready(ReadyRequest) returns (ReadyReply);
+  rpc Chat(ChatRequest) returns (ChatReply);
+  rpc StreamChat(ChatRequest) returns (stream StreamEvent);
+}

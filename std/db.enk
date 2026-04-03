@@ -12,6 +12,10 @@ native::import "enkai_native" ::
     fn db_postgres_close(handle: Int) -> Bool
     fn db_postgres_exec(handle: Int, sql: String) -> Int
     fn db_postgres_query(handle: Int, sql: String) -> String
+    fn db_mysql_open(conn: String) -> Int
+    fn db_mysql_close(handle: Int) -> Bool
+    fn db_mysql_exec(handle: Int, sql: String) -> Int
+    fn db_mysql_query(handle: Int, sql: String) -> String
 ::
 
 pub fn sqlite_open(path: String) -> Int? ::
@@ -65,5 +69,26 @@ pub fn pg_exec(handle: Int, sql: String) -> Int ::
 
 pub fn pg_query(handle: Int, sql: String) ::
     let raw := db_postgres_query(handle, sql)
+    return json.parse(raw)
+::
+
+pub fn mysql_open(conn: String) -> Int? ::
+    let handle := db_mysql_open(conn)
+    if handle <= 0 ::
+        return none
+    ::
+    return handle
+::
+
+pub fn mysql_close(handle: Int) -> Bool ::
+    return db_mysql_close(handle)
+::
+
+pub fn mysql_exec(handle: Int, sql: String) -> Int ::
+    return db_mysql_exec(handle, sql)
+::
+
+pub fn mysql_query(handle: Int, sql: String) ::
+    let raw := db_mysql_query(handle, sql)
     return json.parse(raw)
 ::

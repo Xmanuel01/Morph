@@ -72,6 +72,38 @@
       ]
     },
     {
+      "id": "grpc-smoke",
+      "description": "Backend gRPC runtime smoke test",
+      "command": [
+        "${PYTHON}",
+        "scripts/readiness_grpc_smoke.py",
+        "--enkai-bin",
+        "${ENKAI_BIN}",
+        "--workspace",
+        ".",
+        "--output",
+        "artifacts/readiness/grpc_smoke.json"
+      ]
+    },
+    {
+      "id": "grpc-evidence-verify",
+      "description": "Backend gRPC evidence verification",
+      "command": [
+        "${PYTHON}",
+        "scripts/verify_grpc_evidence.py",
+        "--summary",
+        "artifacts/readiness/grpc_smoke.json",
+        "--probe",
+        "artifacts/grpc/probe.json",
+        "--server-log",
+        "artifacts/grpc/server.jsonl",
+        "--conversation-state",
+        "artifacts/grpc/conversation_state.json",
+        "--output",
+        "artifacts/readiness/grpc_evidence_verify.json"
+      ]
+    },
+    {
       "id": "llm-runtime-smoke",
       "description": "LLM tensor/runtime smoke test",
       "command": [
@@ -380,6 +412,76 @@
         "fullstack",
         "--output",
         "artifacts/readiness/deploy_fullstack_smoke.json"
+      ]
+    },
+    {
+      "id": "deploy-mobile-validate",
+      "description": "Generated mobile scaffold deploy validation smoke",
+      "command": [
+        "${PYTHON}",
+        "scripts/readiness_mobile_scaffold_smoke.py",
+        "--enkai-bin",
+        "${ENKAI_BIN}",
+        "--workspace",
+        ".",
+        "--output",
+        "artifacts/readiness/deploy_mobile_smoke.json"
+      ]
+    },
+    {
+      "id": "deploy-mobile-evidence-verify",
+      "description": "Generated mobile scaffold evidence verification",
+      "command": [
+        "${PYTHON}",
+        "scripts/verify_mobile_scaffold_evidence.py",
+        "--summary",
+        "artifacts/readiness/deploy_mobile_smoke.json",
+        "--report",
+        "artifacts/readiness/deploy_mobile.json",
+        "--sdk-snapshot",
+        "artifacts/mobile/sdk_api.snapshot.json",
+        "--app-json",
+        "artifacts/mobile/app.json",
+        "--package-json",
+        "artifacts/mobile/package.json",
+        "--output",
+        "artifacts/readiness/deploy_mobile_evidence_verify.json"
+      ]
+    },
+    {
+      "id": "worker-queue-smoke",
+      "description": "Durable worker queue runtime smoke",
+      "command": [
+        "${PYTHON}",
+        "scripts/readiness_worker_queue_smoke.py",
+        "--enkai-bin",
+        "${ENKAI_BIN}",
+        "--workspace",
+        ".",
+        "--output",
+        "artifacts/readiness/worker_queue_smoke.json"
+      ]
+    },
+    {
+      "id": "worker-queue-evidence-verify",
+      "description": "Durable worker queue evidence verification",
+      "command": [
+        "${PYTHON}",
+        "scripts/verify_worker_queue_evidence.py",
+        "--summary",
+        "artifacts/readiness/worker_queue_smoke.json",
+        "--run-01",
+        "artifacts/worker_queue/run_01.json",
+        "--run-02",
+        "artifacts/worker_queue/run_02.json",
+        "--run-03",
+        "artifacts/worker_queue/run_03.json",
+        "--dead-letter",
+        "artifacts/worker_queue/queues/default/dead_letter.jsonl",
+        "--pending",
+        "artifacts/worker_queue/queues/default/pending.jsonl",
+        "--output",
+        "artifacts/readiness/worker_queue_evidence_verify.json"
       ]
     },
     {

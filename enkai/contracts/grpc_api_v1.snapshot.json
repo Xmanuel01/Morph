@@ -1,0 +1,16 @@
+{
+  "snapshot_version": 1,
+  "package": "enkai.chat.v1",
+  "api_version": "v1",
+  "services": [
+    {
+      "name": "ChatService",
+      "methods": [
+        { "name": "Health", "request": "HealthRequest", "response": "HealthReply" },
+        { "name": "Ready", "request": "ReadyRequest", "response": "ReadyReply" },
+        { "name": "Chat", "request": "ChatRequest", "response": "ChatReply" },
+        { "name": "StreamChat", "request": "ChatRequest", "response": "StreamEvent", "streaming": true }
+      ]
+    }
+  ]
+}

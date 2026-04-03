@@ -1,4 +1,5 @@
 use memmap2::Mmap;
+use mysql::{prelude::Queryable as MyQueryable, Conn as MyConn, Opts as MyOpts, Value as MyValue};
 use postgres::{types::Type as PgType, Client as PgClient, NoTls};
 use rusqlite::types::ValueRef;
 use rusqlite::Connection;
@@ -1472,6 +1473,16 @@ fn next_pg_handle() -> i64 {
     NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
+fn mysql_table() -> &'static Mutex<HashMap<i64, MyConn>> {
+    static TABLE: OnceLock<Mutex<HashMap<i64, MyConn>>> = OnceLock::new();
+    TABLE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn next_mysql_handle() -> i64 {
+    static NEXT: AtomicI64 = AtomicI64::new(2_000_000);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
 fn parse_args_json(text: &str) -> Option<Vec<String>> {
     let value: serde_json::Value = serde_json::from_str(text).ok()?;
     let arr = value.as_array()?;
@@ -1959,6 +1970,143 @@ pub extern "C" fn db_postgres_query(handle: i64, sql_ptr: *const u8, sql_len: us
         for (idx, col) in row.columns().iter().enumerate() {
             let value = pg_cell_to_json(&row, idx, col.type_());
             obj.insert(col.name().to_string(), value);
+        }
+        out.push(serde_json::Value::Object(obj));
+    }
+    match serde_json::to_string(&out) {
+        Ok(text) => string_slice(text),
+        Err(_) => string_slice("[]".to_string()),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn db_mysql_open(conn_ptr: *const u8, conn_len: usize) -> i64 {
+    let conn = match string_from_raw(conn_ptr, conn_len) {
+        Some(conn) => conn,
+        None => return 0,
+    };
+    let opts = match MyOpts::from_url(&conn) {
+        Ok(opts) => opts,
+        Err(_) => return 0,
+    };
+    let client = match MyConn::new(opts) {
+        Ok(client) => client,
+        Err(_) => return 0,
+    };
+    let handle = next_mysql_handle();
+    if let Ok(mut table) = mysql_table().lock() {
+        table.insert(handle, client);
+        handle
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn db_mysql_close(handle: i64) -> u8 {
+    if handle <= 0 {
+        return 0;
+    }
+    if let Ok(mut table) = mysql_table().lock() {
+        if table.remove(&handle).is_some() {
+            1
+        } else {
+            0
+        }
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn db_mysql_exec(handle: i64, sql_ptr: *const u8, sql_len: usize) -> i64 {
+    if handle <= 0 {
+        return -1;
+    }
+    let sql = match string_from_raw(sql_ptr, sql_len) {
+        Some(sql) => sql,
+        None => return -1,
+    };
+    let mut table = match mysql_table().lock() {
+        Ok(table) => table,
+        Err(_) => return -1,
+    };
+    let client = match table.get_mut(&handle) {
+        Some(client) => client,
+        None => return -1,
+    };
+    match client.query_drop(sql) {
+        Ok(_) => client.affected_rows() as i64,
+        Err(_) => -1,
+    }
+}
+
+fn mysql_value_to_json(value: &MyValue) -> serde_json::Value {
+    match value {
+        MyValue::NULL => serde_json::Value::Null,
+        MyValue::Bytes(bytes) => {
+            serde_json::Value::String(String::from_utf8_lossy(bytes).to_string())
+        }
+        MyValue::Int(value) => serde_json::json!(value),
+        MyValue::UInt(value) => serde_json::json!(value),
+        MyValue::Float(value) => serde_json::json!(value),
+        MyValue::Double(value) => serde_json::json!(value),
+        MyValue::Date(year, month, day, hour, minute, second, micros) => serde_json::json!({
+            "year": year,
+            "month": month,
+            "day": day,
+            "hour": hour,
+            "minute": minute,
+            "second": second,
+            "micros": micros,
+        }),
+        MyValue::Time(is_neg, days, hours, minutes, seconds, micros) => serde_json::json!({
+            "negative": is_neg,
+            "days": days,
+            "hours": hours,
+            "minutes": minutes,
+            "seconds": seconds,
+            "micros": micros,
+        }),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn db_mysql_query(handle: i64, sql_ptr: *const u8, sql_len: usize) -> FfiSlice {
+    if handle <= 0 {
+        return string_slice("[]".to_string());
+    }
+    let sql = match string_from_raw(sql_ptr, sql_len) {
+        Some(sql) => sql,
+        None => return string_slice("[]".to_string()),
+    };
+    let mut table = match mysql_table().lock() {
+        Ok(table) => table,
+        Err(_) => return string_slice("[]".to_string()),
+    };
+    let client = match table.get_mut(&handle) {
+        Some(client) => client,
+        None => return string_slice("[]".to_string()),
+    };
+    let rows = match client.query_iter(sql) {
+        Ok(rows) => rows,
+        Err(_) => return string_slice("[]".to_string()),
+    };
+    let columns = rows
+        .columns()
+        .as_ref()
+        .iter()
+        .map(|column| column.name_str().to_string())
+        .collect::<Vec<_>>();
+    let mut out = Vec::new();
+    for row in rows.flatten() {
+        let mut obj = serde_json::Map::new();
+        for (idx, key) in columns.iter().enumerate() {
+            let value = row
+                .as_ref(idx)
+                .map(mysql_value_to_json)
+                .unwrap_or(serde_json::Value::Null);
+            obj.insert(key.clone(), value);
         }
         out.push(serde_json::Value::Object(obj));
     }

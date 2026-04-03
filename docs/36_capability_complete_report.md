@@ -1,6 +1,6 @@
-# 36. Capability-Complete Report (v2.8.1)
+# 36. Capability-Complete Report (v2.9.0)
 
-This document defines the objective release evidence contract for the `v2.8.1`
+This document defines the objective release evidence contract for the `v2.9.0`
 stability cut.
 
 ## Goal
@@ -37,6 +37,8 @@ Core categories:
 - `readiness/`:
   - `full_platform.json` (`readiness/full_platform.json`) for the v2.5+ full-platform line
   - `full_platform_blockers.json` (`readiness/full_platform_blockers.json`) as the archived blocker-verification verdict for the current release line
+  - `grpc_smoke.json` (`readiness/grpc_smoke.json`) summarizing the archived gRPC runtime smoke workflow
+  - `grpc_evidence_verify.json` (`readiness/grpc_evidence_verify.json`) validating archived gRPC runtime evidence consistency
   - `sim_smoke.json` (`readiness/sim_smoke.json`) summarizing the archived simulation smoke workflow
   - `sim_evidence_verify.json` (`readiness/sim_evidence_verify.json`) validating archived simulation evidence consistency
   - `sim_native_smoke.json` (`readiness/sim_native_smoke.json`) summarizing the archived native FFI simulation smoke workflow
@@ -76,14 +78,19 @@ Core categories:
   - `sim/adam0_target_10000_replay.json`
   - `sim/snn_agent_kernel_run.json`
   - `sim/snn_agent_kernel_profile.json`
+- `grpc/`:
+  - `grpc/probe.json`
+  - `grpc/server.jsonl`
+  - `grpc/conversation_state.json`
+  - `grpc/conversation_state.backup.json`
 - `registry/`:
   - `registry/sim_lineage.json`
   - `registry/sim_snapshot.manifest.json`
   - `registry/local/registry.json`
   - `registry/remote/registry.json`
   - `registry/cache/registry.json`
-  - `registry/remote/adam0-sim/v2.8.1/remote.manifest.json`
-  - `registry/remote/adam0-sim/v2.8.1/remote.manifest.sig`
+  - `registry/remote/adam0-sim/v2.9.0/remote.manifest.json`
+  - `registry/remote/adam0-sim/v2.9.0/remote.manifest.sig`
 - `cluster_scale/`:
   - `cluster_scale/run.json`
   - `cluster_scale/recovery/rank0/window_0000.run.json`
@@ -91,8 +98,8 @@ Core categories:
 - `registry_degraded/`:
   - `registry_degraded/cache/registry.json`
   - `registry_degraded/cache/audit.log.jsonl`
-  - `registry_degraded/remote_offline/adam0-degraded/v2.8.1/remote.manifest.json`
-  - `registry_degraded/remote_offline/adam0-degraded/v2.8.1/remote.manifest.sig`
+  - `registry_degraded/remote_offline/adam0-degraded/v2.9.0/remote.manifest.json`
+  - `registry_degraded/remote_offline/adam0-degraded/v2.9.0/remote.manifest.sig`
 - `gpu/` (mandatory for full sign-off):
   - `single_gpu.log`, `single_gpu_evidence.json`
   - `multi_gpu.log`, `multi_gpu_evidence.json`
@@ -115,6 +122,7 @@ In strict mode the archived blocker report must also be present and must show:
 - `skip_release_evidence: false`
 - no missing/failed/skipped required checks
 - no missing required release artifacts
+- gRPC runtime evidence artifacts must be present under `readiness/` and `grpc/`
 - simulation std/runtime, stdlib primitive, Adam-0 smoke, Adam-0 reference suite, native FFI, SNN/agent kernel, and registry convergence evidence artifacts must be present under `readiness/`, `sim/`, and `registry/`
 
 ## RC Pipeline Contract

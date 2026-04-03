@@ -13,9 +13,9 @@ def run_cargo_metadata(root: pathlib.Path) -> dict:
         cwd=root,
         check=True,
         capture_output=True,
-        text=True,
     )
-    return json.loads(proc.stdout)
+    stdout = proc.stdout.decode("utf-8", errors="replace")
+    return json.loads(stdout)
 
 
 def main() -> int:
