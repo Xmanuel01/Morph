@@ -97,6 +97,16 @@
       "expected_result": 0
     },
     {
+      "id": "ffi_safety",
+      "description": "FFI invalid-handle and fault-injection safety validation",
+      "kind": "run",
+      "target": "examples/validation/ffi_safety.enk",
+      "expected_result": {
+        "invalid_handle_rejected": true,
+        "stale_handle_count": 1
+      }
+    },
+    {
       "id": "event_queue",
       "description": "Deterministic event queue ordering validation",
       "kind": "run",

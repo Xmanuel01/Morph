@@ -293,6 +293,8 @@ def main() -> int:
         "deploy_mobile_evidence_verify.json",
         "worker_queue_smoke.json",
         "worker_queue_evidence_verify.json",
+        "runtime_safety.json",
+        "runtime_safety_verify.json",
     ]
     if readiness_dir.is_dir():
         if args.strict:
@@ -316,6 +318,7 @@ def main() -> int:
         "determinism_sim_coroutines.json",
         "determinism_adam0_reference_100.json",
         "pool_safety.json",
+        "ffi_safety.json",
         "adam0_fake10.json",
         "adam0_ref100.json",
         "adam0_stress1000.json",

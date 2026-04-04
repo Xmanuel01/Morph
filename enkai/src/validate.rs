@@ -220,6 +220,7 @@ pub fn validate_command(args: &[String]) -> i32 {
     }
     match args[0].as_str() {
         "ffi-correctness" => ffi_correctness_command(&args[1..]),
+        "ffi-safety" => ffi_safety_command(&args[1..]),
         "determinism" => determinism_command(&args[1..]),
         "perf-baseline" => perf_baseline_command(&args[1..]),
         "pool-safety" => pool_safety_command(&args[1..]),
@@ -234,6 +235,7 @@ pub fn validate_command(args: &[String]) -> i32 {
 
 pub fn print_validate_usage() {
     eprintln!("  enkai validate ffi-correctness [--json] [--output <file>]");
+    eprintln!("  enkai validate ffi-safety [--json] [--output <file>]");
     eprintln!(
         "  enkai validate determinism --suite <event_queue|sim_replay|sim_coroutines|adam0_reference_100> [--runs <n>] [--json] [--output <file>]"
     );
@@ -345,6 +347,121 @@ fn ffi_correctness_command(args: &[String]) -> i32 {
             "vm_fallback_equals_expected": fallback_equals_expected,
             "native_vm_equal": native_vm_equal,
             "native_path_exercised": native_profile_exercised,
+            "handle_live_count_after_run": handle_check.result,
+            "handle_live_count_zero": handle_live_count_zero
+        }
+    });
+    emit_validation_payload(&payload, &parsed)
+}
+
+fn ffi_safety_command(args: &[String]) -> i32 {
+    let parsed = match parse_json_output_args(args) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            eprintln!("enkai validate ffi-safety: {}", err);
+            return 1;
+        }
+    };
+    let manifest = match load_validation_manifest() {
+        Ok(manifest) => manifest,
+        Err(err) => {
+            eprintln!("enkai validate ffi-safety: {}", err);
+            return 1;
+        }
+    };
+    let suite = match suite_by_id(&manifest, "ffi_safety") {
+        Ok(suite) => suite,
+        Err(err) => {
+            eprintln!("enkai validate ffi-safety: {}", err);
+            return 1;
+        }
+    };
+    let handle_suite = match suite_by_id(&manifest, "ffi_handle_live_count") {
+        Ok(suite) => suite,
+        Err(err) => {
+            eprintln!("enkai validate ffi-safety: {}", err);
+            return 1;
+        }
+    };
+
+    let run = match run_validation_suite(&suite, None) {
+        Ok(run) => run,
+        Err(err) => {
+            eprintln!("enkai validate ffi-safety: {}", err);
+            return 1;
+        }
+    };
+    let handle_check = match run_validation_suite(&handle_suite, None) {
+        Ok(run) => run,
+        Err(err) => {
+            eprintln!("enkai validate ffi-safety: {}", err);
+            return 1;
+        }
+    };
+
+    let null_error = match run_inline_validation_error(
+        "native::import \"enkai_native\" ::\n    fn fault_string_null() -> String\n::\nfault_string_null()\n",
+    ) {
+        Ok(code) => code,
+        Err(err) => {
+            eprintln!("enkai validate ffi-safety: {}", err);
+            return 1;
+        }
+    };
+    let oversized_error = match run_inline_validation_error(
+        "native::import \"enkai_native\" ::\n    fn fault_buffer_oversized() -> Buffer\n::\nfault_buffer_oversized()\n",
+    ) {
+        Ok(code) => code,
+        Err(err) => {
+            eprintln!("enkai validate ffi-safety: {}", err);
+            return 1;
+        }
+    };
+    let utf8_error = match run_inline_validation_error(
+        "native::import \"enkai_native\" ::\n    fn fault_string_invalid_utf8() -> String\n::\nfault_string_invalid_utf8()\n",
+    ) {
+        Ok(code) => code,
+        Err(err) => {
+            eprintln!("enkai validate ffi-safety: {}", err);
+            return 1;
+        }
+    };
+
+    let expected = suite
+        .expected_result
+        .clone()
+        .unwrap_or(serde_json::Value::Null);
+    let result_matches = run.result == expected;
+    let null_code_ok = null_error.as_deref() == Some("E_FFI_RETURN_NULL");
+    let oversized_code_ok = oversized_error.as_deref() == Some("E_FFI_RETURN_OVERSIZED");
+    let utf8_code_ok = utf8_error.as_deref() == Some("E_FFI_UTF8");
+    let handle_live_count_zero = handle_check.result == json!(0);
+    let passed = result_matches
+        && null_code_ok
+        && oversized_code_ok
+        && utf8_code_ok
+        && handle_live_count_zero;
+    let payload = json!({
+        "schema_version": 1,
+        "validation": "ffi_safety",
+        "description": suite.description,
+        "version_line": manifest.version_line,
+        "passed": passed,
+        "target": run.suite.target,
+        "elapsed_ms": run.elapsed_ms,
+        "result": run.result,
+        "expected": expected,
+        "output_hash": run.output_hash,
+        "fault_errors": {
+            "null_return": null_error,
+            "oversized_buffer": oversized_error,
+            "invalid_utf8": utf8_error
+        },
+        "proof_checks": {
+            "result_matches_expected": result_matches,
+            "null_return_error_stable": null_code_ok,
+            "oversized_buffer_error_stable": oversized_code_ok,
+            "invalid_utf8_error_stable": utf8_code_ok,
             "handle_live_count_after_run": handle_check.result,
             "handle_live_count_zero": handle_live_count_zero
         }
@@ -1279,6 +1396,15 @@ fn run_validation_suite_with_profile(
     profile_output: &Path,
 ) -> Result<ValidationRun, String> {
     run_validation_suite_impl(suite, override_env, Some(profile_output))
+}
+
+fn run_inline_validation_error(source: &str) -> Result<Option<String>, String> {
+    let program = with_bundled_std(|| compile_source_module(source, "<validation-inline>"))?;
+    let mut vm = VM::new(false, false, false, false);
+    match vm.run(&program) {
+        Ok(_) => Err("expected inline validation to fail".to_string()),
+        Err(err) => Ok(err.code().map(str::to_string)),
+    }
 }
 
 fn run_validation_suite_impl(

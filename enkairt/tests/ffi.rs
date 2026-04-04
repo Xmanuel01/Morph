@@ -111,3 +111,39 @@ fn ffi_optional_scalar_signature_rejected_at_compile() {
     let err = compile_module(&module).expect_err("expected compile failure");
     assert!(err.message.contains("Unsupported FFI parameter type"));
 }
+
+#[test]
+fn ffi_wrong_handle_kind_is_rejected_and_counted() {
+    let value = run(
+        "native::import \"enkai_native\" ::\n    fn handle_reset_stale_count() -> Void\n    fn handle_stale_count() -> Int\n    fn handle_new(value: Int) -> Handle\n    fn sim_sparse_vector_set(handle: Handle, index: Int, value: Float) -> Bool\n::\nhandle_reset_stale_count()\nlet handle := handle_new(9)\nlet ok := sim_sparse_vector_set(handle, 0, 1.0)\nlet out := 0\nif ok ::\n    out := -100\n::\nout := out + handle_stale_count()\nout\n",
+    )
+    .expect("run");
+    assert_eq!(value, Value::Int(1));
+
+    let live = run(
+        "native::import \"enkai_native\" ::\n    fn handle_live_count() -> Int\n::\nhandle_live_count()\n",
+    )
+    .expect("run");
+    assert_eq!(live, Value::Int(0));
+}
+
+#[test]
+fn ffi_fault_injection_errors_are_stable() {
+    let null_err = run(
+        "native::import \"enkai_native\" ::\n    fn fault_string_null() -> String\n::\nfault_string_null()\n",
+    )
+    .expect_err("expected null pointer error");
+    assert_eq!(null_err.code(), Some("E_FFI_RETURN_NULL"));
+
+    let oversized_err = run(
+        "native::import \"enkai_native\" ::\n    fn fault_buffer_oversized() -> Buffer\n::\nfault_buffer_oversized()\n",
+    )
+    .expect_err("expected oversized buffer error");
+    assert_eq!(oversized_err.code(), Some("E_FFI_RETURN_OVERSIZED"));
+
+    let utf8_err = run(
+        "native::import \"enkai_native\" ::\n    fn fault_string_invalid_utf8() -> String\n::\nfault_string_invalid_utf8()\n",
+    )
+    .expect_err("expected utf8 error");
+    assert_eq!(utf8_err.code(), Some("E_FFI_UTF8"));
+}

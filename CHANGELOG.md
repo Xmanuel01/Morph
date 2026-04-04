@@ -15,6 +15,20 @@
   - multi-GPU parity evidence
   - 4-GPU soak evidence
 
+## v2.9.5
+
+### Highlights
+- Advanced the release line to `v2.9.5` with runtime safety hardening and proof-backed FFI fault handling.
+- Promoted FFI invalid-handle, double-free, corrupted-replay, and fault-injection coverage into release-blocking evidence.
+- Added archived runtime safety summary and verification artifacts to strict release evidence and capability reporting.
+
+### Fixes
+- Added `enkai validate ffi-safety` and `examples/validation/ffi_safety.enk`.
+- Hardened `enkai_native` opaque-handle tracking so stale, wrong-kind, and double-freed handles are rejected without crashing and counted deterministically.
+- Added native/runtime regression tests for invalid handles, double free, null returns, oversized buffers, invalid UTF-8, and corrupted simulation replay.
+- Added `scripts/readiness_runtime_safety.py` and `scripts/verify_runtime_safety.py`.
+- Promoted `artifacts/validation/ffi_safety.json`, `artifacts/readiness/runtime_safety.json`, and `artifacts/readiness/runtime_safety_verify.json` into readiness, blocker verification, strict release evidence, and capability reporting.
+
 ## v2.9.4
 
 ### Highlights

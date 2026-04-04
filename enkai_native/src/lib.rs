@@ -16,6 +16,8 @@ use std::sync::{
 };
 
 static HANDLE_LIVE_COUNT: AtomicI64 = AtomicI64::new(0);
+static HANDLE_STALE_COUNT: AtomicI64 = AtomicI64::new(0);
+static LIVE_HANDLES: OnceLock<Mutex<HashMap<usize, OpaqueHandleKind>>> = OnceLock::new();
 
 #[derive(Debug)]
 struct ExampleHandle {
@@ -183,6 +185,14 @@ fn make_slice(bytes: Vec<u8>) -> FfiSlice {
     FfiSlice { ptr, len }
 }
 
+fn live_handles() -> &'static Mutex<HashMap<usize, OpaqueHandleKind>> {
+    LIVE_HANDLES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn note_stale_handle() {
+    HANDLE_STALE_COUNT.fetch_add(1, Ordering::SeqCst);
+}
+
 fn null_slice() -> FfiSlice {
     FfiSlice {
         ptr: std::ptr::null_mut(),
@@ -195,14 +205,37 @@ fn string_slice(value: String) -> FfiSlice {
 }
 
 fn make_opaque_handle<T>(kind: OpaqueHandleKind, value: T) -> *mut c_void {
-    HANDLE_LIVE_COUNT.fetch_add(1, Ordering::SeqCst);
     let inner = Box::into_raw(Box::new(value)) as *mut c_void;
-    Box::into_raw(Box::new(OpaqueHandle { kind, ptr: inner })) as *mut c_void
+    let handle = Box::new(OpaqueHandle { kind, ptr: inner });
+    let raw = Box::into_raw(handle) as *mut c_void;
+    live_handles()
+        .lock()
+        .expect("live handle registry poisoned")
+        .insert(raw as usize, kind);
+    HANDLE_LIVE_COUNT.fetch_add(1, Ordering::SeqCst);
+    raw
 }
 
 unsafe fn typed_handle_ref<T>(ptr: *mut c_void, expected: OpaqueHandleKind) -> Option<&'static T> {
+    if ptr.is_null() {
+        return None;
+    }
+    let registered_kind = live_handles()
+        .lock()
+        .expect("live handle registry poisoned")
+        .get(&(ptr as usize))
+        .copied();
+    let Some(registered_kind) = registered_kind else {
+        note_stale_handle();
+        return None;
+    };
+    if registered_kind != expected {
+        note_stale_handle();
+        return None;
+    }
     let handle = (ptr as *mut OpaqueHandle).as_ref()?;
     if handle.kind != expected || handle.ptr.is_null() {
+        note_stale_handle();
         return None;
     }
     (handle.ptr as *mut T).as_ref()
@@ -212,8 +245,25 @@ unsafe fn typed_handle_mut<T>(
     ptr: *mut c_void,
     expected: OpaqueHandleKind,
 ) -> Option<&'static mut T> {
+    if ptr.is_null() {
+        return None;
+    }
+    let registered_kind = live_handles()
+        .lock()
+        .expect("live handle registry poisoned")
+        .get(&(ptr as usize))
+        .copied();
+    let Some(registered_kind) = registered_kind else {
+        note_stale_handle();
+        return None;
+    };
+    if registered_kind != expected {
+        note_stale_handle();
+        return None;
+    }
     let handle = (ptr as *mut OpaqueHandle).as_mut()?;
     if handle.kind != expected || handle.ptr.is_null() {
+        note_stale_handle();
         return None;
     }
     (handle.ptr as *mut T).as_mut()
@@ -316,8 +366,19 @@ pub unsafe extern "C" fn enkai_handle_free(ptr: *mut c_void) {
     if ptr.is_null() {
         return;
     }
+    let registered_kind = live_handles()
+        .lock()
+        .expect("live handle registry poisoned")
+        .remove(&(ptr as usize));
+    let Some(registered_kind) = registered_kind else {
+        note_stale_handle();
+        return;
+    };
     let handle = unsafe { Box::from_raw(ptr as *mut OpaqueHandle) };
-    match handle.kind {
+    if handle.kind != registered_kind || handle.ptr.is_null() {
+        note_stale_handle();
+    }
+    match registered_kind {
         OpaqueHandleKind::Example => {
             let _ = unsafe { Box::from_raw(handle.ptr as *mut ExampleHandle) };
         }
@@ -392,7 +453,36 @@ pub extern "C" fn handle_live_count() -> i64 {
 }
 
 #[no_mangle]
+pub extern "C" fn handle_stale_count() -> i64 {
+    HANDLE_STALE_COUNT.load(Ordering::SeqCst)
+}
+
+#[no_mangle]
+pub extern "C" fn handle_reset_stale_count() {
+    HANDLE_STALE_COUNT.store(0, Ordering::SeqCst);
+}
+
+#[no_mangle]
 pub extern "C" fn ffi_noop() {}
+
+#[no_mangle]
+pub extern "C" fn fault_string_null() -> FfiSlice {
+    null_slice()
+}
+
+#[no_mangle]
+pub extern "C" fn fault_buffer_oversized() -> FfiSlice {
+    static OVERSIZED_SENTINEL: [u8; 1] = [0];
+    FfiSlice {
+        ptr: OVERSIZED_SENTINEL.as_ptr() as *mut u8,
+        len: (128 * 1024 * 1024) + 1,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn fault_string_invalid_utf8() -> FfiSlice {
+    make_slice(vec![0xff, 0xfe, 0xfd])
+}
 
 #[no_mangle]
 pub extern "C" fn sim_sparse_vector_new() -> *mut c_void {
@@ -4507,6 +4597,28 @@ mod tests {
         unsafe {
             enkai_handle_free(network);
         }
+    }
+
+    #[test]
+    fn invalid_handle_access_is_counted_without_crashing() {
+        handle_reset_stale_count();
+        let bogus = 0x1234usize as *mut c_void;
+        assert_eq!(unsafe { handle_read(bogus) }, 0);
+        assert_eq!(handle_stale_count(), 1);
+        assert_eq!(handle_live_count(), 0);
+    }
+
+    #[test]
+    fn double_free_of_handles_is_ignored_and_counted() {
+        handle_reset_stale_count();
+        let handle = handle_new(7);
+        assert_eq!(handle_live_count(), 1);
+        unsafe {
+            enkai_handle_free(handle);
+            enkai_handle_free(handle);
+        }
+        assert_eq!(handle_live_count(), 0);
+        assert_eq!(handle_stale_count(), 1);
     }
 
     #[test]

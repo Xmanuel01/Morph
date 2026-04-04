@@ -1,0 +1,20 @@
+import json
+
+native::import "enkai_native" ::
+    fn handle_reset_stale_count() -> Void
+    fn handle_stale_count() -> Int
+    fn handle_new(value: Int) -> Handle
+    fn sim_sparse_vector_set(handle: Handle, index: Int, value: Float) -> Bool
+::
+
+fn main() ::
+    handle_reset_stale_count()
+    let handle := handle_new(9)
+    let accepted := sim_sparse_vector_set(handle, 0, 1.0)
+    let out := json.parse("{}")
+    out.invalid_handle_rejected := not accepted
+    out.stale_handle_count := handle_stale_count()
+    return out
+::
+
+main()

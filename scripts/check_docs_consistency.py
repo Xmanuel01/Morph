@@ -59,7 +59,9 @@ def main() -> int:
         failures.append("VALIDATION.md title should use release-line validation matrix wording")
     for token in (
         "enkai validate ffi-correctness",
+        "enkai validate ffi-safety",
         "artifacts/validation/ffi_correctness.json",
+        "artifacts/validation/ffi_safety.json",
         "artifacts/validation/determinism_event_queue.json",
         "artifacts/validation/pool_safety.json",
         "artifacts/validation/adam0_ref100.json",
@@ -69,6 +71,8 @@ def main() -> int:
 
     if "enkai validate ffi-correctness" not in readme:
         failures.append("README.md missing validate ffi-correctness reference")
+    if "enkai validate ffi-safety" not in readme:
+        failures.append("README.md missing validate ffi-safety reference")
     if "artifacts/validation/" not in readme:
         failures.append("README.md missing validation artifact reference")
 
@@ -157,6 +161,10 @@ def main() -> int:
             failures.append(
                 "docs/36_capability_complete_report.md missing validation archive reference"
             )
+        if "validation/ffi_safety.json" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing validation FFI safety archive reference"
+            )
         if "validation/perf_adam0_reference_100.json" not in capability_text:
             failures.append(
                 "docs/36_capability_complete_report.md missing validation perf archive reference"
@@ -212,6 +220,14 @@ def main() -> int:
         if "readiness/snn_agent_kernel_evidence_verify.json" not in capability_text:
             failures.append(
                 "docs/36_capability_complete_report.md missing SNN agent kernel evidence verification reference"
+            )
+        if "readiness/runtime_safety.json" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing runtime safety summary reference"
+            )
+        if "readiness/runtime_safety_verify.json" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing runtime safety verification reference"
             )
         if "sim/smoke_run.json" not in capability_text:
             failures.append(
@@ -275,6 +291,8 @@ def main() -> int:
             failures.append("docs/37_readiness_matrix.md missing SNN agent kernel verification artifact reference")
         if "artifacts/validation/ffi_correctness.json" not in readiness_text:
             failures.append("docs/37_readiness_matrix.md missing validation ffi correctness artifact reference")
+        if "artifacts/validation/ffi_safety.json" not in readiness_text:
+            failures.append("docs/37_readiness_matrix.md missing validation ffi safety artifact reference")
         if "artifacts/validation/adam0_ref100.json" not in readiness_text:
             failures.append("docs/37_readiness_matrix.md missing validation Adam-0 ref100 artifact reference")
         if "artifacts/validation/perf_adam0_reference_100.json" not in readiness_text:
@@ -283,6 +301,10 @@ def main() -> int:
             failures.append("docs/37_readiness_matrix.md missing Adam-0 1000-agent perf artifact reference")
         if "artifacts/validation/perf_adam0_reference_10000.json" not in readiness_text:
             failures.append("docs/37_readiness_matrix.md missing Adam-0 10000-agent perf artifact reference")
+        if "artifacts/readiness/runtime_safety.json" not in readiness_text:
+            failures.append("docs/37_readiness_matrix.md missing runtime safety artifact reference")
+        if "artifacts/readiness/runtime_safety_verify.json" not in readiness_text:
+            failures.append("docs/37_readiness_matrix.md missing runtime safety verification artifact reference")
     adam0_doc = ROOT / "docs/39_adam0_reference_stack.md"
     if not adam0_doc.is_file():
         failures.append("missing docs/39_adam0_reference_stack.md")

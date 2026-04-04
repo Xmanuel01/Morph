@@ -1,6 +1,6 @@
-# 36. Capability-Complete Report (v2.9.4)
+# 36. Capability-Complete Report (v2.9.5)
 
-This document defines the objective release evidence contract for the `v2.9.4`
+This document defines the objective release evidence contract for the `v2.9.5`
 stability cut.
 
 ## Goal
@@ -55,6 +55,8 @@ Core categories:
   - `registry_degraded_evidence_verify.json` (`readiness/registry_degraded_evidence_verify.json`) validating archived degraded-registry evidence consistency
   - `snn_agent_kernel_smoke.json` (`readiness/snn_agent_kernel_smoke.json`) summarizing the archived SNN/agent kernel smoke workflow
   - `snn_agent_kernel_evidence_verify.json` (`readiness/snn_agent_kernel_evidence_verify.json`) validating archived SNN/agent kernel evidence consistency
+  - `runtime_safety.json` (`readiness/runtime_safety.json`) summarizing the archived FFI/runtime safety regression gate
+  - `runtime_safety_verify.json` (`readiness/runtime_safety_verify.json`) validating archived FFI/runtime safety evidence consistency
   - `production.json` (`readiness/production.json`) as an optional compatibility/reference artifact
 - `sim/`:
   - `sim/smoke_run.json`
@@ -90,6 +92,7 @@ Core categories:
 - `validation/determinism_adam0_reference_100.json`
 - `validation/determinism_sim_coroutines.json`
 - `validation/pool_safety.json`
+- `validation/ffi_safety.json`
 - `validation/adam0_fake10.json`
 - `validation/adam0_ref100.json`
 - `validation/adam0_stress1000.json`
@@ -140,7 +143,7 @@ In strict mode the archived blocker report must also be present and must show:
 - no missing required release artifacts
 - gRPC runtime evidence artifacts must be present under `readiness/` and `grpc/`
 - simulation std/runtime, stdlib primitive, Adam-0 smoke, Adam-0 reference suite, native FFI, SNN/agent kernel, and registry convergence evidence artifacts must be present under `readiness/`, `sim/`, and `registry/`
-- validation artifacts under `validation/` must be present and passing for correctness, determinism, pool safety, and Adam-0 CPU validation
+- validation artifacts under `validation/` must be present and passing for correctness, determinism, pool safety, FFI/runtime safety, and Adam-0 CPU validation
 
 ## RC Pipeline Contract
 
@@ -149,6 +152,6 @@ In strict mode the archived blocker report must also be present and must show:
 
 The RC wrappers for the current line are:
 
-- `scripts/v2_8_1_rc_pipeline.ps1`
-- `scripts/v2_8_1_rc_pipeline.sh`
+- `scripts/v2_9_5_rc_pipeline.ps1`
+- `scripts/v2_9_5_rc_pipeline.sh`
 

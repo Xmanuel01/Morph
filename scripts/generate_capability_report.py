@@ -596,6 +596,34 @@ def build_checks(
     registry_degraded_verify = has_exact(
         copied_paths, "/readiness/registry_degraded_evidence_verify.json"
     )
+    runtime_safety = has_exact(copied_paths, "/readiness/runtime_safety.json")
+    checks.append(
+        CheckResult(
+            id="readiness_runtime_safety_report",
+            description="Runtime/FFI safety summary is present",
+            required=True,
+            passed=runtime_safety,
+            details=(
+                "readiness/runtime_safety.json"
+                if runtime_safety
+                else "missing readiness/runtime_safety.json"
+            ),
+        )
+    )
+    runtime_safety_verify = has_exact(copied_paths, "/readiness/runtime_safety_verify.json")
+    checks.append(
+        CheckResult(
+            id="readiness_runtime_safety_verify_report",
+            description="Runtime/FFI safety verification report is present",
+            required=True,
+            passed=runtime_safety_verify,
+            details=(
+                "readiness/runtime_safety_verify.json"
+                if runtime_safety_verify
+                else "missing readiness/runtime_safety_verify.json"
+            ),
+        )
+    )
     checks.append(
         CheckResult(
             id="readiness_registry_degraded_verify_report",
@@ -616,6 +644,7 @@ def build_checks(
         ("determinism_sim_coroutines.json", "determinism", "Validation simulation coroutine determinism report is present and passing"),
         ("determinism_adam0_reference_100.json", "determinism", "Validation Adam-0 100-agent determinism report is present and passing"),
         ("pool_safety.json", "pool_safety", "Validation pool safety report is present and passing"),
+        ("ffi_safety.json", "ffi_safety", "Validation FFI safety report is present and passing"),
         ("adam0_fake10.json", "adam0_cpu", "Validation fake Adam-0 CPU report is present and passing"),
         ("adam0_ref100.json", "adam0_cpu", "Validation Adam-0 100-agent CPU report is present and passing"),
         ("adam0_stress1000.json", "adam0_cpu", "Validation Adam-0 1000-agent CPU stress report is present and passing"),
@@ -652,6 +681,7 @@ def build_checks(
         and has_exact(copied_paths, "/validation/perf_adam0_reference_100.json")
         and has_exact(copied_paths, "/validation/perf_adam0_reference_1000.json")
         and has_exact(copied_paths, "/validation/perf_adam0_reference_10000.json")
+        and has_exact(copied_paths, "/validation/ffi_safety.json")
     )
     checks.append(
         CheckResult(
@@ -660,7 +690,7 @@ def build_checks(
             required=True,
             passed=validation_cross_platform,
             details=(
-                "validation/adam0_ref100.json + validation/adam0_stress1000.json + validation/adam0_target10000.json + validation/determinism_adam0_reference_100.json + validation/perf_adam0_reference_100.json + validation/perf_adam0_reference_1000.json + validation/perf_adam0_reference_10000.json"
+                "validation/adam0_ref100.json + validation/adam0_stress1000.json + validation/adam0_target10000.json + validation/determinism_adam0_reference_100.json + validation/perf_adam0_reference_100.json + validation/perf_adam0_reference_1000.json + validation/perf_adam0_reference_10000.json + validation/ffi_safety.json"
                 if validation_cross_platform
                 else "missing validation CPU reference artifacts"
             ),

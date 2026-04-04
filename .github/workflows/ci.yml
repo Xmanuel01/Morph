@@ -72,6 +72,41 @@ jobs:
           path: artifacts/readiness/full_platform.json
           if-no-files-found: error
 
+  runtime-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build runtime safety dependencies
+        run: |
+          cargo build -p enkai_native
+          cargo build -p enkai
+      - name: Run runtime safety readiness gate
+        run: |
+          mkdir -p artifacts/readiness artifacts/validation
+          target/debug/enkai validate pool-safety --json --output artifacts/validation/pool_safety.json
+          python3 scripts/readiness_runtime_safety.py --enkai-bin target/debug/enkai --workspace . --output artifacts/readiness/runtime_safety.json
+      - name: Verify runtime safety evidence
+        run: |
+          python3 scripts/verify_runtime_safety.py \
+            --summary artifacts/readiness/runtime_safety.json \
+            --ffi-safety artifacts/validation/ffi_safety.json \
+            --pool-safety artifacts/validation/pool_safety.json \
+            --output artifacts/readiness/runtime_safety_verify.json
+      - name: Upload runtime safety artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-safety-evidence
+          path: |
+            artifacts/readiness/runtime_safety.json
+            artifacts/readiness/runtime_safety_verify.json
+            artifacts/validation/ffi_safety.json
+          if-no-files-found: error
+
   benchmark-smoke:
     runs-on: ubuntu-latest
     steps:

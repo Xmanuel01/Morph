@@ -649,6 +649,18 @@
       ]
     },
     {
+      "id": "validation-ffi-safety",
+      "description": "FFI invalid-handle and fault-injection safety validation suite",
+      "command": [
+        "${ENKAI_BIN}",
+        "validate",
+        "ffi-safety",
+        "--json",
+        "--output",
+        "artifacts/validation/ffi_safety.json"
+      ]
+    },
+    {
       "id": "validation-adam0-fake10",
       "description": "Fake Adam-0 CPU integration validation suite",
       "command": [
@@ -789,6 +801,36 @@
         "--json",
         "--output",
         "artifacts/validation/perf_adam0_reference_10000.json"
+      ]
+    },
+    {
+      "id": "runtime-safety",
+      "description": "Runtime/FFI safety regression gate",
+      "command": [
+        "${PYTHON}",
+        "scripts/readiness_runtime_safety.py",
+        "--enkai-bin",
+        "${ENKAI_BIN}",
+        "--workspace",
+        ".",
+        "--output",
+        "artifacts/readiness/runtime_safety.json"
+      ]
+    },
+    {
+      "id": "runtime-safety-evidence-verify",
+      "description": "Runtime/FFI safety evidence verification",
+      "command": [
+        "${PYTHON}",
+        "scripts/verify_runtime_safety.py",
+        "--summary",
+        "artifacts/readiness/runtime_safety.json",
+        "--ffi-safety",
+        "artifacts/validation/ffi_safety.json",
+        "--pool-safety",
+        "artifacts/validation/pool_safety.json",
+        "--output",
+        "artifacts/readiness/runtime_safety_verify.json"
       ]
     }
   ]

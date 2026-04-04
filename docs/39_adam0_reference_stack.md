@@ -1,6 +1,6 @@
-# 39. Adam-0 Reference Stack (v2.9.4)
+# 39. Adam-0 Reference Stack (v2.9.5)
 
-This document defines the bounded `v2.9.4` Adam-0 reference stack and the
+This document defines the bounded `v2.9.5` Adam-0 reference stack and the
 release evidence required to claim the milestone is complete.
 
 ## Scope
@@ -67,7 +67,7 @@ Required archived artifacts:
 
 ## Acceptance
 
-`v2.9.4` is complete only when:
+`v2.9.5` is complete only when:
 - all three suite cases complete successfully
 - archived verification passes
 - native evidence is visible in profiles:

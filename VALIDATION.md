@@ -18,10 +18,9 @@ This file is the strict verification matrix for the v2.x release line.
 - `enkai validate determinism --suite sim_coroutines --runs 10 --json --output artifacts/validation/determinism_sim_coroutines.json`
 - `enkai validate determinism --suite adam0_reference_100 --runs 3 --json --output artifacts/validation/determinism_adam0_reference_100.json`
 - `enkai validate pool-safety --json --output artifacts/validation/pool_safety.json`
+- `enkai validate ffi-safety --json --output artifacts/validation/ffi_safety.json`
 - `enkai validate adam0-cpu --scenario fake10 --json --output artifacts/validation/adam0_fake10.json`
 - `enkai validate adam0-cpu --scenario ref100 --json --output artifacts/validation/adam0_ref100.json`
-- `enkai validate adam0-cpu --scenario stress1000 --json --output artifacts/validation/adam0_stress1000.json`
-- `enkai validate adam0-cpu --scenario target10000 --json --output artifacts/validation/adam0_target10000.json`
 - `enkai validate adam0-cpu --scenario stress1000 --json --output artifacts/validation/adam0_stress1000.json`
 - `enkai validate adam0-cpu --scenario target10000 --json --output artifacts/validation/adam0_target10000.json`
 - `enkai validate perf-baseline --suite ffi_noop --json --output artifacts/validation/perf_ffi_noop.json`
@@ -53,6 +52,11 @@ Proof requirements on the `v2.9.2+` line:
   - reset clears available items without corrupting counters
   - native-backed and VM-fallback results are identical
   - the native pool path was actually exercised
+- `ffi_safety.json` must prove:
+  - wrong-kind and stale handles are rejected without crashing
+  - null, oversized, and invalid-UTF8 native returns map to stable error codes
+  - native handle live count returns to zero after the validation run
+  - runtime safety verification consumes the archived proof artifact
 
 Baseline and proof metadata:
 - `enkai/contracts/validation_cpu_v3_0_0.json`

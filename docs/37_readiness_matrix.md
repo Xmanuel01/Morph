@@ -1,7 +1,7 @@
 # 37. Production Readiness Matrix (v2.5.0 full-platform line)
 
 This matrix defines the objective sign-off contract for "production-ready" in the
-`v2.5.0 -> v2.9.4` cycle.
+`v2.5.0 -> v2.9.5` cycle.
 
 Full-platform production envelope:
 - single-node and multi-node training/serving validation paths
@@ -36,6 +36,8 @@ Selective pipeline reuse:
   - `artifacts/readiness/sim_stdlib_evidence_verify.json`
   - `artifacts/readiness/adam0_reference_suite.json`
   - `artifacts/readiness/adam0_reference_suite_verify.json`
+  - `artifacts/readiness/runtime_safety.json`
+  - `artifacts/readiness/runtime_safety_verify.json`
   - `artifacts/readiness/model_registry_convergence.json`
   - `artifacts/readiness/model_registry_convergence_verify.json`
   - `artifacts/readiness/cluster_scale_smoke.json`
@@ -77,18 +79,19 @@ Selective pipeline reuse:
   - `artifacts/registry/remote/adam0-sim/v<version>/remote.manifest.sig`
   - `artifacts/cluster_scale/run.json`
   - `artifacts/registry_degraded/cache/audit.log.jsonl`
-- `artifacts/validation/ffi_correctness.json`
-- `artifacts/validation/determinism_event_queue.json`
-- `artifacts/validation/determinism_sim_replay.json`
-- `artifacts/validation/determinism_adam0_reference_100.json`
-- `artifacts/validation/determinism_sim_coroutines.json`
-- `artifacts/validation/pool_safety.json`
-- `artifacts/validation/adam0_fake10.json`
-- `artifacts/validation/adam0_ref100.json`
-- `artifacts/validation/adam0_stress1000.json`
-- `artifacts/validation/adam0_target10000.json`
-- `artifacts/validation/perf_ffi_noop.json`
-- `artifacts/validation/perf_sparse_dot.json`
+  - `artifacts/validation/ffi_correctness.json`
+  - `artifacts/validation/determinism_event_queue.json`
+  - `artifacts/validation/determinism_sim_replay.json`
+  - `artifacts/validation/determinism_adam0_reference_100.json`
+  - `artifacts/validation/determinism_sim_coroutines.json`
+  - `artifacts/validation/pool_safety.json`
+  - `artifacts/validation/ffi_safety.json`
+  - `artifacts/validation/adam0_fake10.json`
+  - `artifacts/validation/adam0_ref100.json`
+  - `artifacts/validation/adam0_stress1000.json`
+  - `artifacts/validation/adam0_target10000.json`
+  - `artifacts/validation/perf_ffi_noop.json`
+  - `artifacts/validation/perf_sparse_dot.json`
   - `artifacts/validation/perf_adam0_reference_100.json`
   - `artifacts/validation/perf_adam0_reference_1000.json`
   - `artifacts/validation/perf_adam0_reference_10000.json`
@@ -148,7 +151,7 @@ The command executes a deterministic gate bundle:
 
 ## GPU Evidence (Release Blocking)
 
-`v2.9.4` release sign-off requires operator evidence and verifier pass:
+`v2.9.5` release sign-off requires operator evidence and verifier pass:
 - single-GPU stability evidence
 - 2-GPU loss/grad parity evidence
 - 4-GPU soak evidence
