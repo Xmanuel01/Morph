@@ -43,6 +43,8 @@ def main() -> int:
     docs_readme = read("docs/README.md")
     if expected_tag not in docs_readme:
         failures.append(f"docs/README.md missing release tag {expected_tag}")
+    if "VALIDATION.md" not in docs_readme:
+        failures.append("docs/README.md missing VALIDATION.md reference")
 
     spec = read("docs/Enkai.spec")
     if f"v0.1 -> {expected_tag}" not in spec:
@@ -55,6 +57,20 @@ def main() -> int:
     validation = read("VALIDATION.md")
     if "Validation Matrix" not in validation:
         failures.append("VALIDATION.md title should use release-line validation matrix wording")
+    for token in (
+        "enkai validate ffi-correctness",
+        "artifacts/validation/ffi_correctness.json",
+        "artifacts/validation/determinism_event_queue.json",
+        "artifacts/validation/pool_safety.json",
+        "artifacts/validation/adam0_ref100.json",
+    ):
+        if token not in validation:
+            failures.append(f"VALIDATION.md missing validation reference: {token}")
+
+    if "enkai validate ffi-correctness" not in readme:
+        failures.append("README.md missing validate ffi-correctness reference")
+    if "artifacts/validation/" not in readme:
+        failures.append("README.md missing validation artifact reference")
 
     release_checklist = read("docs/RELEASE_CHECKLIST.md")
     if "scripts/release_pipeline.ps1" not in release_checklist:
@@ -137,6 +153,14 @@ def main() -> int:
             failures.append(
                 "docs/36_capability_complete_report.md missing simulation readiness evidence reference"
             )
+        if "validation/ffi_correctness.json" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing validation archive reference"
+            )
+        if "validation/perf_adam0_reference_100.json" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing validation perf archive reference"
+            )
         if "readiness/sim_evidence_verify.json" not in capability_text:
             failures.append(
                 "docs/36_capability_complete_report.md missing simulation evidence verification reference"
@@ -205,7 +229,7 @@ def main() -> int:
             failures.append(
                 "docs/36_capability_complete_report.md missing registry simulation lineage archive reference"
             )
-        if "registry/remote/adam0-sim/v2.9.0/remote.manifest.json" not in capability_text:
+        if "registry/remote/adam0-sim/v<version>/remote.manifest.json" not in capability_text:
             failures.append(
                 "docs/36_capability_complete_report.md missing registry remote manifest archive reference"
             )
@@ -241,6 +265,12 @@ def main() -> int:
             failures.append("docs/37_readiness_matrix.md missing SNN agent kernel smoke artifact reference")
         if "artifacts/readiness/snn_agent_kernel_evidence_verify.json" not in readiness_text:
             failures.append("docs/37_readiness_matrix.md missing SNN agent kernel verification artifact reference")
+        if "artifacts/validation/ffi_correctness.json" not in readiness_text:
+            failures.append("docs/37_readiness_matrix.md missing validation ffi correctness artifact reference")
+        if "artifacts/validation/adam0_ref100.json" not in readiness_text:
+            failures.append("docs/37_readiness_matrix.md missing validation Adam-0 ref100 artifact reference")
+        if "artifacts/validation/perf_adam0_reference_100.json" not in readiness_text:
+            failures.append("docs/37_readiness_matrix.md missing validation Adam-0 perf artifact reference")
     adam0_doc = ROOT / "docs/39_adam0_reference_stack.md"
     if not adam0_doc.is_file():
         failures.append("missing docs/39_adam0_reference_stack.md")

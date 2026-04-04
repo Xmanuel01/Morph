@@ -575,6 +575,149 @@
         "--output",
         "bench/results/full_platform_targets_smoke.json"
       ]
+    },
+    {
+      "id": "validation-ffi-correctness",
+      "description": "FFI correctness validation suite",
+      "command": [
+        "${ENKAI_BIN}",
+        "validate",
+        "ffi-correctness",
+        "--json",
+        "--output",
+        "artifacts/validation/ffi_correctness.json"
+      ]
+    },
+    {
+      "id": "validation-determinism-event-queue",
+      "description": "Deterministic event-queue validation suite",
+      "command": [
+        "${ENKAI_BIN}",
+        "validate",
+        "determinism",
+        "--suite",
+        "event_queue",
+        "--runs",
+        "10",
+        "--json",
+        "--output",
+        "artifacts/validation/determinism_event_queue.json"
+      ]
+    },
+    {
+      "id": "validation-determinism-sim-replay",
+      "description": "Deterministic simulation replay validation suite",
+      "command": [
+        "${ENKAI_BIN}",
+        "validate",
+        "determinism",
+        "--suite",
+        "sim_replay",
+        "--runs",
+        "10",
+        "--json",
+        "--output",
+        "artifacts/validation/determinism_sim_replay.json"
+      ]
+    },
+    {
+      "id": "validation-pool-safety",
+      "description": "Pool reuse safety validation suite",
+      "command": [
+        "${ENKAI_BIN}",
+        "validate",
+        "pool-safety",
+        "--json",
+        "--output",
+        "artifacts/validation/pool_safety.json"
+      ]
+    },
+    {
+      "id": "validation-adam0-fake10",
+      "description": "Fake Adam-0 CPU integration validation suite",
+      "command": [
+        "${ENKAI_BIN}",
+        "validate",
+        "adam0-cpu",
+        "--scenario",
+        "fake10",
+        "--json",
+        "--output",
+        "artifacts/validation/adam0_fake10.json"
+      ]
+    },
+    {
+      "id": "validation-adam0-ref100",
+      "description": "Adam-0 100-agent CPU validation suite",
+      "command": [
+        "${ENKAI_BIN}",
+        "validate",
+        "adam0-cpu",
+        "--scenario",
+        "ref100",
+        "--json",
+        "--output",
+        "artifacts/validation/adam0_ref100.json"
+      ]
+    },
+    {
+      "id": "validation-determinism-adam0-ref100",
+      "description": "Adam-0 100-agent determinism validation suite",
+      "command": [
+        "${ENKAI_BIN}",
+        "validate",
+        "determinism",
+        "--suite",
+        "adam0_reference_100",
+        "--runs",
+        "3",
+        "--json",
+        "--output",
+        "artifacts/validation/determinism_adam0_reference_100.json"
+      ],
+      "required": true
+    },
+    {
+      "id": "validation-perf-ffi-noop",
+      "description": "FFI noop baseline capture",
+      "command": [
+        "${ENKAI_BIN}",
+        "validate",
+        "perf-baseline",
+        "--suite",
+        "ffi_noop",
+        "--json",
+        "--output",
+        "artifacts/validation/perf_ffi_noop.json"
+      ]
+    },
+    {
+      "id": "validation-perf-sparse-dot",
+      "description": "Sparse dot baseline capture",
+      "command": [
+        "${ENKAI_BIN}",
+        "validate",
+        "perf-baseline",
+        "--suite",
+        "sparse_dot",
+        "--json",
+        "--output",
+        "artifacts/validation/perf_sparse_dot.json"
+      ]
+    },
+    {
+      "id": "validation-perf-adam0-ref100",
+      "description": "Adam-0 100-agent baseline capture",
+      "command": [
+        "${ENKAI_BIN}",
+        "validate",
+        "perf-baseline",
+        "--suite",
+        "adam0_reference_100",
+        "--json",
+        "--output",
+        "artifacts/validation/perf_adam0_reference_100.json"
+      ]
     }
   ]
 }

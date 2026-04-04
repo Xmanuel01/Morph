@@ -1,0 +1,12 @@
+{
+  "profile": "windows_local",
+  "reference_class": "local-dev",
+  "os": "windows",
+  "os_image": "local",
+  "cpu_arch": "x86_64",
+  "python": "3.11",
+  "rust_toolchain": "stable",
+  "enkai_profile": "dev",
+  "suite": "validation_cpu_v3_0_0",
+  "notes": "Local Windows validation capture profile; not a release-signoff reference host"
+}

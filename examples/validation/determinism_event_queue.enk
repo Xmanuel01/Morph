@@ -1,0 +1,19 @@
+import json
+import std::event
+
+fn main() ::
+    let queue := event.make()
+    event.push(queue, 0.5, "second")
+    event.push(queue, 0.1, "first")
+    event.push(queue, 0.5, "third")
+    let a := event.pop(queue)?
+    let b := event.pop(queue)?
+    let c := event.pop(queue)?
+
+    let out := json.parse("{}")
+    out.order := [a.event, b.event, c.event]
+    out.times := [a.time, b.time, c.time]
+    return out
+::
+
+main()

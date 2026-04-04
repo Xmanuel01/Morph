@@ -15,6 +15,25 @@
   - multi-GPU parity evidence
   - 4-GPU soak evidence
 
+## v2.9.1
+
+### Highlights
+- Advanced the release line to `v2.9.1` with the first quality-recovery milestone completed.
+- Added proof-grade CPU validation commands and archived validation artifacts.
+- Tightened readiness, strict evidence, and capability reporting so production claims require proof artifacts.
+
+### Fixes
+- Added `enkai validate` subcommands for:
+  - FFI correctness
+  - determinism
+  - performance baselines
+  - pool safety
+  - Adam-0 CPU validation
+- Added manifest-driven CPU validation policy and local/reference machine profiles.
+- Added deterministic Adam-0 100-agent determinism evidence into the readiness and release blocker path.
+- Added baseline-driven performance validation with median sampling and archived proof artifacts.
+- Synced docs/spec/release metadata and version surfaces to `v2.9.1`.
+
 ## v2.9.0
 
 ### Highlights

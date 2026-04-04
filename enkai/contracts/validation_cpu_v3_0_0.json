@@ -1,0 +1,186 @@
+{
+  "schema_version": 1,
+  "version_line": "v2.9.1-v3.0.0",
+  "machine_profiles": {
+    "linux": "bench/machines/linux_ref.json",
+    "windows": "bench/machines/windows_ref.json"
+  },
+  "suites": [
+    {
+      "id": "ffi_correctness",
+      "description": "Exact sparse/event/pool correctness validation",
+      "kind": "run",
+      "target": "examples/validation/ffi_correctness.enk",
+      "expected_result": {
+        "dot": 6.0,
+        "event_order": [
+          "first",
+          "second",
+          "third"
+        ],
+        "event_times": [
+          0.1,
+          0.5,
+          0.5
+        ],
+        "matvec": [
+          3.0,
+          4.0
+        ],
+        "matrix_nnz": 3,
+        "pool_acquired": 7,
+        "pool_first_release": true,
+        "pool_second_release": false,
+        "pool_stats": {
+          "acquire_hits": 1,
+          "acquire_misses": 0,
+          "available": 0,
+          "capacity": 1,
+          "dropped_on_full": 1,
+          "growable": false,
+          "high_watermark": 1,
+          "releases": 1
+        },
+        "vector_nnz": 3
+      }
+    },
+    {
+      "id": "ffi_handle_live_count",
+      "description": "Post-run native handle leak count",
+      "kind": "run",
+      "target": "examples/validation/ffi_handle_live_count.enk",
+      "expected_result": 0
+    },
+    {
+      "id": "event_queue",
+      "description": "Deterministic event queue ordering validation",
+      "kind": "run",
+      "target": "examples/validation/determinism_event_queue.enk",
+      "default_runs": 10
+    },
+    {
+      "id": "sim_replay",
+      "description": "Deterministic simulation replay validation",
+      "kind": "run",
+      "target": "examples/validation/determinism_sim_replay.enk",
+      "default_runs": 10
+    },
+    {
+      "id": "ffi_noop",
+      "description": "FFI noop latency baseline capture",
+      "kind": "run",
+      "target": "examples/validation/perf_ffi_noop.enk",
+      "profile_case": "validation_perf_ffi_noop",
+      "perf_metric": "ns_per_call",
+      "perf_direction": "lower"
+    },
+    {
+      "id": "sparse_dot",
+      "description": "Sparse dot throughput baseline capture",
+      "kind": "run",
+      "target": "examples/validation/perf_sparse_dot.enk",
+      "profile_case": "validation_perf_sparse_dot",
+      "perf_metric": "ops_per_sec",
+      "perf_direction": "higher"
+    },
+    {
+      "id": "pool_safety",
+      "description": "Pool reuse safety validation",
+      "kind": "run",
+      "target": "examples/validation/pool_safety.enk",
+      "expected_result": {
+        "available": 100,
+        "capacity": 100,
+        "stats": {
+          "acquire_hits": 10000,
+          "acquire_misses": 0,
+          "available": 100,
+          "capacity": 100,
+          "dropped_on_full": 0,
+          "growable": false,
+          "high_watermark": 100,
+          "releases": 10100
+        }
+      }
+    },
+    {
+      "id": "adam0_fake_10",
+      "description": "Fake Adam-0 CPU integration validation",
+      "kind": "run",
+      "target": "examples/validation/adam0_fake_10.enk",
+      "profile_case": "validation_adam0_fake_10",
+      "expected_output_hash": "01bb421e545c04912e8d85a3f336e334a8aaf1c7f2f13014d2a71bc130572194",
+      "min_ffi_calls": 800,
+      "min_native_function_calls": 700,
+      "max_marshal_copy_ratio": 0.6
+    },
+    {
+      "id": "adam0_reference_100",
+      "description": "Adam-0 reference 100-agent bounded validation",
+      "kind": "run",
+      "target": "examples/adam0_reference.enk",
+      "profile_case": "validation_adam0_reference_100",
+      "env": {
+        "ENKAI_ADAM0_CASE_ID": "adam0_reference_100",
+        "ENKAI_ADAM0_AGENT_COUNT": "100",
+        "ENKAI_ADAM0_SHARD_SIZE": "10",
+        "ENKAI_ADAM0_ROUNDS": "3",
+        "ENKAI_ADAM0_POOL_CAPACITY": "64",
+        "ENKAI_ADAM0_MAX_EVENTS": "8192",
+        "ENKAI_ADAM0_HARDWARE_CLASS": "cpu-reference",
+        "ENKAI_ADAM0_REFERENCE_HOST": "pinned-ref"
+      },
+      "expected_output_hash": "20b919c2a2d43631a5dc24d3bc29b738edb8d472d048807f18873ae4ef9350dc",
+      "perf_metric": "elapsed_ms",
+      "perf_direction": "lower",
+      "min_ffi_calls": 7000,
+      "min_native_function_calls": 14000,
+      "max_marshal_copy_ratio": 0.2
+    },
+    {
+      "id": "adam0_reference_1000",
+      "description": "Adam-0 reference 1000-agent stress validation",
+      "kind": "run",
+      "target": "examples/adam0_reference.enk",
+      "profile_case": "validation_adam0_reference_1000",
+      "reference_only": true,
+      "env": {
+        "ENKAI_ADAM0_CASE_ID": "adam0_reference_1000",
+        "ENKAI_ADAM0_AGENT_COUNT": "1000",
+        "ENKAI_ADAM0_SHARD_SIZE": "100",
+        "ENKAI_ADAM0_ROUNDS": "3",
+        "ENKAI_ADAM0_POOL_CAPACITY": "512",
+        "ENKAI_ADAM0_MAX_EVENTS": "65536",
+        "ENKAI_ADAM0_HARDWARE_CLASS": "cpu-reference",
+        "ENKAI_ADAM0_REFERENCE_HOST": "pinned-ref"
+      },
+      "expected_output_hash": "e37ac3c8bdc3b3168210b9332cf521621c3bd6e8a619ef3902e9ddc573cde5fa",
+      "min_ffi_calls": 68000,
+      "min_native_function_calls": 141000,
+      "max_marshal_copy_ratio": 0.2
+    },
+    {
+      "id": "adam0_reference_10000",
+      "description": "Adam-0 reference 10000-agent target validation",
+      "kind": "run",
+      "target": "examples/adam0_reference.enk",
+      "profile_case": "validation_adam0_reference_10000",
+      "reference_only": true,
+      "env": {
+        "ENKAI_ADAM0_CASE_ID": "adam0_reference_10000",
+        "ENKAI_ADAM0_AGENT_COUNT": "10000",
+        "ENKAI_ADAM0_SHARD_SIZE": "250",
+        "ENKAI_ADAM0_ROUNDS": "3",
+        "ENKAI_ADAM0_POOL_CAPACITY": "2048",
+        "ENKAI_ADAM0_MAX_EVENTS": "262144",
+        "ENKAI_ADAM0_HARDWARE_CLASS": "cpu-reference",
+        "ENKAI_ADAM0_REFERENCE_HOST": "pinned-ref"
+      },
+      "expected_output_hash": "7234bb3a990070c421566bd23575e57069db88e67824fceb9d572c269ba93b93",
+      "min_ffi_calls": 680000,
+      "min_native_function_calls": 1410000,
+      "max_marshal_copy_ratio": 0.2,
+      "require_native_dominant": true
+    }
+  ]
+}

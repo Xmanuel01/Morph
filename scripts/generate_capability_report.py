@@ -171,6 +171,23 @@ def validate_blocker_report(path: pathlib.Path) -> tuple[bool, str]:
     return True, path.name
 
 
+def validate_validation_report(path: pathlib.Path, expected_validation: str) -> tuple[bool, str]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as err:  # pragma: no cover - defensive parse guard
+        return False, f"{path.name}: invalid JSON ({err})"
+
+    if not isinstance(payload, dict):
+        return False, f"{path.name}: report root must be object"
+    if int(payload.get("schema_version", 0)) < 1:
+        return False, f"{path.name}: schema_version must be >= 1"
+    if payload.get("validation") != expected_validation:
+        return False, f"{path.name}: validation must be {expected_validation}"
+    if not bool(payload.get("passed", False)):
+        return False, f"{path.name}: passed is false"
+    return True, path.name
+
+
 def select_benchmark_report_paths(root: pathlib.Path, copied_paths: list[str]) -> list[pathlib.Path]:
     bench_regex = re.compile(r"/dist/benchmark_official_[^/]+\.json$")
     benchmark_paths: list[pathlib.Path] = []
@@ -592,6 +609,54 @@ def build_checks(
             ),
         )
     )
+    validation_specs = [
+        ("ffi_correctness.json", "ffi_correctness", "Validation FFI correctness report is present and passing"),
+        ("determinism_event_queue.json", "determinism", "Validation event-queue determinism report is present and passing"),
+        ("determinism_sim_replay.json", "determinism", "Validation simulation replay determinism report is present and passing"),
+        ("determinism_adam0_reference_100.json", "determinism", "Validation Adam-0 100-agent determinism report is present and passing"),
+        ("pool_safety.json", "pool_safety", "Validation pool safety report is present and passing"),
+        ("adam0_fake10.json", "adam0_cpu", "Validation fake Adam-0 CPU report is present and passing"),
+        ("adam0_ref100.json", "adam0_cpu", "Validation Adam-0 100-agent CPU report is present and passing"),
+        ("perf_ffi_noop.json", "perf_baseline", "Validation FFI noop performance baseline report is present and passing"),
+        ("perf_sparse_dot.json", "perf_baseline", "Validation sparse-dot performance baseline report is present and passing"),
+        ("perf_adam0_reference_100.json", "perf_baseline", "Validation Adam-0 100-agent performance baseline report is present and passing"),
+    ]
+    for filename, expected_validation, description in validation_specs:
+        matched = first_match(copied_paths, lambda path, name=filename: path.endswith(f"/validation/{name}"))
+        passed = False
+        details = f"missing validation/{filename}"
+        if matched is not None:
+            report_path = root / matched
+            passed, details = validate_validation_report(report_path, expected_validation)
+            if passed:
+                details = matched
+        checks.append(
+            CheckResult(
+                id=f"validation_{filename.replace('.', '_')}",
+                description=description,
+                required=True,
+                passed=passed,
+                details=details,
+            )
+        )
+    validation_cross_platform = (
+        has_exact(copied_paths, "/validation/adam0_ref100.json")
+        and has_exact(copied_paths, "/validation/determinism_adam0_reference_100.json")
+        and has_exact(copied_paths, "/validation/perf_adam0_reference_100.json")
+    )
+    checks.append(
+        CheckResult(
+            id="validation_cpu_suite_visibility",
+            description="CPU validation suite artifacts are archived",
+            required=True,
+            passed=validation_cross_platform,
+            details=(
+                "validation/adam0_ref100.json + validation/determinism_adam0_reference_100.json + validation/perf_adam0_reference_100.json"
+                if validation_cross_platform
+                else "missing validation CPU reference artifacts"
+            ),
+        )
+    )
     deploy_mobile = has_exact(copied_paths, "/readiness/deploy_mobile_smoke.json")
     checks.append(
         CheckResult(
@@ -812,8 +877,8 @@ def build_checks(
         "local/registry.json",
         "remote/registry.json",
         "cache/registry.json",
-        "remote/adam0-sim/v2.9.0/remote.manifest.json",
-        "remote/adam0-sim/v2.9.0/remote.manifest.sig",
+        f"remote/adam0-sim/v{version}/remote.manifest.json",
+        f"remote/adam0-sim/v{version}/remote.manifest.sig",
     ):
         present = has_exact(copied_paths, f"/registry/{name}")
         checks.append(
@@ -828,8 +893,8 @@ def build_checks(
     for name in (
         "cache/registry.json",
         "cache/audit.log.jsonl",
-        "remote_offline/adam0-degraded/v2.9.0/remote.manifest.json",
-        "remote_offline/adam0-degraded/v2.9.0/remote.manifest.sig",
+        f"remote_offline/adam0-degraded/v{version}/remote.manifest.json",
+        f"remote_offline/adam0-degraded/v{version}/remote.manifest.sig",
     ):
         present = has_exact(copied_paths, f"/registry_degraded/{name}")
         checks.append(

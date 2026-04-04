@@ -1,0 +1,23 @@
+import json
+import std::sim
+
+fn main() ::
+    let world := sim.make_seeded(16, 42)
+    sim.schedule(world, 2.0, 20)
+    sim.schedule(world, 1.0, 10)
+    let first := sim.step(world)?
+    let snapshot := sim.snapshot(world)
+    let restored := sim.restore(snapshot)
+    let second := sim.step(restored)?
+    let replayed := sim.replay(sim.log(restored), 16, sim.seed(restored))
+
+    let out := json.parse("{}")
+    out.first_event := first.event
+    out.second_event := second.event
+    out.snapshot := sim.snapshot(restored)
+    out.replay_snapshot := sim.snapshot(replayed)
+    out.log := sim.log(replayed)
+    return out
+::
+
+main()

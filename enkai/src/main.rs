@@ -27,6 +27,7 @@ mod model;
 mod readiness;
 mod sim;
 mod train;
+mod validate;
 mod worker;
 
 pub(crate) fn env_guard() -> std::sync::MutexGuard<'static, ()> {
@@ -103,6 +104,7 @@ fn main() {
         "deploy" => deploy::deploy_command(&args[2..]),
         "grpc" => grpc::grpc_command(&args[2..]),
         "sim" => sim::sim_command(&args[2..]),
+        "validate" => validate::validate_command(&args[2..]),
         "worker" => worker::worker_command(&args[2..]),
         "fmt-lite" => bootstrap::fmt_lite_command(&args[2..]),
         "lint-lite" => bootstrap::lint_lite_command(&args[2..]),
@@ -1087,6 +1089,7 @@ fn print_usage() {
     deploy::print_deploy_usage();
     grpc::print_grpc_usage();
     sim::print_sim_usage();
+    validate::print_validate_usage();
     worker::print_worker_usage();
     bootstrap::print_usage();
     eprintln!("  enkai check <file|dir>");

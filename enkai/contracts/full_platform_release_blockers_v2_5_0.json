@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "profile": "full_platform",
-  "version_line": "v2.5.0-v2.9.0",
+  "version_line": "v2.5.0-v2.9.1",
   "compatibility_policy": "additive_only_v2_x",
   "release_blockers": {
     "non_hardware": {
@@ -45,7 +45,17 @@
         "selfhost-stage0-fallback",
         "benchmark-build-release",
         "benchmark-fairness",
-        "benchmark-target"
+        "benchmark-target",
+        "validation-ffi-correctness",
+        "validation-determinism-event-queue",
+        "validation-determinism-sim-replay",
+        "validation-pool-safety",
+        "validation-adam0-fake10",
+        "validation-adam0-ref100",
+        "validation-determinism-adam0-ref100",
+        "validation-perf-ffi-noop",
+        "validation-perf-sparse-dot",
+        "validation-perf-adam0-ref100"
       ]
     },
     "hardware_evidence": {
@@ -132,12 +142,12 @@
         "artifacts/registry/local/registry.json",
         "artifacts/registry/remote/registry.json",
         "artifacts/registry/cache/registry.json",
-        "artifacts/registry/remote/adam0-sim/v2.9.0/remote.manifest.json",
-        "artifacts/registry/remote/adam0-sim/v2.9.0/remote.manifest.sig",
+        "artifacts/registry/remote/adam0-sim/v<version>/remote.manifest.json",
+        "artifacts/registry/remote/adam0-sim/v<version>/remote.manifest.sig",
         "artifacts/registry_degraded/cache/registry.json",
         "artifacts/registry_degraded/cache/audit.log.jsonl",
-        "artifacts/registry_degraded/remote_offline/adam0-degraded/v2.9.0/remote.manifest.json",
-        "artifacts/registry_degraded/remote_offline/adam0-degraded/v2.9.0/remote.manifest.sig",
+        "artifacts/registry_degraded/remote_offline/adam0-degraded/v<version>/remote.manifest.json",
+        "artifacts/registry_degraded/remote_offline/adam0-degraded/v<version>/remote.manifest.sig",
         "artifacts/mobile/sdk_api.snapshot.json",
         "artifacts/mobile/app.json",
         "artifacts/mobile/package.json",
@@ -149,9 +159,18 @@
         "bench/results/full_platform_targets.json",
         "artifacts/selfhost/litec_mainline_ci_report.json",
         "artifacts/selfhost/litec_replace_check_report.json",
-        "artifacts/release/v<version>/manifest.json"
+        "artifacts/release/v<version>/manifest.json",
+        "artifacts/validation/ffi_correctness.json",
+        "artifacts/validation/determinism_event_queue.json",
+        "artifacts/validation/determinism_sim_replay.json",
+        "artifacts/validation/pool_safety.json",
+        "artifacts/validation/adam0_fake10.json",
+        "artifacts/validation/adam0_ref100.json",
+        "artifacts/validation/determinism_adam0_reference_100.json",
+        "artifacts/validation/perf_ffi_noop.json",
+        "artifacts/validation/perf_sparse_dot.json",
+        "artifacts/validation/perf_adam0_reference_100.json"
       ]
     }
   }
 }
-

@@ -1143,91 +1143,17 @@ mod tests {
     #[test]
     fn verify_release_blockers_passes_with_required_artifacts() {
         let workspace = temp_dir("enkai_readiness_blockers_ok");
-        let required_paths = [
-            "artifacts/readiness/full_platform.json",
-            "artifacts/readiness/grpc_smoke.json",
-            "artifacts/readiness/grpc_evidence_verify.json",
-            "artifacts/readiness/sim_smoke.json",
-            "artifacts/readiness/sim_evidence_verify.json",
-            "artifacts/readiness/sim_native_smoke.json",
-            "artifacts/readiness/sim_native_evidence_verify.json",
-            "artifacts/readiness/sim_stdlib_smoke.json",
-            "artifacts/readiness/sim_stdlib_evidence_verify.json",
-            "artifacts/readiness/adam0_100_smoke.json",
-            "artifacts/readiness/adam0_100_evidence_verify.json",
-            "artifacts/readiness/adam0_reference_suite.json",
-            "artifacts/readiness/adam0_reference_suite_verify.json",
-            "artifacts/readiness/snn_agent_kernel_smoke.json",
-            "artifacts/readiness/snn_agent_kernel_evidence_verify.json",
-            "artifacts/sim/smoke_run.json",
-            "artifacts/sim/smoke_profile.json",
-            "artifacts/sim/smoke_replay.json",
-            "artifacts/sim/native_smoke_run.json",
-            "artifacts/sim/native_smoke_profile.json",
-            "artifacts/sim/stdlib_smoke_run.json",
-            "artifacts/sim/stdlib_smoke_profile.json",
-            "artifacts/sim/adam0_100_run.json",
-            "artifacts/sim/adam0_100_profile.json",
-            "artifacts/sim/adam0_baseline_100_run.json",
-            "artifacts/sim/adam0_baseline_100_profile.json",
-            "artifacts/sim/adam0_baseline_100_snapshot.json",
-            "artifacts/sim/adam0_baseline_100_replay.json",
-            "artifacts/sim/adam0_stress_1000_run.json",
-            "artifacts/sim/adam0_stress_1000_profile.json",
-            "artifacts/sim/adam0_stress_1000_snapshot.json",
-            "artifacts/sim/adam0_stress_1000_replay.json",
-            "artifacts/sim/adam0_target_10000_run.json",
-            "artifacts/sim/adam0_target_10000_profile.json",
-            "artifacts/sim/adam0_target_10000_snapshot.json",
-            "artifacts/sim/adam0_target_10000_replay.json",
-            "artifacts/sim/snn_agent_kernel_run.json",
-            "artifacts/sim/snn_agent_kernel_profile.json",
-            "artifacts/grpc/probe.json",
-            "artifacts/grpc/server.jsonl",
-            "artifacts/grpc/conversation_state.json",
-            "artifacts/grpc/conversation_state.backup.json",
-            "artifacts/readiness/model_registry_convergence.json",
-            "artifacts/readiness/model_registry_convergence_verify.json",
-            "artifacts/readiness/cluster_scale_smoke.json",
-            "artifacts/readiness/cluster_scale_evidence_verify.json",
-            "artifacts/readiness/registry_degraded_smoke.json",
-            "artifacts/readiness/registry_degraded_evidence_verify.json",
-            "artifacts/readiness/deploy_mobile.json",
-            "artifacts/readiness/deploy_mobile_smoke.json",
-            "artifacts/readiness/deploy_mobile_evidence_verify.json",
-            "artifacts/readiness/worker_queue_smoke.json",
-            "artifacts/readiness/worker_queue_evidence_verify.json",
-            "artifacts/cluster_scale/validate.json",
-            "artifacts/cluster_scale/plan.json",
-            "artifacts/cluster_scale/run.json",
-            "artifacts/cluster_scale/recovery/rank0/window_0000.run.json",
-            "artifacts/cluster_scale/recovery/rank0/window_0000.snapshot.json",
-            "artifacts/cluster_scale/recovery/rank1/window_0000.run.json",
-            "artifacts/cluster_scale/recovery/rank1/window_0000.snapshot.json",
-            "artifacts/registry/sim_lineage.json",
-            "artifacts/registry/sim_snapshot.manifest.json",
-            "artifacts/registry/local/registry.json",
-            "artifacts/registry/remote/registry.json",
-            "artifacts/registry/cache/registry.json",
-            "artifacts/registry/remote/adam0-sim/v2.9.0/remote.manifest.json",
-            "artifacts/registry/remote/adam0-sim/v2.9.0/remote.manifest.sig",
-            "artifacts/registry_degraded/cache/registry.json",
-            "artifacts/registry_degraded/cache/audit.log.jsonl",
-            "artifacts/registry_degraded/remote_offline/adam0-degraded/v2.9.0/remote.manifest.json",
-            "artifacts/registry_degraded/remote_offline/adam0-degraded/v2.9.0/remote.manifest.sig",
-            "artifacts/mobile/sdk_api.snapshot.json",
-            "artifacts/mobile/app.json",
-            "artifacts/mobile/package.json",
-            "artifacts/worker_queue/run_01.json",
-            "artifacts/worker_queue/run_02.json",
-            "artifacts/worker_queue/run_03.json",
-            "artifacts/worker_queue/queues/default/dead_letter.jsonl",
-            "artifacts/worker_queue/queues/default/pending.jsonl",
-            "bench/results/full_platform_targets.json",
-            "artifacts/selfhost/litec_mainline_ci_report.json",
-            "artifacts/selfhost/litec_replace_check_report.json",
-            "artifacts/release/v2.9.0/manifest.json",
-        ];
+        let manifest = load_release_blocker_manifest("full_platform").expect("manifest");
+        let mut required_paths = manifest
+            .release_blockers
+            .release_evidence
+            .required_artifacts
+            .iter()
+            .map(|path| expand_release_artifact_placeholder(path, "2.9.1"))
+            .collect::<Vec<_>>();
+        required_paths.push("artifacts/readiness/full_platform.json".to_string());
+        required_paths.sort();
+        required_paths.dedup();
         for path in &required_paths {
             let full = workspace.join(path);
             if let Some(parent) = full.parent() {
@@ -1235,8 +1161,6 @@ mod tests {
             }
             fs::write(full, "{}").expect("write");
         }
-
-        let manifest = load_release_blocker_manifest("full_platform").expect("manifest");
         let checks = manifest
             .release_blockers
             .non_hardware
@@ -1254,8 +1178,8 @@ mod tests {
         let report = ReadinessReport {
             schema_version: 1,
             profile: "full_platform".to_string(),
-            language_version: "2.9.0".to_string(),
-            cli_version: "2.9.0".to_string(),
+            language_version: "2.9.1".to_string(),
+            cli_version: "2.9.1".to_string(),
             started_unix_ms: 0,
             finished_unix_ms: 1,
             all_passed: true,
@@ -1269,7 +1193,7 @@ mod tests {
             manifest: &manifest,
             readiness_report: &report,
             readiness_report_path: &report_path,
-            version: "2.9.0",
+            version: "2.9.1",
             require_gpu_evidence: false,
             skip_release_evidence: false,
             allow_skipped_required_checks: &[],
@@ -1287,91 +1211,17 @@ mod tests {
     #[test]
     fn verify_release_blockers_allows_explicitly_waived_skipped_checks() {
         let workspace = temp_dir("enkai_readiness_blockers_waived");
-        let required_paths = [
-            "artifacts/readiness/full_platform.json",
-            "artifacts/readiness/grpc_smoke.json",
-            "artifacts/readiness/grpc_evidence_verify.json",
-            "artifacts/readiness/sim_smoke.json",
-            "artifacts/readiness/sim_evidence_verify.json",
-            "artifacts/readiness/sim_native_smoke.json",
-            "artifacts/readiness/sim_native_evidence_verify.json",
-            "artifacts/readiness/sim_stdlib_smoke.json",
-            "artifacts/readiness/sim_stdlib_evidence_verify.json",
-            "artifacts/readiness/adam0_100_smoke.json",
-            "artifacts/readiness/adam0_100_evidence_verify.json",
-            "artifacts/readiness/adam0_reference_suite.json",
-            "artifacts/readiness/adam0_reference_suite_verify.json",
-            "artifacts/readiness/snn_agent_kernel_smoke.json",
-            "artifacts/readiness/snn_agent_kernel_evidence_verify.json",
-            "artifacts/sim/smoke_run.json",
-            "artifacts/sim/smoke_profile.json",
-            "artifacts/sim/smoke_replay.json",
-            "artifacts/sim/native_smoke_run.json",
-            "artifacts/sim/native_smoke_profile.json",
-            "artifacts/sim/stdlib_smoke_run.json",
-            "artifacts/sim/stdlib_smoke_profile.json",
-            "artifacts/sim/adam0_100_run.json",
-            "artifacts/sim/adam0_100_profile.json",
-            "artifacts/sim/adam0_baseline_100_run.json",
-            "artifacts/sim/adam0_baseline_100_profile.json",
-            "artifacts/sim/adam0_baseline_100_snapshot.json",
-            "artifacts/sim/adam0_baseline_100_replay.json",
-            "artifacts/sim/adam0_stress_1000_run.json",
-            "artifacts/sim/adam0_stress_1000_profile.json",
-            "artifacts/sim/adam0_stress_1000_snapshot.json",
-            "artifacts/sim/adam0_stress_1000_replay.json",
-            "artifacts/sim/adam0_target_10000_run.json",
-            "artifacts/sim/adam0_target_10000_profile.json",
-            "artifacts/sim/adam0_target_10000_snapshot.json",
-            "artifacts/sim/adam0_target_10000_replay.json",
-            "artifacts/sim/snn_agent_kernel_run.json",
-            "artifacts/sim/snn_agent_kernel_profile.json",
-            "artifacts/grpc/probe.json",
-            "artifacts/grpc/server.jsonl",
-            "artifacts/grpc/conversation_state.json",
-            "artifacts/grpc/conversation_state.backup.json",
-            "artifacts/readiness/model_registry_convergence.json",
-            "artifacts/readiness/model_registry_convergence_verify.json",
-            "artifacts/readiness/cluster_scale_smoke.json",
-            "artifacts/readiness/cluster_scale_evidence_verify.json",
-            "artifacts/readiness/registry_degraded_smoke.json",
-            "artifacts/readiness/registry_degraded_evidence_verify.json",
-            "artifacts/readiness/deploy_mobile.json",
-            "artifacts/readiness/deploy_mobile_smoke.json",
-            "artifacts/readiness/deploy_mobile_evidence_verify.json",
-            "artifacts/readiness/worker_queue_smoke.json",
-            "artifacts/readiness/worker_queue_evidence_verify.json",
-            "artifacts/cluster_scale/validate.json",
-            "artifacts/cluster_scale/plan.json",
-            "artifacts/cluster_scale/run.json",
-            "artifacts/cluster_scale/recovery/rank0/window_0000.run.json",
-            "artifacts/cluster_scale/recovery/rank0/window_0000.snapshot.json",
-            "artifacts/cluster_scale/recovery/rank1/window_0000.run.json",
-            "artifacts/cluster_scale/recovery/rank1/window_0000.snapshot.json",
-            "artifacts/registry/sim_lineage.json",
-            "artifacts/registry/sim_snapshot.manifest.json",
-            "artifacts/registry/local/registry.json",
-            "artifacts/registry/remote/registry.json",
-            "artifacts/registry/cache/registry.json",
-            "artifacts/registry/remote/adam0-sim/v2.9.0/remote.manifest.json",
-            "artifacts/registry/remote/adam0-sim/v2.9.0/remote.manifest.sig",
-            "artifacts/registry_degraded/cache/registry.json",
-            "artifacts/registry_degraded/cache/audit.log.jsonl",
-            "artifacts/registry_degraded/remote_offline/adam0-degraded/v2.9.0/remote.manifest.json",
-            "artifacts/registry_degraded/remote_offline/adam0-degraded/v2.9.0/remote.manifest.sig",
-            "artifacts/mobile/sdk_api.snapshot.json",
-            "artifacts/mobile/app.json",
-            "artifacts/mobile/package.json",
-            "artifacts/worker_queue/run_01.json",
-            "artifacts/worker_queue/run_02.json",
-            "artifacts/worker_queue/run_03.json",
-            "artifacts/worker_queue/queues/default/dead_letter.jsonl",
-            "artifacts/worker_queue/queues/default/pending.jsonl",
-            "bench/results/full_platform_targets.json",
-            "artifacts/selfhost/litec_mainline_ci_report.json",
-            "artifacts/selfhost/litec_replace_check_report.json",
-            "artifacts/release/v2.9.0/manifest.json",
-        ];
+        let manifest = load_release_blocker_manifest("full_platform").expect("manifest");
+        let mut required_paths = manifest
+            .release_blockers
+            .release_evidence
+            .required_artifacts
+            .iter()
+            .map(|path| expand_release_artifact_placeholder(path, "2.9.1"))
+            .collect::<Vec<_>>();
+        required_paths.push("artifacts/readiness/full_platform.json".to_string());
+        required_paths.sort();
+        required_paths.dedup();
         for path in &required_paths {
             let full = workspace.join(path);
             if let Some(parent) = full.parent() {
@@ -1379,7 +1229,6 @@ mod tests {
             }
             fs::write(full, "{}").expect("write");
         }
-        let manifest = load_release_blocker_manifest("full_platform").expect("manifest");
         let checks = manifest
             .release_blockers
             .non_hardware
@@ -1398,8 +1247,8 @@ mod tests {
         let report = ReadinessReport {
             schema_version: 1,
             profile: "full_platform".to_string(),
-            language_version: "2.9.0".to_string(),
-            cli_version: "2.9.0".to_string(),
+            language_version: "2.9.1".to_string(),
+            cli_version: "2.9.1".to_string(),
             started_unix_ms: 0,
             finished_unix_ms: 1,
             all_passed: true,
@@ -1414,7 +1263,7 @@ mod tests {
             manifest: &manifest,
             readiness_report: &report,
             readiness_report_path: &report_path,
-            version: "2.9.0",
+            version: "2.9.1",
             require_gpu_evidence: false,
             skip_release_evidence: false,
             allow_skipped_required_checks: &allowed,

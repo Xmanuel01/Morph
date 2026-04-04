@@ -1,7 +1,7 @@
 # 37. Production Readiness Matrix (v2.5.0 full-platform line)
 
 This matrix defines the objective sign-off contract for "production-ready" in the
-`v2.5.0 -> v2.9.0` cycle.
+`v2.5.0 -> v2.9.1` cycle.
 
 Full-platform production envelope:
 - single-node and multi-node training/serving validation paths
@@ -73,10 +73,20 @@ Selective pipeline reuse:
   - `artifacts/registry/local/registry.json`
   - `artifacts/registry/remote/registry.json`
   - `artifacts/registry/cache/registry.json`
-  - `artifacts/registry/remote/adam0-sim/v2.9.0/remote.manifest.json`
-  - `artifacts/registry/remote/adam0-sim/v2.9.0/remote.manifest.sig`
+  - `artifacts/registry/remote/adam0-sim/v<version>/remote.manifest.json`
+  - `artifacts/registry/remote/adam0-sim/v<version>/remote.manifest.sig`
   - `artifacts/cluster_scale/run.json`
   - `artifacts/registry_degraded/cache/audit.log.jsonl`
+- `artifacts/validation/ffi_correctness.json`
+- `artifacts/validation/determinism_event_queue.json`
+- `artifacts/validation/determinism_sim_replay.json`
+- `artifacts/validation/determinism_adam0_reference_100.json`
+- `artifacts/validation/pool_safety.json`
+- `artifacts/validation/adam0_fake10.json`
+- `artifacts/validation/adam0_ref100.json`
+- `artifacts/validation/perf_ffi_noop.json`
+- `artifacts/validation/perf_sparse_dot.json`
+  - `artifacts/validation/perf_adam0_reference_100.json`
 
 Manifest:
 - `enkai/contracts/readiness_full_platform_v2_5_0.json`
@@ -123,10 +133,17 @@ The command executes a deterministic gate bundle:
 - generated backend/fullstack deploy validation smoke
 - bootstrap mainline + Stage0 fallback lanes
 - benchmark fairness + target smoke enforcement (`official_v2_3_0_matrix`, workload-equivalence contract)
+- CPU validation proof suites:
+  - FFI correctness
+  - event-queue determinism
+  - simulation replay determinism
+  - pool safety
+  - Adam-0 fake10 + ref100 CPU validation
+  - baseline capture for FFI noop, sparse dot, and Adam-0 ref100
 
 ## GPU Evidence (Release Blocking)
 
-`v2.9.0` release sign-off requires operator evidence and verifier pass:
+`v2.9.1` release sign-off requires operator evidence and verifier pass:
 - single-GPU stability evidence
 - 2-GPU loss/grad parity evidence
 - 4-GPU soak evidence

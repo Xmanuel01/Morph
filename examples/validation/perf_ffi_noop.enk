@@ -1,0 +1,21 @@
+import json
+
+native::import "enkai_native" ::
+    fn handle_live_count() -> Int
+::
+
+fn main() ::
+    let iterations := 100000
+    let idx := 0
+    let total := 0
+    while idx < iterations ::
+        total := total + handle_live_count()
+        idx := idx + 1
+    ::
+    let out := json.parse("{}")
+    out.iterations := iterations
+    out.total := total
+    return out
+::
+
+main()

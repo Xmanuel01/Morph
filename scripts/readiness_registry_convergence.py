@@ -59,7 +59,7 @@ def main() -> int:
     staging.mkdir(parents=True, exist_ok=True)
 
     env = dict(os.environ)
-    env["ENKAI_MODEL_SIGNING_KEY"] = "enkai-v2.9.0-registry-key"
+    env["ENKAI_MODEL_SIGNING_KEY"] = "enkai-v2.9.1-registry-key"
     env["ENKAI_SIM_ACCEL"] = "1"
     env["ENKAI_SIM_RUN_ID"] = "adam0-registry-run"
     env["ENKAI_SIM_PARENT_RUN_ID"] = "adam0-parent"
@@ -160,7 +160,7 @@ main()
             "register",
             str(local_registry),
             "llm-chat",
-            "v2.9.0",
+            "v2.9.1",
             str(llm_checkpoint),
             "--activate",
         ],
@@ -169,7 +169,7 @@ main()
             "register",
             str(local_registry),
             "adam0-sim",
-            "v2.9.0",
+            "v2.9.1",
             str(snapshot),
             "--artifact-kind",
             "simulation",
@@ -184,7 +184,7 @@ main()
             "register",
             str(local_registry),
             "adam0-env",
-            "v2.9.0",
+            "v2.9.1",
             str(environment_asset),
             "--artifact-kind",
             "environment",
@@ -197,7 +197,7 @@ main()
             "register",
             str(local_registry),
             "adam0-native",
-            "v2.9.0",
+            "v2.9.1",
             str(native_bundle),
             "--artifact-kind",
             "native-extension",
@@ -217,7 +217,7 @@ main()
                 "push",
                 str(local_registry),
                 name,
-                "v2.9.0",
+                "v2.9.1",
                 "--registry",
                 str(remote_registry),
                 "--sign",
@@ -232,7 +232,7 @@ main()
                 "verify-signature",
                 str(local_registry),
                 name,
-                "v2.9.0",
+                "v2.9.1",
                 "--registry",
                 str(remote_registry),
             ],
@@ -246,7 +246,7 @@ main()
                 "pull",
                 str(cache_registry),
                 name,
-                "v2.9.0",
+                "v2.9.1",
                 "--registry",
                 str(remote_registry),
                 "--verify-signature",
@@ -258,7 +258,7 @@ main()
     summary = {
         "schema_version": 1,
         "status": "ok",
-        "release_line": "v2.9.0",
+        "release_line": "v2.9.1",
         "local_registry": str(local_registry),
         "remote_registry": str(remote_registry),
         "cache_registry": str(cache_registry),

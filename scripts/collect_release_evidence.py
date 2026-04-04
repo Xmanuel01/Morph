@@ -66,6 +66,11 @@ def parse_args() -> argparse.Namespace:
         help="gRPC evidence source directory",
     )
     parser.add_argument(
+        "--validation-dir",
+        default="artifacts/validation",
+        help="Validation evidence source directory",
+    )
+    parser.add_argument(
         "--out-dir",
         default="artifacts/release",
         help="Output directory for evidence bundle",
@@ -186,6 +191,7 @@ def main() -> int:
     sim_dir = (root / args.sim_dir).resolve()
     registry_dir = (root / args.registry_dir).resolve()
     grpc_dir = (root / args.grpc_dir).resolve()
+    validation_dir = (root / args.validation_dir).resolve()
     out_root = (root / args.out_dir / f"v{version}").resolve()
     out_root.mkdir(parents=True, exist_ok=True)
 
@@ -303,6 +309,41 @@ def main() -> int:
             f"readiness directory not found for strict evidence mode: {readiness_dir}"
         )
 
+    required_validation = [
+        "ffi_correctness.json",
+        "determinism_event_queue.json",
+        "determinism_sim_replay.json",
+        "determinism_adam0_reference_100.json",
+        "pool_safety.json",
+        "adam0_fake10.json",
+        "adam0_ref100.json",
+        "perf_ffi_noop.json",
+        "perf_sparse_dot.json",
+        "perf_adam0_reference_100.json",
+    ]
+    if validation_dir.is_dir():
+        if args.strict:
+            validation_files = ensure_required_files(
+                validation_dir, required_validation, "validation evidence"
+            )
+        else:
+            validation_files = sorted(
+                path for path in validation_dir.glob("*.json") if path.is_file()
+            )
+        file_rows.extend(
+            copy_files(
+                root,
+                validation_dir,
+                out_root / "validation",
+                "validation",
+                validation_files,
+            )
+        )
+    elif args.strict:
+        raise RuntimeError(
+            f"validation directory not found for strict evidence mode: {validation_dir}"
+        )
+
     required_sim = [
         "smoke_run.json",
         "smoke_profile.json",
@@ -362,8 +403,8 @@ def main() -> int:
         "local/registry.json",
         "remote/registry.json",
         "cache/registry.json",
-        "remote/adam0-sim/v2.9.0/remote.manifest.json",
-        "remote/adam0-sim/v2.9.0/remote.manifest.sig",
+        f"remote/adam0-sim/v{version}/remote.manifest.json",
+        f"remote/adam0-sim/v{version}/remote.manifest.sig",
     ]
     if registry_dir.is_dir():
         if args.strict:
@@ -407,8 +448,8 @@ def main() -> int:
     required_registry_degraded = [
         "cache/registry.json",
         "cache/audit.log.jsonl",
-        "remote_offline/adam0-degraded/v2.9.0/remote.manifest.json",
-        "remote_offline/adam0-degraded/v2.9.0/remote.manifest.sig",
+        f"remote_offline/adam0-degraded/v{version}/remote.manifest.json",
+        f"remote_offline/adam0-degraded/v{version}/remote.manifest.sig",
     ]
     if registry_degraded_dir.is_dir():
         if args.strict:

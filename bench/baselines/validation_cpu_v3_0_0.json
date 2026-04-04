@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "version_line": "v2.9.1-v3.0.0",
+  "profiles": {
+    "windows_local": {
+      "machine_profile": "bench/machines/windows_local.json",
+      "suites": {
+        "ffi_noop": {
+          "metric": "ns_per_call",
+          "better": "lower",
+          "baseline": 12788.943,
+          "regression_budget_pct": 20.0
+        },
+        "sparse_dot": {
+          "metric": "ops_per_sec",
+          "better": "higher",
+          "baseline": 24052.218713751805,
+          "regression_budget_pct": 20.0
+        },
+        "adam0_reference_100": {
+          "metric": "elapsed_ms",
+          "better": "lower",
+          "baseline": 289.2465,
+          "regression_budget_pct": 20.0
+        }
+      }
+    }
+  }
+}

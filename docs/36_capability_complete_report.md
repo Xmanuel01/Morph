@@ -1,6 +1,6 @@
-# 36. Capability-Complete Report (v2.9.0)
+# 36. Capability-Complete Report (v2.9.1)
 
-This document defines the objective release evidence contract for the `v2.9.0`
+This document defines the objective release evidence contract for the `v2.9.1`
 stability cut.
 
 ## Goal
@@ -83,14 +83,25 @@ Core categories:
   - `grpc/server.jsonl`
   - `grpc/conversation_state.json`
   - `grpc/conversation_state.backup.json`
+- `validation/`:
+- `validation/ffi_correctness.json`
+- `validation/determinism_event_queue.json`
+- `validation/determinism_sim_replay.json`
+- `validation/determinism_adam0_reference_100.json`
+- `validation/pool_safety.json`
+- `validation/adam0_fake10.json`
+- `validation/adam0_ref100.json`
+  - `validation/perf_ffi_noop.json`
+  - `validation/perf_sparse_dot.json`
+  - `validation/perf_adam0_reference_100.json`
 - `registry/`:
   - `registry/sim_lineage.json`
   - `registry/sim_snapshot.manifest.json`
   - `registry/local/registry.json`
   - `registry/remote/registry.json`
   - `registry/cache/registry.json`
-  - `registry/remote/adam0-sim/v2.9.0/remote.manifest.json`
-  - `registry/remote/adam0-sim/v2.9.0/remote.manifest.sig`
+  - `registry/remote/adam0-sim/v<version>/remote.manifest.json`
+  - `registry/remote/adam0-sim/v<version>/remote.manifest.sig`
 - `cluster_scale/`:
   - `cluster_scale/run.json`
   - `cluster_scale/recovery/rank0/window_0000.run.json`
@@ -98,8 +109,8 @@ Core categories:
 - `registry_degraded/`:
   - `registry_degraded/cache/registry.json`
   - `registry_degraded/cache/audit.log.jsonl`
-  - `registry_degraded/remote_offline/adam0-degraded/v2.9.0/remote.manifest.json`
-  - `registry_degraded/remote_offline/adam0-degraded/v2.9.0/remote.manifest.sig`
+  - `registry_degraded/remote_offline/adam0-degraded/v<version>/remote.manifest.json`
+  - `registry_degraded/remote_offline/adam0-degraded/v<version>/remote.manifest.sig`
 - `gpu/` (mandatory for full sign-off):
   - `single_gpu.log`, `single_gpu_evidence.json`
   - `multi_gpu.log`, `multi_gpu_evidence.json`
@@ -124,6 +135,7 @@ In strict mode the archived blocker report must also be present and must show:
 - no missing required release artifacts
 - gRPC runtime evidence artifacts must be present under `readiness/` and `grpc/`
 - simulation std/runtime, stdlib primitive, Adam-0 smoke, Adam-0 reference suite, native FFI, SNN/agent kernel, and registry convergence evidence artifacts must be present under `readiness/`, `sim/`, and `registry/`
+- validation artifacts under `validation/` must be present and passing for correctness, determinism, pool safety, and Adam-0 CPU validation
 
 ## RC Pipeline Contract
 

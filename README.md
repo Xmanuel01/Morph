@@ -1,12 +1,12 @@
-﻿ENKAI PROGRAMMING LANGUAGE
+ENKAI PROGRAMMING LANGUAGE
 [![CI](https://github.com/Xmanuel01/Enkai/actions/workflows/ci.yml/badge.svg)](https://github.com/Xmanuel01/Enkai/actions/workflows/ci.yml)
 
 Overview
 Enkai is a programming language with block structure defined by :: tokens, a clean
 assignment operator (:=), and an AI-native roadmap (tools, agents, memory, policy).
-This repository contains the v2.9.0 implementation in Rust.
+This repository contains the v2.9.1 implementation in Rust.
 
-Status (v2.9.0)
+Status (v2.9.1)
 - Bytecode VM + globals + type-checking
 - Module system with public/private exports
 - CLI: run/bench/readiness/deploy/model/serve/new/sdk/check/fmt/fmt-lite/lint-lite/tokenizer-lite/dataset-lite/litec/build/test/train/pretrain/eval/migrate/doctor
@@ -46,6 +46,25 @@ Status (v2.9.0)
   - `enkai sim run`
   - `enkai sim profile`
   - `enkai sim replay`
+- Proof-grade validation CLI surfaces:
+  - `enkai validate ffi-correctness`
+  - `enkai validate determinism`
+  - `enkai validate perf-baseline`
+  - `enkai validate pool-safety`
+  - `enkai validate adam0-cpu`
+- Proof artifacts are archived under:
+  - `artifacts/validation/`
+  - `artifacts/readiness/full_platform.json`
+  - `artifacts/readiness/full_platform_blockers.json`
+- Validation manifests and local/reference machine profiles live under:
+  - `enkai/contracts/validation_cpu_v3_0_0.json`
+  - `enkai/contracts/validation_release_blockers_v3_0_0.json`
+  - `bench/baselines/validation_cpu_v3_0_0.json`
+  - `bench/machines/`
+- Production-grade claims are evidence-backed only:
+  - functionality must have a passing automated gate
+  - readiness must archive the proof artifact
+  - release evidence must carry the archived artifact forward
 - Additive data/algorithm std modules:
   - `std::analysis` (CSV/JSONL ingest + typed schema inference/validation + filter/project/join/group aggregates + describe/histogram/quantiles/rolling/pipeline)
   - `std::algo` (sort/search/path + priority/merge/window/cumulative transforms + ML metrics/eval/scheduler + deterministic split helpers)
@@ -74,8 +93,8 @@ Status (v2.9.0)
 - Bootstrap-lite/core toolchain path with `litec` stage0/stage1 bytecode equivalence checks, phase staging (`litec stage`), self-host CI corpus validation (`litec selfhost-ci`), and consolidated release lane (`litec release-ci`)
 - Self-host mainline CI lane with deterministic triage artifacts (`litec mainline-ci --triage-dir <dir>`) plus mandatory Stage0 fallback lane
 - Self-host replacement-readiness gate with Stage1/Stage2 fixed-point checks (`litec replace-check`)
-- Compatibility/deprecation governance and self-host fallback workflow docs for v2.9.0 release readiness
-- Version-neutral release pipeline, deterministic packaging, checksum verification, SBOM generation, and RC evidence-archive gates for v2.9.0 sign-off
+- Compatibility/deprecation governance and self-host fallback workflow docs for v2.9.1 release readiness
+- Version-neutral release pipeline, deterministic packaging, checksum verification, SBOM generation, and RC evidence-archive gates for v2.9.1 sign-off
 - Full-platform simulation smoke evidence integrated into release sign-off:
   - `scripts/readiness_sim_smoke.py`
   - `artifacts/readiness/sim_smoke.json`
@@ -145,7 +164,7 @@ Status (v2.9.0)
   - deterministic suites under `bench/suites/`
   - machine profile manifests under `bench/machines/`
   - structured result artifacts under `bench/results/*.json`
-- Strict-contract enforcement in v2.9.0:
+- Strict-contract enforcement in v2.9.1:
   - `enkai train` / `enkai eval` enforce contract checks by default
   - explicit legacy recovery is gated: `--lenient-contracts` + `ENKAI_ALLOW_LEGACY_CONTRACTS=1`
   - readiness audit: `enkai doctor --json [--strict-contracts|--lenient]`

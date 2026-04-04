@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "profile": "validation_cpu_v3_0_0",
+  "required_checks": [
+    "validation-ffi-correctness",
+    "validation-determinism-event-queue",
+    "validation-determinism-sim-replay",
+    "validation-pool-safety",
+    "validation-adam0-fake10",
+    "validation-adam0-ref100",
+    "validation-determinism-adam0-ref100",
+    "validation-perf-ffi-noop",
+    "validation-perf-sparse-dot",
+    "validation-perf-adam0-ref100"
+  ],
+  "required_artifacts": [
+    "artifacts/validation/ffi_correctness.json",
+    "artifacts/validation/determinism_event_queue.json",
+    "artifacts/validation/determinism_sim_replay.json",
+    "artifacts/validation/pool_safety.json",
+    "artifacts/validation/adam0_fake10.json",
+    "artifacts/validation/adam0_ref100.json",
+    "artifacts/validation/determinism_adam0_reference_100.json",
+    "artifacts/validation/perf_ffi_noop.json",
+    "artifacts/validation/perf_sparse_dot.json",
+    "artifacts/validation/perf_adam0_reference_100.json"
+  ],
+  "reference_host_required_artifacts": [
+    "artifacts/validation/adam0_stress1000.json",
+    "artifacts/validation/adam0_target10000.json"
+  ]
+}

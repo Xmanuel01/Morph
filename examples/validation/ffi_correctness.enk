@@ -1,0 +1,44 @@
+import json
+import std::event
+import std::pool
+import std::sparse
+
+fn main() ::
+    let vector := sparse.vector()
+    sparse.set_vector(vector, 0, 1.0)
+    sparse.set_vector(vector, 2, 2.0)
+    sparse.set_vector(vector, 5, 3.0)
+
+    let matrix := sparse.matrix()
+    sparse.set(matrix, 0, 0, 1.0)
+    sparse.set(matrix, 0, 2, 2.0)
+    sparse.set(matrix, 1, 1, 4.0)
+
+    let queue := event.make()
+    event.push(queue, 0.5, "second")
+    event.push(queue, 0.1, "first")
+    event.push(queue, 0.5, "third")
+    let a := event.pop(queue)?
+    let b := event.pop(queue)?
+    let c := event.pop(queue)?
+
+    let reusable := pool.make(1)
+    let first := pool.release(reusable, 7)
+    let second := pool.release(reusable, 9)
+    let acquired := pool.acquire(reusable)?
+
+    let out := json.parse("{}")
+    out.dot := sparse.dot(vector, [1.0, 0.0, 1.0, 0.0, 0.0, 1.0])
+    out.matvec := sparse.matvec(matrix, [1.0, 1.0, 1.0])
+    out.vector_nnz := sparse.nnz(vector)
+    out.matrix_nnz := sparse.nnz(matrix)
+    out.event_order := [a.event, b.event, c.event]
+    out.event_times := [a.time, b.time, c.time]
+    out.pool_first_release := first
+    out.pool_second_release := second
+    out.pool_acquired := acquired
+    out.pool_stats := pool.stats(reusable)
+    return out
+::
+
+main()

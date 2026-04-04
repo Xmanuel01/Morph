@@ -5,9 +5,34 @@ This file is the strict verification matrix for the v2.x release line.
 ## Current Gate State
 
 - CPU single-device soak: PASS (functional evidence captured).
+- CPU proof-grade validation: in progress via `enkai validate ...` and `artifacts/validation/*.json`.
 - CUDA single-GPU long soak: pending operator run.
 - 2-GPU correctness gate: pending operator run.
 - 4-GPU soak gate: pending operator run.
+
+## CPU Validation Matrix
+
+- `enkai validate ffi-correctness --json --output artifacts/validation/ffi_correctness.json`
+- `enkai validate determinism --suite event_queue --runs 10 --json --output artifacts/validation/determinism_event_queue.json`
+- `enkai validate determinism --suite sim_replay --runs 10 --json --output artifacts/validation/determinism_sim_replay.json`
+- `enkai validate determinism --suite adam0_reference_100 --runs 3 --json --output artifacts/validation/determinism_adam0_reference_100.json`
+- `enkai validate pool-safety --json --output artifacts/validation/pool_safety.json`
+- `enkai validate adam0-cpu --scenario fake10 --json --output artifacts/validation/adam0_fake10.json`
+- `enkai validate adam0-cpu --scenario ref100 --json --output artifacts/validation/adam0_ref100.json`
+- `enkai validate adam0-cpu --scenario stress1000 --json --output artifacts/validation/adam0_stress1000.json`
+- `enkai validate adam0-cpu --scenario target10000 --json --output artifacts/validation/adam0_target10000.json`
+- `enkai validate perf-baseline --suite ffi_noop --json --output artifacts/validation/perf_ffi_noop.json`
+- `enkai validate perf-baseline --suite sparse_dot --json --output artifacts/validation/perf_sparse_dot.json`
+- `enkai validate perf-baseline --suite adam0_reference_100 --json --output artifacts/validation/perf_adam0_reference_100.json`
+
+These artifacts are required inputs to full-platform readiness and strict release evidence on the quality-recovery line.
+
+Baseline and proof metadata:
+- `enkai/contracts/validation_cpu_v3_0_0.json`
+- `enkai/contracts/validation_release_blockers_v3_0_0.json`
+- `bench/baselines/validation_cpu_v3_0_0.json`
+- `bench/machines/windows_local.json`
+- `bench/machines/linux_local.json`
 
 ## 0) v2.0 contract enforcement (config + checkpoints + CLI)
 

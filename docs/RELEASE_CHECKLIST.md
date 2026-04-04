@@ -86,8 +86,8 @@ Note:
     - `artifacts/registry/local/registry.json`
     - `artifacts/registry/remote/registry.json`
     - `artifacts/registry/cache/registry.json`
-    - `artifacts/registry/remote/adam0-sim/v2.9.0/remote.manifest.json`
-    - `artifacts/registry/remote/adam0-sim/v2.9.0/remote.manifest.sig`
+    - `artifacts/registry/remote/adam0-sim/v2.9.1/remote.manifest.json`
+    - `artifacts/registry/remote/adam0-sim/v2.9.1/remote.manifest.sig`
     - `artifacts/cluster_scale/run.json`
     - `artifacts/registry_degraded/cache/audit.log.jsonl`
 - [ ] Benchmark target gate (official bounded suite):
@@ -114,6 +114,16 @@ Note:
   - `powershell -ExecutionPolicy Bypass -File scripts/verify_gpu_gates.ps1 -LogDir artifacts/gpu`
   - or `sh scripts/verify_gpu_gates.sh artifacts/gpu`
 - [ ] Complete `VALIDATION.md` gates for the target release
+- [ ] Run proof-grade CPU validation suites:
+  - `enkai validate ffi-correctness --json --output artifacts/validation/ffi_correctness.json`
+  - `enkai validate determinism --suite event_queue --runs 10 --json --output artifacts/validation/determinism_event_queue.json`
+  - `enkai validate determinism --suite sim_replay --runs 10 --json --output artifacts/validation/determinism_sim_replay.json`
+  - `enkai validate pool-safety --json --output artifacts/validation/pool_safety.json`
+  - `enkai validate adam0-cpu --scenario fake10 --json --output artifacts/validation/adam0_fake10.json`
+  - `enkai validate adam0-cpu --scenario ref100 --json --output artifacts/validation/adam0_ref100.json`
+  - `enkai validate perf-baseline --suite ffi_noop --json --output artifacts/validation/perf_ffi_noop.json`
+  - `enkai validate perf-baseline --suite sparse_dot --json --output artifacts/validation/perf_sparse_dot.json`
+  - `enkai validate perf-baseline --suite adam0_reference_100 --json --output artifacts/validation/perf_adam0_reference_100.json`
 - [ ] Self-host mainline gate (Enkai-built compiler default lane):
   - `enkai litec mainline-ci enkai/tools/bootstrap/selfhost_corpus --triage-dir artifacts/selfhost`
   - expected triage artifacts:
@@ -178,6 +188,15 @@ Note:
     - `grpc/probe.json`
     - `grpc/server.jsonl`
     - `grpc/conversation_state.json`
+    - `validation/ffi_correctness.json`
+    - `validation/determinism_event_queue.json`
+    - `validation/determinism_sim_replay.json`
+    - `validation/pool_safety.json`
+    - `validation/adam0_fake10.json`
+    - `validation/adam0_ref100.json`
+    - `validation/perf_ffi_noop.json`
+    - `validation/perf_sparse_dot.json`
+    - `validation/perf_adam0_reference_100.json`
 - [ ] Generate capability-complete report from archived evidence:
   - `python3 scripts/generate_capability_report.py --require-gpu --strict`
   - expected outputs:

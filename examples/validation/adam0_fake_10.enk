@@ -1,0 +1,58 @@
+import json
+import std::pool
+import std::sim
+import std::sparse
+
+fn build_connectivity(agent_count: Int) -> SparseMatrix ::
+    let matrix := sparse.matrix()
+    let source := 0
+    while source < agent_count ::
+        let target := source + 1
+        if target >= agent_count ::
+            target := 0
+        ::
+        sparse.set(matrix, source, target, 0.75)
+        sparse.set(matrix, source, source, 0.25)
+        source := source + 1
+    ::
+    return matrix
+::
+
+fn main() ::
+    let agent_count := 10
+    let rounds := 20
+    let world := sim.make_seeded(2048, 7)
+    let connectivity := build_connectivity(agent_count)
+    let reusable := pool.make(agent_count)
+    let preload := 0
+    while preload < agent_count ::
+        pool.release(reusable, preload)
+        preload := preload + 1
+    ::
+    let round := 0
+    while round < rounds ::
+        let agent_id := 0
+        while agent_id < agent_count ::
+            let dense := [1.0, 0.5, 1.5, 0.25, 1.25, 0.75, 1.0, 0.5, 1.5, 0.25]
+            let score := sparse.matvec(connectivity, dense)[agent_id]
+            if score > 0.8 ::
+                sim.schedule(world, round + 0.25, agent_id)
+            ::
+            let recycled := pool.acquire(reusable)?
+            pool.release(reusable, recycled)
+            agent_id := agent_id + 1
+        ::
+        round := round + 1
+    ::
+    sim.run(world, 2048)
+    let snapshot := sim.snapshot(world)
+    snapshot.case_id := "adam0_fake_10"
+    snapshot.agent_count := agent_count
+    snapshot.rounds := rounds
+    snapshot.pending_after_run := sim.pending(world)
+    snapshot.pool_stats := pool.stats(reusable)
+    snapshot.sparse_edges := sparse.nnz(connectivity)
+    return snapshot
+::
+
+main()

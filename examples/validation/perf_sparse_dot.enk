@@ -1,0 +1,28 @@
+import json
+import std::sparse
+
+fn main() ::
+    let vector := sparse.vector()
+    let idx := 0
+    while idx < 64 ::
+        sparse.set_vector(vector, idx, 0.5)
+        idx := idx + 2
+    ::
+    let dense := [2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+                  2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+                  2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+                  2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
+    let iterations := 50000
+    let run := 0
+    let total := 0.0
+    while run < iterations ::
+        total := total + sparse.dot(vector, dense)
+        run := run + 1
+    ::
+    let out := json.parse("{}")
+    out.iterations := iterations
+    out.total := total
+    return out
+::
+
+main()

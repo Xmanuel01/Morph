@@ -38,9 +38,9 @@ def main() -> int:
             if name not in models:
                 issues.append(f"{registry_name} registry missing {name}")
                 continue
-            version = models[name].get("versions", {}).get("v2.9.0")
+            version = models[name].get("versions", {}).get("v2.9.1")
             if not isinstance(version, dict):
-                issues.append(f"{registry_name} registry missing {name} v2.9.0")
+                issues.append(f"{registry_name} registry missing {name} v2.9.1")
                 continue
             if version.get("artifact_kind") != kind:
                 issues.append(

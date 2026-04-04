@@ -392,6 +392,9 @@ pub extern "C" fn handle_live_count() -> i64 {
 }
 
 #[no_mangle]
+pub extern "C" fn ffi_noop() {}
+
+#[no_mangle]
 pub extern "C" fn sim_sparse_vector_new() -> *mut c_void {
     make_opaque_handle(
         OpaqueHandleKind::SparseVector,
