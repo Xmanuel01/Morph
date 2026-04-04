@@ -95,6 +95,8 @@ def main() -> int:
         failures.append("docs/RELEASE_CHECKLIST.md missing scripts/collect_release_evidence.py")
     if "scripts/generate_capability_report.py" not in release_checklist:
         failures.append("docs/RELEASE_CHECKLIST.md missing scripts/generate_capability_report.py")
+    if "scripts/generate_release_dashboard.py" not in release_checklist:
+        failures.append("docs/RELEASE_CHECKLIST.md missing scripts/generate_release_dashboard.py")
     if "enkai readiness check --profile production" not in release_checklist:
         failures.append("docs/RELEASE_CHECKLIST.md missing readiness command gate")
     if "enkai readiness check --profile full_platform" not in release_checklist:
@@ -140,6 +142,10 @@ def main() -> int:
         if "scripts/generate_capability_report.py" not in capability_text:
             failures.append(
                 "docs/36_capability_complete_report.md missing generate_capability_report reference"
+            )
+        if "scripts/generate_release_dashboard.py" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing generate_release_dashboard reference"
             )
         if "readiness/production.json" not in capability_text:
             failures.append(
@@ -257,6 +263,14 @@ def main() -> int:
             failures.append(
                 "docs/36_capability_complete_report.md missing registry remote manifest archive reference"
             )
+        if "release_dashboard.json" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing release dashboard JSON reference"
+            )
+        if "release_dashboard.md" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing release dashboard markdown reference"
+            )
 
     readiness_doc = ROOT / "docs/37_readiness_matrix.md"
     if not readiness_doc.is_file():
@@ -329,6 +343,21 @@ def main() -> int:
             failures.append("docs/40_registry_convergence.md missing registry convergence readiness artifact reference")
         if "artifacts/registry/sim_lineage.json" not in registry_text:
             failures.append("docs/40_registry_convergence.md missing simulation lineage artifact reference")
+    release_dashboard_doc = ROOT / "docs/48_release_dashboard.md"
+    if not release_dashboard_doc.is_file():
+        failures.append("missing docs/48_release_dashboard.md")
+    else:
+        dashboard_text = release_dashboard_doc.read_text(encoding="utf-8")
+        for token in (
+            "release_dashboard.json",
+            "release_dashboard.md",
+            "scripts/generate_release_dashboard.py",
+            "GPU/operator evidence",
+        ):
+            if token not in dashboard_text:
+                failures.append(
+                    f"docs/48_release_dashboard.md missing required reference: {token}"
+                )
     benchmark_doc = ROOT / "docs/33_benchmark_suite.md"
     if not benchmark_doc.is_file():
         failures.append("missing docs/33_benchmark_suite.md")

@@ -89,6 +89,9 @@ if [ "$skip_package" = "0" ]; then
 
   echo "[release] Generating strict capability report..."
   python3 scripts/generate_capability_report.py --strict
+
+  echo "[release] Generating release dashboard..."
+  python3 scripts/generate_release_dashboard.py --strict
 else
   echo "[release] Generating blocker verification artifact for reduced evidence mode..."
   cargo run -p enkai -- readiness verify-blockers \
@@ -105,6 +108,9 @@ else
 
   echo "[release] Generating reduced capability report (package checks skipped)..."
   python3 scripts/generate_capability_report.py
+
+  echo "[release] Generating reduced release dashboard (package checks skipped)..."
+  python3 scripts/generate_release_dashboard.py
 fi
 
 if [ "$verify_gpu" = "1" ]; then

@@ -15,6 +15,19 @@
   - multi-GPU parity evidence
   - 4-GPU soak evidence
 
+## v2.9.6
+
+### Highlights
+- Advanced the release line to `v2.9.6` with proof-group claim hardening and release dashboard publication.
+- Reworked strict capability reporting so non-hardware production claims are derived from archived proof groups instead of individual path presence alone.
+- Added a release dashboard that makes CPU-complete vs GPU-pending status explicit for operators.
+
+### Fixes
+- Added `scripts/generate_release_dashboard.py` and wired it into the release and RC pipelines.
+- Aggregated CPU correctness, determinism, runtime safety, and Adam-0 proof suites into strict capability checks.
+- Published `artifacts/release/v<version>/release_dashboard.json` and `artifacts/release/v<version>/release_dashboard.md` as operator-facing summaries.
+- Added CI and docs consistency coverage for the release dashboard generation path.
+
 ## v2.9.5
 
 ### Highlights

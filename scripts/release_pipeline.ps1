@@ -186,6 +186,11 @@ if (-not $SkipPackageCheck) {
     Invoke-Gate -Name "generate-capability-report" -Command {
         Invoke-Python scripts/generate_capability_report.py --strict
     }
+
+    Write-Host "[release] Generating release dashboard..."
+    Invoke-Gate -Name "generate-release-dashboard" -Command {
+        Invoke-Python scripts/generate_release_dashboard.py --strict
+    }
 }
 else {
     Write-Host "[release] Generating blocker verification artifact for reduced evidence mode..."
@@ -212,6 +217,11 @@ else {
     Write-Host "[release] Generating reduced capability report (package checks skipped)..."
     Invoke-Gate -Name "generate-capability-report" -Command {
         Invoke-Python scripts/generate_capability_report.py
+    }
+
+    Write-Host "[release] Generating reduced release dashboard (package checks skipped)..."
+    Invoke-Gate -Name "generate-release-dashboard" -Command {
+        Invoke-Python scripts/generate_release_dashboard.py
     }
 }
 

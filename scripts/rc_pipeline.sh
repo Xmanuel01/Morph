@@ -28,8 +28,10 @@ cargo run -p enkai -- readiness verify-blockers $blocker_args
 if [ "$skip_package" != "1" ]; then
   python3 scripts/collect_release_evidence.py --gpu-log-dir "$gpu_log_dir" --require-gpu --strict
   python3 scripts/generate_capability_report.py --require-gpu --strict
+  python3 scripts/generate_release_dashboard.py --strict
 else
   python3 scripts/collect_release_evidence.py --gpu-log-dir "$gpu_log_dir" --require-gpu
   python3 scripts/generate_capability_report.py --require-gpu
+  python3 scripts/generate_release_dashboard.py
 fi
 echo "[rc] RC pipeline passed with archived evidence."

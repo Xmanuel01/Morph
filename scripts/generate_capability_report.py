@@ -188,6 +188,19 @@ def validate_validation_report(path: pathlib.Path, expected_validation: str) -> 
     return True, path.name
 
 
+def validate_all_passed_report(path: pathlib.Path, label: str) -> tuple[bool, str]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as err:  # pragma: no cover - defensive parse guard
+        return False, f"{path.name}: invalid JSON ({err})"
+
+    if not isinstance(payload, dict):
+        return False, f"{path.name}: report root must be object"
+    if not bool(payload.get("all_passed", False)):
+        return False, f"{path.name}: {label} all_passed is false"
+    return True, path.name
+
+
 def select_benchmark_report_paths(root: pathlib.Path, copied_paths: list[str]) -> list[pathlib.Path]:
     bench_regex = re.compile(r"/dist/benchmark_official_[^/]+\.json$")
     benchmark_paths: list[pathlib.Path] = []
@@ -673,6 +686,74 @@ def build_checks(
                 details=details,
             )
         )
+    determinism_suite = all(
+        has_exact(copied_paths, suffix)
+        for suffix in (
+            "/validation/determinism_event_queue.json",
+            "/validation/determinism_sim_replay.json",
+            "/validation/determinism_sim_coroutines.json",
+            "/validation/determinism_adam0_reference_100.json",
+        )
+    )
+    checks.append(
+        CheckResult(
+            id="proof_determinism_suite",
+            description="Determinism claims are backed by archived validation artifacts",
+            required=True,
+            passed=determinism_suite,
+            details=(
+                "validation/determinism_event_queue.json + validation/determinism_sim_replay.json + validation/determinism_sim_coroutines.json + validation/determinism_adam0_reference_100.json"
+                if determinism_suite
+                else "missing archived determinism validation artifacts"
+            ),
+        )
+    )
+    cpu_correctness_suite = all(
+        has_exact(copied_paths, suffix)
+        for suffix in (
+            "/validation/ffi_correctness.json",
+            "/validation/pool_safety.json",
+            "/validation/ffi_safety.json",
+        )
+    )
+    checks.append(
+        CheckResult(
+            id="proof_cpu_correctness_suite",
+            description="CPU correctness claims are backed by archived sparse/event/pool/FFI safety artifacts",
+            required=True,
+            passed=cpu_correctness_suite,
+            details=(
+                "validation/ffi_correctness.json + validation/pool_safety.json + validation/ffi_safety.json"
+                if cpu_correctness_suite
+                else "missing archived CPU correctness artifacts"
+            ),
+        )
+    )
+    adam0_validation_suite = all(
+        has_exact(copied_paths, suffix)
+        for suffix in (
+            "/validation/adam0_fake10.json",
+            "/validation/adam0_ref100.json",
+            "/validation/adam0_stress1000.json",
+            "/validation/adam0_target10000.json",
+            "/validation/perf_adam0_reference_100.json",
+            "/validation/perf_adam0_reference_1000.json",
+            "/validation/perf_adam0_reference_10000.json",
+        )
+    )
+    checks.append(
+        CheckResult(
+            id="proof_adam0_cpu_suite",
+            description="Adam-0 CPU readiness claims are backed by archived correctness and performance artifacts",
+            required=True,
+            passed=adam0_validation_suite,
+            details=(
+                "validation/adam0_fake10.json + validation/adam0_ref100.json + validation/adam0_stress1000.json + validation/adam0_target10000.json + validation/perf_adam0_reference_100.json + validation/perf_adam0_reference_1000.json + validation/perf_adam0_reference_10000.json"
+                if adam0_validation_suite
+                else "missing archived Adam-0 CPU proof artifacts"
+            ),
+        )
+    )
     validation_cross_platform = (
         has_exact(copied_paths, "/validation/adam0_ref100.json")
         and has_exact(copied_paths, "/validation/adam0_stress1000.json")
@@ -693,6 +774,41 @@ def build_checks(
                 "validation/adam0_ref100.json + validation/adam0_stress1000.json + validation/adam0_target10000.json + validation/determinism_adam0_reference_100.json + validation/perf_adam0_reference_100.json + validation/perf_adam0_reference_1000.json + validation/perf_adam0_reference_10000.json + validation/ffi_safety.json"
                 if validation_cross_platform
                 else "missing validation CPU reference artifacts"
+            ),
+        )
+    )
+    runtime_safety_summary_match = first_match(
+        copied_paths, lambda path: path.endswith("/readiness/runtime_safety.json")
+    )
+    runtime_safety_verify_match = first_match(
+        copied_paths, lambda path: path.endswith("/readiness/runtime_safety_verify.json")
+    )
+    runtime_safety_summary_ok = False
+    runtime_safety_summary_detail = "missing readiness/runtime_safety.json"
+    if runtime_safety_summary_match is not None:
+        runtime_safety_summary_ok, runtime_safety_summary_detail = validate_all_passed_report(
+            root / runtime_safety_summary_match, "runtime safety"
+        )
+        if runtime_safety_summary_ok:
+            runtime_safety_summary_detail = runtime_safety_summary_match
+    runtime_safety_verify_ok = False
+    runtime_safety_verify_detail = "missing readiness/runtime_safety_verify.json"
+    if runtime_safety_verify_match is not None:
+        runtime_safety_verify_ok, runtime_safety_verify_detail = validate_all_passed_report(
+            root / runtime_safety_verify_match, "runtime safety verification"
+        )
+        if runtime_safety_verify_ok:
+            runtime_safety_verify_detail = runtime_safety_verify_match
+    checks.append(
+        CheckResult(
+            id="proof_runtime_safety_suite",
+            description="Runtime/FFI safety claims are backed by archived safety summaries and verification reports",
+            required=True,
+            passed=runtime_safety_summary_ok and runtime_safety_verify_ok,
+            details=(
+                "readiness/runtime_safety.json + readiness/runtime_safety_verify.json"
+                if runtime_safety_summary_ok and runtime_safety_verify_ok
+                else f"{runtime_safety_summary_detail}; {runtime_safety_verify_detail}"
             ),
         )
     )
@@ -1015,6 +1131,39 @@ def build_checks(
                 details=name if present else f"missing gpu/{name}",
             )
         )
+
+    non_hardware_claim_ids = {
+        "release_archive",
+        "release_checksum",
+        "sbom",
+        "benchmark_target",
+        "readiness_full_platform_report",
+        "readiness_full_platform_blocker_report",
+        "proof_cpu_correctness_suite",
+        "proof_determinism_suite",
+        "proof_adam0_cpu_suite",
+        "proof_runtime_safety_suite",
+    }
+    non_hardware_complete = True
+    missing_non_hardware_claims: list[str] = []
+    for claim_id in sorted(non_hardware_claim_ids):
+        matched = next((check for check in checks if check.id == claim_id), None)
+        if matched is None or not matched.passed:
+            non_hardware_complete = False
+            missing_non_hardware_claims.append(claim_id)
+    checks.append(
+        CheckResult(
+            id="claim_non_hardware_release_complete",
+            description="Non-hardware production claims are backed by archived proof artifacts",
+            required=True,
+            passed=non_hardware_complete,
+            details=(
+                "all non-hardware proof groups passed"
+                if non_hardware_complete
+                else "failed or missing proof groups: " + ", ".join(missing_non_hardware_claims)
+            ),
+        )
+    )
 
     return checks
 

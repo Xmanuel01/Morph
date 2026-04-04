@@ -80,10 +80,13 @@ Write-Host "[rc] Verifying full-platform blocker matrix with GPU evidence..."
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $collectArgs = @("scripts/collect_release_evidence.py", "--gpu-log-dir", $GpuLogDir, "--require-gpu")
 $reportArgs = @("scripts/generate_capability_report.py", "--require-gpu")
+$dashboardArgs = @("scripts/generate_release_dashboard.py")
 if (-not $SkipPackageCheck.IsPresent) {
     $collectArgs += "--strict"
     $reportArgs += "--strict"
+    $dashboardArgs += "--strict"
 }
 Invoke-Python @collectArgs
 Invoke-Python @reportArgs
+Invoke-Python @dashboardArgs
 Write-Host "[rc] RC pipeline passed with archived evidence."

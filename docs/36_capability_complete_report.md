@@ -1,6 +1,6 @@
-# 36. Capability-Complete Report (v2.9.5)
+# 36. Capability-Complete Report (v2.9.6)
 
-This document defines the objective release evidence contract for the `v2.9.5`
+This document defines the objective release evidence contract for the `v2.9.6`
 stability cut.
 
 ## Goal
@@ -129,11 +129,14 @@ Core categories:
 Generate report artifacts from the archived manifest:
 
 - `python3 scripts/generate_capability_report.py --require-gpu --strict`
+- `python3 scripts/generate_release_dashboard.py --strict`
 
 Outputs:
 
 - `artifacts/release/v<version>/capability_complete.json`
 - `artifacts/release/v<version>/capability_complete.md`
+- `artifacts/release/v<version>/release_dashboard.json`
+- `artifacts/release/v<version>/release_dashboard.md`
 
 `--strict` fails if any required check fails.
 In strict mode the archived blocker report must also be present and must show:
@@ -152,6 +155,6 @@ In strict mode the archived blocker report must also be present and must show:
 
 The RC wrappers for the current line are:
 
-- `scripts/v2_9_5_rc_pipeline.ps1`
-- `scripts/v2_9_5_rc_pipeline.sh`
+- `scripts/v2_9_6_rc_pipeline.ps1`
+- `scripts/v2_9_6_rc_pipeline.sh`
 

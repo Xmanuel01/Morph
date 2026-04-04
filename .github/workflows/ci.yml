@@ -219,6 +219,7 @@ jobs:
         run: |
           python3 scripts/collect_release_evidence.py --strict
           python3 scripts/generate_capability_report.py --strict
+          python3 scripts/generate_release_dashboard.py --strict
       - name: Upload release evidence artifacts
         uses: actions/upload-artifact@v4
         with:

@@ -49,8 +49,8 @@ Note:
     - `artifacts/readiness/sim_stdlib_evidence_verify.json`
     - `artifacts/readiness/adam0_reference_suite.json`
     - `artifacts/readiness/adam0_reference_suite_verify.json`
-- `artifacts/readiness/runtime_safety.json`
-- `artifacts/readiness/runtime_safety_verify.json`
+    - `artifacts/readiness/runtime_safety.json`
+    - `artifacts/readiness/runtime_safety_verify.json`
     - `artifacts/readiness/model_registry_convergence.json`
     - `artifacts/readiness/model_registry_convergence_verify.json`
     - `artifacts/readiness/cluster_scale_smoke.json`
@@ -88,8 +88,8 @@ Note:
     - `artifacts/registry/local/registry.json`
     - `artifacts/registry/remote/registry.json`
     - `artifacts/registry/cache/registry.json`
-- `artifacts/registry/remote/adam0-sim/v2.9.5/remote.manifest.json`
-- `artifacts/registry/remote/adam0-sim/v2.9.5/remote.manifest.sig`
+    - `artifacts/registry/remote/adam0-sim/v2.9.6/remote.manifest.json`
+    - `artifacts/registry/remote/adam0-sim/v2.9.6/remote.manifest.sig`
     - `artifacts/cluster_scale/run.json`
     - `artifacts/registry_degraded/cache/audit.log.jsonl`
 - [ ] Benchmark target gate (official bounded suite):
@@ -102,10 +102,13 @@ Note:
 - [ ] Version-neutral release pipeline:
   - `powershell -ExecutionPolicy Bypass -File scripts/release_pipeline.ps1`
   - or `sh scripts/release_pipeline.sh`
+  - dashboard helper:
+    - `python3 scripts/generate_release_dashboard.py [--strict]`
   - pipeline note:
     - uses `full_platform` readiness as the canonical non-hardware release gate
     - skips standalone self-host readiness checks because `enkai litec release-ci` is executed separately
     - respects `ENKAI_RELEASE_MIN_FREE_GB` for disk-space preflight
+    - emits `artifacts/release/v<version>/release_dashboard.json` and `artifacts/release/v<version>/release_dashboard.md`
 - [ ] RC pipeline (GPU evidence required by default):
   - `powershell -ExecutionPolicy Bypass -File scripts/rc_pipeline.ps1`
   - or `sh scripts/rc_pipeline.sh`
@@ -122,7 +125,7 @@ Note:
   - `enkai validate determinism --suite sim_replay --runs 10 --json --output artifacts/validation/determinism_sim_replay.json`
   - `enkai validate determinism --suite sim_coroutines --runs 10 --json --output artifacts/validation/determinism_sim_coroutines.json`
   - `enkai validate pool-safety --json --output artifacts/validation/pool_safety.json`
-- `enkai validate ffi-safety --json --output artifacts/validation/ffi_safety.json`
+  - `enkai validate ffi-safety --json --output artifacts/validation/ffi_safety.json`
   - `enkai validate adam0-cpu --scenario fake10 --json --output artifacts/validation/adam0_fake10.json`
   - `enkai validate adam0-cpu --scenario ref100 --json --output artifacts/validation/adam0_ref100.json`
   - `enkai validate adam0-cpu --scenario stress1000 --json --output artifacts/validation/adam0_stress1000.json`
