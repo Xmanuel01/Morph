@@ -15,6 +15,21 @@
   - multi-GPU parity evidence
   - 4-GPU soak evidence
 
+## v2.9.4
+
+### Highlights
+- Advanced the release line to `v2.9.4` with Adam-0 CPU reference proof completion.
+- Replaced the weak Adam-0 smoke posture with a bounded validation ladder for 10 / 100 / 1000 / 10000 CPU cases.
+- Tightened Adam-0 evidence so native kernel dominance, marshal-copy budgets, and replay/state consistency are machine-checked.
+
+### Fixes
+- Added kernel-native counters for sparse/event/pool/spatial/SNN native paths in the runtime bench profile output.
+- Added the lighter official fake-Adam package under `examples/adam0_fake/`.
+- Added the bounded Adam-0 CPU proof suite definition: `bench/suites/adam0_reference_v2_9_4.json`.
+- Tightened `enkai validate adam0-cpu` and `enkai validate perf-baseline` so Adam-0 cases require native-counter minima, kernel-native dominance, and marshal-copy ratio budgets.
+- Hardened Adam-0 suite readiness verification to compare replayed state projections, hardware assumptions, and case-level native-kernel proof counters.
+- Promoted the 1000-agent and 10000-agent CPU validation/perf artifacts into readiness, blocker verification, strict release evidence, and capability reporting.
+
 ## v2.9.3
 
 ### Highlights
@@ -186,7 +201,7 @@
 - Completed the `v2.7.1` Adam-0 reference stack milestone.
 - Added the bounded Adam-0 reference suite:
   - `examples/adam0_reference.enk`
-  - `bench/suites/adam0_reference_v2_7_1.json`
+  - `bench/suites/adam0_reference_v2_9_4.json`
 
 ### Fixes
 - Added release-gated Adam-0 reference suite generation and semantic verification:

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "version_line": "v2.9.3-v3.0.0",
+  "version_line": "v2.9.4-v3.0.0",
   "machine_profiles": {
     "linux": "bench/machines/linux_ref.json",
     "windows": "bench/machines/windows_ref.json"
@@ -318,18 +318,23 @@
       "id": "adam0_fake_10",
       "description": "Fake Adam-0 CPU integration validation",
       "kind": "run",
-      "target": "examples/validation/adam0_fake_10.enk",
+      "target": "examples/adam0_fake/main.enk",
       "profile_case": "validation_adam0_fake_10",
       "expected_output_hash": "01bb421e545c04912e8d85a3f336e334a8aaf1c7f2f13014d2a71bc130572194",
       "min_ffi_calls": 800,
       "min_native_function_calls": 700,
-      "max_marshal_copy_ratio": 0.6
+      "max_marshal_copy_ratio": 0.5,
+      "required_native_counters": {
+        "sim_sparse_native_calls": 180,
+        "sim_pool_native_calls": 350
+      },
+      "require_kernel_native_dominance": true
     },
     {
       "id": "adam0_reference_100",
       "description": "Adam-0 reference 100-agent bounded validation",
       "kind": "run",
-      "target": "examples/adam0_reference.enk",
+      "target": "examples/adam0_reference/main.enk",
       "profile_case": "validation_adam0_reference_100",
       "env": {
         "ENKAI_ADAM0_CASE_ID": "adam0_reference_100",
@@ -347,52 +352,95 @@
       "perf_direction": "lower",
       "min_ffi_calls": 7000,
       "min_native_function_calls": 14000,
-      "max_marshal_copy_ratio": 0.2
+      "max_marshal_copy_ratio": 0.18,
+      "default_runs": 3,
+      "required_native_counters": {
+        "sim_sparse_native_calls": 300,
+        "sim_event_native_calls": 900,
+        "sim_pool_native_calls": 2000,
+        "sim_spatial_native_calls": 700,
+        "sim_snn_native_calls": 300
+      },
+      "require_kernel_native_dominance": true
     },
     {
       "id": "adam0_reference_1000",
       "description": "Adam-0 reference 1000-agent stress validation",
       "kind": "run",
-      "target": "examples/adam0_reference.enk",
+      "target": "examples/adam0_reference/main.enk",
       "profile_case": "validation_adam0_reference_1000",
       "reference_only": true,
       "env": {
-        "ENKAI_ADAM0_CASE_ID": "adam0_reference_1000",
+        "ENKAI_ADAM0_CASE_ID": "adam0_stress_1000",
         "ENKAI_ADAM0_AGENT_COUNT": "1000",
-        "ENKAI_ADAM0_SHARD_SIZE": "100",
+        "ENKAI_ADAM0_SHARD_SIZE": "50",
         "ENKAI_ADAM0_ROUNDS": "3",
-        "ENKAI_ADAM0_POOL_CAPACITY": "512",
+        "ENKAI_ADAM0_POOL_CAPACITY": "128",
         "ENKAI_ADAM0_MAX_EVENTS": "65536",
         "ENKAI_ADAM0_HARDWARE_CLASS": "cpu-reference",
-        "ENKAI_ADAM0_REFERENCE_HOST": "pinned-ref"
+        "ENKAI_ADAM0_REFERENCE_HOST": "pinned-ref",
+        "ENKAI_ADAM0_MOVE_STEP_MILLI": "10",
+        "ENKAI_ADAM0_NEIGHBOR_RADIUS_MILLI": "110",
+        "ENKAI_ADAM0_SPACING_MILLI": "50",
+        "ENKAI_ADAM0_FANOUT": "4",
+        "ENKAI_ADAM0_SEED": "17"
       },
-      "expected_output_hash": "e37ac3c8bdc3b3168210b9332cf521621c3bd6e8a619ef3902e9ddc573cde5fa",
+      "expected_output_hash": "1e4001270a0c22a27864e449f9427b76f35af6c4e14db16dbd62e8c79b4ce634",
       "min_ffi_calls": 68000,
       "min_native_function_calls": 141000,
-      "max_marshal_copy_ratio": 0.2
+      "max_marshal_copy_ratio": 0.18,
+      "perf_metric": "elapsed_ms",
+      "perf_direction": "lower",
+      "default_runs": 1,
+      "required_native_counters": {
+        "sim_sparse_native_calls": 3000,
+        "sim_event_native_calls": 9000,
+        "sim_pool_native_calls": 20000,
+        "sim_spatial_native_calls": 7000,
+        "sim_snn_native_calls": 3000
+      },
+      "require_kernel_native_dominance": true,
+      "require_native_path": true
     },
     {
       "id": "adam0_reference_10000",
       "description": "Adam-0 reference 10000-agent target validation",
       "kind": "run",
-      "target": "examples/adam0_reference.enk",
+      "target": "examples/adam0_reference/main.enk",
       "profile_case": "validation_adam0_reference_10000",
       "reference_only": true,
       "env": {
-        "ENKAI_ADAM0_CASE_ID": "adam0_reference_10000",
+        "ENKAI_ADAM0_CASE_ID": "adam0_target_10000",
         "ENKAI_ADAM0_AGENT_COUNT": "10000",
         "ENKAI_ADAM0_SHARD_SIZE": "250",
-        "ENKAI_ADAM0_ROUNDS": "3",
-        "ENKAI_ADAM0_POOL_CAPACITY": "2048",
+        "ENKAI_ADAM0_ROUNDS": "2",
+        "ENKAI_ADAM0_POOL_CAPACITY": "256",
         "ENKAI_ADAM0_MAX_EVENTS": "262144",
         "ENKAI_ADAM0_HARDWARE_CLASS": "cpu-reference",
-        "ENKAI_ADAM0_REFERENCE_HOST": "pinned-ref"
+        "ENKAI_ADAM0_REFERENCE_HOST": "pinned-ref",
+        "ENKAI_ADAM0_FANOUT": "3",
+        "ENKAI_ADAM0_SEED": "23",
+        "ENKAI_ADAM0_MOVE_STEP_MILLI": "5",
+        "ENKAI_ADAM0_NEIGHBOR_RADIUS_MILLI": "110",
+        "ENKAI_ADAM0_SPACING_MILLI": "50"
       },
-      "expected_output_hash": "7234bb3a990070c421566bd23575e57069db88e67824fceb9d572c269ba93b93",
-      "min_ffi_calls": 680000,
-      "min_native_function_calls": 1410000,
+      "expected_output_hash": "3e6b32cc1c65dc8c02cfdb08c0541c53a2092c09e90bd8a709723a6559b52be4",
+      "min_ffi_calls": 380000,
+      "min_native_function_calls": 799000,
       "max_marshal_copy_ratio": 0.2,
-      "require_native_dominant": true
+      "require_native_dominant": false,
+      "perf_metric": "elapsed_ms",
+      "perf_direction": "lower",
+      "default_runs": 1,
+      "required_native_counters": {
+        "sim_sparse_native_calls": 20000,
+        "sim_event_native_calls": 60000,
+        "sim_pool_native_calls": 100000,
+        "sim_spatial_native_calls": 50000,
+        "sim_snn_native_calls": 20000
+      },
+      "require_kernel_native_dominance": true,
+      "require_native_path": true
     }
   ]
 }

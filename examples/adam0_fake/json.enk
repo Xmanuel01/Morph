@@ -1,0 +1,15 @@
+pub fn parse(text: String) ::
+    return json.parse(text)
+::
+
+pub fn stringify(value) -> String ::
+    return json.stringify(value)
+::
+
+pub fn parse_many(values) ::
+    return json.parse_many(values)
+::
+
+pub fn stringify_many(values) ::
+    return json.stringify_many(values)
+::

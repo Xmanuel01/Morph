@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "profile": "full_platform",
-  "version_line": "v2.5.0-v2.9.3",
+  "version_line": "v2.5.0-v2.9.4",
   "compatibility_policy": "additive_only_v2_x",
   "release_blockers": {
     "non_hardware": {
@@ -56,7 +56,11 @@
         "validation-determinism-adam0-ref100",
         "validation-perf-ffi-noop",
         "validation-perf-sparse-dot",
-        "validation-perf-adam0-ref100"
+        "validation-perf-adam0-ref100",
+        "validation-adam0-stress1000",
+        "validation-adam0-target10000",
+        "validation-perf-adam0-stress1000",
+        "validation-perf-adam0-target10000"
       ]
     },
     "hardware_evidence": {
@@ -171,7 +175,11 @@
         "artifacts/validation/determinism_adam0_reference_100.json",
         "artifacts/validation/perf_ffi_noop.json",
         "artifacts/validation/perf_sparse_dot.json",
-        "artifacts/validation/perf_adam0_reference_100.json"
+        "artifacts/validation/perf_adam0_reference_100.json",
+        "artifacts/validation/adam0_stress1000.json",
+        "artifacts/validation/adam0_target10000.json",
+        "artifacts/validation/perf_adam0_reference_1000.json",
+        "artifacts/validation/perf_adam0_reference_10000.json"
       ]
     }
   }

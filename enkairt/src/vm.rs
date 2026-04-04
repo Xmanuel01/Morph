@@ -474,6 +474,11 @@ struct VmBenchCounters {
     arithmetic_ops: u64,
     compare_ops: u64,
     native_calls: u64,
+    sim_sparse_native_calls: u64,
+    sim_event_native_calls: u64,
+    sim_pool_native_calls: u64,
+    sim_spatial_native_calls: u64,
+    sim_snn_native_calls: u64,
     sim_coroutines_spawned: u64,
     sim_coroutine_emits: u64,
     sim_coroutine_next_waits: u64,
@@ -741,6 +746,11 @@ impl VM {
                 "arithmetic_ops": profile.counters.arithmetic_ops,
                 "compare_ops": profile.counters.compare_ops,
                 "native_function_calls": profile.counters.native_calls,
+                "sim_sparse_native_calls": profile.counters.sim_sparse_native_calls,
+                "sim_event_native_calls": profile.counters.sim_event_native_calls,
+                "sim_pool_native_calls": profile.counters.sim_pool_native_calls,
+                "sim_spatial_native_calls": profile.counters.sim_spatial_native_calls,
+                "sim_snn_native_calls": profile.counters.sim_snn_native_calls,
                 "sim_coroutines_spawned": profile.counters.sim_coroutines_spawned,
                 "sim_coroutine_emits": profile.counters.sim_coroutine_emits,
                 "sim_coroutine_next_waits": profile.counters.sim_coroutine_next_waits,
@@ -759,6 +769,41 @@ impl VM {
         }
         if let Ok(text) = serde_json::to_string_pretty(&report) {
             let _ = std::fs::write(&profile.out_path, text);
+        }
+    }
+
+    fn note_sparse_native_call(&mut self) {
+        if let Some(profile) = self.bench_profile.as_mut() {
+            profile.counters.sim_sparse_native_calls =
+                profile.counters.sim_sparse_native_calls.saturating_add(1);
+        }
+    }
+
+    fn note_event_native_call(&mut self) {
+        if let Some(profile) = self.bench_profile.as_mut() {
+            profile.counters.sim_event_native_calls =
+                profile.counters.sim_event_native_calls.saturating_add(1);
+        }
+    }
+
+    fn note_pool_native_call(&mut self) {
+        if let Some(profile) = self.bench_profile.as_mut() {
+            profile.counters.sim_pool_native_calls =
+                profile.counters.sim_pool_native_calls.saturating_add(1);
+        }
+    }
+
+    fn note_spatial_native_call(&mut self) {
+        if let Some(profile) = self.bench_profile.as_mut() {
+            profile.counters.sim_spatial_native_calls =
+                profile.counters.sim_spatial_native_calls.saturating_add(1);
+        }
+    }
+
+    fn note_snn_native_call(&mut self) {
+        if let Some(profile) = self.bench_profile.as_mut() {
+            profile.counters.sim_snn_native_calls =
+                profile.counters.sim_snn_native_calls.saturating_add(1);
         }
     }
 
@@ -9136,7 +9181,7 @@ impl VM {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::SparseVector(inner) => {
                     let inner = inner.borrow();
-                    if let (Some(handle), Some(bindings)) =
+                    let native_out = if let (Some(handle), Some(bindings)) =
                         (inner.native.clone(), self.sim_accel_bindings())
                     {
                         let encoded = encode_f64_buffer(&dense);
@@ -9144,9 +9189,20 @@ impl VM {
                             bindings.sparse_vector_dot.call(&[handle, encoded])
                         {
                             if out.is_finite() {
-                                return Ok(out);
+                                Some(out)
+                            } else {
+                                None
                             }
+                        } else {
+                            None
                         }
+                    } else {
+                        None
+                    };
+                    if let Some(out) = native_out {
+                        drop(inner);
+                        self.note_sparse_native_call();
+                        return Ok(out);
                     }
                     let mut out = 0.0;
                     for (index, value) in inner.data.iter() {
@@ -9169,17 +9225,24 @@ impl VM {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::SparseMatrix(inner) => {
                     let inner = inner.borrow();
-                    if let (Some(handle), Some(bindings)) =
+                    let native_out = if let (Some(handle), Some(bindings)) =
                         (inner.native.clone(), self.sim_accel_bindings())
                     {
                         let encoded = encode_f64_buffer(&dense);
                         if let Ok(buffer) = bindings.sparse_matrix_matvec.call(&[handle, encoded]) {
-                            if let Ok(out) = decode_f64_buffer(buffer) {
-                                return Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(
-                                    out.into_iter().map(Value::Float).collect(),
-                                )))));
-                            }
+                            decode_f64_buffer(buffer).ok()
+                        } else {
+                            None
                         }
+                    } else {
+                        None
+                    };
+                    if let Some(out) = native_out {
+                        drop(inner);
+                        self.note_sparse_native_call();
+                        return Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                            out.into_iter().map(Value::Float).collect(),
+                        )))));
                     }
                     let max_row = inner
                         .data
@@ -9240,14 +9303,18 @@ impl VM {
                         event: event.clone(),
                     });
                     inner.payloads.insert(seq, event);
-                    if let (Some(handle), Some(bindings)) =
+                    let native_pushed = if let (Some(handle), Some(bindings)) =
                         (inner.native.clone(), self.sim_accel_bindings())
                     {
-                        let _ = bindings.event_queue_push.call(&[
-                            handle,
-                            Value::Float(time),
-                            Value::Int(seq as i64),
-                        ]);
+                        bindings
+                            .event_queue_push
+                            .call(&[handle, Value::Float(time), Value::Int(seq as i64)])
+                            .is_ok()
+                    } else {
+                        false
+                    };
+                    if native_pushed {
+                        self.note_event_native_call();
                     }
                     Ok(())
                 }
@@ -9262,7 +9329,7 @@ impl VM {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::EventQueue(inner) => {
                     let mut inner = inner.borrow_mut();
-                    if let (Some(handle), Some(bindings)) =
+                    let native_item = if let (Some(handle), Some(bindings)) =
                         (inner.native.clone(), self.sim_accel_bindings())
                     {
                         if let Ok(Some((time, seq))) = decode_event_meta(
@@ -9271,12 +9338,20 @@ impl VM {
                         ) {
                             let event = inner.payloads.remove(&seq).unwrap_or(Value::Null);
                             let _ = inner.items.pop();
-                            return Ok(event_record_value(crate::object::ScheduledEvent {
+                            Some(event_record_value(crate::object::ScheduledEvent {
                                 time,
                                 seq,
                                 event,
-                            }));
+                            }))
+                        } else {
+                            None
                         }
+                    } else {
+                        None
+                    };
+                    if let Some(item) = native_item {
+                        self.note_event_native_call();
+                        return Ok(item);
                     }
                     Ok(match inner.items.pop() {
                         Some(item) => {
@@ -9297,7 +9372,7 @@ impl VM {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::EventQueue(inner) => {
                     let inner = inner.borrow();
-                    if let (Some(handle), Some(bindings)) =
+                    let native_item = if let (Some(handle), Some(bindings)) =
                         (inner.native.clone(), self.sim_accel_bindings())
                     {
                         if let Ok(Some((time, seq))) = decode_event_meta(
@@ -9305,12 +9380,21 @@ impl VM {
                             "sim_event_queue_peek",
                         ) {
                             let event = inner.payloads.get(&seq).cloned().unwrap_or(Value::Null);
-                            return Ok(event_record_value(crate::object::ScheduledEvent {
+                            Some(event_record_value(crate::object::ScheduledEvent {
                                 time,
                                 seq,
                                 event,
-                            }));
+                            }))
+                        } else {
+                            None
                         }
+                    } else {
+                        None
+                    };
+                    if let Some(item) = native_item {
+                        drop(inner);
+                        self.note_event_native_call();
+                        return Ok(item);
                     }
                     Ok(inner
                         .items
@@ -9330,14 +9414,25 @@ impl VM {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::EventQueue(inner) => {
                     let inner = inner.borrow();
-                    if let (Some(handle), Some(bindings)) =
+                    let native_len = if let (Some(handle), Some(bindings)) =
                         (inner.native.clone(), self.sim_accel_bindings())
                     {
                         if let Ok(Value::Int(len)) = bindings.event_queue_len.call(&[handle]) {
                             if len >= 0 {
-                                return Ok(len as usize);
+                                Some(len as usize)
+                            } else {
+                                None
                             }
+                        } else {
+                            None
                         }
+                    } else {
+                        None
+                    };
+                    if let Some(len) = native_len {
+                        drop(inner);
+                        self.note_event_native_call();
+                        return Ok(len);
                     }
                     Ok(inner.items.len())
                 }
@@ -9363,6 +9458,9 @@ impl VM {
                 .call(&[Value::Int(capacity as i64), Value::Bool(growable)])
                 .ok()
         });
+        if native.is_some() {
+            self.note_pool_native_call();
+        }
         Ok(pool_value_with_native(capacity, growable, native))
     }
 
@@ -9371,10 +9469,15 @@ impl VM {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::Pool(inner) => {
                     let mut inner = inner.borrow_mut();
-                    if let (Some(handle), Some(bindings)) =
+                    let native_hit = if let (Some(handle), Some(bindings)) =
                         (inner.native.clone(), self.sim_accel_bindings())
                     {
-                        let _ = bindings.pool_acquire.call(&[handle]);
+                        bindings.pool_acquire.call(&[handle]).is_ok()
+                    } else {
+                        false
+                    };
+                    if native_hit {
+                        self.note_pool_native_call();
                     }
                     if let Some(value) = inner.items.pop() {
                         inner.acquire_hits = inner.acquire_hits.saturating_add(1);
@@ -9395,7 +9498,7 @@ impl VM {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::Pool(inner) => {
                     let mut inner = inner.borrow_mut();
-                    if let (Some(handle), Some(bindings)) =
+                    let native_outcome = if let (Some(handle), Some(bindings)) =
                         (inner.native.clone(), self.sim_accel_bindings())
                     {
                         if let Ok(Value::Bool(accepted)) =
@@ -9411,6 +9514,18 @@ impl VM {
                                     inner.capacity = capacity as usize;
                                 }
                             }
+                            Some(accepted)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                    if let Some(accepted) = native_outcome {
+                        self.note_pool_native_call();
+                        if !accepted {
+                            inner.dropped_on_full = inner.dropped_on_full.saturating_add(1);
+                            return Ok(false);
                         }
                     }
                     if inner.items.len() >= inner.capacity {
@@ -9441,10 +9556,15 @@ impl VM {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::Pool(inner) => {
                     let mut inner = inner.borrow_mut();
-                    if let (Some(handle), Some(bindings)) =
+                    let native_reset = if let (Some(handle), Some(bindings)) =
                         (inner.native.clone(), self.sim_accel_bindings())
                     {
-                        let _ = bindings.pool_reset.call(&[handle]);
+                        bindings.pool_reset.call(&[handle]).is_ok()
+                    } else {
+                        false
+                    };
+                    if native_reset {
+                        self.note_pool_native_call();
                     }
                     inner.items.clear();
                     Ok(())
@@ -9460,14 +9580,25 @@ impl VM {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::Pool(inner) => {
                     let inner = inner.borrow();
-                    if let (Some(handle), Some(bindings)) =
+                    let native_available = if let (Some(handle), Some(bindings)) =
                         (inner.native.clone(), self.sim_accel_bindings())
                     {
                         if let Ok(Value::Int(available)) = bindings.pool_available.call(&[handle]) {
                             if available >= 0 {
-                                return Ok(available as usize);
+                                Some(available as usize)
+                            } else {
+                                None
                             }
+                        } else {
+                            None
                         }
+                    } else {
+                        None
+                    };
+                    if let Some(available) = native_available {
+                        drop(inner);
+                        self.note_pool_native_call();
+                        return Ok(available);
                     }
                     Ok(inner.items.len())
                 }
@@ -9482,14 +9613,25 @@ impl VM {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::Pool(inner) => {
                     let inner = inner.borrow();
-                    if let (Some(handle), Some(bindings)) =
+                    let native_capacity = if let (Some(handle), Some(bindings)) =
                         (inner.native.clone(), self.sim_accel_bindings())
                     {
                         if let Ok(Value::Int(capacity)) = bindings.pool_capacity.call(&[handle]) {
                             if capacity >= 0 {
-                                return Ok(capacity as usize);
+                                Some(capacity as usize)
+                            } else {
+                                None
                             }
+                        } else {
+                            None
                         }
+                    } else {
+                        None
+                    };
+                    if let Some(capacity) = native_capacity {
+                        drop(inner);
+                        self.note_pool_native_call();
+                        return Ok(capacity);
                     }
                     Ok(inner.capacity)
                 }
@@ -9504,6 +9646,7 @@ impl VM {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::Pool(inner) => {
                     let inner = inner.borrow();
+                    let growable = inner.growable;
                     let mut available = inner.items.len() as i64;
                     let mut capacity = inner.capacity as i64;
                     let mut acquire_hits = inner.acquire_hits as i64;
@@ -9511,7 +9654,7 @@ impl VM {
                     let mut releases = inner.releases as i64;
                     let mut dropped_on_full = inner.dropped_on_full as i64;
                     let mut high_watermark = inner.high_watermark as i64;
-                    if let (Some(handle), Some(bindings)) =
+                    let native_stats = if let (Some(handle), Some(bindings)) =
                         (inner.native.clone(), self.sim_accel_bindings())
                     {
                         if let Ok(stats) = bindings.pool_stats.call(std::slice::from_ref(&handle)) {
@@ -9533,11 +9676,18 @@ impl VM {
                         }
                         dropped_on_full = inner.dropped_on_full as i64;
                         high_watermark = inner.high_watermark as i64;
+                        true
+                    } else {
+                        false
+                    };
+                    if native_stats {
+                        drop(inner);
+                        self.note_pool_native_call();
                     }
                     Ok(record_value(HashMap::from([
                         ("available".to_string(), Value::Int(available)),
                         ("capacity".to_string(), Value::Int(capacity)),
-                        ("growable".to_string(), Value::Bool(inner.growable)),
+                        ("growable".to_string(), Value::Bool(growable)),
                         ("acquire_hits".to_string(), Value::Int(acquire_hits)),
                         ("acquire_misses".to_string(), Value::Int(acquire_misses)),
                         ("releases".to_string(), Value::Int(releases)),
@@ -9555,6 +9705,9 @@ impl VM {
         let native = self
             .sim_accel_bindings()
             .and_then(|bindings| bindings.spatial_index_new.call(&[]).ok());
+        if native.is_some() {
+            self.note_spatial_native_call();
+        }
         spatial_index_value_with_native(native)
     }
 
@@ -9573,15 +9726,23 @@ impl VM {
                 Obj::SpatialIndex(inner) => {
                     let mut inner = inner.borrow_mut();
                     inner.positions.insert(entity_id, (x, y));
-                    if let (Some(handle), Some(bindings)) =
+                    let native_upsert = if let (Some(handle), Some(bindings)) =
                         (inner.native.clone(), self.sim_accel_bindings())
                     {
-                        let _ = bindings.spatial_upsert.call(&[
-                            handle,
-                            Value::Int(entity_id),
-                            Value::Float(x),
-                            Value::Float(y),
-                        ]);
+                        bindings
+                            .spatial_upsert
+                            .call(&[
+                                handle,
+                                Value::Int(entity_id),
+                                Value::Float(x),
+                                Value::Float(y),
+                            ])
+                            .is_ok()
+                    } else {
+                        false
+                    };
+                    if native_upsert {
+                        self.note_spatial_native_call();
                     }
                     Ok(())
                 }
@@ -9598,15 +9759,23 @@ impl VM {
                 Obj::SpatialIndex(inner) => {
                     let mut inner = inner.borrow_mut();
                     let removed = inner.positions.remove(&entity_id).is_some();
-                    if let (Some(handle), Some(bindings)) =
+                    let native_removed = if let (Some(handle), Some(bindings)) =
                         (inner.native.clone(), self.sim_accel_bindings())
                     {
                         if let Ok(Value::Bool(native_removed)) = bindings
                             .spatial_remove
                             .call(&[handle, Value::Int(entity_id)])
                         {
-                            return Ok(native_removed || removed);
+                            Some(native_removed)
+                        } else {
+                            None
                         }
+                    } else {
+                        None
+                    };
+                    if let Some(native_removed) = native_removed {
+                        self.note_spatial_native_call();
+                        return Ok(native_removed || removed);
                     }
                     Ok(removed)
                 }
@@ -9635,7 +9804,7 @@ impl VM {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::SpatialIndex(inner) => {
                     let inner = inner.borrow();
-                    if let (Some(handle), Some(bindings)) =
+                    let native_ids = if let (Some(handle), Some(bindings)) =
                         (inner.native.clone(), self.sim_accel_bindings())
                     {
                         if let Ok(buffer) = bindings.spatial_radius.call(&[
@@ -9644,12 +9813,19 @@ impl VM {
                             Value::Float(y),
                             Value::Float(radius),
                         ]) {
-                            if let Ok(ids) = decode_i64_buffer(buffer, "sim_spatial_radius") {
-                                return Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(
-                                    ids.into_iter().map(Value::Int).collect(),
-                                )))));
-                            }
+                            decode_i64_buffer(buffer, "sim_spatial_radius").ok()
+                        } else {
+                            None
                         }
+                    } else {
+                        None
+                    };
+                    if let Some(ids) = native_ids {
+                        drop(inner);
+                        self.note_spatial_native_call();
+                        return Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                            ids.into_iter().map(Value::Int).collect(),
+                        )))));
                     }
                     let radius_sq = radius * radius;
                     let mut ids: Vec<(f64, i64)> = inner
@@ -9690,7 +9866,7 @@ impl VM {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::SpatialIndex(inner) => {
                     let inner = inner.borrow();
-                    if let (Some(handle), Some(bindings)) =
+                    let native_id = if let (Some(handle), Some(bindings)) =
                         (inner.native.clone(), self.sim_accel_bindings())
                     {
                         if let Ok(Value::Int(id)) = bindings.spatial_nearest.call(&[
@@ -9698,8 +9874,17 @@ impl VM {
                             Value::Float(x),
                             Value::Float(y),
                         ]) {
-                            return Ok(if id >= 0 { Value::Int(id) } else { Value::Null });
+                            Some(id)
+                        } else {
+                            None
                         }
+                    } else {
+                        None
+                    };
+                    if let Some(id) = native_id {
+                        drop(inner);
+                        self.note_spatial_native_call();
+                        return Ok(if id >= 0 { Value::Int(id) } else { Value::Null });
                     }
                     let nearest = inner
                         .positions
@@ -9739,7 +9924,7 @@ impl VM {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::SpatialIndex(inner) => {
                     let inner = inner.borrow();
-                    if let (Some(handle), Some(bindings)) =
+                    let native_count = if let (Some(handle), Some(bindings)) =
                         (inner.native.clone(), self.sim_accel_bindings())
                     {
                         if let Ok(Value::Int(count)) = bindings.spatial_occupancy.call(&[
@@ -9749,8 +9934,17 @@ impl VM {
                             Value::Float(max_x),
                             Value::Float(max_y),
                         ]) {
-                            return Ok(count.max(0));
+                            Some(count.max(0))
+                        } else {
+                            None
                         }
+                    } else {
+                        None
+                    };
+                    if let Some(count) = native_count {
+                        drop(inner);
+                        self.note_spatial_native_call();
+                        return Ok(count);
                     }
                     Ok(inner
                         .positions
@@ -9777,6 +9971,12 @@ impl VM {
                 .call(&[Value::Int(neuron_count as i64)])
                 .ok()
         });
+        if sparse_native.is_some() {
+            self.note_sparse_native_call();
+        }
+        if network_native.is_some() {
+            self.note_snn_native_call();
+        }
         let synapses = sparse_matrix_value_with_native(sparse_native);
         Ok(snn_network_value(neuron_count, synapses, network_native))
     }
@@ -9813,13 +10013,23 @@ impl VM {
                         Value::Int(to_idx),
                         Value::Float(weight),
                     )?;
-                    if let (Some(handle), Some(bindings)) = (handle, self.sim_accel_bindings()) {
-                        let _ = bindings.snn_connect.call(&[
-                            handle,
-                            Value::Int(from_idx),
-                            Value::Int(to_idx),
-                            Value::Float(weight),
-                        ]);
+                    let native_connect = if let (Some(handle), Some(bindings)) =
+                        (handle, self.sim_accel_bindings())
+                    {
+                        bindings
+                            .snn_connect
+                            .call(&[
+                                handle,
+                                Value::Int(from_idx),
+                                Value::Int(to_idx),
+                                Value::Float(weight),
+                            ])
+                            .is_ok()
+                    } else {
+                        false
+                    };
+                    if native_connect {
+                        self.note_snn_native_call();
                     }
                     Ok(())
                 }
@@ -10004,7 +10214,7 @@ impl VM {
                     for (idx, value) in dense.into_iter().take(neuron_count).enumerate() {
                         input_vec[idx] = value;
                     }
-                    if let (Some(handle), Some(bindings)) =
+                    let native_step = if let (Some(handle), Some(bindings)) =
                         (inner.native.clone(), self.sim_accel_bindings())
                     {
                         let encoded = encode_f64_buffer(&input_vec);
@@ -10014,7 +10224,7 @@ impl VM {
                             {
                                 inner.potentials = potentials;
                                 inner.last_spikes = spikes.clone();
-                                return Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                                Some(Value::Obj(ObjRef::new(Obj::List(RefCell::new(
                                     spikes
                                         .into_iter()
                                         .enumerate()
@@ -10022,9 +10232,19 @@ impl VM {
                                             fired.then_some(Value::Int(idx as i64))
                                         })
                                         .collect(),
-                                )))));
+                                )))))
+                            } else {
+                                None
                             }
+                        } else {
+                            None
                         }
+                    } else {
+                        None
+                    };
+                    if let Some(value) = native_step {
+                        self.note_snn_native_call();
+                        return Ok(value);
                     }
                     let mut recurrent = vec![0.0; neuron_count];
                     let synapses = inner.synapses.clone();

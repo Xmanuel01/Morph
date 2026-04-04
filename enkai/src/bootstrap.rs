@@ -2227,9 +2227,7 @@ mod tests {
     }
 
     fn cli_binary_path() -> PathBuf {
-        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .expect("repo root");
+        let repo_root = repo_root();
         let binary = repo_root
             .join("target")
             .join("debug")
@@ -2243,17 +2241,30 @@ mod tests {
         binary
     }
 
+    fn repo_root() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("repo root")
+            .to_path_buf()
+    }
+
     #[test]
     fn fmt_lite_formats_like_rust_formatter() {
+        let binary = cli_binary_path();
+        let repo_root = repo_root();
         let dir = tempdir().expect("tempdir");
         let file_lite = dir.path().join("lite.enk");
         let file_rust = dir.path().join("rust.enk");
         let source = "if true ::\nprint(\"hi\")\n::\n";
         fs::write(&file_lite, source).expect("write lite");
         fs::write(&file_rust, source).expect("write rust");
-        let lite_code = fmt_lite_command(&[file_lite.to_string_lossy().to_string()]);
+        let lite_status = Command::new(&binary)
+            .current_dir(&repo_root)
+            .args(["fmt-lite", file_lite.to_string_lossy().as_ref()])
+            .status()
+            .expect("spawn fmt-lite");
         let rust_code = super::super::fmt_command(&[file_rust.to_string_lossy().to_string()]);
-        assert_eq!(lite_code, 0);
+        assert!(lite_status.success());
         assert_eq!(rust_code, 0);
         let lite_out = fs::read_to_string(file_lite).expect("read lite");
         let rust_out = fs::read_to_string(file_rust).expect("read rust");
@@ -2262,11 +2273,18 @@ mod tests {
 
     #[test]
     fn fmt_lite_check_matches_rust_exit_code() {
+        let binary = cli_binary_path();
+        let repo_root = repo_root();
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("bad.enk");
         fs::write(&file, "if true ::\nprint(\"hi\")\n::\n").expect("write");
-        let lite_code =
-            fmt_lite_command(&["--check".to_string(), file.to_string_lossy().to_string()]);
+        let lite_code = Command::new(&binary)
+            .current_dir(&repo_root)
+            .args(["fmt-lite", "--check", file.to_string_lossy().as_ref()])
+            .status()
+            .expect("spawn fmt-lite --check")
+            .code()
+            .unwrap_or(-1);
         let rust_code =
             super::super::fmt_command(&["--check".to_string(), file.to_string_lossy().to_string()]);
         assert_eq!(lite_code, rust_code);
@@ -2274,37 +2292,57 @@ mod tests {
 
     #[test]
     fn lint_lite_deny_warn_enforces_failure() {
+        let binary = cli_binary_path();
+        let repo_root = repo_root();
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("lint.enk");
         fs::write(&file, "fn main() ::\n\tprint(\"tab\")   \n::\n").expect("write");
-        let soft = lint_lite_command(&[file.to_string_lossy().to_string()]);
-        let strict = lint_lite_command(&[
-            "--deny-warn".to_string(),
-            file.to_string_lossy().to_string(),
-        ]);
+        let soft = Command::new(&binary)
+            .current_dir(&repo_root)
+            .args(["lint-lite", file.to_string_lossy().as_ref()])
+            .status()
+            .expect("spawn lint-lite")
+            .code()
+            .unwrap_or(-1);
+        let strict = Command::new(&binary)
+            .current_dir(&repo_root)
+            .args(["lint-lite", "--deny-warn", file.to_string_lossy().as_ref()])
+            .status()
+            .expect("spawn lint-lite --deny-warn")
+            .code()
+            .unwrap_or(-1);
         assert_eq!(soft, 0);
         assert_eq!(strict, 1);
     }
 
     #[test]
     fn tokenizer_lite_train_matches_rust_baseline() {
+        let binary = cli_binary_path();
+        let repo_root = repo_root();
         let dir = tempdir().expect("tempdir");
         let data = dir.path().join("data.txt");
         fs::write(&data, "Hello world\nhello model\n").expect("data");
         let lite_tok = dir.path().join("lite.tokenizer.json");
         let rust_tok = dir.path().join("rust.tokenizer.json");
-        let code = tokenizer_lite_command(&[
-            "train".to_string(),
-            data.to_string_lossy().to_string(),
-            lite_tok.to_string_lossy().to_string(),
-            "--vocab-size".to_string(),
-            "64".to_string(),
-            "--min-freq".to_string(),
-            "1".to_string(),
-            "--seed".to_string(),
-            "42".to_string(),
-            "--lowercase".to_string(),
-        ]);
+        let code = Command::new(&binary)
+            .current_dir(&repo_root)
+            .args([
+                "tokenizer-lite",
+                "train",
+                data.to_string_lossy().as_ref(),
+                lite_tok.to_string_lossy().as_ref(),
+                "--vocab-size",
+                "64",
+                "--min-freq",
+                "1",
+                "--seed",
+                "42",
+                "--lowercase",
+            ])
+            .status()
+            .expect("spawn tokenizer-lite train")
+            .code()
+            .unwrap_or(-1);
         assert_eq!(code, 0);
         let cfg = TrainConfig {
             vocab_size: 64,

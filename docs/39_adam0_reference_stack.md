@@ -1,6 +1,6 @@
-# 39. Adam-0 Reference Stack (v2.7.1)
+# 39. Adam-0 Reference Stack (v2.9.4)
 
-This document defines the bounded `v2.7.1` Adam-0 reference stack and the
+This document defines the bounded `v2.9.4` Adam-0 reference stack and the
 release evidence required to claim the milestone is complete.
 
 ## Scope
@@ -14,9 +14,10 @@ release evidence required to claim the milestone is complete.
 
 ## Reference Workload
 
-- entrypoint: `examples/adam0_reference.enk`
+- reference package entrypoint: `examples/adam0_reference/main.enk`
+- fake integration package entrypoint: `examples/adam0_fake/main.enk`
 - official suite definition:
-  - `bench/suites/adam0_reference_v2_7_1.json`
+  - `bench/suites/adam0_reference_v2_9_4.json`
 
 Suite cases:
 - `adam0_baseline_100`
@@ -66,7 +67,7 @@ Required archived artifacts:
 
 ## Acceptance
 
-`v2.7.1` is complete only when:
+`v2.9.4` is complete only when:
 - all three suite cases complete successfully
 - archived verification passes
 - native evidence is visible in profiles:

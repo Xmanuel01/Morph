@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -44,6 +45,8 @@ struct ValidationSuite {
     min_native_function_calls: Option<u64>,
     max_marshal_copy_ratio: Option<f64>,
     require_native_dominant: Option<bool>,
+    required_native_counters: Option<BTreeMap<String, u64>>,
+    require_kernel_native_dominance: Option<bool>,
     reference_only: Option<bool>,
 }
 
@@ -132,6 +135,38 @@ fn profile_counter_u64(profile: &serde_json::Value, key: &str) -> u64 {
         .unwrap_or(0)
 }
 
+fn evaluate_required_native_counters(
+    profile: &serde_json::Value,
+    required: Option<&BTreeMap<String, u64>>,
+) -> (serde_json::Value, bool, u64) {
+    let mut checks = serde_json::Map::new();
+    let mut all_passed = true;
+    let mut total_observed = 0u64;
+    if let Some(required) = required {
+        for (counter, minimum) in required {
+            let observed = profile_counter_u64(profile, counter);
+            total_observed = total_observed.saturating_add(observed);
+            let passed = observed >= *minimum;
+            if !passed {
+                all_passed = false;
+            }
+            checks.insert(
+                counter.clone(),
+                json!({
+                    "minimum": minimum,
+                    "observed": observed,
+                    "passed": passed
+                }),
+            );
+        }
+    }
+    (
+        serde_json::Value::Object(checks),
+        all_passed,
+        total_observed,
+    )
+}
+
 fn native_path_exercised(profile: &serde_json::Value) -> bool {
     profile_counter_u64(profile, "ffi_calls") > 0
         && profile_counter_u64(profile, "native_function_calls") > 0
@@ -200,10 +235,10 @@ pub fn validate_command(args: &[String]) -> i32 {
 pub fn print_validate_usage() {
     eprintln!("  enkai validate ffi-correctness [--json] [--output <file>]");
     eprintln!(
-        "  enkai validate determinism --suite <event_queue|sim_replay|adam0_reference_100> [--runs <n>] [--json] [--output <file>]"
+        "  enkai validate determinism --suite <event_queue|sim_replay|sim_coroutines|adam0_reference_100> [--runs <n>] [--json] [--output <file>]"
     );
     eprintln!(
-        "  enkai validate perf-baseline --suite <ffi_noop|sparse_dot|adam0_reference_100> [--json] [--output <file>]"
+        "  enkai validate perf-baseline --suite <ffi_noop|sparse_dot|adam0_reference_100|adam0_reference_1000|adam0_reference_10000> [--json] [--output <file>]"
     );
     eprintln!("  enkai validate pool-safety [--json] [--output <file>]");
     eprintln!(
@@ -562,7 +597,39 @@ fn perf_baseline_command(args: &[String]) -> i32 {
             return 1;
         }
     };
-    let passed = assessment.as_ref().map(|item| item.passed).unwrap_or(true);
+    let profile = run.profile.clone().unwrap_or(serde_json::Value::Null);
+    let counters = profile
+        .get("counters")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let ffi_calls = counters
+        .get("ffi_calls")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0);
+    let marshal_copy_ops = counters
+        .get("marshal_copy_ops")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0);
+    let marshal_copy_ratio = if ffi_calls > 0 {
+        marshal_copy_ops as f64 / ffi_calls as f64
+    } else {
+        0.0
+    };
+    let (required_native_counter_checks, required_native_counters_ok, total_kernel_native_calls) =
+        evaluate_required_native_counters(&profile, suite.required_native_counters.as_ref());
+    let kernel_native_dominance = total_kernel_native_calls > marshal_copy_ops;
+    let kernel_native_dominance_ok = suite
+        .require_kernel_native_dominance
+        .map(|required| !required || kernel_native_dominance)
+        .unwrap_or(true);
+    let marshal_ratio_ok = suite
+        .max_marshal_copy_ratio
+        .map(|maximum| marshal_copy_ratio <= maximum)
+        .unwrap_or(true);
+    let passed = assessment.as_ref().map(|item| item.passed).unwrap_or(true)
+        && required_native_counters_ok
+        && kernel_native_dominance_ok
+        && marshal_ratio_ok;
     let payload = json!({
         "schema_version": 1,
         "validation": "perf_baseline",
@@ -589,7 +656,18 @@ fn perf_baseline_command(args: &[String]) -> i32 {
             "observed_value": item.observed_value,
             "passed": item.passed
         })),
-        "profile": run.profile,
+        "profile": profile,
+        "proof_checks": {
+            "required_native_counters": suite.required_native_counters,
+            "required_native_counters_passed": required_native_counters_ok,
+            "required_native_counter_checks": required_native_counter_checks,
+            "kernel_native_calls_total": total_kernel_native_calls,
+            "require_kernel_native_dominance": suite.require_kernel_native_dominance.unwrap_or(false),
+            "require_kernel_native_dominance_passed": kernel_native_dominance_ok,
+            "max_marshal_copy_ratio": suite.max_marshal_copy_ratio,
+            "max_marshal_copy_ratio_passed": marshal_ratio_ok,
+            "marshal_copy_ratio": marshal_copy_ratio
+        },
         "output_hash": run.output_hash,
     });
     emit_validation_payload(
@@ -812,6 +890,13 @@ fn adam0_cpu_command(args: &[String]) -> i32 {
         0.0
     };
     let hot_path_native_dominant = native_ms >= vm_ms;
+    let (required_native_counter_checks, required_native_counters_ok, total_kernel_native_calls) =
+        evaluate_required_native_counters(&profile, suite.required_native_counters.as_ref());
+    let kernel_native_dominance = total_kernel_native_calls > marshal_copy_ops;
+    let kernel_native_dominance_ok = suite
+        .require_kernel_native_dominance
+        .map(|required| !required || kernel_native_dominance)
+        .unwrap_or(true);
     let output_hash_matches = suite
         .expected_output_hash
         .as_ref()
@@ -839,6 +924,8 @@ fn adam0_cpu_command(args: &[String]) -> i32 {
         && min_native_ok
         && marshal_ratio_ok
         && native_dominant_ok
+        && required_native_counters_ok
+        && kernel_native_dominance_ok
         && handle_live_count_zero;
     let payload = json!({
         "schema_version": 1,
@@ -860,6 +947,8 @@ fn adam0_cpu_command(args: &[String]) -> i32 {
             "native_time_ms": native_ms,
             "vm_exec_ms": vm_ms,
             "native_dominant": hot_path_native_dominant,
+            "kernel_native_calls_total": total_kernel_native_calls,
+            "kernel_native_dominance": kernel_native_dominance,
         },
         "proof_checks": {
             "expected_output_hash": suite.expected_output_hash,
@@ -872,6 +961,11 @@ fn adam0_cpu_command(args: &[String]) -> i32 {
             "max_marshal_copy_ratio_passed": marshal_ratio_ok,
             "require_native_dominant": suite.require_native_dominant.unwrap_or(false),
             "require_native_dominant_passed": native_dominant_ok,
+            "required_native_counters": suite.required_native_counters,
+            "required_native_counters_passed": required_native_counters_ok,
+            "required_native_counter_checks": required_native_counter_checks,
+            "require_kernel_native_dominance": suite.require_kernel_native_dominance.unwrap_or(false),
+            "require_kernel_native_dominance_passed": kernel_native_dominance_ok,
             "handle_live_count_after_run": handle_check.result,
             "handle_live_count_zero": handle_live_count_zero
         },
@@ -1206,7 +1300,7 @@ fn run_validation_suite_impl(
             target.display()
         ));
     }
-    let program = load_program_from_target(&target)?;
+    let program = with_bundled_std(|| load_program_from_target(&target))?;
     execute_validation_program(&program, suite, override_env, profile_output)
 }
 
@@ -1300,7 +1394,7 @@ fn perf_metrics_for_suite(
             "iterations": iterations,
             "ops_per_sec": if elapsed_s > 0.0 { iterations / elapsed_s } else { 0.0 },
         })),
-        "adam0_reference_100" => Ok(json!({
+        "adam0_reference_100" | "adam0_reference_1000" | "adam0_reference_10000" => Ok(json!({
             "agent_count": run.result.get("agent_count").and_then(|value| value.as_i64()).unwrap_or_default(),
             "elapsed_ms": run.elapsed_ms,
             "ops_per_sec": if elapsed_s > 0.0 { 1.0 / elapsed_s } else { 0.0 },
@@ -1339,7 +1433,7 @@ fn load_suite_program(suite: &ValidationSuite) -> Result<Program, String> {
             target.display()
         ));
     }
-    load_program_from_target(&target)
+    with_bundled_std(|| load_program_from_target(&target))
 }
 
 fn load_program_from_target(target: &Path) -> Result<enkai_compiler::bytecode::Program, String> {
@@ -1374,6 +1468,41 @@ fn compile_source_module(
         .check_module(&module)
         .map_err(|err| err.message.clone())?;
     compile_module(&module).map_err(|err| err.message)
+}
+
+fn with_bundled_std<T>(f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    let _guard = crate::env_guard();
+    let std_override = if env::var_os("ENKAI_STD").is_none() {
+        let bundled_std = workspace_root().join("std");
+        bundled_std.is_dir().then_some(bundled_std)
+    } else {
+        None
+    };
+    let previous_std = if std_override.is_some() {
+        env::var_os("ENKAI_STD")
+    } else {
+        None
+    };
+    if let Some(std_path) = &std_override {
+        unsafe {
+            env::set_var("ENKAI_STD", std_path);
+        }
+    }
+    let result = f();
+    if std_override.is_some() {
+        unsafe {
+            restore_env_var("ENKAI_STD", previous_std);
+        }
+    }
+    result
+}
+
+unsafe fn restore_env_var(key: &str, value: Option<OsString>) {
+    if let Some(value) = value {
+        env::set_var(key, value);
+    } else {
+        env::remove_var(key);
+    }
 }
 
 fn value_to_json(value: &Value) -> serde_json::Value {

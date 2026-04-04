@@ -1,6 +1,6 @@
-# 36. Capability-Complete Report (v2.9.3)
+# 36. Capability-Complete Report (v2.9.4)
 
-This document defines the objective release evidence contract for the `v2.9.3`
+This document defines the objective release evidence contract for the `v2.9.4`
 stability cut.
 
 ## Goal
@@ -88,12 +88,17 @@ Core categories:
 - `validation/determinism_event_queue.json`
 - `validation/determinism_sim_replay.json`
 - `validation/determinism_adam0_reference_100.json`
+- `validation/determinism_sim_coroutines.json`
 - `validation/pool_safety.json`
 - `validation/adam0_fake10.json`
 - `validation/adam0_ref100.json`
+- `validation/adam0_stress1000.json`
+- `validation/adam0_target10000.json`
   - `validation/perf_ffi_noop.json`
   - `validation/perf_sparse_dot.json`
   - `validation/perf_adam0_reference_100.json`
+  - `validation/perf_adam0_reference_1000.json`
+  - `validation/perf_adam0_reference_10000.json`
 - `registry/`:
   - `registry/sim_lineage.json`
   - `registry/sim_snapshot.manifest.json`

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "version_line": "v2.9.3-v3.0.0",
+  "version_line": "v2.9.4-v3.0.0",
   "profiles": {
     "windows_local": {
       "machine_profile": "bench/machines/windows_local.json",
@@ -21,6 +21,18 @@
           "metric": "elapsed_ms",
           "better": "lower",
           "baseline": 289.2465,
+          "regression_budget_pct": 20.0
+        },
+        "adam0_reference_1000": {
+          "metric": "elapsed_ms",
+          "better": "lower",
+          "baseline": 2654.6901,
+          "regression_budget_pct": 20.0
+        },
+        "adam0_reference_10000": {
+          "metric": "elapsed_ms",
+          "better": "lower",
+          "baseline": 34069.6384,
           "regression_budget_pct": 20.0
         }
       }

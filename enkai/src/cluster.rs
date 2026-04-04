@@ -457,7 +457,7 @@ fn build_cluster_plan(config_path: &Path) -> Result<ClusterPlan, String> {
         let partition_count = json_usize_with_default(sim_obj, "partition_count", world_size)?;
         if partition_count != world_size {
             return Err(format!(
-                "simulation.partition_count must equal world_size for v2.9.3 (expected {}, found {})",
+                "simulation.partition_count must equal world_size for v2.9.4 (expected {}, found {})",
                 world_size, partition_count
             ));
         }

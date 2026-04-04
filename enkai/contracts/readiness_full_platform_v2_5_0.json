@@ -677,6 +677,34 @@
       ]
     },
     {
+      "id": "validation-adam0-stress1000",
+      "description": "Adam-0 1000-agent CPU stress validation suite",
+      "command": [
+        "${ENKAI_BIN}",
+        "validate",
+        "adam0-cpu",
+        "--scenario",
+        "stress1000",
+        "--json",
+        "--output",
+        "artifacts/validation/adam0_stress1000.json"
+      ]
+    },
+    {
+      "id": "validation-adam0-target10000",
+      "description": "Adam-0 10000-agent bounded CPU target validation suite",
+      "command": [
+        "${ENKAI_BIN}",
+        "validate",
+        "adam0-cpu",
+        "--scenario",
+        "target10000",
+        "--json",
+        "--output",
+        "artifacts/validation/adam0_target10000.json"
+      ]
+    },
+    {
       "id": "validation-determinism-adam0-ref100",
       "description": "Adam-0 100-agent determinism validation suite",
       "command": [
@@ -733,6 +761,34 @@
         "--json",
         "--output",
         "artifacts/validation/perf_adam0_reference_100.json"
+      ]
+    },
+    {
+      "id": "validation-perf-adam0-stress1000",
+      "description": "Adam-0 1000-agent performance baseline capture",
+      "command": [
+        "${ENKAI_BIN}",
+        "validate",
+        "perf-baseline",
+        "--suite",
+        "adam0_reference_1000",
+        "--json",
+        "--output",
+        "artifacts/validation/perf_adam0_reference_1000.json"
+      ]
+    },
+    {
+      "id": "validation-perf-adam0-target10000",
+      "description": "Adam-0 10000-agent performance baseline capture",
+      "command": [
+        "${ENKAI_BIN}",
+        "validate",
+        "perf-baseline",
+        "--suite",
+        "adam0_reference_10000",
+        "--json",
+        "--output",
+        "artifacts/validation/perf_adam0_reference_10000.json"
       ]
     }
   ]

@@ -2,7 +2,7 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.9.3.
+- Current production release line is v2.9.4.
 - v2.6.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
 
@@ -21,7 +21,7 @@ v2.9.2 (done)
   - verifies deterministic event ordering and pool plateau semantics
   - adds seeded native-vs-VM property tests for sparse/event/pool
 
-v2.9.3 (done)
+v2.9.4 (done)
 - Quality recovery line:
   - makes deterministic replay and coroutine behavior machine-auditable
   - adds simulation audit hashes for seed/config/log/snapshot/replay
@@ -103,7 +103,7 @@ v2.8.0 (done)
 - Adam-0 reference stack completion:
   - added bounded Adam-0 reference suite:
     - `examples/adam0_reference.enk`
-    - `bench/suites/adam0_reference_v2_7_1.json`
+    - `bench/suites/adam0_reference_v2_9_4.json`
   - added suite evidence generation and semantic verification:
     - `scripts/readiness_adam0_reference_suite.py`
     - `scripts/verify_adam0_reference_suite.py`

@@ -86,8 +86,8 @@ Note:
     - `artifacts/registry/local/registry.json`
     - `artifacts/registry/remote/registry.json`
     - `artifacts/registry/cache/registry.json`
-    - `artifacts/registry/remote/adam0-sim/v2.9.3/remote.manifest.json`
-    - `artifacts/registry/remote/adam0-sim/v2.9.3/remote.manifest.sig`
+    - `artifacts/registry/remote/adam0-sim/v2.9.4/remote.manifest.json`
+    - `artifacts/registry/remote/adam0-sim/v2.9.4/remote.manifest.sig`
     - `artifacts/cluster_scale/run.json`
     - `artifacts/registry_degraded/cache/audit.log.jsonl`
 - [ ] Benchmark target gate (official bounded suite):
@@ -118,12 +118,17 @@ Note:
   - `enkai validate ffi-correctness --json --output artifacts/validation/ffi_correctness.json`
   - `enkai validate determinism --suite event_queue --runs 10 --json --output artifacts/validation/determinism_event_queue.json`
   - `enkai validate determinism --suite sim_replay --runs 10 --json --output artifacts/validation/determinism_sim_replay.json`
+  - `enkai validate determinism --suite sim_coroutines --runs 10 --json --output artifacts/validation/determinism_sim_coroutines.json`
   - `enkai validate pool-safety --json --output artifacts/validation/pool_safety.json`
   - `enkai validate adam0-cpu --scenario fake10 --json --output artifacts/validation/adam0_fake10.json`
   - `enkai validate adam0-cpu --scenario ref100 --json --output artifacts/validation/adam0_ref100.json`
+  - `enkai validate adam0-cpu --scenario stress1000 --json --output artifacts/validation/adam0_stress1000.json`
+  - `enkai validate adam0-cpu --scenario target10000 --json --output artifacts/validation/adam0_target10000.json`
   - `enkai validate perf-baseline --suite ffi_noop --json --output artifacts/validation/perf_ffi_noop.json`
   - `enkai validate perf-baseline --suite sparse_dot --json --output artifacts/validation/perf_sparse_dot.json`
   - `enkai validate perf-baseline --suite adam0_reference_100 --json --output artifacts/validation/perf_adam0_reference_100.json`
+  - `enkai validate perf-baseline --suite adam0_reference_1000 --json --output artifacts/validation/perf_adam0_reference_1000.json`
+  - `enkai validate perf-baseline --suite adam0_reference_10000 --json --output artifacts/validation/perf_adam0_reference_10000.json`
 - [ ] Self-host mainline gate (Enkai-built compiler default lane):
   - `enkai litec mainline-ci enkai/tools/bootstrap/selfhost_corpus --triage-dir artifacts/selfhost`
   - expected triage artifacts:
@@ -191,12 +196,17 @@ Note:
     - `validation/ffi_correctness.json`
     - `validation/determinism_event_queue.json`
     - `validation/determinism_sim_replay.json`
+    - `validation/determinism_sim_coroutines.json`
     - `validation/pool_safety.json`
     - `validation/adam0_fake10.json`
     - `validation/adam0_ref100.json`
+    - `validation/adam0_stress1000.json`
+    - `validation/adam0_target10000.json`
     - `validation/perf_ffi_noop.json`
     - `validation/perf_sparse_dot.json`
     - `validation/perf_adam0_reference_100.json`
+    - `validation/perf_adam0_reference_1000.json`
+    - `validation/perf_adam0_reference_10000.json`
 - [ ] Generate capability-complete report from archived evidence:
   - `python3 scripts/generate_capability_report.py --require-gpu --strict`
   - expected outputs:

@@ -22,9 +22,13 @@ This file is the strict verification matrix for the v2.x release line.
 - `enkai validate adam0-cpu --scenario ref100 --json --output artifacts/validation/adam0_ref100.json`
 - `enkai validate adam0-cpu --scenario stress1000 --json --output artifacts/validation/adam0_stress1000.json`
 - `enkai validate adam0-cpu --scenario target10000 --json --output artifacts/validation/adam0_target10000.json`
+- `enkai validate adam0-cpu --scenario stress1000 --json --output artifacts/validation/adam0_stress1000.json`
+- `enkai validate adam0-cpu --scenario target10000 --json --output artifacts/validation/adam0_target10000.json`
 - `enkai validate perf-baseline --suite ffi_noop --json --output artifacts/validation/perf_ffi_noop.json`
 - `enkai validate perf-baseline --suite sparse_dot --json --output artifacts/validation/perf_sparse_dot.json`
 - `enkai validate perf-baseline --suite adam0_reference_100 --json --output artifacts/validation/perf_adam0_reference_100.json`
+- `enkai validate perf-baseline --suite adam0_reference_1000 --json --output artifacts/validation/perf_adam0_reference_1000.json`
+- `enkai validate perf-baseline --suite adam0_reference_10000 --json --output artifacts/validation/perf_adam0_reference_10000.json`
 
 These artifacts are required inputs to full-platform readiness and strict release evidence on the quality-recovery line.
 

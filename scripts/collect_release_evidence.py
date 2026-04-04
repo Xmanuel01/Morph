@@ -313,13 +313,18 @@ def main() -> int:
         "ffi_correctness.json",
         "determinism_event_queue.json",
         "determinism_sim_replay.json",
+        "determinism_sim_coroutines.json",
         "determinism_adam0_reference_100.json",
         "pool_safety.json",
         "adam0_fake10.json",
         "adam0_ref100.json",
+        "adam0_stress1000.json",
+        "adam0_target10000.json",
         "perf_ffi_noop.json",
         "perf_sparse_dot.json",
         "perf_adam0_reference_100.json",
+        "perf_adam0_reference_1000.json",
+        "perf_adam0_reference_10000.json",
     ]
     if validation_dir.is_dir():
         if args.strict:

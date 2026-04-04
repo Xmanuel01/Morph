@@ -161,6 +161,14 @@ def main() -> int:
             failures.append(
                 "docs/36_capability_complete_report.md missing validation perf archive reference"
             )
+        if "validation/perf_adam0_reference_1000.json" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing Adam-0 1000-agent perf archive reference"
+            )
+        if "validation/perf_adam0_reference_10000.json" not in capability_text:
+            failures.append(
+                "docs/36_capability_complete_report.md missing Adam-0 10000-agent perf archive reference"
+            )
         if "readiness/sim_evidence_verify.json" not in capability_text:
             failures.append(
                 "docs/36_capability_complete_report.md missing simulation evidence verification reference"
@@ -271,14 +279,18 @@ def main() -> int:
             failures.append("docs/37_readiness_matrix.md missing validation Adam-0 ref100 artifact reference")
         if "artifacts/validation/perf_adam0_reference_100.json" not in readiness_text:
             failures.append("docs/37_readiness_matrix.md missing validation Adam-0 perf artifact reference")
+        if "artifacts/validation/perf_adam0_reference_1000.json" not in readiness_text:
+            failures.append("docs/37_readiness_matrix.md missing Adam-0 1000-agent perf artifact reference")
+        if "artifacts/validation/perf_adam0_reference_10000.json" not in readiness_text:
+            failures.append("docs/37_readiness_matrix.md missing Adam-0 10000-agent perf artifact reference")
     adam0_doc = ROOT / "docs/39_adam0_reference_stack.md"
     if not adam0_doc.is_file():
         failures.append("missing docs/39_adam0_reference_stack.md")
     else:
         adam0_text = adam0_doc.read_text(encoding="utf-8")
-        if "examples/adam0_reference.enk" not in adam0_text:
+        if "examples/adam0_reference/main.enk" not in adam0_text:
             failures.append("docs/39_adam0_reference_stack.md missing Adam-0 reference script reference")
-        if "bench/suites/adam0_reference_v2_7_1.json" not in adam0_text:
+        if "bench/suites/adam0_reference_v2_9_4.json" not in adam0_text:
             failures.append("docs/39_adam0_reference_stack.md missing Adam-0 reference suite reference")
         if "artifacts/readiness/adam0_reference_suite.json" not in adam0_text:
             failures.append("docs/39_adam0_reference_stack.md missing Adam-0 readiness suite artifact reference")

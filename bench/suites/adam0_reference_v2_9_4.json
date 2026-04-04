@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "suite": "adam0_reference_v2_9_4",
+  "description": "Adam-0 CPU reference validation ladder for the v2.9.4 proof-completion milestone",
+  "script": "examples/adam0_reference/main.enk",
+  "hardware_assumptions": {
+    "bounded_envelope": "single-node CPU validation envelope with native simulation acceleration enabled and deterministic replay enforced",
+    "reference_host": "Pinned Linux and Windows CPU reference hosts with x86_64 cores, 16 GiB+ RAM, SSD-backed workspace, and native extension loading enabled",
+    "notes": "The 10000-agent case is a bounded production target with archived profile and replay evidence. It is not a universal throughput claim beyond the pinned CPU reference hosts."
+  },
+  "cases": [
+    {
+      "id": "adam0_baseline_100",
+      "run_report": "artifacts/sim/adam0_baseline_100_run.json",
+      "profile_report": "artifacts/sim/adam0_baseline_100_profile.json",
+      "snapshot_report": "artifacts/sim/adam0_baseline_100_snapshot.json",
+      "replay_report": "artifacts/sim/adam0_baseline_100_replay.json",
+      "target_agents": 100,
+      "target_shard_size": 10,
+      "require_native_accel": true,
+      "require_kernel_native_dominance": true,
+      "max_marshal_copy_ratio": 0.18,
+      "required_native_counters": {
+        "sim_sparse_native_calls": 300,
+        "sim_event_native_calls": 900,
+        "sim_pool_native_calls": 2000,
+        "sim_spatial_native_calls": 700,
+        "sim_snn_native_calls": 300
+      },
+      "config": {
+        "case_id": "adam0_baseline_100",
+        "agent_count": 100,
+        "shard_size": 10,
+        "rounds": 3,
+        "fanout": 4,
+        "pool_capacity": 64,
+        "max_events": 8192,
+        "seed": 11,
+        "neighbor_radius_milli": 110,
+        "move_step_milli": 15,
+        "spacing_milli": 50,
+        "hardware_class": "cpu-reference",
+        "reference_host": "pinned-ref"
+      }
+    },
+    {
+      "id": "adam0_stress_1000",
+      "run_report": "artifacts/sim/adam0_stress_1000_run.json",
+      "profile_report": "artifacts/sim/adam0_stress_1000_profile.json",
+      "snapshot_report": "artifacts/sim/adam0_stress_1000_snapshot.json",
+      "replay_report": "artifacts/sim/adam0_stress_1000_replay.json",
+      "target_agents": 1000,
+      "target_shard_size": 50,
+      "require_native_accel": true,
+      "require_kernel_native_dominance": true,
+      "max_marshal_copy_ratio": 0.18,
+      "required_native_counters": {
+        "sim_sparse_native_calls": 3000,
+        "sim_event_native_calls": 9000,
+        "sim_pool_native_calls": 20000,
+        "sim_spatial_native_calls": 7000,
+        "sim_snn_native_calls": 3000
+      },
+      "config": {
+        "case_id": "adam0_stress_1000",
+        "agent_count": 1000,
+        "shard_size": 50,
+        "rounds": 3,
+        "fanout": 4,
+        "pool_capacity": 128,
+        "max_events": 65536,
+        "seed": 17,
+        "neighbor_radius_milli": 110,
+        "move_step_milli": 10,
+        "spacing_milli": 50,
+        "hardware_class": "cpu-reference",
+        "reference_host": "pinned-ref"
+      }
+    },
+    {
+      "id": "adam0_target_10000",
+      "run_report": "artifacts/sim/adam0_target_10000_run.json",
+      "profile_report": "artifacts/sim/adam0_target_10000_profile.json",
+      "snapshot_report": "artifacts/sim/adam0_target_10000_snapshot.json",
+      "replay_report": "artifacts/sim/adam0_target_10000_replay.json",
+      "target_agents": 10000,
+      "target_shard_size": 250,
+      "require_native_accel": true,
+      "require_kernel_native_dominance": true,
+      "max_marshal_copy_ratio": 0.2,
+      "required_native_counters": {
+        "sim_sparse_native_calls": 20000,
+        "sim_event_native_calls": 60000,
+        "sim_pool_native_calls": 100000,
+        "sim_spatial_native_calls": 50000,
+        "sim_snn_native_calls": 20000
+      },
+      "config": {
+        "case_id": "adam0_target_10000",
+        "agent_count": 10000,
+        "shard_size": 250,
+        "rounds": 2,
+        "fanout": 3,
+        "pool_capacity": 256,
+        "max_events": 262144,
+        "seed": 23,
+        "neighbor_radius_milli": 110,
+        "move_step_milli": 5,
+        "spacing_milli": 50,
+        "hardware_class": "cpu-reference",
+        "reference_host": "pinned-ref"
+      }
+    }
+  ]
+}

@@ -28,6 +28,39 @@ def ensure_parent(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
 
+def normalize_value(value):
+    if isinstance(value, float):
+        return round(value, 12)
+    if isinstance(value, list):
+        return [normalize_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: normalize_value(item) for key, item in value.items()}
+    return value
+
+
+def canonical_json(value):
+    return json.dumps(normalize_value(value), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def hash_json(value) -> str:
+    import hashlib
+
+    return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def projection_hash(snapshot: dict) -> str:
+    projected = {
+        "entities": snapshot.get("entities", []),
+        "queue": snapshot.get("queue", []),
+        "log": snapshot.get("log", []),
+        "seed": snapshot.get("seed"),
+        "now": snapshot.get("now"),
+        "next_seq": snapshot.get("next_seq"),
+        "max_events": snapshot.get("max_events"),
+    }
+    return hash_json(projected)
+
+
 def apply_case_env(base: dict[str, str], config: dict[str, object]) -> dict[str, str]:
     env = dict(base)
     mapping = {
@@ -57,7 +90,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--enkai-bin", required=True)
     parser.add_argument("--workspace", default=".")
-    parser.add_argument("--suite", default="bench/suites/adam0_reference_v2_7_1.json")
+    parser.add_argument("--suite", default="bench/suites/adam0_reference_v2_9_4.json")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
@@ -78,6 +111,7 @@ def main() -> int:
 
     env = dict(os.environ)
     env["ENKAI_SIM_ACCEL"] = "1"
+    env.setdefault("ENKAI_STD", str((workspace / "std").resolve()))
 
     cases_out = []
     for case in suite.get("cases", []):
@@ -141,23 +175,52 @@ def main() -> int:
         replay_payload = read_json(replay_report)
         if replay_payload.get("command") != "sim.replay":
             raise SystemExit(f"{case_id}: sim replay report command mismatch")
+        replay_result = replay_payload.get("result")
+        if not isinstance(replay_result, dict):
+            raise SystemExit(f"{case_id}: sim replay result must be an object")
 
         counters = profile_payload.get("counters", {})
         timing = profile_payload.get("timing_ms", {})
         total_ms = float(timing.get("total", 0.0) or 0.0)
         native_ms = float(timing.get("native_calls", 0.0) or 0.0)
         native_share_pct = (native_ms / total_ms * 100.0) if total_ms > 0.0 else 0.0
+        kernel_native_counters = {
+            "sim_sparse_native_calls": int(counters.get("sim_sparse_native_calls", 0) or 0),
+            "sim_event_native_calls": int(counters.get("sim_event_native_calls", 0) or 0),
+            "sim_pool_native_calls": int(counters.get("sim_pool_native_calls", 0) or 0),
+            "sim_spatial_native_calls": int(counters.get("sim_spatial_native_calls", 0) or 0),
+            "sim_snn_native_calls": int(counters.get("sim_snn_native_calls", 0) or 0),
+        }
+        kernel_native_total = sum(kernel_native_counters.values())
+        marshal_copy_ops = int(counters.get("marshal_copy_ops", 0) or 0)
+        ffi_calls = int(counters.get("ffi_calls", 0) or 0)
+        marshal_copy_ratio = (marshal_copy_ops / ffi_calls) if ffi_calls > 0 else 0.0
+        result_hash = hash_json(result)
+        snapshot_hash = hash_json(read_json(snapshot_report))
+        replay_hash = hash_json(replay_result)
+        state_hash = projection_hash(result)
+        replay_state_hash = projection_hash(replay_result)
+        event_log_hash = hash_json(result.get("log", []))
         cases_out.append(
             {
                 "id": case_id,
                 "target_agents": case["target_agents"],
                 "target_shard_size": case["target_shard_size"],
-                "require_native_accel": case["require_native_accel"],
+                "require_native_accel": case.get("require_native_accel", False),
+                "required_native_counters": case.get("required_native_counters", {}),
+                "require_kernel_native_dominance": case.get("require_kernel_native_dominance", False),
+                "max_marshal_copy_ratio": case.get("max_marshal_copy_ratio"),
                 "config": config,
                 "run_report": str(run_report),
                 "profile_report": str(profile_report),
                 "snapshot_report": str(snapshot_report),
                 "replay_report": str(replay_report),
+                "result_hash": result_hash,
+                "snapshot_hash": snapshot_hash,
+                "replay_hash": replay_hash,
+                "state_hash": state_hash,
+                "replay_state_hash": replay_state_hash,
+                "event_log_hash": event_log_hash,
                 "result": {
                     "agent_count": result.get("agent_count"),
                     "shard_count": result.get("shard_count"),
@@ -168,19 +231,25 @@ def main() -> int:
                     "dispatch_total": result.get("dispatch_total"),
                     "sparse_edges": result.get("sparse_edges"),
                     "feature_nnz": result.get("feature_nnz"),
+                    "hardware_class": result.get("hardware_class"),
+                    "reference_host": result.get("reference_host"),
                 },
                 "profile_breakdown": {
-                    "ffi_calls": counters.get("ffi_calls", 0),
-                    "native_function_calls": counters.get("native_function_calls", 0),
-                    "sim_coroutines_spawned": counters.get("sim_coroutines_spawned", 0),
-                    "sim_coroutine_emits": counters.get("sim_coroutine_emits", 0),
-                    "marshal_in_bytes": counters.get("marshal_in_bytes", 0),
-                    "marshal_out_bytes": counters.get("marshal_out_bytes", 0),
-                    "marshal_copy_ops": counters.get("marshal_copy_ops", 0),
+                    "ffi_calls": ffi_calls,
+                    "native_function_calls": int(counters.get("native_function_calls", 0) or 0),
+                    "sim_coroutines_spawned": int(counters.get("sim_coroutines_spawned", 0) or 0),
+                    "sim_coroutine_emits": int(counters.get("sim_coroutine_emits", 0) or 0),
+                    "sim_coroutine_next_waits": int(counters.get("sim_coroutine_next_waits", 0) or 0),
+                    "marshal_in_bytes": int(counters.get("marshal_in_bytes", 0) or 0),
+                    "marshal_out_bytes": int(counters.get("marshal_out_bytes", 0) or 0),
+                    "marshal_copy_ops": marshal_copy_ops,
                     "native_ms": native_ms,
-                    "vm_exec_ms": timing.get("vm_exec", 0.0),
+                    "vm_exec_ms": float(timing.get("vm_exec", 0.0) or 0.0),
                     "total_ms": total_ms,
                     "native_share_pct": native_share_pct,
+                    "marshal_copy_ratio": marshal_copy_ratio,
+                    "kernel_native_counters": kernel_native_counters,
+                    "kernel_native_calls_total": kernel_native_total,
                 },
             }
         )
@@ -188,6 +257,7 @@ def main() -> int:
     payload = {
         "schema_version": 1,
         "suite": suite.get("suite"),
+        "suite_path": str(suite_path),
         "description": suite.get("description"),
         "script": str(script_target),
         "hardware_assumptions": suite.get("hardware_assumptions", {}),

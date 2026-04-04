@@ -1149,7 +1149,7 @@ mod tests {
             .release_evidence
             .required_artifacts
             .iter()
-            .map(|path| expand_release_artifact_placeholder(path, "2.9.3"))
+            .map(|path| expand_release_artifact_placeholder(path, "2.9.4"))
             .collect::<Vec<_>>();
         required_paths.push("artifacts/readiness/full_platform.json".to_string());
         required_paths.sort();
@@ -1178,8 +1178,8 @@ mod tests {
         let report = ReadinessReport {
             schema_version: 1,
             profile: "full_platform".to_string(),
-            language_version: "2.9.3".to_string(),
-            cli_version: "2.9.3".to_string(),
+            language_version: "2.9.4".to_string(),
+            cli_version: "2.9.4".to_string(),
             started_unix_ms: 0,
             finished_unix_ms: 1,
             all_passed: true,
@@ -1193,7 +1193,7 @@ mod tests {
             manifest: &manifest,
             readiness_report: &report,
             readiness_report_path: &report_path,
-            version: "2.9.3",
+            version: "2.9.4",
             require_gpu_evidence: false,
             skip_release_evidence: false,
             allow_skipped_required_checks: &[],
@@ -1217,7 +1217,7 @@ mod tests {
             .release_evidence
             .required_artifacts
             .iter()
-            .map(|path| expand_release_artifact_placeholder(path, "2.9.3"))
+            .map(|path| expand_release_artifact_placeholder(path, "2.9.4"))
             .collect::<Vec<_>>();
         required_paths.push("artifacts/readiness/full_platform.json".to_string());
         required_paths.sort();
@@ -1247,8 +1247,8 @@ mod tests {
         let report = ReadinessReport {
             schema_version: 1,
             profile: "full_platform".to_string(),
-            language_version: "2.9.3".to_string(),
-            cli_version: "2.9.3".to_string(),
+            language_version: "2.9.4".to_string(),
+            cli_version: "2.9.4".to_string(),
             started_unix_ms: 0,
             finished_unix_ms: 1,
             all_passed: true,
@@ -1263,7 +1263,7 @@ mod tests {
             manifest: &manifest,
             readiness_report: &report,
             readiness_report_path: &report_path,
-            version: "2.9.3",
+            version: "2.9.4",
             require_gpu_evidence: false,
             skip_release_evidence: false,
             allow_skipped_required_checks: &allowed,

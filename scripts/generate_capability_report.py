@@ -613,13 +613,18 @@ def build_checks(
         ("ffi_correctness.json", "ffi_correctness", "Validation FFI correctness report is present and passing"),
         ("determinism_event_queue.json", "determinism", "Validation event-queue determinism report is present and passing"),
         ("determinism_sim_replay.json", "determinism", "Validation simulation replay determinism report is present and passing"),
+        ("determinism_sim_coroutines.json", "determinism", "Validation simulation coroutine determinism report is present and passing"),
         ("determinism_adam0_reference_100.json", "determinism", "Validation Adam-0 100-agent determinism report is present and passing"),
         ("pool_safety.json", "pool_safety", "Validation pool safety report is present and passing"),
         ("adam0_fake10.json", "adam0_cpu", "Validation fake Adam-0 CPU report is present and passing"),
         ("adam0_ref100.json", "adam0_cpu", "Validation Adam-0 100-agent CPU report is present and passing"),
+        ("adam0_stress1000.json", "adam0_cpu", "Validation Adam-0 1000-agent CPU stress report is present and passing"),
+        ("adam0_target10000.json", "adam0_cpu", "Validation Adam-0 10000-agent CPU target report is present and passing"),
         ("perf_ffi_noop.json", "perf_baseline", "Validation FFI noop performance baseline report is present and passing"),
         ("perf_sparse_dot.json", "perf_baseline", "Validation sparse-dot performance baseline report is present and passing"),
         ("perf_adam0_reference_100.json", "perf_baseline", "Validation Adam-0 100-agent performance baseline report is present and passing"),
+        ("perf_adam0_reference_1000.json", "perf_baseline", "Validation Adam-0 1000-agent performance baseline report is present and passing"),
+        ("perf_adam0_reference_10000.json", "perf_baseline", "Validation Adam-0 10000-agent performance baseline report is present and passing"),
     ]
     for filename, expected_validation, description in validation_specs:
         matched = first_match(copied_paths, lambda path, name=filename: path.endswith(f"/validation/{name}"))
@@ -641,8 +646,12 @@ def build_checks(
         )
     validation_cross_platform = (
         has_exact(copied_paths, "/validation/adam0_ref100.json")
+        and has_exact(copied_paths, "/validation/adam0_stress1000.json")
+        and has_exact(copied_paths, "/validation/adam0_target10000.json")
         and has_exact(copied_paths, "/validation/determinism_adam0_reference_100.json")
         and has_exact(copied_paths, "/validation/perf_adam0_reference_100.json")
+        and has_exact(copied_paths, "/validation/perf_adam0_reference_1000.json")
+        and has_exact(copied_paths, "/validation/perf_adam0_reference_10000.json")
     )
     checks.append(
         CheckResult(
@@ -651,7 +660,7 @@ def build_checks(
             required=True,
             passed=validation_cross_platform,
             details=(
-                "validation/adam0_ref100.json + validation/determinism_adam0_reference_100.json + validation/perf_adam0_reference_100.json"
+                "validation/adam0_ref100.json + validation/adam0_stress1000.json + validation/adam0_target10000.json + validation/determinism_adam0_reference_100.json + validation/perf_adam0_reference_100.json + validation/perf_adam0_reference_1000.json + validation/perf_adam0_reference_10000.json"
                 if validation_cross_platform
                 else "missing validation CPU reference artifacts"
             ),
