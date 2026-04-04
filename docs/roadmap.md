@@ -2,19 +2,24 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.9.1.
+- Current production release line is v2.9.2.
 - v2.6.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
 
 v2.9.1 (done)
-
-v2.9.2 (in progress)
-- Quality recovery line:
+- Quality recovery foundation:
   - adds proof-grade CPU validation commands under `enkai validate`
   - archives deterministic validation artifacts under `artifacts/validation/`
   - promotes correctness, determinism, pool safety, and Adam-0 CPU validation into release evidence
   - tightens release-evidence/capability reporting so claims must be backed by archived proof artifacts
   - keeps GPU sign-off as operator evidence, but removes ambiguity around CPU-complete vs GPU-pending state
+
+v2.9.2 (done)
+- Quality recovery line:
+  - strengthens `std::sparse`, `std::event`, and `std::pool` proof quality
+  - requires native-backed and VM-fallback equivalence in validation artifacts
+  - verifies deterministic event ordering and pool plateau semantics
+  - adds seeded native-vs-VM property tests for sparse/event/pool
 
 v3.0.0 (pending final sign-off)
 - Stability cut for the first AGI + LLM platform release:

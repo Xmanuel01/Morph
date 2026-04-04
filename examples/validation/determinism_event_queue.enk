@@ -3,14 +3,22 @@ import std::event
 
 fn main() ::
     let queue := event.make()
+    let empty_before := event.is_empty(queue)
     event.push(queue, 0.5, "second")
     event.push(queue, 0.1, "first")
     event.push(queue, 0.5, "third")
+    let len_before := event.len(queue)
+    let peeked := event.peek(queue)?
     let a := event.pop(queue)?
     let b := event.pop(queue)?
     let c := event.pop(queue)?
+    let empty_after := event.is_empty(queue)
 
     let out := json.parse("{}")
+    out.empty_before := empty_before
+    out.empty_after := empty_after
+    out.len_before := len_before
+    out.peek := peeked
     out.order := [a.event, b.event, c.event]
     out.times := [a.time, b.time, c.time]
     return out

@@ -8,34 +8,57 @@ fn main() ::
     sparse.set_vector(vector, 0, 1.0)
     sparse.set_vector(vector, 2, 2.0)
     sparse.set_vector(vector, 5, 3.0)
+    sparse.set_vector(vector, 2, 0.0)
+    sparse.set_vector(vector, 2, 2.0)
 
     let matrix := sparse.matrix()
     sparse.set(matrix, 0, 0, 1.0)
     sparse.set(matrix, 0, 2, 2.0)
     sparse.set(matrix, 1, 1, 4.0)
+    sparse.set(matrix, 1, 1, 0.0)
+    sparse.set(matrix, 1, 1, 4.0)
 
     let queue := event.make()
+    let empty_before := event.is_empty(queue)
     event.push(queue, 0.5, "second")
     event.push(queue, 0.1, "first")
     event.push(queue, 0.5, "third")
+    let len_before := event.len(queue)
+    let peeked := event.peek(queue)?
     let a := event.pop(queue)?
     let b := event.pop(queue)?
     let c := event.pop(queue)?
+    let len_after := event.len(queue)
+    let empty_after := event.is_empty(queue)
 
     let reusable := pool.make(1)
     let first := pool.release(reusable, 7)
     let second := pool.release(reusable, 9)
     let acquired := pool.acquire(reusable)?
+    let third := pool.release(reusable, 11)
+    pool.reset(reusable)
 
     let out := json.parse("{}")
     out.dot := sparse.dot(vector, [1.0, 0.0, 1.0, 0.0, 0.0, 1.0])
     out.matvec := sparse.matvec(matrix, [1.0, 1.0, 1.0])
+    out.matrix_get_hit := sparse.get(matrix, 1, 1)
+    out.matrix_get_miss := sparse.get(matrix, 2, 2)
+    out.matrix_nonzero := sparse.nonzero(matrix)
     out.vector_nnz := sparse.nnz(vector)
     out.matrix_nnz := sparse.nnz(matrix)
+    out.vector_get_hit := sparse.get_vector(vector, 2)
+    out.vector_get_miss := sparse.get_vector(vector, 4)
+    out.vector_nonzero := sparse.nonzero_vector(vector)
+    out.event_empty_before := empty_before
+    out.event_len_before := len_before
+    out.event_peek := peeked
     out.event_order := [a.event, b.event, c.event]
     out.event_times := [a.time, b.time, c.time]
+    out.event_len_after := len_after
+    out.event_empty_after := empty_after
     out.pool_first_release := first
     out.pool_second_release := second
+    out.pool_third_release := third
     out.pool_acquired := acquired
     out.pool_stats := pool.stats(reusable)
     return out

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "profile": "full_platform",
-  "version_line": "v2.5.0-v2.9.1",
+  "version_line": "v2.5.0-v2.9.2",
   "compatibility_policy": "additive_only_v2_x",
   "release_blockers": {
     "non_hardware": {

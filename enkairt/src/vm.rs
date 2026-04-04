@@ -659,6 +659,14 @@ impl VM {
         }
     }
 
+    pub fn set_sim_accel_enabled(&mut self, enabled: bool) {
+        self.sim_accel = if enabled {
+            SimAccelState::Uninitialized
+        } else {
+            SimAccelState::Disabled
+        };
+    }
+
     pub fn run(&mut self, program: &Program) -> Result<Value, RuntimeError> {
         self.begin_bench_profile();
         self.install_globals(program)?;

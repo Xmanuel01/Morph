@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "version_line": "v2.9.1-v3.0.0",
+  "version_line": "v2.9.2-v3.0.0",
   "machine_profiles": {
     "linux": "bench/machines/linux_ref.json",
     "windows": "bench/machines/windows_ref.json"
@@ -13,11 +13,20 @@
       "target": "examples/validation/ffi_correctness.enk",
       "expected_result": {
         "dot": 6.0,
+        "event_empty_after": true,
+        "event_empty_before": true,
+        "event_len_after": 0,
+        "event_len_before": 3,
         "event_order": [
           "first",
           "second",
           "third"
         ],
+        "event_peek": {
+          "event": "first",
+          "seq": 1,
+          "time": 0.1
+        },
         "event_times": [
           0.1,
           0.5,
@@ -27,10 +36,30 @@
           3.0,
           4.0
         ],
+        "matrix_get_hit": 4.0,
+        "matrix_get_miss": null,
         "matrix_nnz": 3,
+        "matrix_nonzero": [
+          {
+            "col": 0,
+            "row": 0,
+            "value": 1.0
+          },
+          {
+            "col": 2,
+            "row": 0,
+            "value": 2.0
+          },
+          {
+            "col": 1,
+            "row": 1,
+            "value": 4.0
+          }
+        ],
         "pool_acquired": 7,
         "pool_first_release": true,
         "pool_second_release": false,
+        "pool_third_release": true,
         "pool_stats": {
           "acquire_hits": 1,
           "acquire_misses": 0,
@@ -39,9 +68,25 @@
           "dropped_on_full": 1,
           "growable": false,
           "high_watermark": 1,
-          "releases": 1
+          "releases": 2
         },
-        "vector_nnz": 3
+        "vector_get_hit": 2.0,
+        "vector_get_miss": null,
+        "vector_nnz": 3,
+        "vector_nonzero": [
+          {
+            "index": 0,
+            "value": 1.0
+          },
+          {
+            "index": 2,
+            "value": 2.0
+          },
+          {
+            "index": 5,
+            "value": 3.0
+          }
+        ]
       }
     },
     {
@@ -56,6 +101,27 @@
       "description": "Deterministic event queue ordering validation",
       "kind": "run",
       "target": "examples/validation/determinism_event_queue.enk",
+      "require_native_path": true,
+      "expected_result": {
+        "empty_after": true,
+        "empty_before": true,
+        "len_before": 3,
+        "order": [
+          "first",
+          "second",
+          "third"
+        ],
+        "peek": {
+          "event": "first",
+          "seq": 1,
+          "time": 0.1
+        },
+        "times": [
+          0.1,
+          0.5,
+          0.5
+        ]
+      },
       "default_runs": 10
     },
     {
@@ -89,12 +155,22 @@
       "kind": "run",
       "target": "examples/validation/pool_safety.enk",
       "expected_result": {
-        "available": 100,
+        "available": 0,
+        "before_reset": {
+          "acquire_hits": 10000,
+          "acquire_misses": 0,
+          "available": 100,
+          "capacity": 100,
+          "dropped_on_full": 0,
+          "growable": false,
+          "high_watermark": 100,
+          "releases": 10100
+        },
         "capacity": 100,
         "stats": {
           "acquire_hits": 10000,
           "acquire_misses": 0,
-          "available": 100,
+          "available": 0,
           "capacity": 100,
           "dropped_on_full": 0,
           "growable": false,
@@ -130,6 +206,7 @@
         "ENKAI_ADAM0_HARDWARE_CLASS": "cpu-reference",
         "ENKAI_ADAM0_REFERENCE_HOST": "pinned-ref"
       },
+      "require_native_path": true,
       "expected_output_hash": "20b919c2a2d43631a5dc24d3bc29b738edb8d472d048807f18873ae4ef9350dc",
       "perf_metric": "elapsed_ms",
       "perf_direction": "lower",

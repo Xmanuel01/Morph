@@ -86,8 +86,8 @@ Note:
     - `artifacts/registry/local/registry.json`
     - `artifacts/registry/remote/registry.json`
     - `artifacts/registry/cache/registry.json`
-    - `artifacts/registry/remote/adam0-sim/v2.9.1/remote.manifest.json`
-    - `artifacts/registry/remote/adam0-sim/v2.9.1/remote.manifest.sig`
+    - `artifacts/registry/remote/adam0-sim/v2.9.2/remote.manifest.json`
+    - `artifacts/registry/remote/adam0-sim/v2.9.2/remote.manifest.sig`
     - `artifacts/cluster_scale/run.json`
     - `artifacts/registry_degraded/cache/audit.log.jsonl`
 - [ ] Benchmark target gate (official bounded suite):

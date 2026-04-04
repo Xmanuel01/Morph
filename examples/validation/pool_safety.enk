@@ -16,9 +16,12 @@ fn main() ::
         idx := idx + 1
     ::
 
+    let before_reset := pool.stats(reusable)
+    pool.reset(reusable)
     let out := json.parse("{}")
     out.available := pool.available(reusable)
     out.capacity := pool.capacity(reusable)
+    out.before_reset := before_reset
     out.stats := pool.stats(reusable)
     return out
 ::

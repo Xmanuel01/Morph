@@ -4396,8 +4396,23 @@ mod tests {
             assert_eq!(sim_event_queue_push(queue, 0.5, 5), 1);
             assert_eq!(sim_event_queue_len(queue), 3);
         }
+        let peek = unsafe { sim_event_queue_peek(queue) };
+        assert_eq!(peek.len, 16);
+        let peek_bytes = unsafe { std::slice::from_raw_parts(peek.ptr, peek.len) };
+        let peek_time = f64::from_le_bytes(peek_bytes[0..8].try_into().expect("peek time"));
+        let peek_seq = u64::from_le_bytes(peek_bytes[8..16].try_into().expect("peek seq"));
+        assert!((peek_time - 0.5).abs() < f64::EPSILON);
+        assert_eq!(peek_seq, 5);
+        unsafe {
+            enkai_free(peek.ptr, peek.len);
+        }
         let first = unsafe { sim_event_queue_pop(queue) };
         assert_eq!(first.len, 16);
+        let first_bytes = unsafe { std::slice::from_raw_parts(first.ptr, first.len) };
+        let first_time = f64::from_le_bytes(first_bytes[0..8].try_into().expect("first time"));
+        let first_seq = u64::from_le_bytes(first_bytes[8..16].try_into().expect("first seq"));
+        assert!((first_time - 0.5).abs() < f64::EPSILON);
+        assert_eq!(first_seq, 5);
         unsafe {
             enkai_free(first.ptr, first.len);
         }
@@ -4412,8 +4427,23 @@ mod tests {
         }
         let stats = unsafe { sim_pool_stats(pool) };
         assert_eq!(stats.len, 40);
+        let stats_bytes = unsafe { std::slice::from_raw_parts(stats.ptr, stats.len) };
+        let available = i64::from_le_bytes(stats_bytes[0..8].try_into().expect("available"));
+        let capacity = i64::from_le_bytes(stats_bytes[8..16].try_into().expect("capacity"));
+        let acquire_hits =
+            i64::from_le_bytes(stats_bytes[16..24].try_into().expect("acquire hits"));
+        let acquire_misses =
+            i64::from_le_bytes(stats_bytes[24..32].try_into().expect("acquire misses"));
+        let releases = i64::from_le_bytes(stats_bytes[32..40].try_into().expect("releases"));
+        assert_eq!(available, 0);
+        assert_eq!(capacity, 1);
+        assert_eq!(acquire_hits, 1);
+        assert_eq!(acquire_misses, 0);
+        assert_eq!(releases, 1);
         unsafe {
             enkai_free(stats.ptr, stats.len);
+            sim_pool_reset(pool);
+            assert_eq!(sim_pool_available(pool), 0);
             enkai_handle_free(queue);
             enkai_handle_free(pool);
         }

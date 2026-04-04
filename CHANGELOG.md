@@ -15,6 +15,37 @@
   - multi-GPU parity evidence
   - 4-GPU soak evidence
 
+## v2.9.2
+
+### Highlights
+- Advanced the release line to `v2.9.2` with proof completion for `std::sparse`, `std::event`, and `std::pool`.
+- Tightened validation artifacts so native-backed and VM-fallback behaviors must match exactly.
+- Promoted seeded equivalence/property tests into the workspace test gate for the simulation primitives.
+
+### Fixes
+- Expanded `ffi_correctness` validation to prove:
+  - exact sparse/event/pool outputs
+  - native-backed and VM-fallback result equality
+  - native path exercise
+  - zero leaked native handles after the run
+- Expanded deterministic event validation to prove:
+  - expected ordering/tie-breaking output
+  - 10-run output hash stability
+  - native-backed and VM-fallback result/hash equality
+  - native queue path exercise
+- Expanded `pool_safety` validation to prove:
+  - reset semantics
+  - plateau/high-watermark behavior
+  - native-backed and VM-fallback result equality
+  - native pool path exercise
+- Added interpreter/native tests for:
+  - sparse invalid-index handling
+  - sparse dense-length mismatch semantics
+  - event `peek/len/is_empty` semantics
+  - pool reset semantics
+  - seeded native-vs-VM equivalence for sparse/event/pool
+- Documented the exact public semantics for `std::sparse`, `std::event`, and `std::pool` in `docs/Enkai.spec`.
+
 ## v2.9.1
 
 ### Highlights

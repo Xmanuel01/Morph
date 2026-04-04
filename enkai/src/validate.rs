@@ -35,6 +35,7 @@ struct ValidationSuite {
     profile_case: Option<String>,
     expected_result: Option<serde_json::Value>,
     expected_output_hash: Option<String>,
+    require_native_path: Option<bool>,
     perf_metric: Option<String>,
     perf_direction: Option<String>,
     regression_budget_pct: Option<f64>,
@@ -122,6 +123,19 @@ struct PerfSample {
     profile_path: PathBuf,
 }
 
+fn profile_counter_u64(profile: &serde_json::Value, key: &str) -> u64 {
+    profile
+        .get("counters")
+        .and_then(|value| value.get(key))
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0)
+}
+
+fn native_path_exercised(profile: &serde_json::Value) -> bool {
+    profile_counter_u64(profile, "ffi_calls") > 0
+        && profile_counter_u64(profile, "native_function_calls") > 0
+}
+
 pub fn validate_command(args: &[String]) -> i32 {
     if args.is_empty() {
         print_validate_usage();
@@ -185,7 +199,24 @@ fn ffi_correctness_command(args: &[String]) -> i32 {
         }
     };
 
-    let run = match run_validation_suite(&correctness_suite, None) {
+    let profile_path = workspace_root()
+        .join("artifacts")
+        .join("validation")
+        .join("ffi_correctness_profile.json");
+    let run = match run_validation_suite_with_profile(&correctness_suite, None, &profile_path) {
+        Ok(run) => run,
+        Err(err) => {
+            eprintln!("enkai validate ffi-correctness: {}", err);
+            return 1;
+        }
+    };
+    let fallback = match run_validation_suite(
+        &correctness_suite,
+        Some(BTreeMap::from([(
+            "ENKAI_SIM_ACCEL".to_string(),
+            "0".to_string(),
+        )])),
+    ) {
         Ok(run) => run,
         Err(err) => {
             eprintln!("enkai validate ffi-correctness: {}", err);
@@ -204,7 +235,19 @@ fn ffi_correctness_command(args: &[String]) -> i32 {
         .expected_result
         .clone()
         .unwrap_or(serde_json::Value::Null);
-    let passed = run.result == expected && handle_check.result == json!(0);
+    let native_result = run.result.clone();
+    let fallback_result = fallback.result.clone();
+    let native_profile = run.profile.clone().unwrap_or(serde_json::Value::Null);
+    let native_profile_exercised = native_path_exercised(&native_profile);
+    let native_equals_expected = native_result == expected;
+    let fallback_equals_expected = fallback_result == expected;
+    let native_vm_equal = native_result == fallback_result;
+    let handle_live_count_zero = handle_check.result == json!(0);
+    let passed = native_equals_expected
+        && fallback_equals_expected
+        && native_vm_equal
+        && native_profile_exercised
+        && handle_live_count_zero;
     let payload = json!({
         "schema_version": 1,
         "validation": "ffi_correctness",
@@ -214,10 +257,20 @@ fn ffi_correctness_command(args: &[String]) -> i32 {
         "reference_machine_profiles": manifest.machine_profiles,
         "target": run.suite.target,
         "elapsed_ms": run.elapsed_ms,
-        "actual": run.result,
+        "native_result": native_result,
+        "vm_fallback_result": fallback_result,
         "expected": expected,
-        "handle_live_count_after_run": handle_check.result,
+        "native_profile": native_profile,
         "output_hash": run.output_hash,
+        "vm_fallback_hash": fallback.output_hash,
+        "proof_checks": {
+            "native_equals_expected": native_equals_expected,
+            "vm_fallback_equals_expected": fallback_equals_expected,
+            "native_vm_equal": native_vm_equal,
+            "native_path_exercised": native_profile_exercised,
+            "handle_live_count_after_run": handle_check.result,
+            "handle_live_count_zero": handle_live_count_zero
+        }
     });
     emit_validation_payload(&payload, &parsed)
 }
@@ -249,8 +302,17 @@ fn determinism_command(args: &[String]) -> i32 {
     let mut vm_hashes = Vec::with_capacity(parsed.runs);
     let mut first_native_result = None;
     let mut first_vm_result = None;
+    let mut first_native_profile = None;
     for _ in 0..parsed.runs {
-        let native = match run_validation_suite(&suite, None) {
+        let native = match if first_native_profile.is_none() {
+            let profile_path = workspace_root()
+                .join("artifacts")
+                .join("validation")
+                .join(format!("determinism_{}_native_profile.json", parsed.suite));
+            run_validation_suite_with_profile(&suite, None, &profile_path)
+        } else {
+            run_validation_suite(&suite, None)
+        } {
             Ok(run) => run,
             Err(err) => {
                 eprintln!("enkai validate determinism: {}", err);
@@ -272,6 +334,7 @@ fn determinism_command(args: &[String]) -> i32 {
         };
         if first_native_result.is_none() {
             first_native_result = Some(native.result.clone());
+            first_native_profile = native.profile.clone();
         }
         if first_vm_result.is_none() {
             first_vm_result = Some(vm_only.result.clone());
@@ -283,7 +346,24 @@ fn determinism_command(args: &[String]) -> i32 {
     let vm_unique = vm_hashes.iter().cloned().collect::<BTreeSet<_>>();
     let native_hash = native_hashes.first().cloned().unwrap_or_default();
     let vm_hash = vm_hashes.first().cloned().unwrap_or_default();
-    let passed = native_unique.len() == 1 && vm_unique.len() == 1 && native_hash == vm_hash;
+    let native_result = first_native_result
+        .clone()
+        .unwrap_or(serde_json::Value::Null);
+    let vm_result = first_vm_result.clone().unwrap_or(serde_json::Value::Null);
+    let native_profile = first_native_profile.unwrap_or(serde_json::Value::Null);
+    let native_path_used = native_path_exercised(&native_profile);
+    let native_path_required = suite.require_native_path.unwrap_or(false);
+    let native_path_ok = !native_path_required || native_path_used;
+    let expected_matches = suite
+        .expected_result
+        .as_ref()
+        .map(|expected| &native_result == expected && &vm_result == expected)
+        .unwrap_or(true);
+    let passed = native_unique.len() == 1
+        && vm_unique.len() == 1
+        && native_hash == vm_hash
+        && expected_matches
+        && native_path_ok;
     let payload = json!({
         "schema_version": 1,
         "validation": "determinism",
@@ -295,8 +375,20 @@ fn determinism_command(args: &[String]) -> i32 {
         "passed": passed,
         "native_hashes": native_hashes,
         "vm_fallback_hashes": vm_hashes,
-        "native_result": first_native_result.unwrap_or(serde_json::Value::Null),
-        "vm_fallback_result": first_vm_result.unwrap_or(serde_json::Value::Null),
+        "native_result": native_result,
+        "vm_fallback_result": vm_result,
+        "expected_result": suite.expected_result,
+        "native_profile": native_profile,
+        "proof_checks": {
+            "native_unique_hash_count": native_unique.len(),
+            "vm_fallback_unique_hash_count": vm_unique.len(),
+            "native_vm_hash_equal": native_hash == vm_hash,
+            "native_vm_result_equal": first_native_result == first_vm_result,
+            "expected_matches": expected_matches,
+            "require_native_path": native_path_required,
+            "native_path_exercised": native_path_used,
+            "native_path_requirement_passed": native_path_ok
+        }
     });
     emit_validation_payload(
         &payload,
@@ -463,7 +555,24 @@ fn pool_safety_command(args: &[String]) -> i32 {
             return 1;
         }
     };
-    let run = match run_validation_suite(&suite, None) {
+    let profile_path = workspace_root()
+        .join("artifacts")
+        .join("validation")
+        .join("pool_safety_profile.json");
+    let run = match run_validation_suite_with_profile(&suite, None, &profile_path) {
+        Ok(run) => run,
+        Err(err) => {
+            eprintln!("enkai validate pool-safety: {}", err);
+            return 1;
+        }
+    };
+    let fallback = match run_validation_suite(
+        &suite,
+        Some(BTreeMap::from([(
+            "ENKAI_SIM_ACCEL".to_string(),
+            "0".to_string(),
+        )])),
+    ) {
         Ok(run) => run,
         Err(err) => {
             eprintln!("enkai validate pool-safety: {}", err);
@@ -481,7 +590,31 @@ fn pool_safety_command(args: &[String]) -> i32 {
         .expected_result
         .clone()
         .unwrap_or(serde_json::Value::Null);
-    let passed = run.result == expected && handle_check.result == json!(0);
+    let native_result = run.result.clone();
+    let fallback_result = fallback.result.clone();
+    let native_profile = run.profile.clone().unwrap_or(serde_json::Value::Null);
+    let native_profile_exercised = native_path_exercised(&native_profile);
+    let native_equals_expected = native_result == expected;
+    let fallback_equals_expected = fallback_result == expected;
+    let native_vm_equal = native_result == fallback_result;
+    let high_watermark_matches_capacity = native_result
+        .get("before_reset")
+        .and_then(|value| value.get("high_watermark"))
+        .and_then(|value| value.as_i64())
+        .zip(
+            native_result
+                .get("capacity")
+                .and_then(|value| value.as_i64()),
+        )
+        .map(|(high_watermark, capacity)| high_watermark == capacity)
+        .unwrap_or(false);
+    let handle_live_count_zero = handle_check.result == json!(0);
+    let passed = native_equals_expected
+        && fallback_equals_expected
+        && native_vm_equal
+        && native_profile_exercised
+        && high_watermark_matches_capacity
+        && handle_live_count_zero;
     let payload = json!({
         "schema_version": 1,
         "validation": "pool_safety",
@@ -490,10 +623,21 @@ fn pool_safety_command(args: &[String]) -> i32 {
         "passed": passed,
         "target": run.suite.target,
         "elapsed_ms": run.elapsed_ms,
-        "actual": run.result,
+        "native_result": native_result,
+        "vm_fallback_result": fallback_result,
         "expected": expected,
-        "handle_live_count_after_run": handle_check.result,
+        "native_profile": native_profile,
         "output_hash": run.output_hash,
+        "vm_fallback_hash": fallback.output_hash,
+        "proof_checks": {
+            "native_equals_expected": native_equals_expected,
+            "vm_fallback_equals_expected": fallback_equals_expected,
+            "native_vm_equal": native_vm_equal,
+            "native_path_exercised": native_profile_exercised,
+            "high_watermark_matches_capacity": high_watermark_matches_capacity,
+            "handle_live_count_after_run": handle_check.result,
+            "handle_live_count_zero": handle_live_count_zero
+        }
     });
     emit_validation_payload(&payload, &parsed)
 }
