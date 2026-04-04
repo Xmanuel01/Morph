@@ -166,12 +166,25 @@ def main() -> int:
         "artifacts/gpu/multi_gpu_evidence.json",
         "artifacts/gpu/soak_4gpu_evidence.json",
     ]
-    missing_gpu = blocker.get("missing_gpu_artifacts", [])
-    if not isinstance(missing_gpu, list):
-        missing_gpu = gpu_required_artifacts
+    gpu_capability_ids = {
+        "artifacts/gpu/single_gpu_evidence.json": "gpu_single_gpu_evidence_json",
+        "artifacts/gpu/multi_gpu_evidence.json": "gpu_multi_gpu_evidence_json",
+        "artifacts/gpu/soak_4gpu_evidence.json": "gpu_soak_4gpu_evidence_json",
+    }
+    missing_gpu = []
+    blocker_missing_gpu = blocker.get("missing_gpu_artifacts", [])
+    if isinstance(blocker_missing_gpu, list):
+        missing_gpu.extend(str(item) for item in blocker_missing_gpu)
+    for artifact in gpu_required_artifacts:
+        check = check_map.get(gpu_capability_ids[artifact])
+        if check is not None and not bool(check.get("passed", False)) and artifact not in missing_gpu:
+            missing_gpu.append(artifact)
     gpu_ready = len(missing_gpu) == 0
     if not gpu_ready:
-        unverified_areas.append("GPU/operator evidence is still missing for final hardware sign-off")
+        unverified_areas.append(
+            "GPU/operator evidence is still missing for final hardware sign-off: "
+            + ", ".join(missing_gpu)
+        )
 
     cpu_complete = all(group["passed"] for group in proof_groups)
     final_signoff_complete = cpu_complete and gpu_ready

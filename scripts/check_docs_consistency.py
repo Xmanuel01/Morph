@@ -45,6 +45,8 @@ def main() -> int:
         failures.append(f"docs/README.md missing release tag {expected_tag}")
     if "VALIDATION.md" not in docs_readme:
         failures.append("docs/README.md missing VALIDATION.md reference")
+    if "docs/49_v3_0_0_quality_assurance.md" not in docs_readme:
+        failures.append("docs/README.md missing docs/49_v3_0_0_quality_assurance.md reference")
 
     spec = read("docs/Enkai.spec")
     if f"v0.1 -> {expected_tag}" not in spec:
@@ -357,6 +359,21 @@ def main() -> int:
             if token not in dashboard_text:
                 failures.append(
                     f"docs/48_release_dashboard.md missing required reference: {token}"
+                )
+    qa_doc = ROOT / "docs/49_v3_0_0_quality_assurance.md"
+    if not qa_doc.is_file():
+        failures.append("missing docs/49_v3_0_0_quality_assurance.md")
+    else:
+        qa_text = qa_doc.read_text(encoding="utf-8")
+        for token in (
+            "artifacts/release/v3.0.0/capability_complete.json",
+            "artifacts/release/v3.0.0/release_dashboard.json",
+            "scripts/gpu_preflight.py",
+            "CPU-complete / GPU sign-off pending",
+        ):
+            if token not in qa_text:
+                failures.append(
+                    f"docs/49_v3_0_0_quality_assurance.md missing required reference: {token}"
                 )
     benchmark_doc = ROOT / "docs/33_benchmark_suite.md"
     if not benchmark_doc.is_file():

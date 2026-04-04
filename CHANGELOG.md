@@ -3,30 +3,31 @@
 ## Unreleased
 
 ### Highlights
-- Staged `v3.0.0` non-hardware publication assets and GPU-host operator preflight tooling.
-- Added the remaining `v3.0.0` runbooks and RC wrapper scripts required before final GPU sign-off.
+- None.
 
 ### Breaking changes
 - None.
 
 ### Pending release blockers
-- Real GPU/operator evidence is still required before `v3.0.0` can be cut:
+- Real GPU/operator evidence is still required for final hardware sign-off:
   - single GPU evidence
   - multi-GPU parity evidence
   - 4-GPU soak evidence
 
-## v2.9.6
+## v3.0.0
 
 ### Highlights
-- Advanced the release line to `v2.9.6` with proof-group claim hardening and release dashboard publication.
+- Advanced the release line to `v3.0.0` with CPU-complete proof gates, publication assets, and final QA documentation.
 - Reworked strict capability reporting so non-hardware production claims are derived from archived proof groups instead of individual path presence alone.
 - Added a release dashboard that makes CPU-complete vs GPU-pending status explicit for operators.
+- Published the final QA findings document for the `v2.9.1` -> `v3.0.0` quality-recovery program.
 
 ### Fixes
 - Added `scripts/generate_release_dashboard.py` and wired it into the release and RC pipelines.
 - Aggregated CPU correctness, determinism, runtime safety, and Adam-0 proof suites into strict capability checks.
 - Published `artifacts/release/v<version>/release_dashboard.json` and `artifacts/release/v<version>/release_dashboard.md` as operator-facing summaries.
 - Added CI and docs consistency coverage for the release dashboard generation path.
+- Added `docs/49_v3_0_0_quality_assurance.md` to record the final CPU-side QA results, remaining GPU blocker, and evidence locations.
 
 ## v2.9.5
 

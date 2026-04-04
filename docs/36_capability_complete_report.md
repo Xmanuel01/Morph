@@ -1,6 +1,6 @@
-# 36. Capability-Complete Report (v2.9.6)
+# 36. Capability-Complete Report (v3.0.0)
 
-This document defines the objective release evidence contract for the `v2.9.6`
+This document defines the objective release evidence contract for the `v3.0.0`
 stability cut.
 
 ## Goal

@@ -1,7 +1,7 @@
 # 37. Production Readiness Matrix (v2.5.0 full-platform line)
 
 This matrix defines the objective sign-off contract for "production-ready" in the
-`v2.5.0 -> v2.9.6` cycle.
+`v2.5.0 -> v3.0.0` cycle.
 
 Full-platform production envelope:
 - single-node and multi-node training/serving validation paths
@@ -151,7 +151,7 @@ The command executes a deterministic gate bundle:
 
 ## GPU Evidence (Release Blocking)
 
-`v2.9.6` release sign-off requires operator evidence and verifier pass:
+`v3.0.0` release sign-off requires operator evidence and verifier pass:
 - single-GPU stability evidence
 - 2-GPU loss/grad parity evidence
 - 4-GPU soak evidence

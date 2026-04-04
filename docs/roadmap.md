@@ -2,7 +2,7 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.9.6.
+- Current release line is v3.0.0 (CPU-complete / GPU operator sign-off pending).
 - v2.6.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
 
@@ -39,7 +39,7 @@ v2.9.6 (done)
   - adds a release dashboard that summarizes CPU completeness, GPU pending state, and operator steps
   - wires the release dashboard into release and RC pipelines for strict evidence publication
 
-v3.0.0 (pending final sign-off)
+v3.0.0 (CPU-complete / GPU sign-off pending)
 - Stability cut for the first AGI + LLM platform release:
   - non-hardware full-platform readiness is complete on the current line
   - publication assets staged:
@@ -55,6 +55,8 @@ v3.0.0 (pending final sign-off)
     - `scripts/gpu_preflight.sh`
   - current hard blocker for the final cut:
     - operator-run GPU evidence package required by the RC pipeline and blocker verifier
+  - final QA findings documented in:
+    - `docs/49_v3_0_0_quality_assurance.md`
   - RC wrapper prepared:
     - `scripts/v3_0_0_rc_pipeline.ps1`
     - `scripts/v3_0_0_rc_pipeline.sh`
