@@ -621,6 +621,22 @@
       ]
     },
     {
+      "id": "validation-determinism-sim-coroutines",
+      "description": "Deterministic simulation coroutine validation suite",
+      "command": [
+        "${ENKAI_BIN}",
+        "validate",
+        "determinism",
+        "--suite",
+        "sim_coroutines",
+        "--runs",
+        "10",
+        "--json",
+        "--output",
+        "artifacts/validation/determinism_sim_coroutines.json"
+      ]
+    },
+    {
       "id": "validation-pool-safety",
       "description": "Pool reuse safety validation suite",
       "command": [

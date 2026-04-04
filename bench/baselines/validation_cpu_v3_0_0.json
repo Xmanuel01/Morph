@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "version_line": "v2.9.2-v3.0.0",
+  "version_line": "v2.9.3-v3.0.0",
   "profiles": {
     "windows_local": {
       "machine_profile": "bench/machines/windows_local.json",

@@ -402,6 +402,35 @@ fn sim_next_surfaces_coroutine_errors() {
 }
 
 #[test]
+fn sim_coroutine_native_and_vm_paths_match() {
+    let source = "import std::sim\n\
+         fn worker(coro: SimCoroutine, state: Int) -> Int ::\n\
+             let world := sim.world(coro)\n\
+             let step := 0\n\
+             while step < state ::\n\
+                 sim.schedule(world, sim.time(world) + 1.0 + step, [state, step])\n\
+                 sim.emit(coro, [state, step])\n\
+                 step := step + 1\n\
+             ::\n\
+             return sim.pending(world)\n\
+         ::\n\
+         let world := sim.make_seeded(16, 9)\n\
+         let coro := sim.coroutine_with(world, worker, 3)\n\
+         let a := sim.next(coro)?\n\
+         let b := sim.next(coro)?\n\
+         let c := sim.next(coro)?\n\
+         let joined := sim.join(coro)?\n\
+         let first := sim.step(world)?\n\
+         let second := sim.step(world)?\n\
+         let third := sim.step(world)?\n\
+         let replayed := sim.replay(sim.log(world), 16, sim.seed(world))\n\
+         joined * 100000 + a[0] * 10000 + b[1] * 1000 + c[1] * 100 + first.event[1] * 10 + sim.snapshot(replayed).seed\n";
+    let native = run_value_with_accel(source, true);
+    let fallback = run_value_with_accel(source, false);
+    assert_eq!(native, fallback);
+}
+
+#[test]
 fn spatial_queries_and_rng_streams_are_deterministic() {
     let spatial = run_value(
         "import std::spatial\n\

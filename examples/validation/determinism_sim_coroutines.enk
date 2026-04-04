@@ -1,0 +1,42 @@
+import json
+import std::sim
+
+fn worker(coro: SimCoroutine, state: Int) -> Int ::
+    let world := sim.world(coro)
+    let step := 0
+    while step < state ::
+        sim.schedule(world, sim.time(world) + 1.0 + step, [state, step])
+        sim.emit(coro, [state, step])
+        step := step + 1
+    ::
+    return sim.pending(world)
+::
+
+fn main() ::
+    let world := sim.make_seeded(16, 9)
+    let coro := sim.coroutine_with(world, worker, 3)
+    let a := sim.next(coro)?
+    let b := sim.next(coro)?
+    let c := sim.next(coro)?
+    let done_before := sim.done(coro)
+    let joined := sim.join(coro)?
+    let done_after := sim.done(coro)
+    let first := sim.step(world)?
+    let second := sim.step(world)?
+    let third := sim.step(world)?
+    let snapshot := sim.snapshot(world)
+    let replayed := sim.replay(sim.log(world), 16, sim.seed(world))
+
+    let out := json.parse("{}")
+    out.done_after := done_after
+    out.done_before := done_before
+    out.emissions := [a, b, c]
+    out.joined := joined
+    out.log := sim.log(world)
+    out.replay_snapshot := sim.snapshot(replayed)
+    out.snapshot := snapshot
+    out.steps := [first.event, second.event, third.event]
+    return out
+::
+
+main()

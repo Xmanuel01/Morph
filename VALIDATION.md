@@ -15,6 +15,7 @@ This file is the strict verification matrix for the v2.x release line.
 - `enkai validate ffi-correctness --json --output artifacts/validation/ffi_correctness.json`
 - `enkai validate determinism --suite event_queue --runs 10 --json --output artifacts/validation/determinism_event_queue.json`
 - `enkai validate determinism --suite sim_replay --runs 10 --json --output artifacts/validation/determinism_sim_replay.json`
+- `enkai validate determinism --suite sim_coroutines --runs 10 --json --output artifacts/validation/determinism_sim_coroutines.json`
 - `enkai validate determinism --suite adam0_reference_100 --runs 3 --json --output artifacts/validation/determinism_adam0_reference_100.json`
 - `enkai validate pool-safety --json --output artifacts/validation/pool_safety.json`
 - `enkai validate adam0-cpu --scenario fake10 --json --output artifacts/validation/adam0_fake10.json`
@@ -38,6 +39,11 @@ Proof requirements on the `v2.9.2+` line:
   - insertion-order tie-breaking remains stable
   - native-backed and VM-fallback hashes/results are identical
   - the native event queue path was actually exercised
+- `determinism_sim_replay.json` and `determinism_sim_coroutines.json` must prove:
+  - repeated seed-based outputs are byte-identical
+  - snapshot and replay hashes match when replay artifacts are present
+  - coroutine/task counters are recorded in the audit payload
+  - coroutine suites actually exercised spawn/emit/next-wait counters
 - `pool_safety.json` must prove:
   - reusable pool stats plateau after warmup
   - reset clears available items without corrupting counters

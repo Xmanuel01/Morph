@@ -36,6 +36,7 @@ struct ValidationSuite {
     expected_result: Option<serde_json::Value>,
     expected_output_hash: Option<String>,
     require_native_path: Option<bool>,
+    require_coroutine_counters: Option<bool>,
     perf_metric: Option<String>,
     perf_direction: Option<String>,
     regression_budget_pct: Option<f64>,
@@ -134,6 +135,47 @@ fn profile_counter_u64(profile: &serde_json::Value, key: &str) -> u64 {
 fn native_path_exercised(profile: &serde_json::Value) -> bool {
     profile_counter_u64(profile, "ffi_calls") > 0
         && profile_counter_u64(profile, "native_function_calls") > 0
+}
+
+fn simulation_audit_from_result(
+    suite: &ValidationSuite,
+    result: &serde_json::Value,
+    profile: &serde_json::Value,
+) -> Result<Option<serde_json::Value>, String> {
+    let snapshot = result.get("snapshot");
+    let replay_snapshot = result.get("replay_snapshot");
+    let event_log = result.get("log");
+    if snapshot.is_none() && replay_snapshot.is_none() && event_log.is_none() {
+        return Ok(None);
+    }
+    let snapshot_hash = snapshot.map(hash_json).transpose()?.unwrap_or_default();
+    let replay_hash = replay_snapshot
+        .map(hash_json)
+        .transpose()?
+        .unwrap_or_default();
+    let event_log_hash = event_log.map(hash_json).transpose()?.unwrap_or_default();
+    let config_hash = hash_json(&canonicalize_json(&json!({
+        "suite": suite.id,
+        "target": suite.target,
+        "env": suite.env,
+    })))?;
+    let seed = snapshot
+        .and_then(|value| value.get("seed"))
+        .cloned()
+        .or_else(|| result.get("seed").cloned())
+        .unwrap_or(serde_json::Value::Null);
+    Ok(Some(json!({
+        "seed": seed,
+        "config_hash": config_hash,
+        "event_log_hash": event_log_hash,
+        "snapshot_hash": snapshot_hash,
+        "replay_hash": replay_hash,
+        "task_counters": {
+            "sim_coroutines_spawned": profile_counter_u64(profile, "sim_coroutines_spawned"),
+            "sim_coroutine_emits": profile_counter_u64(profile, "sim_coroutine_emits"),
+            "sim_coroutine_next_waits": profile_counter_u64(profile, "sim_coroutine_next_waits")
+        }
+    })))
 }
 
 pub fn validate_command(args: &[String]) -> i32 {
@@ -354,16 +396,45 @@ fn determinism_command(args: &[String]) -> i32 {
     let native_path_used = native_path_exercised(&native_profile);
     let native_path_required = suite.require_native_path.unwrap_or(false);
     let native_path_ok = !native_path_required || native_path_used;
+    let coroutine_counters_required = suite.require_coroutine_counters.unwrap_or(false);
+    let coroutine_counters_ok = !coroutine_counters_required
+        || (profile_counter_u64(&native_profile, "sim_coroutines_spawned") > 0
+            && profile_counter_u64(&native_profile, "sim_coroutine_emits") > 0
+            && profile_counter_u64(&native_profile, "sim_coroutine_next_waits") > 0);
     let expected_matches = suite
         .expected_result
         .as_ref()
         .map(|expected| &native_result == expected && &vm_result == expected)
         .unwrap_or(true);
+    let simulation_audit =
+        match simulation_audit_from_result(&suite, &native_result, &native_profile) {
+            Ok(audit) => audit,
+            Err(err) => {
+                eprintln!("enkai validate determinism: {}", err);
+                return 1;
+            }
+        };
+    let replay_hash_matches = simulation_audit
+        .as_ref()
+        .map(|audit| {
+            let snapshot_hash = audit
+                .get("snapshot_hash")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default();
+            let replay_hash = audit
+                .get("replay_hash")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default();
+            snapshot_hash.is_empty() || replay_hash.is_empty() || snapshot_hash == replay_hash
+        })
+        .unwrap_or(true);
     let passed = native_unique.len() == 1
         && vm_unique.len() == 1
         && native_hash == vm_hash
         && expected_matches
-        && native_path_ok;
+        && native_path_ok
+        && coroutine_counters_ok
+        && replay_hash_matches;
     let payload = json!({
         "schema_version": 1,
         "validation": "determinism",
@@ -379,6 +450,7 @@ fn determinism_command(args: &[String]) -> i32 {
         "vm_fallback_result": vm_result,
         "expected_result": suite.expected_result,
         "native_profile": native_profile,
+        "simulation_audit": simulation_audit,
         "proof_checks": {
             "native_unique_hash_count": native_unique.len(),
             "vm_fallback_unique_hash_count": vm_unique.len(),
@@ -387,7 +459,10 @@ fn determinism_command(args: &[String]) -> i32 {
             "expected_matches": expected_matches,
             "require_native_path": native_path_required,
             "native_path_exercised": native_path_used,
-            "native_path_requirement_passed": native_path_ok
+            "native_path_requirement_passed": native_path_ok,
+            "require_coroutine_counters": coroutine_counters_required,
+            "coroutine_counter_requirement_passed": coroutine_counters_ok,
+            "replay_hash_matches": replay_hash_matches
         }
     });
     emit_validation_payload(

@@ -15,6 +15,27 @@
   - multi-GPU parity evidence
   - 4-GPU soak evidence
 
+## v2.9.3
+
+### Highlights
+- Advanced the release line to `v2.9.3` with scheduler, replay, and coroutine proof completion.
+- Added release-blocking deterministic coroutine validation and simulation audit payloads.
+- Tightened deterministic replay validation so snapshot/replay hash equality is machine-checked.
+
+### Fixes
+- Added `sim_coroutines` to the validation manifest and readiness/blocker matrices.
+- Added `examples/validation/determinism_sim_coroutines.enk` as the canonical coroutine determinism suite.
+- Extended `enkai validate determinism` to emit simulation audits with:
+  - seed
+  - config hash
+  - event log hash
+  - snapshot hash
+  - replay hash
+  - coroutine/task counters
+- Extended determinism validation to require coroutine counters when the suite declares them.
+- Added interpreter regression coverage for native-vs-VM coroutine equivalence.
+- Synced release evidence requirements so coroutine determinism artifacts are archived and verified.
+
 ## v2.9.2
 
 ### Highlights

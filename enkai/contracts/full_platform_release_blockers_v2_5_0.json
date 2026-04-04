@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "profile": "full_platform",
-  "version_line": "v2.5.0-v2.9.2",
+  "version_line": "v2.5.0-v2.9.3",
   "compatibility_policy": "additive_only_v2_x",
   "release_blockers": {
     "non_hardware": {
@@ -49,6 +49,7 @@
         "validation-ffi-correctness",
         "validation-determinism-event-queue",
         "validation-determinism-sim-replay",
+        "validation-determinism-sim-coroutines",
         "validation-pool-safety",
         "validation-adam0-fake10",
         "validation-adam0-ref100",
@@ -163,6 +164,7 @@
         "artifacts/validation/ffi_correctness.json",
         "artifacts/validation/determinism_event_queue.json",
         "artifacts/validation/determinism_sim_replay.json",
+        "artifacts/validation/determinism_sim_coroutines.json",
         "artifacts/validation/pool_safety.json",
         "artifacts/validation/adam0_fake10.json",
         "artifacts/validation/adam0_ref100.json",

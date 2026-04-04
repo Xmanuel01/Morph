@@ -2,11 +2,11 @@
 
 ## Versioning policy
 
-- Current production release line: `v2.9.2`.
-- `docs/Enkai.spec` is the normative language reference for `v2.9.2`.
-- Known limits and partial features are tracked inside `docs/Enkai.spec` under `Known Limits in v2.9.2`.
+- Current production release line: `v2.9.3`.
+- `docs/Enkai.spec` is the normative language reference for `v2.9.3`.
+- Known limits and partial features are tracked inside `docs/Enkai.spec` under `Known Limits in v2.9.3`.
 - `docs/40_registry_convergence.md` defines the registry convergence contract for checkpoint, simulation, environment, and native-extension artifacts.
-- `docs/41_scale_reliability.md` defines the `v2.9.2` scale/reliability contract for supervised simulation clusters and degraded registry fallback.
+- `docs/41_scale_reliability.md` defines the `v2.9.3` scale/reliability contract for supervised simulation clusters and degraded registry fallback.
 - `VALIDATION.md` defines the strict CPU/GPU validation matrix for release claims.
 - `bench/machines/` and `bench/baselines/validation_cpu_v3_0_0.json` define the local/reference CPU validation envelopes and regression baselines.
 - `docs/47_gpu_operator_preflight.md` defines the operator preflight path for real GPU sign-off hosts.

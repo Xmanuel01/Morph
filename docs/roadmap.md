@@ -2,7 +2,7 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current production release line is v2.9.2.
+- Current production release line is v2.9.3.
 - v2.6.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
 
@@ -20,6 +20,12 @@ v2.9.2 (done)
   - requires native-backed and VM-fallback equivalence in validation artifacts
   - verifies deterministic event ordering and pool plateau semantics
   - adds seeded native-vs-VM property tests for sparse/event/pool
+
+v2.9.3 (done)
+- Quality recovery line:
+  - makes deterministic replay and coroutine behavior machine-auditable
+  - adds simulation audit hashes for seed/config/log/snapshot/replay
+  - promotes coroutine counters and replay-hash equality into release-blocking validation
 
 v3.0.0 (pending final sign-off)
 - Stability cut for the first AGI + LLM platform release:
