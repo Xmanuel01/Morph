@@ -1,0 +1,6 @@
+tool tools.echo(a: Int) -> Int
+
+fn main() -> Int ::
+    return 0
+::
+main()

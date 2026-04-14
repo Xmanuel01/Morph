@@ -839,6 +839,50 @@ fn inject_builtins(
         "emit_subset".to_string(),
         Type::Function(vec![Type::String, Type::String], Box::new(Type::Bool)),
     );
+    compiler_exports.insert(
+        "parse_subset_file".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::Unknown)),
+    );
+    compiler_exports.insert(
+        "describe_subset".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::Unknown)),
+    );
+    compiler_exports.insert(
+        "describe_subset_file".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::Unknown)),
+    );
+    compiler_exports.insert(
+        "describe_subset_package_file".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::Unknown)),
+    );
+    compiler_exports.insert(
+        "describe_program_file".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::Unknown)),
+    );
+    compiler_exports.insert(
+        "check_subset_file".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::Bool)),
+    );
+    compiler_exports.insert(
+        "check_subset_raw".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::Bool)),
+    );
+    compiler_exports.insert(
+        "check_subset_raw_file".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::Bool)),
+    );
+    compiler_exports.insert(
+        "emit_subset_file".to_string(),
+        Type::Function(vec![Type::String, Type::String], Box::new(Type::Bool)),
+    );
+    compiler_exports.insert(
+        "emit_subset_raw".to_string(),
+        Type::Function(vec![Type::String, Type::String], Box::new(Type::Bool)),
+    );
+    compiler_exports.insert(
+        "emit_subset_raw_file".to_string(),
+        Type::Function(vec![Type::String, Type::String], Box::new(Type::Bool)),
+    );
     exports.entry(compiler_id).or_insert(compiler_exports);
     let tokenizer_id = ModuleId(vec!["tokenizer".to_string()]);
     imports

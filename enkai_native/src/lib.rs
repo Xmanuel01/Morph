@@ -4398,6 +4398,15 @@ pub extern "C" fn ml_metric_mse_json(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn native_handle_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
+        GUARD
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+    }
 
     #[test]
     fn add_i64_overflow_wraps() {
@@ -4446,6 +4455,7 @@ mod tests {
 
     #[test]
     fn sim_sparse_handles_work() {
+        let _guard = native_handle_test_guard();
         let vector = sim_sparse_vector_new();
         assert!(!vector.is_null());
         unsafe {
@@ -4478,6 +4488,7 @@ mod tests {
 
     #[test]
     fn sim_event_queue_and_pool_handles_work() {
+        let _guard = native_handle_test_guard();
         let queue = sim_event_queue_new();
         assert!(!queue.is_null());
         unsafe {
@@ -4541,6 +4552,7 @@ mod tests {
 
     #[test]
     fn sim_spatial_and_rng_handles_work() {
+        let _guard = native_handle_test_guard();
         let index = sim_spatial_index_new();
         assert!(!index.is_null());
         unsafe {
@@ -4574,6 +4586,7 @@ mod tests {
 
     #[test]
     fn sim_snn_handles_work() {
+        let _guard = native_handle_test_guard();
         let network = sim_snn_network_new(3);
         assert!(!network.is_null());
         unsafe {
@@ -4601,23 +4614,27 @@ mod tests {
 
     #[test]
     fn invalid_handle_access_is_counted_without_crashing() {
+        let _guard = native_handle_test_guard();
+        let baseline_live = handle_live_count();
         handle_reset_stale_count();
         let bogus = 0x1234usize as *mut c_void;
         assert_eq!(unsafe { handle_read(bogus) }, 0);
         assert_eq!(handle_stale_count(), 1);
-        assert_eq!(handle_live_count(), 0);
+        assert_eq!(handle_live_count(), baseline_live);
     }
 
     #[test]
     fn double_free_of_handles_is_ignored_and_counted() {
+        let _guard = native_handle_test_guard();
+        let baseline_live = handle_live_count();
         handle_reset_stale_count();
         let handle = handle_new(7);
-        assert_eq!(handle_live_count(), 1);
+        assert_eq!(handle_live_count(), baseline_live + 1);
         unsafe {
             enkai_handle_free(handle);
             enkai_handle_free(handle);
         }
-        assert_eq!(handle_live_count(), 0);
+        assert_eq!(handle_live_count(), baseline_live);
         assert_eq!(handle_stale_count(), 1);
     }
 

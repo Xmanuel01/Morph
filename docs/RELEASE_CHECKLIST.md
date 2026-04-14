@@ -26,9 +26,21 @@ Note:
   - `enkai readiness check --profile production --json --output artifacts/readiness/production.json`
 - [ ] Full-platform readiness report (v2.5+ line):
   - `enkai readiness check --profile full_platform --json --output artifacts/readiness/full_platform.json`
+  - strict self-host contract freeze report:
+    - `enkai readiness check --profile strict_selfhost --json --output artifacts/readiness/strict_selfhost.json`
+    - `enkai readiness verify-blockers --profile strict_selfhost --report artifacts/readiness/strict_selfhost.json --json --output artifacts/readiness/strict_selfhost_blockers.json`
+    - `python3 scripts/verify_selfhost_frontier.py --enkai-bin <enkai> --workspace . --contract enkai/contracts/selfhost_frontier_v3_1_1.json --output artifacts/readiness/selfhost_frontier_verify.json`
+    - `python3 scripts/verify_selfhost_frontier.py --enkai-bin <enkai> --workspace . --contract enkai/contracts/selfhost_bootstrap_v3_1_1.json --output artifacts/readiness/selfhost_bootstrap_verify.json`
+    - `python3 scripts/verify_selfhost_frontier.py --enkai-bin <enkai> --workspace . --contract enkai/contracts/selfhost_negative_v3_1_1.json --output artifacts/readiness/selfhost_negative_verify.json`
   - readiness contract:
     - `enkai/contracts/readiness_full_platform_v2_5_0.json`
     - `enkai/contracts/full_platform_release_blockers_v2_5_0.json`
+    - `enkai/contracts/readiness_strict_selfhost_v3_1_0.json`
+    - `enkai/contracts/strict_selfhost_release_blockers_v3_1_0.json`
+    - `enkai/contracts/strict_selfhost_dependency_board_v3_1_0.json`
+    - `enkai/contracts/selfhost_frontier_v3_1_1.json`
+    - `enkai/contracts/selfhost_bootstrap_v3_1_1.json`
+    - `enkai/contracts/selfhost_negative_v3_1_1.json`
   - blocker verification:
     - `enkai readiness verify-blockers --profile full_platform --report artifacts/readiness/full_platform.json --json --output artifacts/readiness/full_platform_blockers.json`
     - release pipeline form:
@@ -38,6 +50,10 @@ Note:
   - deploy-validation smoke artifacts expected from full-platform readiness:
     - `artifacts/readiness/deploy_backend.json`
     - `artifacts/readiness/deploy_fullstack.json`
+    - `artifacts/readiness/strict_selfhost_dependency_inventory.json`
+    - `artifacts/readiness/selfhost_frontier_verify.json`
+    - `artifacts/readiness/selfhost_bootstrap_verify.json`
+    - `artifacts/readiness/selfhost_negative_verify.json`
   - simulation smoke artifacts expected from full-platform readiness:
     - `artifacts/readiness/grpc_smoke.json`
     - `artifacts/readiness/grpc_evidence_verify.json`
@@ -106,6 +122,7 @@ Note:
     - `python3 scripts/generate_release_dashboard.py [--strict]`
   - pipeline note:
     - uses `full_platform` readiness as the canonical non-hardware release gate
+    - also emits strict self-host contract inventory artifacts for the zero-Rust transition line
     - skips standalone self-host readiness checks because `enkai litec release-ci` is executed separately
     - respects `ENKAI_RELEASE_MIN_FREE_GB` for disk-space preflight
     - emits `artifacts/release/v<version>/release_dashboard.json` and `artifacts/release/v<version>/release_dashboard.md`
@@ -163,6 +180,11 @@ Note:
   - strict archive must include:
     - `readiness/full_platform.json`
     - `readiness/full_platform_blockers.json`
+    - `readiness/strict_selfhost.json`
+    - `readiness/strict_selfhost_dependency_inventory.json`
+    - `readiness/selfhost_frontier_verify.json`
+    - `readiness/strict_selfhost_blockers.json`
+    - `selfhost/litec_frontend_audit_report.json`
     - `readiness/grpc_smoke.json`
     - `readiness/grpc_evidence_verify.json`
     - `readiness/sim_smoke.json`

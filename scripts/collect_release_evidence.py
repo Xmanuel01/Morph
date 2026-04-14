@@ -232,6 +232,7 @@ def main() -> int:
         "litec_replace_check_report.json",
         "litec_mainline_ci_report.json",
         "litec_release_ci_report.json",
+        "litec_frontend_audit_report.json",
     ]
     if selfhost_dir.is_dir():
         if args.strict:
@@ -251,6 +252,10 @@ def main() -> int:
         "worker_queue_v1.snapshot.json",
         "db_engines_v1.snapshot.json",
         "conversation_state_v1.schema.json",
+        "readiness_strict_selfhost_v3_1_0.json",
+        "strict_selfhost_release_blockers_v3_1_0.json",
+        "strict_selfhost_dependency_board_v3_1_0.json",
+        "selfhost_frontier_v3_1_1.json",
     ]
     if contracts_dir.is_dir():
         if args.strict:
@@ -268,6 +273,10 @@ def main() -> int:
     required_readiness = [
         "full_platform.json",
         "full_platform_blockers.json",
+        "strict_selfhost.json",
+        "strict_selfhost_dependency_inventory.json",
+        "selfhost_frontier_verify.json",
+        "strict_selfhost_blockers.json",
         "grpc_smoke.json",
         "grpc_evidence_verify.json",
         "sim_smoke.json",

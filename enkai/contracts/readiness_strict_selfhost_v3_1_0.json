@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "profile": "strict_selfhost",
+  "checks": [
+    {
+      "id": "docs-consistency",
+      "description": "Docs/spec/contract consistency check",
+      "command": [
+        "${PYTHON}",
+        "scripts/check_docs_consistency.py"
+      ]
+    },
+    {
+      "id": "strict-selfhost-inventory",
+      "description": "Strict self-host dependency inventory generation",
+      "command": [
+        "${PYTHON}",
+        "scripts/generate_strict_selfhost_inventory.py",
+        "--board",
+        "enkai/contracts/strict_selfhost_dependency_board_v3_1_0.json",
+        "--workspace-cargo",
+        "Cargo.toml",
+        "--output",
+        "artifacts/readiness/strict_selfhost_dependency_inventory.json"
+      ]
+    },
+    {
+      "id": "selfhost-frontend-frontier",
+      "description": "Self-host frontend frontier audit against frozen v3.1.1 contract",
+      "command": [
+        "${PYTHON}",
+        "scripts/verify_selfhost_frontier.py",
+        "--enkai-bin",
+        "${ENKAI_BIN}",
+        "--workspace",
+        ".",
+        "--contract",
+        "enkai/contracts/selfhost_frontier_v3_1_1.json",
+        "--output",
+        "artifacts/readiness/selfhost_frontier_verify.json"
+      ]
+    },
+    {
+      "id": "selfhost-frontend-examples",
+      "description": "Self-host frontend audit across the shipped examples corpus",
+      "command": [
+        "${PYTHON}",
+        "scripts/verify_selfhost_frontier.py",
+        "--enkai-bin",
+        "${ENKAI_BIN}",
+        "--workspace",
+        ".",
+        "--contract",
+        "enkai/contracts/selfhost_examples_v3_1_1.json",
+        "--output",
+        "artifacts/readiness/selfhost_examples_verify.json"
+      ]
+    },
+    {
+      "id": "selfhost-frontend-bootstrap",
+      "description": "Self-host frontend audit across bootstrap compiler sources",
+      "command": [
+        "${PYTHON}",
+        "scripts/verify_selfhost_frontier.py",
+        "--enkai-bin",
+        "${ENKAI_BIN}",
+        "--workspace",
+        ".",
+        "--contract",
+        "enkai/contracts/selfhost_bootstrap_v3_1_1.json",
+        "--output",
+        "artifacts/readiness/selfhost_bootstrap_verify.json"
+      ]
+    },
+    {
+      "id": "selfhost-frontend-negative",
+      "description": "Self-host negative semantic corpus audit for expected frontend rejections",
+      "command": [
+        "${PYTHON}",
+        "scripts/verify_selfhost_frontier.py",
+        "--enkai-bin",
+        "${ENKAI_BIN}",
+        "--workspace",
+        ".",
+        "--contract",
+        "enkai/contracts/selfhost_negative_v3_1_1.json",
+        "--output",
+        "artifacts/readiness/selfhost_negative_verify.json"
+      ]
+    }
+  ]
+}

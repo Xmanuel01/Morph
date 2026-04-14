@@ -124,10 +124,10 @@ struct ReleaseBlockerReport {
 
 pub fn print_readiness_usage() {
     eprintln!(
-        "  enkai readiness check [--profile production|full_platform] [--json] [--output <file>] [--skip-check <id>]"
+        "  enkai readiness check [--profile production|full_platform|strict_selfhost] [--json] [--output <file>] [--skip-check <id>]"
     );
     eprintln!(
-        "  enkai readiness verify-blockers --profile full_platform --report <file> [--json] [--output <file>] [--require-gpu-evidence] [--skip-release-evidence] [--version <x.y.z>]"
+        "  enkai readiness verify-blockers --profile full_platform|strict_selfhost --report <file> [--json] [--output <file>] [--require-gpu-evidence] [--skip-release-evidence] [--version <x.y.z>]"
     );
     eprintln!("    [--allow-skipped-required-check <id>]");
 }
@@ -526,9 +526,10 @@ fn load_manifest(profile: &str) -> Result<ReadinessManifest, String> {
     let raw = match profile {
         "production" => include_str!("../contracts/readiness_production_v2_3_0.json"),
         "full_platform" => include_str!("../contracts/readiness_full_platform_v2_5_0.json"),
+        "strict_selfhost" => include_str!("../contracts/readiness_strict_selfhost_v3_1_0.json"),
         _ => {
             return Err(format!(
-                "unsupported profile '{}'; expected 'production' or 'full_platform'",
+                "unsupported profile '{}'; expected 'production', 'full_platform', or 'strict_selfhost'",
                 profile
             ));
         }
@@ -541,9 +542,12 @@ fn load_manifest(profile: &str) -> Result<ReadinessManifest, String> {
 fn load_release_blocker_manifest(profile: &str) -> Result<ReleaseBlockerManifest, String> {
     let raw = match profile {
         "full_platform" => include_str!("../contracts/full_platform_release_blockers_v2_5_0.json"),
+        "strict_selfhost" => {
+            include_str!("../contracts/strict_selfhost_release_blockers_v3_1_0.json")
+        }
         _ => {
             return Err(format!(
-                "unsupported blocker profile '{}'; expected 'full_platform'",
+                "unsupported blocker profile '{}'; expected 'full_platform' or 'strict_selfhost'",
                 profile
             ));
         }
@@ -1033,6 +1037,38 @@ mod tests {
             .checks
             .iter()
             .any(|check| check.id == "registry-degraded-evidence-verify"));
+    }
+
+    #[test]
+    fn load_manifest_strict_selfhost_profile() {
+        let manifest = load_manifest("strict_selfhost").expect("manifest");
+        assert_eq!(manifest.schema_version, 1);
+        assert_eq!(manifest.profile, "strict_selfhost");
+        assert_eq!(manifest.checks.len(), 6);
+        assert!(manifest
+            .checks
+            .iter()
+            .any(|check| check.id == "docs-consistency"));
+        assert!(manifest
+            .checks
+            .iter()
+            .any(|check| check.id == "strict-selfhost-inventory"));
+        assert!(manifest
+            .checks
+            .iter()
+            .any(|check| check.id == "selfhost-frontend-frontier"));
+        assert!(manifest
+            .checks
+            .iter()
+            .any(|check| check.id == "selfhost-frontend-examples"));
+        assert!(manifest
+            .checks
+            .iter()
+            .any(|check| check.id == "selfhost-frontend-bootstrap"));
+        assert!(manifest
+            .checks
+            .iter()
+            .any(|check| check.id == "selfhost-frontend-negative"));
     }
 
     #[test]

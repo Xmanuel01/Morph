@@ -791,7 +791,9 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
             Stmt::Assign { target, expr } => {
                 if target.accesses.is_empty() {
                     self.compile_expr(expr)?;
-                    let resolved = self.resolve_var(&target.base)?;
+                    let resolved = self
+                        .resolve_var(&target.base)
+                        .map_err(|err| err.with_span(target.base_span.clone()))?;
                     match resolved {
                         ResolvedVar::Local(i) => self
                             .chunk
@@ -801,7 +803,9 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                             .write(Instruction::StoreGlobal(i), target.base_span.line),
                     }
                 } else {
-                    let resolved = self.resolve_var(&target.base)?;
+                    let resolved = self
+                        .resolve_var(&target.base)
+                        .map_err(|err| err.with_span(target.base_span.clone()))?;
                     match resolved {
                         ResolvedVar::Local(i) => self
                             .chunk
@@ -927,7 +931,10 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                 let idx = self.chunk.add_constant(c);
                 self.chunk.write(Instruction::Const(idx), span.line);
             }
-            Expr::Ident { name, span } => match self.resolve_var(name)? {
+            Expr::Ident { name, span } => match self
+                .resolve_var(name)
+                .map_err(|err| err.with_span(span.clone()))?
+            {
                 ResolvedVar::Local(i) => self.chunk.write(Instruction::LoadLocal(i), span.line),
                 ResolvedVar::Global(i) => self.chunk.write(Instruction::LoadGlobal(i), span.line),
             },

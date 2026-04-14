@@ -1,0 +1,6 @@
+model MyModel := 2 + 3
+
+fn main() -> Int ::
+    return 0
+::
+main()

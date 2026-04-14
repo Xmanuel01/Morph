@@ -22,7 +22,11 @@ required fallback path when a self-host lane fails.
    - `enkai litec selfhost-ci <corpus_dir>`
 6. Run replacement-readiness fixed-point gate:
    - `enkai litec replace-check <corpus_dir>`
-7. Run mainline CI-equivalent path with deterministic triage output:
+7. Run frontier audit over broader language corpus:
+   - `enkai litec frontend-audit <corpus_dir> --triage-dir artifacts/selfhost`
+8. Escalate to strict frontier enforcement only when the audit is gap-free:
+   - `enkai litec frontend-audit <corpus_dir> --require-full-support --triage-dir artifacts/selfhost`
+9. Run mainline CI-equivalent path with deterministic triage output:
    - `enkai litec mainline-ci <corpus_dir> --triage-dir artifacts/selfhost`
 
 Repository baseline corpus:

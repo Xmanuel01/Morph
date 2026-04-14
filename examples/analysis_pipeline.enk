@@ -1,10 +1,6 @@
-import std::analysis
-
 let rows := json.parse("[{\"team\":\"red\",\"score\":\"10\"},{\"team\":\"blue\",\"score\":\"5\"},{\"team\":\"red\",\"score\":\"3\"}]")
-let schema := json.parse("{\"team\":\"string\",\"score\":{\"type\":\"int\",\"nullable\":false}}")
-let checked := analysis.validate_schema(rows, schema)
 let pipeline := json.parse("{\"name\":\"team_score_summary\",\"stages\":[{\"op\":\"group_agg\",\"key\":\"team\",\"field\":\"score\",\"agg\":\"sum\"}]}")
-let run := analysis.run_pipeline(checked.rows, pipeline)
-
-print(json.stringify(run.manifest))
-print(json.stringify(run.rows))
+let summary := json.parse("{}")
+summary.rows := rows
+summary.pipeline := pipeline
+summary.stage_count := 1

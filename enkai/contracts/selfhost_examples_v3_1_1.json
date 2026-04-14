@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "profile": "strict_selfhost_examples",
+  "corpus": "examples",
+  "report_file": "artifacts/selfhost/litec_frontend_audit_report.json",
+  "expected": {
+    "examples/adam0_100.enk": "pass",
+    "examples/adam0_fake/json.enk": "pass",
+    "examples/adam0_fake/main.enk": "pass",
+    "examples/adam0_reference.enk": "pass",
+    "examples/adam0_reference/json.enk": "pass",
+    "examples/adam0_reference/main.enk": "pass",
+    "examples/analysis_pipeline.enk": "pass",
+    "examples/hello.enk": "pass",
+    "examples/hello/main.enk": "pass",
+    "examples/json.enk": "pass",
+    "examples/nn_sanity.enk": "pass",
+    "examples/project_v02/src/foo/bar.enk": "pass",
+    "examples/project_v02/src/main.enk": "pass",
+    "examples/snn_agent_kernel.enk": "pass",
+    "examples/validation/adam0_fake_10.enk": "pass",
+    "examples/validation/determinism_event_queue.enk": "pass",
+    "examples/validation/determinism_sim_coroutines.enk": "pass",
+    "examples/validation/determinism_sim_replay.enk": "pass",
+    "examples/validation/ffi_correctness.enk": "pass",
+    "examples/validation/ffi_handle_live_count.enk": "pass",
+    "examples/validation/ffi_safety.enk": "pass",
+    "examples/validation/perf_ffi_noop.enk": "pass",
+    "examples/validation/perf_sparse_dot.enk": "pass",
+    "examples/validation/pool_safety.enk": "pass"
+  }
+}

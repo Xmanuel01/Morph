@@ -1,0 +1,11 @@
+agent Bot ::
+    memory store("disk")
+    fn ping() -> Int ::
+        return 1
+    ::
+::
+
+fn main() -> Int ::
+    return 0
+::
+main()

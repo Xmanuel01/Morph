@@ -150,10 +150,14 @@ fn response_body(value: &Value) -> Option<Vec<u8>> {
     }
 }
 
-fn send_raw_request(port: u16, request: &[u8]) -> Vec<u8> {
+fn send_raw_request_with_timeout(
+    port: u16,
+    request: &[u8],
+    timeout: std::time::Duration,
+) -> Vec<u8> {
     let mut last_err: Option<std::io::Error> = None;
     let mut stream_opt = None;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let deadline = std::time::Instant::now() + timeout;
     while std::time::Instant::now() < deadline {
         match TcpStream::connect(("127.0.0.1", port)) {
             Ok(stream) => {
@@ -184,11 +188,21 @@ fn send_raw_request(port: u16, request: &[u8]) -> Vec<u8> {
         match stream.read(&mut chunk) {
             Ok(0) => break,
             Ok(n) => buf.extend_from_slice(&chunk[..n]),
-            Err(err) if err.kind() == std::io::ErrorKind::ConnectionReset => break,
+            Err(err)
+                if err.kind() == std::io::ErrorKind::ConnectionReset
+                    || err.kind() == std::io::ErrorKind::ConnectionAborted
+                    || err.kind() == std::io::ErrorKind::UnexpectedEof =>
+            {
+                break
+            }
             Err(err) => panic!("read: {}", err),
         }
     }
     buf
+}
+
+fn send_raw_request(port: u16, request: &[u8]) -> Vec<u8> {
+    send_raw_request_with_timeout(port, request, std::time::Duration::from_secs(5))
 }
 
 fn response_status(buf: &[u8]) -> u16 {
@@ -629,12 +643,13 @@ fn http_model_version_header_enforcement() {
          let routes := [http.route(\"GET\", \"/\", handler)]\n\
          let cfg := json.parse(\"{{\\\"require_model_version_header\\\":true}}\")\n\
          http.serve_with(\"127.0.0.1\", {port}, routes, cfg)\n\
-         let missing := http.get(\"http://127.0.0.1:{port}/\")\n\
-         let mismatch_cfg := json.parse(\"{{\\\"method\\\":\\\"GET\\\",\\\"url\\\":\\\"http://127.0.0.1:{port}/\\\",\\\"headers\\\":{{\\\"x-enkai-model-version\\\":\\\"v0.9.0\\\"}}}}\")\n\
+         let missing_cfg := json.parse(\"{{\\\"method\\\":\\\"GET\\\",\\\"url\\\":\\\"http://127.0.0.1:{port}/\\\",\\\"retries\\\":6,\\\"retry_backoff_ms\\\":25}}\")\n\
+         let missing := http.request(missing_cfg)\n\
+         let mismatch_cfg := json.parse(\"{{\\\"method\\\":\\\"GET\\\",\\\"url\\\":\\\"http://127.0.0.1:{port}/\\\",\\\"retries\\\":6,\\\"retry_backoff_ms\\\":25,\\\"headers\\\":{{\\\"x-enkai-model-version\\\":\\\"v0.9.0\\\"}}}}\")\n\
          let mismatch := http.request(mismatch_cfg)\n\
-         let name_mismatch_cfg := json.parse(\"{{\\\"method\\\":\\\"GET\\\",\\\"url\\\":\\\"http://127.0.0.1:{port}/\\\",\\\"headers\\\":{{\\\"x-enkai-model-version\\\":\\\"v1.2.3\\\",\\\"x-enkai-model-name\\\":\\\"other\\\"}}}}\")\n\
+         let name_mismatch_cfg := json.parse(\"{{\\\"method\\\":\\\"GET\\\",\\\"url\\\":\\\"http://127.0.0.1:{port}/\\\",\\\"retries\\\":6,\\\"retry_backoff_ms\\\":25,\\\"headers\\\":{{\\\"x-enkai-model-version\\\":\\\"v1.2.3\\\",\\\"x-enkai-model-name\\\":\\\"other\\\"}}}}\")\n\
          let name_mismatch := http.request(name_mismatch_cfg)\n\
-         let ok_cfg := json.parse(\"{{\\\"method\\\":\\\"GET\\\",\\\"url\\\":\\\"http://127.0.0.1:{port}/\\\",\\\"headers\\\":{{\\\"x-enkai-model-version\\\":\\\"v1.2.3\\\"}}}}\")\n\
+         let ok_cfg := json.parse(\"{{\\\"method\\\":\\\"GET\\\",\\\"url\\\":\\\"http://127.0.0.1:{port}/\\\",\\\"retries\\\":6,\\\"retry_backoff_ms\\\":25,\\\"headers\\\":{{\\\"x-enkai-model-version\\\":\\\"v1.2.3\\\"}}}}\")\n\
          let ok := http.request(ok_cfg)\n\
          return [missing, mismatch, name_mismatch, ok]\n"
     );
@@ -842,30 +857,29 @@ fn http_backpressure_middleware_returns_503() {
 
     let source = format!(
         "fn handler(req: Request) -> Response ::\n    task.sleep(250)\n    return http.ok(\"slow\")\n::\n\
-         let routes := [http.route(\"GET\", \"/\", handler)]\n\
-         let middlewares := [http.middleware(\"backpressure\", json.parse(\"{{\\\"max_inflight\\\":1}}\"))]\n\
-         http.serve_with(\"127.0.0.1\", {port}, routes, middlewares)\n\
-         task.sleep(600)\n"
+         fn server() -> Int ::\n    let routes := [http.route(\"GET\", \"/\", handler)]\n    let middlewares := [http.middleware(\"backpressure\", json.parse(\"{{\\\"max_inflight\\\":1}}\"))]\n    http.serve_with(\"127.0.0.1\", {port}, routes, middlewares)\n    task.sleep(1200)\n    return 0\n::\n\
+         fn request_once() -> Response ::\n    let cfg := json.parse(\"{{\\\"method\\\":\\\"GET\\\",\\\"url\\\":\\\"http://127.0.0.1:{port}/\\\",\\\"timeout_ms\\\":1000,\\\"retries\\\":12,\\\"retry_backoff_ms\\\":40}}\")\n    return http.request(cfg)\n::\n\
+         let server_handle := task.spawn(server)\n\
+         task.sleep(120)\n\
+         let first_handle := task.spawn(request_once)\n\
+         task.sleep(25)\n\
+         let second_handle := task.spawn(request_once)\n\
+         let first := task.join(first_handle)\n\
+         let second := task.join(second_handle)\n\
+         task.join(server_handle)\n\
+         return [first, second]\n"
     );
-    let server = std::thread::spawn(move || {
-        let _ = run_value(&source);
-    });
-    std::thread::sleep(std::time::Duration::from_millis(60));
-
-    let first_handle = std::thread::spawn(move || {
-        send_raw_request(
-            port,
-            b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
-        )
-    });
-    std::thread::sleep(std::time::Duration::from_millis(25));
-    let second = send_raw_request(
-        port,
-        b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
-    );
-    let first = first_handle.join().expect("first request");
-    let first_status = response_status(&first);
-    let second_status = response_status(&second);
+    let result = run_value(&source);
+    let items = match result {
+        Value::Obj(obj) => match obj.as_obj() {
+            enkairt::object::Obj::List(items) => items.borrow().clone(),
+            _ => panic!("expected list"),
+        },
+        _ => panic!("expected list"),
+    };
+    assert_eq!(items.len(), 2);
+    let first_status = response_status_value(&items[0]).expect("first status");
+    let second_status = response_status_value(&items[1]).expect("second status");
     assert!(
         (first_status == 200 && second_status == 503)
             || (first_status == 503 && second_status == 200),
@@ -873,11 +887,13 @@ fn http_backpressure_middleware_returns_503() {
         first_status,
         second_status
     );
-    let overloaded = if first_status == 503 { &first } else { &second };
-    let overloaded_text = String::from_utf8_lossy(overloaded);
+    let overloaded = if first_status == 503 {
+        response_body(&items[0]).expect("first body")
+    } else {
+        response_body(&items[1]).expect("second body")
+    };
+    let overloaded_text = String::from_utf8_lossy(&overloaded);
     assert!(overloaded_text.contains("\"code\":\"backpressure_overloaded\""));
-
-    server.join().expect("server");
 }
 
 #[test]

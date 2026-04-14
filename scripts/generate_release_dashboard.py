@@ -31,6 +31,10 @@ def parse_args() -> argparse.Namespace:
         "--blocker-report",
         help="Path to archived full_platform blocker report (defaults to artifacts/release/v<version>/readiness/full_platform_blockers.json)",
     )
+    parser.add_argument(
+        "--strict-selfhost-inventory",
+        help="Path to archived strict self-host dependency inventory (defaults to artifacts/release/v<version>/readiness/strict_selfhost_dependency_inventory.json)",
+    )
     parser.add_argument("--output-json", help="Output dashboard JSON path")
     parser.add_argument("--output-md", help="Output dashboard markdown path")
     parser.add_argument(
@@ -65,8 +69,10 @@ def to_markdown(dashboard: dict[str, object]) -> str:
         "",
         f"- Generated: `{dashboard['generated_at_utc']}`",
         f"- CPU complete: `{summary['cpu_complete']}`",
+        f"- Strict self-host CPU complete: `{summary['strict_selfhost_cpu_complete']}`",
+        f"- Strict self-host GPU pending: `{summary['strict_selfhost_gpu_pending']}`",
         f"- GPU ready for operator sign-off: `{summary['gpu_ready_for_operator_signoff']}`",
-        f"- Final v3.0.0 sign-off complete: `{summary['final_signoff_complete']}`",
+        f"- Final release sign-off complete: `{summary['final_signoff_complete']}`",
         "",
         "## Hardware Envelope",
         "",
@@ -74,13 +80,26 @@ def to_markdown(dashboard: dict[str, object]) -> str:
         f"- Reference CPU profiles: `{', '.join(hardware['reference_cpu_profiles'])}`",
         f"- GPU evidence required for final sign-off: `{', '.join(hardware['gpu_required_artifacts'])}`",
         "",
-        "## Proof Groups",
-        "",
-        *rows,
-        "",
-        "## Unverified Areas",
+        "## Remaining Rust Dependencies",
         "",
     ]
+    remaining = dashboard["strict_selfhost"]["remaining_rust_dependencies"]
+    if remaining:
+        for item in remaining:
+            lines.append(f"- `{item}`")
+    else:
+        lines.append("- none")
+    lines.extend(
+        [
+            "",
+            "## Proof Groups",
+            "",
+            *rows,
+            "",
+            "## Unverified Areas",
+            "",
+        ]
+    )
     if dashboard["unverified_areas"]:
         for item in dashboard["unverified_areas"]:
             lines.append(f"- {item}")
@@ -118,10 +137,24 @@ def main() -> int:
         / "readiness"
         / "full_platform_blockers.json"
     )
+    strict_selfhost_inventory_path = (
+        pathlib.Path(args.strict_selfhost_inventory).resolve()
+        if args.strict_selfhost_inventory
+        else root
+        / "artifacts"
+        / "release"
+        / f"v{version}"
+        / "readiness"
+        / "strict_selfhost_dependency_inventory.json"
+    )
     if not capability_path.is_file():
         raise RuntimeError(f"capability report not found: {capability_path}")
     if not blocker_path.is_file():
         raise RuntimeError(f"blocker report not found: {blocker_path}")
+    if not strict_selfhost_inventory_path.is_file():
+        raise RuntimeError(
+            f"strict self-host inventory not found: {strict_selfhost_inventory_path}"
+        )
 
     out_json = (
         pathlib.Path(args.output_json).resolve()
@@ -138,6 +171,7 @@ def main() -> int:
 
     capability = read_json(capability_path)
     blocker = read_json(blocker_path)
+    strict_selfhost_inventory = read_json(strict_selfhost_inventory_path)
     check_map = {check["id"]: check for check in capability.get("checks", []) if isinstance(check, dict)}
 
     proof_group_ids = [
@@ -187,6 +221,19 @@ def main() -> int:
         )
 
     cpu_complete = all(group["passed"] for group in proof_groups)
+    strict_selfhost_summary = strict_selfhost_inventory.get("summary", {})
+    strict_selfhost_cpu_complete = bool(
+        isinstance(strict_selfhost_summary, dict)
+        and strict_selfhost_summary.get("strict_selfhost_cpu_complete", False)
+    )
+    remaining_rust_dependencies = (
+        strict_selfhost_summary.get("remaining_rust_dependencies", [])
+        if isinstance(strict_selfhost_summary, dict)
+        else []
+    )
+    if not isinstance(remaining_rust_dependencies, list):
+        remaining_rust_dependencies = []
+    strict_selfhost_gpu_pending = strict_selfhost_cpu_complete and not gpu_ready
     final_signoff_complete = cpu_complete and gpu_ready
 
     dashboard = {
@@ -197,8 +244,14 @@ def main() -> int:
         "blocker_report": str(blocker_path.relative_to(root)),
         "summary": {
             "cpu_complete": cpu_complete,
+            "strict_selfhost_cpu_complete": strict_selfhost_cpu_complete,
+            "strict_selfhost_gpu_pending": strict_selfhost_gpu_pending,
             "gpu_ready_for_operator_signoff": gpu_ready,
             "final_signoff_complete": final_signoff_complete,
+        },
+        "strict_selfhost": {
+            "inventory": str(strict_selfhost_inventory_path.relative_to(root)),
+            "remaining_rust_dependencies": remaining_rust_dependencies,
         },
         "hardware_envelope": {
             "local_cpu_profiles": [

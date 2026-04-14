@@ -1,4 +1,4 @@
-# Enkai Language Specification (v0.1 -> v3.0.0)
+# Enkai Language Specification (v0.1 -> v3.1.1)
 
 Status: stable.
 Grammar and CLI contracts are frozen at the v0.9.3 baseline for the v1.x/v2.x line.
@@ -417,8 +417,19 @@ Bootstrap:
 
 Compiler (bootstrap-core subset):
 - `compiler.parse_subset(source)` -> summary record (`items`, `functions`)
+- `compiler.describe_subset(source)` -> structural subset record used by the self-host bootstrap validator
 - `compiler.check_subset(source)` -> `Bool`
 - `compiler.emit_subset(source, output_path)` -> `Bool` and writes bytecode program
+- `compiler.parse_subset_file(path)` -> summary record (`items`, `functions`) with package-aware import resolution
+- `compiler.describe_subset_file(path)` -> structural subset record with package-aware import resolution
+- `compiler.describe_subset_package_file(path)` -> package/module structural record with package-aware import resolution
+- `compiler.describe_program_file(path)` -> structural summary of an emitted bytecode program
+- `compiler.check_subset_file(path)` -> `Bool` using the source file's package context
+- `compiler.check_subset_raw(source)` -> `Bool` using the compiler/typechecker path without Rust-owned subset validation
+- `compiler.check_subset_raw_file(path)` -> `Bool` using package context without Rust-owned subset validation
+- `compiler.emit_subset_file(path, output_path)` -> `Bool` and writes bytecode program while preserving package-root imports
+- `compiler.emit_subset_raw(source, output_path)` -> `Bool` and writes bytecode program without Rust-owned subset validation
+- `compiler.emit_subset_raw_file(path, output_path)` -> `Bool` and writes bytecode program while preserving package-root imports and relying on self-host subset validation
 
 Tokenizer:
 - `tokenizer.train(config)`
@@ -835,7 +846,7 @@ Checkpoint format:
     with machine-readable output via `--json`.
 
 -------------------------------------------------------------------------------
-12. Known Limits in v3.0.0
+12. Known Limits in v3.1.1
 -------------------------------------------------------------------------------
 
 The following are intentionally not fully implemented yet:

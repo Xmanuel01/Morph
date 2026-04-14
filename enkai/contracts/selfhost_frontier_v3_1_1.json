@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "profile": "strict_selfhost_frontier",
+  "corpus": "enkai/tools/bootstrap/full_frontier_corpus",
+  "report_file": "artifacts/selfhost/litec_frontend_audit_report.json",
+  "expected": {
+    "supported_core.enk": "pass",
+    "native_import_gap.enk": "pass",
+    "tool_decl_gap.enk": "pass",
+    "prompt_decl_gap.enk": "pass",
+    "model_decl_gap.enk": "pass",
+    "agent_decl_gap.enk": "pass"
+  }
+}

@@ -1,0 +1,13 @@
+prompt Greeting ::
+    input ::
+        name: String
+    ::
+    template ::
+        "Hello"
+    ::
+::
+
+fn main() -> Int ::
+    return 0
+::
+main()

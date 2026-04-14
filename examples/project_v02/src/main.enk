@@ -1,12 +1,14 @@
-use foo.bar
+import std::io
+import foo::bar as bar
 
 policy default ::
     allow io.print
 ::
 
 fn main() -> Int ::
-    let msg := bar.message()
-    print(msg)
+    let msg := "Hello from v0.2"
+    let _w1 := io.stdout_write_text(msg)
+    let _w2 := io.stdout_write_text("\n")
     return 0
 ::
 

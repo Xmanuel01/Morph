@@ -1,0 +1,6 @@
+fn bad() -> Int ::
+    let label := "oops"
+    return label
+::
+
+bad()

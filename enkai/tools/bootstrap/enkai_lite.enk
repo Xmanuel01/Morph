@@ -13,20 +13,2074 @@ fn fail(message: String) -> Int ::
     return 1
 ::
 
-fn parse_phase(source: String) -> Record ::
-    let parsed := compiler.parse_subset(source)
+fn push_frame(stack: Record?, frame_kind: String, node: Record) -> Record ::
+    let entry := json.parse("{}")
+    entry.kind := frame_kind
+    entry.node := node
+    entry.next := stack
+    return entry
+::
+
+fn push_string_set(set: Record?, value: String) -> Record ::
+    let entry := json.parse("{}")
+    entry.value := value
+    entry.next := set
+    return entry
+::
+
+fn push_function_signature_set(set: Record?, name: String, arity: Int) -> Record ::
+    let entry := json.parse("{}")
+    entry.name := name
+    entry.arity := arity
+    entry.next := set
+    return entry
+::
+
+fn push_function_signature_with_source_set(set: Record?, name: String, arity: Int, source: String) -> Record ::
+    let entry := json.parse("{}")
+    entry.name := name
+    entry.arity := arity
+    entry.source := source
+    entry.next := set
+    return entry
+::
+
+fn string_set_contains(set: Record?, value: String) -> Bool ::
+    let current := set
+    while current != none ::
+        if current?.value == value ::
+            return true
+        ::
+        current := current?.next
+    ::
+    return false
+::
+
+fn function_signature_set_contains(set: Record?, name: String, arity: Int) -> Bool ::
+    let current := set
+    while current != none ::
+        if current?.name == name ::
+            if current?.arity == arity ::
+                return true
+            ::
+        ::
+        current := current?.next
+    ::
+    return false
+::
+
+fn function_signature_with_source_set_contains(set: Record?, name: String, arity: Int, source: String) -> Bool ::
+    let current := set
+    while current != none ::
+        if current?.name == name ::
+            if current?.arity == arity ::
+                if current?.source == source ::
+                    return true
+                ::
+            ::
+        ::
+        current := current?.next
+    ::
+    return false
+::
+
+fn find_module_index(pkg: Record, module_id: String) -> Int ::
+    let idx := 0
+    while idx < pkg.modules_count ::
+        let module_info := pkg.modules[idx]
+        if module_info.id == module_id ::
+            return idx
+        ::
+        idx := idx + 1
+    ::
+    return -1
+::
+
+fn find_local_function_arity(module: Record, name: String) ::
+    let idx := 0
+    while idx < module.items_count ::
+        let item := module.items[idx]
+        if item.kind == "Fn" ::
+            if item.name == name ::
+                return item.params_count
+            ::
+        ::
+        idx := idx + 1
+    ::
+    return -1
+::
+
+fn import_bind_target(module_info: Record, bind: String) ::
+    let idx := 0
+    while idx < module_info.imports_count ::
+        let import_info := module_info.imports[idx]
+        if import_info.bind == bind ::
+            return import_info.path
+        ::
+        idx := idx + 1
+    ::
+    return ""
+::
+
+fn find_module_info(pkg: Record, module_id: String) ::
+    let idx := find_module_index(pkg, module_id)
+    if idx < 0 ::
+        return none
+    ::
+    return pkg.modules[idx]
+::
+
+fn module_exports_symbol(module_info: Record, name: String) -> Bool ::
+    let idx := 0
+    while idx < module_info.exports_count ::
+        if module_info.exports[idx] == name ::
+            return true
+        ::
+        idx := idx + 1
+    ::
+    return false
+::
+
+fn module_exports_function(module_info: Record, name: String) -> Bool ::
+    return module_exports_symbol(module_info, name)
+::
+
+fn use_decl_bind(use_item: Record) ::
+    return use_item.bind
+::
+
+fn resolve_use_target_module_id(pkg: Record, use_item: Record) ::
+    if use_item.symbols_count > 0 ::
+        return use_item.path
+    ::
+    if find_module_index(pkg, use_item.path) >= 0 ::
+        return use_item.path
+    ::
+    if use_item.path_prefix == "" ::
+        return ""
+    ::
+    if find_module_index(pkg, use_item.path_prefix) >= 0 ::
+        return use_item.path_prefix
+    ::
+    return ""
+::
+
+fn resolve_use_target_symbol(use_item: Record) ::
+    if use_item.symbols_count > 0 ::
+        return ""
+    ::
+    if use_item.path_prefix == "" ::
+        return ""
+    ::
+    return use_item.path_last
+::
+
+fn module_bind_target(pkg: Record, module_info: Record, bind: String) ::
+    let target := import_bind_target(module_info, bind)
+    if target != "" ::
+        return target
+    ::
+    let idx := 0
+    while idx < module_info.module.items_count ::
+        let item := module_info.module.items[idx]
+        if item.kind == "Use" ::
+            if item.symbols_count == 0 ::
+                if use_decl_bind(item) == bind ::
+                    let module_id := resolve_use_target_module_id(pkg, item)
+                    if module_id != "" ::
+                        return module_id
+                    ::
+                ::
+            ::
+        ::
+        idx := idx + 1
+    ::
+    return ""
+::
+
+fn find_local_function_record(module: Record, name: String) ::
+    let idx := 0
+    while idx < module.items_count ::
+        let item := module.items[idx]
+        if item.kind == "Fn" ::
+            if item.name == name ::
+                return item
+            ::
+        ::
+        idx := idx + 1
+    ::
+    return none
+::
+
+fn find_local_type_record(module: Record, name: String) ::
+    let idx := 0
+    while idx < module.items_count ::
+        let item := module.items[idx]
+        if item.kind == "Type" ::
+            if item.name == name ::
+                return item
+            ::
+        ::
+        idx := idx + 1
+    ::
+    return none
+::
+
+fn find_exported_function_record(pkg: Record, module_id: String, name: String) ::
+    let module_info := find_module_info(pkg, module_id)
+    if module_info == none ::
+        return none
+    ::
+    if not module_exports_symbol(module_info?, name) ::
+        return none
+    ::
+    return find_local_function_record(module_info?.module, name)
+::
+
+fn find_exported_type_record(pkg: Record, module_id: String, name: String) ::
+    let module_info := find_module_info(pkg, module_id)
+    if module_info == none ::
+        return none
+    ::
+    if not module_exports_symbol(module_info?, name) ::
+        return none
+    ::
+    return find_local_type_record(module_info?.module, name)
+::
+
+fn find_visible_function_record(pkg: Record, module_info: Record, name: String) ::
+    let local := find_local_function_record(module_info.module, name)
+    if local != none ::
+        return local
+    ::
+    let idx := 0
+    while idx < module_info.module.items_count ::
+        let item := module_info.module.items[idx]
+        if item.kind == "Use" ::
+            if item.symbols_count > 0 ::
+                let symbol_idx := 0
+                while symbol_idx < item.symbols_count ::
+                    if item.symbols[symbol_idx] == name ::
+                        return find_exported_function_record(pkg, item.path, name)
+                    ::
+                    symbol_idx := symbol_idx + 1
+                ::
+            ::
+            if item.symbols_count == 0 ::
+                let alias := use_decl_bind(item)
+                if alias == name ::
+                    let module_id := resolve_use_target_module_id(pkg, item)
+                    let symbol := resolve_use_target_symbol(item)
+                    if module_id != "" ::
+                        if symbol != "" ::
+                            return find_exported_function_record(pkg, module_id, symbol)
+                        ::
+                    ::
+                ::
+            ::
+        ::
+        idx := idx + 1
+    ::
+    return none
+::
+
+fn find_visible_type_record(pkg: Record, module_info: Record, name: String) ::
+    let local := find_local_type_record(module_info.module, name)
+    if local != none ::
+        return local
+    ::
+    let idx := 0
+    while idx < module_info.module.items_count ::
+        let item := module_info.module.items[idx]
+        if item.kind == "Use" ::
+            if item.symbols_count > 0 ::
+                let symbol_idx := 0
+                while symbol_idx < item.symbols_count ::
+                    if item.symbols[symbol_idx] == name ::
+                        return find_exported_type_record(pkg, item.path, name)
+                    ::
+                    symbol_idx := symbol_idx + 1
+                ::
+            ::
+            if item.symbols_count == 0 ::
+                let alias := use_decl_bind(item)
+                if alias == name ::
+                    let module_id := resolve_use_target_module_id(pkg, item)
+                    let symbol := resolve_use_target_symbol(item)
+                    if module_id != "" ::
+                        if symbol != "" ::
+                            return find_exported_type_record(pkg, module_id, symbol)
+                        ::
+                    ::
+                ::
+            ::
+        ::
+        idx := idx + 1
+    ::
+    return none
+::
+
+fn builtin_named_type(name: String) -> Bool ::
+    if name == "Int" ::
+        return true
+    ::
+    if name == "Float" ::
+        return true
+    ::
+    if name == "Bool" ::
+        return true
+    ::
+    if name == "String" ::
+        return true
+    ::
+    if name == "Void" ::
+        return true
+    ::
+    if name == "Buffer" ::
+        return true
+    ::
+    if name == "Handle" ::
+        return true
+    ::
+    if name == "Record" ::
+        return true
+    ::
+    if name == "List" ::
+        return true
+    ::
+    if name == "Tensor" ::
+        return true
+    ::
+    if name == "SparseVector" ::
+        return true
+    ::
+    if name == "SparseMatrix" ::
+        return true
+    ::
+    if name == "EventQueue" ::
+        return true
+    ::
+    if name == "Pool" ::
+        return true
+    ::
+    if name == "SimWorld" ::
+        return true
+    ::
+    if name == "SimCoroutine" ::
+        return true
+    ::
+    if name == "SpatialIndex" ::
+        return true
+    ::
+    if name == "SnnNetwork" ::
+        return true
+    ::
+    if name == "AgentEnv" ::
+        return true
+    ::
+    if name == "RngStream" ::
+        return true
+    ::
+    return false
+::
+
+fn push_scope(scope: Record?, name: String, type_key: String) -> Record ::
+    let entry := json.parse("{}")
+    entry.name := name
+    entry.type_key := type_key
+    entry.next := scope
+    return entry
+::
+
+fn scope_type_key(scope: Record?, name: String) ::
+    let current := scope
+    while current != none ::
+        if current?.name == name ::
+            return current?.type_key
+        ::
+        current := current?.next
+    ::
+    return ""
+::
+
+fn scope_from_params(scope: Record?, params, params_count: Int) ::
+    let next_scope := scope
+    let idx := 0
+    while idx < params_count ::
+        let param := params[idx]
+        let type_key := ""
+        if param.type_ref != none ::
+            if param.type_ref.kind == "Named" ::
+                type_key := param.type_ref.path
+            ::
+            if param.type_ref.kind == "Function" ::
+                type_key := "Function"
+            ::
+        ::
+        next_scope := push_scope(next_scope, param.name, type_key)
+        idx := idx + 1
+    ::
+    return next_scope
+::
+
+fn type_ref_key(type_ref) ::
+    if type_ref == none ::
+        return ""
+    ::
+    if type_ref.kind == "Named" ::
+        let key := type_ref.path
+        return key
+    ::
+    if type_ref.kind == "Function" ::
+        return "Function"
+    ::
+    return ""
+::
+
+fn type_key_matches(type_ref, actual: String) -> Bool ::
+    if type_ref == none ::
+        return true
+    ::
+    if actual == "" ::
+        return true
+    ::
+    if type_ref.kind != "Named" ::
+        return false
+    ::
+    if type_ref.optional ::
+        return actual == "None" or actual == type_ref.path
+    ::
+    return actual == type_ref.path
+::
+
+fn type_record_field_type_key(type_decl: Record, field_name: String) ::
+    let idx := 0
+    while idx < type_decl.fields_count ::
+        let field := type_decl.fields[idx]
+        if field.name == field_name ::
+            return type_ref_key(field.type_ref)
+        ::
+        idx := idx + 1
+    ::
+    return ""
+::
+
+fn resolve_scope_named_type(pkg: Record, module_info: Record, scope: Record?, name: String) ::
+    let scope_type := scope_type_key(scope, name)
+    if scope_type == "" ::
+        return none
+    ::
+    if builtin_named_type(scope_type) ::
+        return none
+    ::
+    return find_visible_type_record(pkg, module_info, scope_type)
+::
+
+fn function_param_type_key(function_decl: Record, index: Int) ::
+    if index < 0 ::
+        return ""
+    ::
+    if index >= function_decl.params_count ::
+        return ""
+    ::
+    return type_ref_key(function_decl.params[index].type_ref)
+::
+
+fn function_return_type_key(function_decl: Record) ::
+    return type_ref_key(function_decl.return_type)
+::
+
+fn resolve_named_type_visible(pkg: Record, module_info: Record, type_ref: Record) -> Bool ::
+    if type_ref.kind != "Named" ::
+        return false
+    ::
+    let path := type_ref.path
+    if path == "" ::
+        return false
+    ::
+    if builtin_named_type(path) ::
+        return true
+    ::
+    if find_local_type_record(module_info.module, path) != none ::
+        return true
+    ::
+    if type_ref.module_path != "" ::
+        let exported := find_exported_type_record(pkg, type_ref.module_path, type_ref.name)
+        return exported != none
+    ::
+    if find_visible_type_record(pkg, module_info, type_ref.name) != none ::
+        return true
+    ::
+    return false
+::
+
+fn validate_type_ref_known(pkg: Record, module_info: Record, type_ref) -> String ::
+    if type_ref == none ::
+        return ""
+    ::
+    if type_ref.kind == "Named" ::
+        if not resolve_named_type_visible(pkg, module_info, type_ref) ::
+            return "selfhost semantic unknown type"
+        ::
+        let arg_idx := 0
+        while arg_idx < type_ref.args_count ::
+            let arg_err := validate_type_ref_known(pkg, module_info, type_ref.args[arg_idx])
+            if arg_err != "" ::
+                return arg_err
+            ::
+            arg_idx := arg_idx + 1
+        ::
+        return ""
+    ::
+    if type_ref.kind == "Function" ::
+        let param_idx := 0
+        while param_idx < type_ref.params_count ::
+            let param_err := validate_type_ref_known(pkg, module_info, type_ref.params[param_idx])
+            if param_err != "" ::
+                return param_err
+            ::
+            param_idx := param_idx + 1
+        ::
+        return validate_type_ref_known(pkg, module_info, type_ref.return_type)
+    ::
+    return ""
+::
+
+fn is_arithmetic_op(op: String) -> Bool ::
+    if op == "Add" ::
+        return true
+    ::
+    if op == "Subtract" ::
+        return true
+    ::
+    if op == "Multiply" ::
+        return true
+    ::
+    if op == "Divide" ::
+        return true
+    ::
+    if op == "Modulo" ::
+        return true
+    ::
+    return false
+::
+
+fn is_comparison_op(op: String) -> Bool ::
+    if op == "Less" ::
+        return true
+    ::
+    if op == "LessEqual" ::
+        return true
+    ::
+    if op == "Greater" ::
+        return true
+    ::
+    if op == "GreaterEqual" ::
+        return true
+    ::
+    return false
+::
+
+fn is_boolean_op(op: String) -> Bool ::
+    if op == "And" ::
+        return true
+    ::
+    if op == "Or" ::
+        return true
+    ::
+    return false
+::
+
+fn is_equality_op(op: String) -> Bool ::
+    if op == "Equal" ::
+        return true
+    ::
+    if op == "NotEqual" ::
+        return true
+    ::
+    return false
+::
+
+fn is_numeric_type(type_key: String) -> Bool ::
+    if type_key == "Int" ::
+        return true
+    ::
+    if type_key == "Float" ::
+        return true
+    ::
+    return false
+::
+
+fn infer_binary_type_key(op: String, left_type: String, right_type: String) ::
+    if is_arithmetic_op(op) ::
+        if left_type == "Float" ::
+            return "Float"
+        ::
+        if right_type == "Float" ::
+            return "Float"
+        ::
+        if left_type == "Int" ::
+            if right_type == "Int" ::
+                return "Int"
+            ::
+        ::
+        return ""
+    ::
+    if is_comparison_op(op) ::
+        return "Bool"
+    ::
+    if op == "Equal" ::
+        return "Bool"
+    ::
+    if op == "NotEqual" ::
+        return "Bool"
+    ::
+    if is_boolean_op(op) ::
+        return "Bool"
+    ::
+    return ""
+::
+
+fn infer_call_type_key(pkg: Record, module_info: Record, scope: Record?, expr: Record) ::
+    let callee := expr.callee
+    if callee.kind == "Ident" ::
+        let ctor_decl := find_visible_type_record(pkg, module_info, callee.name)
+        if ctor_decl != none ::
+            return ctor_decl?.name
+        ::
+        let function_decl := find_visible_function_record(pkg, module_info, callee.name)
+        if function_decl != none ::
+            return function_return_type_key(function_decl?)
+        ::
+    ::
+    if callee.kind == "Field" ::
+        let target := callee.target
+        if target.kind == "Ident" ::
+            let module_id := module_bind_target(pkg, module_info, target.name)
+            if module_id != "" ::
+                let function_decl := find_exported_function_record(pkg, module_id, callee.field)
+                if function_decl != none ::
+                    return function_return_type_key(function_decl?)
+                ::
+            ::
+        ::
+    ::
+    return ""
+::
+
+fn infer_expr_type_key(pkg: Record, module_info: Record, scope: Record?, expr: Record) ::
+    if expr.kind == "Literal" ::
+        return expr.literal_kind
+    ::
+    if expr.kind == "Ident" ::
+        return scope_type_key(scope, expr.name)
+    ::
+    if expr.kind == "Call" ::
+        return infer_call_type_key(pkg, module_info, scope, expr)
+    ::
+    if expr.kind == "Binary" ::
+        let left_type := infer_expr_type_key(pkg, module_info, scope, expr.left)
+        let right_type := infer_expr_type_key(pkg, module_info, scope, expr.right)
+        if left_type == "" ::
+            return ""
+        ::
+        if right_type == "" ::
+            return ""
+        ::
+        return infer_binary_type_key(expr.op, left_type, right_type)
+    ::
+    if expr.kind == "Unary" ::
+        if expr.op == "Not" ::
+            return "Bool"
+        ::
+        if expr.op == "Negate" ::
+            let inner_type := infer_expr_type_key(pkg, module_info, scope, expr.expr)
+            if inner_type == "Float" ::
+                return "Float"
+            ::
+            if inner_type == "Int" ::
+                return "Int"
+            ::
+        ::
+        return ""
+    ::
+    if expr.kind == "Field" ::
+        let target_type := infer_expr_type_key(pkg, module_info, scope, expr.target)
+        if target_type == "" ::
+            return ""
+        ::
+        let type_decl := find_visible_type_record(pkg, module_info, target_type)
+        if type_decl != none ::
+            return type_record_field_type_key(type_decl?, expr.field)
+        ::
+    ::
+    return ""
+::
+
+fn is_numeric_type_key(type_key: String) -> Bool ::
+    if type_key == "Int" ::
+        return true
+    ::
+    if type_key == "Float" ::
+        return true
+    ::
+    return false
+::
+
+fn validate_binary_semantics(pkg: Record, module_info: Record, scope: Record?, expr: Record) -> String ::
+    let left_type := infer_expr_type_key(pkg, module_info, scope, expr.left)
+    let right_type := infer_expr_type_key(pkg, module_info, scope, expr.right)
+    if left_type == "" ::
+        return ""
+    ::
+    if right_type == "" ::
+        return ""
+    ::
+    if is_arithmetic_op(expr.op) ::
+        if not is_numeric_type_key(left_type) ::
+            return "selfhost semantic arithmetic type mismatch"
+        ::
+        if not is_numeric_type_key(right_type) ::
+            return "selfhost semantic arithmetic type mismatch"
+        ::
+        return ""
+    ::
+    if is_comparison_op(expr.op) ::
+        if not is_numeric_type_key(left_type) ::
+            return "selfhost semantic comparison type mismatch"
+        ::
+        if not is_numeric_type_key(right_type) ::
+            return "selfhost semantic comparison type mismatch"
+        ::
+        return ""
+    ::
+    if is_equality_op(expr.op) ::
+        if left_type == right_type ::
+            return ""
+        ::
+        if is_numeric_type_key(left_type) ::
+            if is_numeric_type_key(right_type) ::
+                return ""
+            ::
+        ::
+        return "selfhost semantic equality type mismatch"
+    ::
+    if is_boolean_op(expr.op) ::
+        if left_type != "Bool" ::
+            return "selfhost semantic boolean operator type mismatch"
+        ::
+        if right_type != "Bool" ::
+            return "selfhost semantic boolean operator type mismatch"
+        ::
+        return ""
+    ::
+    return ""
+::
+
+fn validate_call_semantics(pkg: Record, module_info: Record, call: Record) -> String ::
+    let callee := call.callee
+    if callee.kind == "Ident" ::
+        let ctor_decl := find_visible_type_record(pkg, module_info, callee.name)
+        if ctor_decl != none ::
+            if ctor_decl?.fields_count != call.arg_count ::
+                return "selfhost semantic constructor arity mismatch"
+            ::
+            let arg_idx := 0
+            while arg_idx < call.arg_count ::
+                let arg_type := infer_expr_type_key(pkg, module_info, none, call.args[arg_idx].expr)
+                let field_type := ""
+                if call.args[arg_idx].kind == "Positional" ::
+                    field_type := type_record_field_type_key(ctor_decl?, ctor_decl?.fields[arg_idx].name)
+                ::
+                if call.args[arg_idx].kind == "Named" ::
+                    field_type := type_record_field_type_key(ctor_decl?, call.args[arg_idx].name)
+                    if field_type == "" ::
+                        return "selfhost semantic constructor unknown field"
+                    ::
+                ::
+                if field_type != "" ::
+                    if arg_type != "" ::
+                        let mismatch := field_type != arg_type
+                        if mismatch ::
+                            let compatible := false
+                            if field_type == "Float" and arg_type == "Int" ::
+                                compatible := true
+                            ::
+                            if field_type == "Device" and arg_type == "String" ::
+                                compatible := true
+                            ::
+                            if field_type == "DType" and arg_type == "String" ::
+                                compatible := true
+                            ::
+                            if field_type == "Shape" and arg_type == "String" ::
+                                compatible := true
+                            ::
+                            if field_type == "String" and arg_type == "Device" ::
+                                compatible := true
+                            ::
+                            if field_type == "String" and arg_type == "DType" ::
+                                compatible := true
+                            ::
+                            if field_type == "String" and arg_type == "Shape" ::
+                                compatible := true
+                            ::
+                            if field_type == "Tensor" and arg_type == "Int" ::
+                                compatible := true
+                            ::
+                            if field_type == "Device" and arg_type == "Int" ::
+                                compatible := true
+                            ::
+                            if field_type == "OptimizerState" and arg_type == "Int" ::
+                                compatible := true
+                            ::
+                            if field_type == "Int" and arg_type == "Tensor" ::
+                                compatible := true
+                            ::
+                            if field_type == "Int" and arg_type == "Device" ::
+                                compatible := true
+                            ::
+                            if field_type == "Int" and arg_type == "OptimizerState" ::
+                                compatible := true
+                            ::
+                            if not compatible ::
+                                return "selfhost semantic constructor argument type mismatch"
+                            ::
+                        ::
+                    ::
+                ::
+                arg_idx := arg_idx + 1
+            ::
+            return ""
+        ::
+        let function_decl := find_visible_function_record(pkg, module_info, callee.name)
+        if function_decl != none ::
+            if function_decl?.params_count != call.arg_count ::
+                return "selfhost semantic arity mismatch"
+            ::
+            let arg_idx := 0
+            while arg_idx < call.arg_count ::
+                let expected_type := function_param_type_key(function_decl?, arg_idx)
+                let actual_type := infer_expr_type_key(pkg, module_info, none, call.args[arg_idx].expr)
+                if expected_type != "" ::
+                    if actual_type != "" ::
+                        let mismatch := expected_type != actual_type
+                        if mismatch ::
+                            let compatible := false
+                            if expected_type == "Float" and actual_type == "Int" ::
+                                compatible := true
+                            ::
+                            if expected_type == "Device" and actual_type == "String" ::
+                                compatible := true
+                            ::
+                            if expected_type == "DType" and actual_type == "String" ::
+                                compatible := true
+                            ::
+                            if expected_type == "Shape" and actual_type == "String" ::
+                                compatible := true
+                            ::
+                            if expected_type == "String" and actual_type == "Device" ::
+                                compatible := true
+                            ::
+                            if expected_type == "String" and actual_type == "DType" ::
+                                compatible := true
+                            ::
+                            if expected_type == "String" and actual_type == "Shape" ::
+                                compatible := true
+                            ::
+                            if expected_type == "Tensor" and actual_type == "Int" ::
+                                compatible := true
+                            ::
+                            if expected_type == "Device" and actual_type == "Int" ::
+                                compatible := true
+                            ::
+                            if expected_type == "OptimizerState" and actual_type == "Int" ::
+                                compatible := true
+                            ::
+                            if expected_type == "Int" and actual_type == "Tensor" ::
+                                compatible := true
+                            ::
+                            if expected_type == "Int" and actual_type == "Device" ::
+                                compatible := true
+                            ::
+                            if expected_type == "Int" and actual_type == "OptimizerState" ::
+                                compatible := true
+                            ::
+                            if not compatible ::
+                                return "selfhost semantic local argument type mismatch"
+                            ::
+                        ::
+                    ::
+                ::
+                arg_idx := arg_idx + 1
+            ::
+        ::
+        return ""
+    ::
+    if callee.kind == "Field" ::
+        let target := callee.target
+        if target.kind == "Ident" ::
+            let module_id := module_bind_target(pkg, module_info, target.name)
+            if module_id != "" ::
+                let function_decl := find_exported_function_record(pkg, module_id, callee.field)
+                if function_decl == none ::
+                    return "selfhost semantic unresolved imported function"
+                ::
+                if function_decl?.params_count != call.arg_count ::
+                    return "selfhost semantic imported arity mismatch"
+                ::
+                let arg_idx := 0
+                while arg_idx < call.arg_count ::
+                    let expected_type := function_param_type_key(function_decl?, arg_idx)
+                    let actual_type := infer_expr_type_key(pkg, module_info, none, call.args[arg_idx].expr)
+                    if expected_type != "" ::
+                        if actual_type != "" ::
+                            let mismatch := expected_type != actual_type
+                            if mismatch ::
+                                let compatible := false
+                                if expected_type == "Float" and actual_type == "Int" ::
+                                    compatible := true
+                                ::
+                                if expected_type == "Device" and actual_type == "String" ::
+                                    compatible := true
+                                ::
+                                if expected_type == "DType" and actual_type == "String" ::
+                                    compatible := true
+                                ::
+                                if expected_type == "Shape" and actual_type == "String" ::
+                                    compatible := true
+                                ::
+                                if expected_type == "String" and actual_type == "Device" ::
+                                    compatible := true
+                                ::
+                                if expected_type == "String" and actual_type == "DType" ::
+                                    compatible := true
+                                ::
+                                if expected_type == "String" and actual_type == "Shape" ::
+                                    compatible := true
+                                ::
+                                if expected_type == "Tensor" and actual_type == "Int" ::
+                                    compatible := true
+                                ::
+                                if expected_type == "Device" and actual_type == "Int" ::
+                                    compatible := true
+                                ::
+                                if expected_type == "OptimizerState" and actual_type == "Int" ::
+                                    compatible := true
+                                ::
+                                if expected_type == "Int" and actual_type == "Tensor" ::
+                                    compatible := true
+                                ::
+                                if expected_type == "Int" and actual_type == "Device" ::
+                                    compatible := true
+                                ::
+                                if expected_type == "Int" and actual_type == "OptimizerState" ::
+                                    compatible := true
+                                ::
+                                if not compatible ::
+                                    return "selfhost semantic imported argument type mismatch"
+                                ::
+                            ::
+                        ::
+                    ::
+                    arg_idx := arg_idx + 1
+                ::
+            ::
+        ::
+    ::
+    return ""
+::
+
+fn validate_unary_semantics(pkg: Record, module_info: Record, scope: Record?, expr: Record) -> String ::
+    let inner_type := infer_expr_type_key(pkg, module_info, scope, expr.expr)
+    if inner_type == "" ::
+        return ""
+    ::
+    if expr.op == "Not" ::
+        if inner_type != "Bool" ::
+            return "selfhost semantic unary not type mismatch"
+        ::
+        return ""
+    ::
+    if expr.op == "Negate" ::
+        if not is_numeric_type_key(inner_type) ::
+            return "selfhost semantic unary negate type mismatch"
+        ::
+        return ""
+    ::
+    return ""
+::
+
+fn validate_expr_type_semantics(pkg: Record, module_info: Record, scope: Record?, expr: Record) -> String ::
+    if expr.kind == "Ident" ::
+        if scope_type_key(scope, expr.name) != "" ::
+            return ""
+        ::
+        return ""
+    ::
+    if expr.kind == "Call" ::
+        let call_err := validate_call_semantics(pkg, module_info, expr)
+        if call_err != "" ::
+            return call_err
+        ::
+        return ""
+    ::
+    if expr.kind == "Binary" ::
+        let left_err := validate_expr_type_semantics(pkg, module_info, scope, expr.left)
+        if left_err != "" ::
+            return left_err
+        ::
+        let right_err := validate_expr_type_semantics(pkg, module_info, scope, expr.right)
+        if right_err != "" ::
+            return right_err
+        ::
+        let binary_err := validate_binary_semantics(pkg, module_info, scope, expr)
+        if binary_err != "" ::
+            return binary_err
+        ::
+        return ""
+    ::
+    if expr.kind == "Unary" ::
+        let inner_err := validate_expr_type_semantics(pkg, module_info, scope, expr.expr)
+        if inner_err != "" ::
+            return inner_err
+        ::
+        let op_err := validate_unary_semantics(pkg, module_info, scope, expr)
+        if op_err != "" ::
+            return op_err
+        ::
+        return ""
+    ::
+    if expr.kind == "Field" ::
+        let target_err := validate_expr_type_semantics(pkg, module_info, scope, expr.target)
+        if target_err != "" ::
+            return target_err
+        ::
+        let target_type := infer_expr_type_key(pkg, module_info, scope, expr.target)
+        if target_type != "" ::
+            let type_decl := find_visible_type_record(pkg, module_info, target_type)
+            if type_decl != none ::
+                let field_type := type_record_field_type_key(type_decl?, expr.field)
+                if field_type == "" ::
+                    return "selfhost semantic unknown field"
+                ::
+            ::
+        ::
+        return ""
+    ::
+    if expr.kind == "List" ::
+        let expected := ""
+        let item_idx := 0
+        while item_idx < expr.item_count ::
+            let item_err := validate_expr_type_semantics(pkg, module_info, scope, expr.items[item_idx])
+            if item_err != "" ::
+                return item_err
+            ::
+            let item_type := infer_expr_type_key(pkg, module_info, scope, expr.items[item_idx])
+            if item_type != "" ::
+                if expected == "" ::
+                    expected := item_type
+                ::
+                if expected != "" ::
+                    if expected != item_type ::
+                        return "selfhost semantic list element type mismatch"
+                    ::
+                ::
+            ::
+            item_idx := item_idx + 1
+        ::
+        return ""
+    ::
+    if expr.kind == "Index" ::
+        let target_err := validate_expr_type_semantics(pkg, module_info, scope, expr.target)
+        if target_err != "" ::
+            return target_err
+        ::
+        let index_err := validate_expr_type_semantics(pkg, module_info, scope, expr.index)
+        if index_err != "" ::
+            return index_err
+        ::
+        let index_type := infer_expr_type_key(pkg, module_info, scope, expr.index)
+        if index_type != "" ::
+            if index_type != "Int" ::
+                return "selfhost semantic index type mismatch"
+            ::
+        ::
+        return ""
+    ::
+    return ""
+::
+
+fn find_exported_function_arity(pkg: Record, module_id: String, name: String) ::
+    let function_decl := find_exported_function_record(pkg, module_id, name)
+    if function_decl == none ::
+        return -1
+    ::
+    return function_decl?.params_count
+::
+
+fn find_local_type_fields_count(module: Record, name: String) ::
+    let idx := 0
+    while idx < module.items_count ::
+        let item := module.items[idx]
+        if item.kind == "Type" ::
+            if item.name == name ::
+                return item.fields_count
+            ::
+        ::
+        idx := idx + 1
+    ::
+    return -1
+::
+
+fn module_has_type(module: Record, name: String) -> Bool ::
+    return find_local_type_fields_count(module, name) >= 0
+::
+
+fn validate_export_contract(pkg: Record, module_info: Record) -> String ::
+    let idx := 0
+    while idx < module_info.module.items_count ::
+        let item := module_info.module.items[idx]
+        let is_export_decl := false
+        if item.kind == "Fn" ::
+            is_export_decl := true
+        ::
+        if item.kind == "Type" ::
+            is_export_decl := true
+        ::
+        if item.kind == "Enum" ::
+            is_export_decl := true
+        ::
+        if is_export_decl ::
+            if item.is_pub ::
+                if not module_exports_symbol(module_info, item.name) ::
+                    return "selfhost semantic missing public export"
+                ::
+            ::
+            if not item.is_pub ::
+                if module_exports_symbol(module_info, item.name) ::
+                    return "selfhost semantic private symbol leaked into exports"
+                ::
+            ::
+        ::
+        if item.kind == "Use" ::
+            if item.symbols_count > 0 ::
+                let module_ref := find_module_info(pkg, item.path)
+                if module_ref != none ::
+                    let symbol_idx := 0
+                    while symbol_idx < item.symbols_count ::
+                        let symbol := item.symbols[symbol_idx]
+                        if not module_exports_symbol(module_ref?, symbol) ::
+                            return "selfhost semantic use imports private symbol"
+                        ::
+                        if item.is_pub ::
+                            if not module_exports_symbol(module_info, symbol) ::
+                                return "selfhost semantic pub use missing export"
+                            ::
+                        ::
+                        if not item.is_pub ::
+                            if module_exports_symbol(module_info, symbol) ::
+                                return "selfhost semantic private use leaked into exports"
+                            ::
+                        ::
+                        symbol_idx := symbol_idx + 1
+                    ::
+                ::
+            ::
+            if item.symbols_count == 0 ::
+                let module_id := resolve_use_target_module_id(pkg, item)
+                let bind := use_decl_bind(item)
+                let symbol := resolve_use_target_symbol(item)
+                if module_id != "" ::
+                    if symbol != "" ::
+                        let exported_type := find_exported_type_record(pkg, module_id, symbol)
+                        let exported_function := find_exported_function_record(pkg, module_id, symbol)
+                        if exported_type == none ::
+                            if exported_function == none ::
+                                return "selfhost semantic use imports private symbol"
+                            ::
+                        ::
+                        if item.is_pub ::
+                            if not module_exports_symbol(module_info, bind) ::
+                                return "selfhost semantic pub use missing export"
+                            ::
+                        ::
+                        if not item.is_pub ::
+                            if module_exports_symbol(module_info, bind) ::
+                                return "selfhost semantic private use leaked into exports"
+                            ::
+                        ::
+                    ::
+                ::
+            ::
+        ::
+        idx := idx + 1
+    ::
+    return ""
+::
+
+fn duplicate_module_symbol_kind(module: Record) -> String ::
+    let seen := none
+    let idx := 0
+    while idx < module.items_count ::
+        let item := module.items[idx]
+        let symbol := ""
+        if item.kind == "Fn" ::
+            symbol := item.name
+        ::
+        if item.kind == "Type" ::
+            symbol := item.name
+        ::
+        if item.kind == "Model" ::
+            symbol := item.name
+        ::
+        if item.kind == "Agent" ::
+            symbol := item.name
+        ::
+        if symbol != "" ::
+            if string_set_contains(seen, symbol) ::
+                return "selfhost semantic duplicate top-level symbol"
+            ::
+            seen := push_string_set(seen, symbol)
+        ::
+        idx := idx + 1
+    ::
+    return ""
+::
+
+fn duplicate_import_bind(module_info: Record) -> String ::
+    let seen := none
+    let idx := 0
+    while idx < module_info.imports_count ::
+        let import_info := module_info.imports[idx]
+        if string_set_contains(seen, import_info.bind) ::
+            return "selfhost semantic duplicate import binding"
+        ::
+        seen := push_string_set(seen, import_info.bind)
+        idx := idx + 1
+    ::
+    return ""
+::
+
+fn import_bind_conflict(module_info: Record) -> String ::
+    let idx := 0
+    while idx < module_info.imports_count ::
+        let import_info := module_info.imports[idx]
+        if find_local_function_arity(module_info.module, import_info.bind) >= 0 ::
+            return "selfhost semantic import binding conflicts with local function"
+        ::
+        if module_has_type(module_info.module, import_info.bind) ::
+            return "selfhost semantic import binding conflicts with local type"
+        ::
+        idx := idx + 1
+    ::
+    return ""
+::
+
+fn validate_impl_targets(module: Record) -> String ::
+    let idx := 0
+    while idx < module.items_count ::
+        let item := module.items[idx]
+        if item.kind == "Impl" ::
+            if not module_has_type(module, item.name) ::
+                return "selfhost semantic impl target missing type"
+            ::
+            let seen_methods := none
+            let method_idx := 0
+            while method_idx < item.methods_count ::
+                let method := item.methods[method_idx]
+                if string_set_contains(seen_methods, method.name) ::
+                    return "selfhost semantic duplicate impl method"
+                ::
+                seen_methods := push_string_set(seen_methods, method.name)
+                method_idx := method_idx + 1
+            ::
+        ::
+        idx := idx + 1
+    ::
+    return ""
+::
+
+fn validate_call_semantics_legacy(pkg: Record, module_info: Record, call: Record) -> String ::
+    let callee := call.callee
+    if callee.kind == "Ident" ::
+        let ctor_decl := find_visible_type_record(pkg, module_info, callee.name)
+        if ctor_decl != none ::
+            if ctor_decl?.fields_count != call.arg_count ::
+                return "selfhost semantic constructor arity mismatch"
+            ::
+            return ""
+        ::
+        let function_decl := find_visible_function_record(pkg, module_info, callee.name)
+        if function_decl != none ::
+            if function_decl?.params_count != call.arg_count ::
+                return "selfhost semantic arity mismatch"
+            ::
+        ::
+        return ""
+    ::
+    if callee.kind == "Field" ::
+        let target := callee.target
+        if target.kind == "Ident" ::
+            let module_id := module_bind_target(pkg, module_info, target.name)
+            if module_id != "" ::
+                let function_decl := find_exported_function_record(pkg, module_id, callee.field)
+                if function_decl == none ::
+                    return "selfhost semantic unresolved imported function"
+                ::
+                if function_decl?.params_count != call.arg_count ::
+                    return "selfhost semantic imported arity mismatch"
+                ::
+            ::
+        ::
+    ::
+    return ""
+::
+
+fn validate_stmt_type_semantics(pkg: Record, module_info: Record, scope: Record?, return_type, stmt: Record) -> String ::
+    return ""
+::
+
+fn validate_block_type_semantics(pkg: Record, module_info: Record, scope: Record?, return_type, block: Record) -> String ::
+    let current_scope := scope
+    let stmt_idx := 0
+    while stmt_idx < block.stmt_count ::
+        let stmt := block.stmts[stmt_idx]
+        if stmt.kind == "Let" ::
+            let ann_err := validate_type_ref_known(pkg, module_info, stmt.type_ref)
+            if ann_err != "" ::
+                return ann_err
+            ::
+            if stmt.expr.kind == "Literal" ::
+                let actual_type := stmt.expr.literal_kind
+                if not type_key_matches(stmt.type_ref, actual_type) ::
+                    return "selfhost semantic let type mismatch"
+                ::
+            ::
+            if stmt.expr.kind != "Literal" ::
+                let actual_type := infer_expr_type_key(pkg, module_info, current_scope, stmt.expr)
+                if actual_type != "" ::
+                    if not type_key_matches(stmt.type_ref, actual_type) ::
+                        return "selfhost semantic let type mismatch"
+                    ::
+                ::
+            ::
+            let expr_err := validate_expr_type_semantics(pkg, module_info, current_scope, stmt.expr)
+            if expr_err != "" ::
+                return expr_err
+            ::
+            let type_key := type_ref_key(stmt.type_ref)
+            if type_key != "" ::
+                current_scope := push_scope(current_scope, stmt.name, type_key)
+            ::
+        ::
+        if stmt.kind == "If" ::
+            let cond_err := validate_expr_type_semantics(pkg, module_info, current_scope, stmt.cond)
+            if cond_err != "" ::
+                return cond_err
+            ::
+            if stmt.cond.kind == "Literal" ::
+                if stmt.cond.literal_kind != "Bool" ::
+                    return "selfhost semantic if condition type mismatch"
+                ::
+            ::
+            if stmt.cond.kind != "Literal" ::
+                let cond_type := infer_expr_type_key(pkg, module_info, current_scope, stmt.cond)
+                if cond_type != "" ::
+                    if cond_type != "Bool" ::
+                        return "selfhost semantic if condition type mismatch"
+                    ::
+                ::
+            ::
+        ::
+        if stmt.kind == "While" ::
+            let cond_err := validate_expr_type_semantics(pkg, module_info, current_scope, stmt.cond)
+            if cond_err != "" ::
+                return cond_err
+            ::
+            if stmt.cond.kind == "Literal" ::
+                if stmt.cond.literal_kind != "Bool" ::
+                    return "selfhost semantic while condition type mismatch"
+                ::
+            ::
+            if stmt.cond.kind != "Literal" ::
+                let cond_type := infer_expr_type_key(pkg, module_info, current_scope, stmt.cond)
+                if cond_type != "" ::
+                    if cond_type != "Bool" ::
+                        return "selfhost semantic while condition type mismatch"
+                    ::
+                ::
+            ::
+        ::
+        if stmt.kind == "Assign" ::
+            let expr_err := validate_expr_type_semantics(pkg, module_info, current_scope, stmt.expr)
+            if expr_err != "" ::
+                return expr_err
+            ::
+            if stmt.target.access_count > 1 ::
+                return "selfhost semantic assignment target too deep"
+            ::
+            if stmt.target.access_count > 0 ::
+                let access := stmt.target.accesses[0]
+                if access.kind == "Field" ::
+                    let type_decl := resolve_scope_named_type(pkg, module_info, current_scope, stmt.target.base)
+                    if type_decl != none ::
+                        let field_type := type_record_field_type_key(type_decl?, access.field)
+                        if field_type == "" ::
+                            return "selfhost semantic assignment unknown field"
+                        ::
+                        let actual_type := ""
+                        if stmt.expr.kind == "Literal" ::
+                            actual_type := stmt.expr.literal_kind
+                        ::
+                        if stmt.expr.kind != "Literal" ::
+                            actual_type := infer_expr_type_key(pkg, module_info, current_scope, stmt.expr)
+                        ::
+                        if actual_type != "" ::
+                            if field_type != actual_type ::
+                                return "selfhost semantic assignment field type mismatch"
+                            ::
+                        ::
+                    ::
+                ::
+            ::
+        ::
+        if stmt.kind == "Return" ::
+            if stmt.expr_present ::
+                let expr_err := validate_expr_type_semantics(pkg, module_info, current_scope, stmt.expr)
+                if expr_err != "" ::
+                    return expr_err
+                ::
+                if stmt.expr.kind == "Literal" ::
+                    let actual_type := stmt.expr.literal_kind
+                    if not type_key_matches(return_type, actual_type) ::
+                        return "selfhost semantic return type mismatch"
+                    ::
+                ::
+                if stmt.expr.kind != "Literal" ::
+                    let actual_type := infer_expr_type_key(pkg, module_info, current_scope, stmt.expr)
+                    if actual_type != "" ::
+                        if not type_key_matches(return_type, actual_type) ::
+                            return "selfhost semantic return type mismatch"
+                        ::
+                    ::
+                ::
+            ::
+        ::
+        stmt_idx := stmt_idx + 1
+    ::
+    return ""
+::
+
+fn validate_item_type_semantics(pkg: Record, module_info: Record, item: Record) -> String ::
+    if item.kind == "Fn" ::
+        if item.params_count > 0 ::
+            if item.params[0].name == "self" ::
+                return "selfhost semantic invalid self param"
+            ::
+        ::
+        let name_idx := 0
+        while name_idx < item.params_count ::
+            let name := item.params[name_idx].name
+            let other_idx := name_idx + 1
+            while other_idx < item.params_count ::
+                if item.params[other_idx].name == name ::
+                    return "selfhost semantic duplicate param"
+                ::
+                other_idx := other_idx + 1
+            ::
+            name_idx := name_idx + 1
+        ::
+        let param_scope := scope_from_params(none, item.params, item.params_count)
+        let param_idx := 0
+        while param_idx < item.params_count ::
+            let param_err := validate_type_ref_known(pkg, module_info, item.params[param_idx].type_ref)
+            if param_err != "" ::
+                return param_err
+            ::
+            param_idx := param_idx + 1
+        ::
+        let return_err := validate_type_ref_known(pkg, module_info, item.return_type)
+        if return_err != "" ::
+            return return_err
+        ::
+        return validate_block_type_semantics(pkg, module_info, param_scope, item.return_type, item.body)
+    ::
+    if item.kind == "Impl" ::
+        let method_idx := 0
+        while method_idx < item.methods_count ::
+            let method := item.methods[method_idx]
+            let other_idx := method_idx + 1
+            while other_idx < item.methods_count ::
+                if item.methods[other_idx].name == method.name ::
+                    return "selfhost semantic duplicate impl method"
+                ::
+                other_idx := other_idx + 1
+            ::
+            let has_explicit_self := false
+            if method.params_count > 0 ::
+                if method.params[0].name == "self" ::
+                    has_explicit_self := true
+                ::
+            ::
+            let name_idx := 0
+            while name_idx < method.params_count ::
+                let name := method.params[name_idx].name
+                if name == "self" ::
+                    if name_idx != 0 ::
+                        return "selfhost semantic impl method invalid self param"
+                    ::
+                ::
+                let other_idx := name_idx + 1
+                while other_idx < method.params_count ::
+                    if method.params[other_idx].name == name ::
+                        return "selfhost semantic duplicate param"
+                    ::
+                    other_idx := other_idx + 1
+                ::
+                name_idx := name_idx + 1
+            ::
+            let param_scope := scope_from_params(none, method.params, method.params_count)
+            if not has_explicit_self ::
+                param_scope := push_scope(param_scope, "self", item.name)
+            ::
+            let param_idx := 0
+            while param_idx < method.params_count ::
+                let param_err := validate_type_ref_known(pkg, module_info, method.params[param_idx].type_ref)
+                if param_err != "" ::
+                    return param_err
+                ::
+                param_idx := param_idx + 1
+            ::
+            let return_err := validate_type_ref_known(pkg, module_info, method.return_type)
+            if return_err != "" ::
+                return return_err
+            ::
+            let body_err := validate_block_type_semantics(pkg, module_info, param_scope, method.return_type, method.body)
+            if body_err != "" ::
+                return body_err
+            ::
+            method_idx := method_idx + 1
+        ::
+        return ""
+    ::
+    if item.kind == "Type" ::
+        let field_i := 0
+        while field_i < item.fields_count ::
+            let field_name := item.fields[field_i].name
+            let field_j := field_i + 1
+            while field_j < item.fields_count ::
+                if item.fields[field_j].name == field_name ::
+                    return "selfhost semantic duplicate type field"
+                ::
+                field_j := field_j + 1
+            ::
+            field_i := field_i + 1
+        ::
+        let field_idx := 0
+        while field_idx < item.fields_count ::
+            let field_err := validate_type_ref_known(pkg, module_info, item.fields[field_idx].type_ref)
+            if field_err != "" ::
+                return field_err
+            ::
+            field_idx := field_idx + 1
+        ::
+        return ""
+    ::
+    if item.kind == "Enum" ::
+        let variant_i := 0
+        while variant_i < item.variants_count ::
+            let variant := item.variants[variant_i]
+            let variant_j := variant_i + 1
+            while variant_j < item.variants_count ::
+                if item.variants[variant_j] == variant ::
+                    return "selfhost semantic duplicate enum variant"
+                ::
+                variant_j := variant_j + 1
+            ::
+            variant_i := variant_i + 1
+        ::
+        return ""
+    ::
+    return ""
+::
+
+fn validate_module(module: Record) -> String ::
+    let stack := none
+    let idx := 0
+    while idx < module.items_count ::
+        stack := push_frame(stack, "item", module.items[idx])
+        idx := idx + 1
+    ::
+
+    while stack != none ::
+        let current := stack?
+        let frame_kind := current.kind
+        let node := current.node
+        stack := current.next
+
+        if frame_kind == "item" ::
+            let kind := node.kind
+            if kind == "Fn" ::
+                stack := push_frame(stack, "block", node.body)
+            ::
+            if kind == "Impl" ::
+                let method_idx := 0
+                while method_idx < node.methods_count ::
+                    let method := node.methods[method_idx]
+                    stack := push_frame(stack, "block", method.body)
+                    method_idx := method_idx + 1
+                ::
+            ::
+            if kind == "Model" ::
+                stack := push_frame(stack, "expr", node.expr)
+            ::
+            if kind == "Agent" ::
+                let agent_idx := 0
+                while agent_idx < node.agent_items_count ::
+                    stack := push_frame(stack, "agent_item", node.agent_items[agent_idx])
+                    agent_idx := agent_idx + 1
+                ::
+            ::
+            if kind == "Stmt" ::
+                stack := push_frame(stack, "stmt", node.stmt)
+            ::
+        ::
+
+        if frame_kind == "agent_item" ::
+            if node.kind == "Memory" ::
+                stack := push_frame(stack, "memory", node.memory)
+            ::
+            if node.kind == "Fn" ::
+                stack := push_frame(stack, "block", node.body)
+            ::
+            if node.kind == "Stmt" ::
+                stack := push_frame(stack, "stmt", node.stmt)
+            ::
+        ::
+
+        if frame_kind == "memory" ::
+            if node.kind == "Expr" ::
+                stack := push_frame(stack, "expr", node.expr)
+            ::
+        ::
+
+        if frame_kind == "block" ::
+            let stmt_idx := 0
+            while stmt_idx < node.stmt_count ::
+                stack := push_frame(stack, "stmt", node.stmts[stmt_idx])
+                stmt_idx := stmt_idx + 1
+            ::
+        ::
+
+        if frame_kind == "stmt" ::
+            let kind := node.kind
+            if kind == "Let" ::
+                stack := push_frame(stack, "expr", node.expr)
+            ::
+            if kind == "Assign" ::
+                stack := push_frame(stack, "expr", node.expr)
+                stack := push_frame(stack, "lvalue", node.target)
+            ::
+            if kind == "Expr" ::
+                stack := push_frame(stack, "expr", node.expr)
+            ::
+            if kind == "If" ::
+                stack := push_frame(stack, "expr", node.cond)
+                stack := push_frame(stack, "block", node.then_block)
+                if node.else_kind == "Block" ::
+                    stack := push_frame(stack, "block", node.else_block)
+                ::
+                if node.else_kind == "If" ::
+                    stack := push_frame(stack, "stmt", node.else_stmt)
+                ::
+            ::
+            if kind == "While" ::
+                stack := push_frame(stack, "expr", node.cond)
+                stack := push_frame(stack, "block", node.body)
+            ::
+            if kind == "Return" ::
+                if node.expr_present ::
+                    stack := push_frame(stack, "expr", node.expr)
+                ::
+            ::
+            if kind == "For" ::
+                return "subset disallows for loops"
+            ::
+            if kind == "Match" ::
+                return "subset disallows match statements"
+            ::
+            if kind == "Try" ::
+                return "subset disallows try/catch statements"
+            ::
+            if kind == "Break" ::
+                return "subset disallows break statements"
+            ::
+            if kind == "Continue" ::
+                return "subset disallows continue statements"
+            ::
+        ::
+
+        if frame_kind == "lvalue" ::
+            let access_idx := 0
+            while access_idx < node.access_count ::
+                let access := node.accesses[access_idx]
+                if access.kind == "Index" ::
+                    stack := push_frame(stack, "expr", access.index)
+                ::
+                access_idx := access_idx + 1
+            ::
+        ::
+
+        if frame_kind == "expr" ::
+            let kind := node.kind
+            if kind == "Binary" ::
+                stack := push_frame(stack, "expr", node.left)
+                stack := push_frame(stack, "expr", node.right)
+            ::
+            if kind == "Unary" ::
+                stack := push_frame(stack, "expr", node.expr)
+            ::
+            if kind == "Call" ::
+                stack := push_frame(stack, "expr", node.callee)
+                let arg_idx := 0
+                while arg_idx < node.arg_count ::
+                    let arg := node.args[arg_idx]
+                    stack := push_frame(stack, "expr", arg.expr)
+                    arg_idx := arg_idx + 1
+                ::
+            ::
+            if kind == "Index" ::
+                stack := push_frame(stack, "expr", node.target)
+                stack := push_frame(stack, "expr", node.index)
+            ::
+            if kind == "Field" ::
+                stack := push_frame(stack, "expr", node.target)
+            ::
+            if kind == "List" ::
+                let item_idx := 0
+                while item_idx < node.item_count ::
+                    stack := push_frame(stack, "expr", node.items[item_idx])
+                    item_idx := item_idx + 1
+                ::
+            ::
+            if kind == "Try" ::
+                stack := push_frame(stack, "expr", node.expr)
+            ::
+            if kind == "Lambda" ::
+                stack := push_frame(stack, "expr", node.body)
+            ::
+            if kind == "Match" ::
+                return "subset disallows match expressions"
+            ::
+        ::
+    ::
+
+    return ""
+::
+
+fn validate_module_semantics(pkg: Record, module_info: Record) -> String ::
+    let export_err := validate_export_contract(pkg, module_info)
+    if export_err != "" ::
+        return export_err
+    ::
+    let duplicate_symbol_err := duplicate_module_symbol_kind(module_info.module)
+    if duplicate_symbol_err != "" ::
+        return duplicate_symbol_err
+    ::
+    let duplicate_import_err := duplicate_import_bind(module_info)
+    if duplicate_import_err != "" ::
+        return duplicate_import_err
+    ::
+    let import_conflict_err := import_bind_conflict(module_info)
+    if import_conflict_err != "" ::
+        return import_conflict_err
+    ::
+    let impl_target_err := validate_impl_targets(module_info.module)
+    if impl_target_err != "" ::
+        return impl_target_err
+    ::
+    let stack := none
+    stack := push_frame(stack, "item-blocks", module_info.module)
+    while stack != none ::
+        let current := stack?
+        let frame_kind := current.kind
+        let node := current.node
+        stack := current.next
+
+        if frame_kind == "block" ::
+            let stmt_idx := 0
+            while stmt_idx < node.stmt_count ::
+                stack := push_frame(stack, "stmt", node.stmts[stmt_idx])
+                stmt_idx := stmt_idx + 1
+            ::
+        ::
+
+        if frame_kind == "item-blocks" ::
+            let idx := 0
+            while idx < node.items_count ::
+                let item := node.items[idx]
+                if item.kind == "Fn" ::
+                    stack := push_frame(stack, "block", item.body)
+                ::
+                if item.kind == "Impl" ::
+                    let method_idx := 0
+                    while method_idx < item.methods_count ::
+                        stack := push_frame(stack, "block", item.methods[method_idx].body)
+                        method_idx := method_idx + 1
+                    ::
+                ::
+                if item.kind == "Model" ::
+                    stack := push_frame(stack, "expr", item.expr)
+                ::
+                if item.kind == "Agent" ::
+                    let agent_idx := 0
+                    while agent_idx < item.agent_items_count ::
+                        let agent_item := item.agent_items[agent_idx]
+                        if agent_item.kind == "Memory" ::
+                            if agent_item.memory.kind == "Expr" ::
+                                stack := push_frame(stack, "expr", agent_item.memory.expr)
+                            ::
+                        ::
+                        if agent_item.kind == "Fn" ::
+                            stack := push_frame(stack, "block", agent_item.body)
+                        ::
+                        if agent_item.kind == "Stmt" ::
+                            stack := push_frame(stack, "stmt", agent_item.stmt)
+                        ::
+                        agent_idx := agent_idx + 1
+                    ::
+                ::
+                if item.kind == "Stmt" ::
+                    stack := push_frame(stack, "stmt", item.stmt)
+                ::
+                idx := idx + 1
+            ::
+        ::
+
+        if frame_kind == "stmt" ::
+            let kind := node.kind
+            if kind == "Let" ::
+                let ann_err := validate_type_ref_known(pkg, module_info, node.type_ref)
+                if ann_err != "" ::
+                    return ann_err
+                ::
+                let literal_type := infer_expr_type_key(pkg, module_info, none, node.expr)
+                if not type_key_matches(node.type_ref, literal_type) ::
+                    return "selfhost semantic let type mismatch"
+                ::
+                stack := push_frame(stack, "expr", node.expr)
+            ::
+            if kind == "Assign" ::
+                stack := push_frame(stack, "expr", node.expr)
+                let access_idx := 0
+                while access_idx < node.target.access_count ::
+                    let access := node.target.accesses[access_idx]
+                    if access.kind == "Index" ::
+                        stack := push_frame(stack, "expr", access.index)
+                    ::
+                    access_idx := access_idx + 1
+                ::
+            ::
+            if kind == "Expr" ::
+                stack := push_frame(stack, "expr", node.expr)
+            ::
+            if kind == "If" ::
+                stack := push_frame(stack, "expr", node.cond)
+                stack := push_frame(stack, "block", node.then_block)
+                if node.else_kind == "Block" ::
+                    stack := push_frame(stack, "block", node.else_block)
+                ::
+                if node.else_kind == "If" ::
+                    stack := push_frame(stack, "stmt", node.else_stmt)
+                ::
+            ::
+            if kind == "While" ::
+                stack := push_frame(stack, "expr", node.cond)
+                stack := push_frame(stack, "block", node.body)
+            ::
+            if kind == "Return" ::
+                if node.expr_present ::
+                    stack := push_frame(stack, "expr", node.expr)
+                ::
+            ::
+        ::
+
+        if frame_kind == "expr" ::
+            let kind := node.kind
+            if kind == "Call" ::
+                let call_err := validate_call_semantics(pkg, module_info, node)
+                if call_err != "" ::
+                    return call_err
+                ::
+                stack := push_frame(stack, "expr", node.callee)
+                let arg_idx := 0
+                while arg_idx < node.arg_count ::
+                    stack := push_frame(stack, "expr", node.args[arg_idx].expr)
+                    arg_idx := arg_idx + 1
+                ::
+            ::
+            if kind == "Binary" ::
+                stack := push_frame(stack, "expr", node.left)
+                stack := push_frame(stack, "expr", node.right)
+            ::
+            if kind == "Unary" ::
+                stack := push_frame(stack, "expr", node.expr)
+            ::
+            if kind == "Index" ::
+                stack := push_frame(stack, "expr", node.target)
+                stack := push_frame(stack, "expr", node.index)
+            ::
+            if kind == "Field" ::
+                stack := push_frame(stack, "expr", node.target)
+            ::
+            if kind == "List" ::
+                let item_idx := 0
+                while item_idx < node.item_count ::
+                    stack := push_frame(stack, "expr", node.items[item_idx])
+                    item_idx := item_idx + 1
+                ::
+            ::
+            if kind == "Try" ::
+                stack := push_frame(stack, "expr", node.expr)
+            ::
+            if kind == "Lambda" ::
+                stack := push_frame(stack, "expr", node.body)
+            ::
+        ::
+    ::
+    let item_idx := 0
+    while item_idx < module_info.module.items_count ::
+        let item_err := validate_item_type_semantics(pkg, module_info, module_info.module.items[item_idx])
+        if item_err != "" ::
+            return item_err
+        ::
+        item_idx := item_idx + 1
+    ::
+    return ""
+::
+
+fn emitted_has_function(program: Record, name: String, arity: Int) -> Bool ::
+    let idx := 0
+    while idx < program.functions_count ::
+        let function := program.functions[idx]
+        if function.name == name ::
+            if function.arity == arity ::
+                return true
+            ::
+        ::
+        idx := idx + 1
+    ::
+    return false
+::
+
+fn emitted_has_global(program: Record, name: String) -> Bool ::
+    let idx := 0
+    while idx < program.globals_count ::
+        if program.globals[idx] == name ::
+            return true
+        ::
+        idx := idx + 1
+    ::
+    return false
+::
+
+fn validate_codegen_manifest(pkg: Record, program: Record) -> String ::
+    let seen_globals := none
+    let global_idx := 0
+    while global_idx < program.globals_count ::
+        let global_name := program.globals[global_idx]
+        if string_set_contains(seen_globals, global_name) ::
+            return "selfhost codegen duplicate emitted global"
+        ::
+        seen_globals := push_string_set(seen_globals, global_name)
+        global_idx := global_idx + 1
+    ::
+    let module_idx := 0
+    while module_idx < pkg.modules_count ::
+        let module_info := pkg.modules[module_idx]
+        let item_idx := 0
+        while item_idx < module_info.module.items_count ::
+            let item := module_info.module.items[item_idx]
+            if item.kind == "Fn" ::
+                if not emitted_has_function(program, item.name, item.params_count) ::
+                    return "selfhost codegen missing function"
+                ::
+                if module_info.is_entry ::
+                    if item.name == "main" ::
+                        if program.main_arity != item.params_count ::
+                            return "selfhost codegen bootstrap entry arity mismatch"
+                        ::
+                    ::
+                ::
+            ::
+            item_idx := item_idx + 1
+        ::
+        module_idx := module_idx + 1
+    ::
+    return ""
+::
+
+fn validate_package(pkg: Record) -> String ::
+    let idx := 0
+    while idx < pkg.modules_count ::
+        let module_info := pkg.modules[idx]
+        let err := validate_module(module_info.module)
+        if err != "" ::
+            return err
+        ::
+        let semantic_err := validate_module_semantics(pkg, module_info)
+        if semantic_err != "" ::
+            return semantic_err
+        ::
+        idx := idx + 1
+    ::
+    return ""
+::
+
+fn parse_phase(input: String) -> Record ::
+    let parsed := compiler.describe_subset_package_file(input)
+    let err := validate_package(parsed)
+    if err != "" ::
+        let invalid := json.parse("{}")
+        invalid.ok := false
+        invalid.error := err
+        invalid.items := parsed.entry.items_count
+        invalid.functions := parsed.entry.functions
+        return invalid
+    ::
     let summary := json.parse("{}")
-    summary.functions := parsed.functions
-    summary.items := parsed.items
+    summary.ok := true
+    summary.items := parsed.entry.items_count
+    summary.functions := parsed.entry.functions
     return summary
 ::
 
-fn check_phase(source: String) -> Bool ::
-    return compiler.check_subset(source)
+fn check_phase(input: String) -> Bool ::
+    let parsed := compiler.describe_subset_package_file(input)
+    let err := validate_package(parsed)
+    if err != "" ::
+        return false
+    ::
+    return compiler.check_subset_raw_file(input)
 ::
 
-fn codegen_phase(source: String, output: String) -> Bool ::
-    return compiler.emit_subset(source, output)
+fn codegen_phase(input: String, output: String) -> Bool ::
+    let parsed := compiler.describe_subset_package_file(input)
+    let err := validate_package(parsed)
+    if err != "" ::
+        return false
+    ::
+    if not compiler.emit_subset_raw_file(input, output) ::
+        return false
+    ::
+    let program := compiler.describe_program_file(output)
+    let codegen_err := validate_codegen_manifest(parsed, program)
+    if codegen_err != "" ::
+        io.stderr_write_text(codegen_err)
+        io.stderr_write_text("\n")
+        return false
+    ::
+    return true
 ::
 
 fn main() -> Int ::
@@ -38,12 +2092,11 @@ fn main() -> Int ::
     if input == none ::
         return fail("missing ENKAI_LITEC_INPUT")
     ::
-    let source := io.read_text(input?)
-    if source == none ::
-        return fail("unable to read input source")
+    let parsed := parse_phase(input?)
+    if not parsed.ok ::
+        return fail(parsed.error)
     ::
-    let parsed := parse_phase(source?)
-    let checked := check_phase(source?)
+    let checked := check_phase(input?)
     if not checked ::
         return fail("subset check failed")
     ::
@@ -72,7 +2125,7 @@ fn main() -> Int ::
         if output == none ::
             return fail("missing ENKAI_LITEC_OUTPUT")
         ::
-        let emitted := codegen_phase(source?, output?)
+        let emitted := codegen_phase(input?, output?)
         if not emitted ::
             return fail("emit_subset returned false")
         ::
@@ -91,7 +2144,7 @@ fn main() -> Int ::
         if output == none ::
             return fail("missing ENKAI_LITEC_OUTPUT")
         ::
-        let emitted := codegen_phase(source?, output?)
+        let emitted := codegen_phase(input?, output?)
         if not emitted ::
             return fail("emit_subset returned false")
         ::

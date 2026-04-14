@@ -1672,7 +1672,22 @@ mod tests {
     }
 
     fn send_http_request(host: &str, port: u16, request: &str) -> Vec<u8> {
-        let mut stream = TcpStream::connect((host, port)).expect("connect");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut stream = loop {
+            match TcpStream::connect((host, port)) {
+                Ok(stream) => break stream,
+                Err(err)
+                    if err.kind() == std::io::ErrorKind::ConnectionRefused
+                        || err.kind() == std::io::ErrorKind::TimedOut =>
+                {
+                    if std::time::Instant::now() >= deadline {
+                        panic!("connect: {}", err);
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(25));
+                }
+                Err(err) => panic!("connect: {}", err),
+            }
+        };
         stream.write_all(request.as_bytes()).expect("write");
         let mut buf = Vec::new();
         let mut chunk = [0u8; 1024];
@@ -1680,7 +1695,13 @@ mod tests {
             match stream.read(&mut chunk) {
                 Ok(0) => break,
                 Ok(n) => buf.extend_from_slice(&chunk[..n]),
-                Err(err) if err.kind() == std::io::ErrorKind::ConnectionReset => break,
+                Err(err)
+                    if err.kind() == std::io::ErrorKind::ConnectionReset
+                        || err.kind() == std::io::ErrorKind::ConnectionAborted
+                        || err.kind() == std::io::ErrorKind::UnexpectedEof =>
+                {
+                    break
+                }
                 Err(err) => panic!("read: {}", err),
             }
         }

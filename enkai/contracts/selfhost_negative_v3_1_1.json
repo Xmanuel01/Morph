@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "profile": "strict_selfhost_negative",
+  "command": "negative-audit",
+  "corpus": "enkai/tools/bootstrap/negative_corpus",
+  "report_file": "artifacts/selfhost/litec_negative_audit_report.json",
+  "expected": {
+    "assignment_field_mismatch.enk": "pass",
+    "binary_type_mismatch.enk": "pass",
+    "if_condition_mismatch.enk": "pass",
+    "let_annotation_mismatch.enk": "pass",
+    "return_type_mismatch.enk": "pass",
+    "unknown_field_inferred_target.enk": "pass"
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "profile": "strict_selfhost",
+  "version_line": "v3.1.0-v4.0.0",
+  "compatibility_policy": "v4_breaks_allowed_for_zero_rust_selfhost",
+  "release_blockers": {
+    "non_hardware": {
+      "required_checks": [
+        "docs-consistency",
+        "strict-selfhost-inventory",
+        "selfhost-frontend-frontier",
+        "selfhost-frontend-examples",
+        "selfhost-frontend-bootstrap",
+        "selfhost-frontend-negative"
+      ]
+    },
+    "hardware_evidence": {
+      "required_artifacts": []
+    },
+    "release_evidence": {
+      "required_artifacts": [
+        "enkai/contracts/readiness_strict_selfhost_v3_1_0.json",
+        "enkai/contracts/strict_selfhost_release_blockers_v3_1_0.json",
+        "enkai/contracts/strict_selfhost_dependency_board_v3_1_0.json",
+        "enkai/contracts/selfhost_frontier_v3_1_1.json",
+        "enkai/contracts/selfhost_examples_v3_1_1.json",
+        "enkai/contracts/selfhost_bootstrap_v3_1_1.json",
+        "enkai/contracts/selfhost_negative_v3_1_1.json",
+        "artifacts/readiness/strict_selfhost.json",
+        "artifacts/readiness/strict_selfhost_dependency_inventory.json",
+        "artifacts/readiness/selfhost_frontier_verify.json",
+        "artifacts/readiness/selfhost_examples_verify.json",
+        "artifacts/readiness/selfhost_bootstrap_verify.json",
+        "artifacts/readiness/selfhost_negative_verify.json",
+        "artifacts/selfhost/litec_frontend_audit_report.json",
+        "artifacts/selfhost/litec_negative_audit_report.json",
+        "artifacts/readiness/strict_selfhost_blockers.json",
+        "artifacts/release/v<version>/manifest.json"
+      ]
+    }
+  }
+}

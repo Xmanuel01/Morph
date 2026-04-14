@@ -2,11 +2,67 @@
 
 ## Unreleased
 
-### Highlights
-- None.
-
 ### Breaking changes
 - None.
+
+## v3.1.1
+
+### Highlights
+- Added the `v3.1.0` strict self-host contract freeze:
+  - `strict_selfhost` readiness profile
+  - strict self-host blocker manifest
+  - machine-readable dependency board and generated inventory
+  - release dashboard visibility for remaining Rust-owned shipped dependencies
+- Added the `v3.1.1` full frontend frontier audit tranche:
+  - `enkai litec frontend-audit <corpus_dir>`
+  - deterministic `litec_frontend_audit_report.json`
+  - stage0/stage2 acceptance, bytecode parity, and runtime parity reporting
+  - package-aware bootstrap compiler intrinsics:
+    - `compiler.parse_subset_file`
+    - `compiler.check_subset_file`
+    - `compiler.emit_subset_file`
+  - expanded bootstrap subset declaration support for:
+    - `native::import`
+    - `tool`
+    - `prompt`
+    - `model`
+    - `agent`
+  - widened strict self-host proof so the shipped `examples/` corpus is
+    release-checked via:
+    - `enkai/contracts/selfhost_examples_v3_1_1.json`
+    - `artifacts/readiness/selfhost_examples_verify.json`
+  - widened strict self-host proof again so bootstrap compiler sources and a
+    curated negative semantic corpus are release-checked via:
+    - `enkai/contracts/selfhost_bootstrap_v3_1_1.json`
+    - `enkai/contracts/selfhost_negative_v3_1_1.json`
+    - `artifacts/readiness/selfhost_bootstrap_verify.json`
+    - `artifacts/readiness/selfhost_negative_verify.json`
+  - added `enkai litec negative-audit <corpus_dir|file.enk>` for deterministic
+    stage0/self-host rejection auditing on curated semantic-failure corpora
+  - hardened frontier verification to match relative file paths, not only
+    basenames
+  - moved another concrete bootstrap frontend slice into Enkai:
+    - `compiler.describe_subset`
+    - `compiler.describe_subset_file`
+    - `compiler.describe_subset_package_file`
+    - `compiler.describe_program_file`
+    - `compiler.check_subset_raw`
+    - `compiler.check_subset_raw_file`
+    - `compiler.emit_subset_raw`
+    - `compiler.emit_subset_raw_file`
+  - the staged bootstrap compiler in `enkai/tools/bootstrap/enkai_lite.enk`
+    now performs non-recursive subset-shape validation over structural compiler
+    output before invoking raw typecheck/codegen paths
+  - the staged bootstrap compiler now also validates imported package modules
+    on the self-host path before invoking raw package-aware typecheck/codegen
+  - the staged bootstrap compiler now owns another semantic slice:
+    - duplicate top-level symbol rejection
+    - duplicate import binding rejection
+    - import binding/type collisions
+    - impl target/type existence checks
+    - constructor/local/imported arity checks
+  - the staged bootstrap compiler now validates emitted bytecode summaries on
+    the self-host path before accepting codegen output
 
 ### Pending release blockers
 - Real GPU/operator evidence is still required for final hardware sign-off:

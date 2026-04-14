@@ -1,0 +1,12 @@
+type Box ::
+    value: Int
+::
+
+fn main() -> Int ::
+    let box := Box(1)
+    let label := "oops"
+    box.value = label
+    return 0
+::
+
+main()

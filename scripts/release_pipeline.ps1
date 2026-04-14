@@ -103,6 +103,11 @@ Invoke-Gate -Name "readiness-check" -Command {
     cargo run -p enkai -- readiness check --profile full_platform --json --output artifacts/readiness/full_platform.json --skip-check selfhost-mainline --skip-check selfhost-stage0-fallback
 }
 
+Write-Host "[release] Running strict self-host contract freeze gate..."
+Invoke-Gate -Name "strict-selfhost-readiness" -Command {
+    cargo run -p enkai -- readiness check --profile strict_selfhost --json --output artifacts/readiness/strict_selfhost.json
+}
+
 Write-Host "[release] Running bootstrap release lane gate..."
 Invoke-Gate -Name "selfhost-release-ci" -Command {
     cargo run -p enkai -- litec release-ci enkai/tools/bootstrap/selfhost_corpus --triage-dir artifacts/selfhost
@@ -157,6 +162,20 @@ if (-not $SkipPackageCheck) {
         cargo @preBlockerArgs
     }
 
+    Write-Host "[release] Bootstrapping strict self-host blocker artifact before evidence archive..."
+    $strictPreBlockerArgs = @(
+        "run", "-p", "enkai", "--",
+        "readiness", "verify-blockers",
+        "--profile", "strict_selfhost",
+        "--report", "artifacts/readiness/strict_selfhost.json",
+        "--json",
+        "--output", "artifacts/readiness/strict_selfhost_blockers.json",
+        "--skip-release-evidence"
+    )
+    Invoke-Gate -Name "verify-strict-selfhost-blockers-bootstrap" -Command {
+        cargo @strictPreBlockerArgs
+    }
+
     Write-Host "[release] Collecting strict release evidence bundle..."
     Invoke-Gate -Name "collect-release-evidence" -Command {
         Invoke-Python scripts/collect_release_evidence.py --strict
@@ -175,6 +194,19 @@ if (-not $SkipPackageCheck) {
     )
     Invoke-Gate -Name "verify-release-blockers" -Command {
         cargo @finalBlockerArgs
+    }
+
+    Write-Host "[release] Verifying strict self-host blocker matrix against archived evidence..."
+    $strictFinalBlockerArgs = @(
+        "run", "-p", "enkai", "--",
+        "readiness", "verify-blockers",
+        "--profile", "strict_selfhost",
+        "--report", "artifacts/readiness/strict_selfhost.json",
+        "--json",
+        "--output", "artifacts/readiness/strict_selfhost_blockers.json"
+    )
+    Invoke-Gate -Name "verify-strict-selfhost-blockers" -Command {
+        cargo @strictFinalBlockerArgs
     }
 
     Write-Host "[release] Refreshing strict release evidence bundle with final blocker report..."
@@ -207,6 +239,20 @@ else {
     )
     Invoke-Gate -Name "verify-release-blockers-reduced" -Command {
         cargo @reducedBlockerArgs
+    }
+
+    Write-Host "[release] Generating strict self-host blocker artifact for reduced evidence mode..."
+    $strictReducedBlockerArgs = @(
+        "run", "-p", "enkai", "--",
+        "readiness", "verify-blockers",
+        "--profile", "strict_selfhost",
+        "--report", "artifacts/readiness/strict_selfhost.json",
+        "--json",
+        "--output", "artifacts/readiness/strict_selfhost_blockers.json",
+        "--skip-release-evidence"
+    )
+    Invoke-Gate -Name "verify-strict-selfhost-blockers-reduced" -Command {
+        cargo @strictReducedBlockerArgs
     }
 
     Write-Host "[release] Collecting reduced release evidence bundle (package checks skipped)..."

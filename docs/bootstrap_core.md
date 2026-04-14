@@ -17,6 +17,7 @@ runtime parity for the bootstrap release corpus.
 - `enkai litec selfhost <corpus_dir>`
 - `enkai litec selfhost-ci <corpus_dir> [--no-compare-stage0] [--triage-dir <dir>]`
 - `enkai litec replace-check <corpus_dir> [--no-compare-stage0] [--triage-dir <dir>]`
+- `enkai litec frontend-audit <corpus_dir> [--triage-dir <dir>] [--require-full-support]`
 - `enkai litec mainline-ci <corpus_dir> [--triage-dir <dir>]`
 - `enkai litec release-ci <corpus_dir> [--triage-dir <dir>]`
 
@@ -59,6 +60,18 @@ runtime parity for the bootstrap release corpus.
    - optional Stage0 runtime comparisons when fallback comparison is enabled.
 5. Emits deterministic triage JSON (`litec_replace_check_report.json`) when `--triage-dir` is provided.
 
+`litec frontend-audit` performs:
+
+1. Builds the current Stage2 bootstrap compiler path.
+2. Scans a corpus directory with the Rust frontend and the self-host Stage2 frontend.
+3. Records:
+   - Rust frontend acceptance
+   - self-host frontend acceptance
+   - stage0/stage2 bytecode parity
+   - stage0/stage2 runtime parity
+4. Emits deterministic triage JSON (`litec_frontend_audit_report.json`) when `--triage-dir` is provided.
+5. Optionally fails on any remaining frontier gap when `--require-full-support` is set.
+
 `litec mainline-ci` performs:
 
 1. Runs `litec selfhost-ci --no-compare-stage0` to make the Enkai-built compiler path the default self-host CI lane.
@@ -80,11 +93,35 @@ Mainline triage output path:
 Bootstrap-core relies on the `compiler` runtime module:
 
 - `compiler.parse_subset(source)` -> summary record.
+- `compiler.describe_subset(source)` -> structural subset record.
 - `compiler.check_subset(source)` -> validates subset + typecheck.
 - `compiler.emit_subset(source, output_path)` -> emits bytecode file.
+- `compiler.parse_subset_file(path)` -> summary record with package-aware import resolution.
+- `compiler.describe_subset_file(path)` -> structural subset record with package-aware import resolution.
+- `compiler.describe_subset_package_file(path)` -> package/module structural record with package-aware import resolution.
+- `compiler.describe_program_file(path)` -> structural summary of emitted bytecode for self-host codegen checks.
+- `compiler.check_subset_file(path)` -> validates subset + package-aware typecheck.
+- `compiler.check_subset_raw(source)` -> typechecks without Rust-owned subset validation.
+- `compiler.check_subset_raw_file(path)` -> package-aware typecheck without Rust-owned subset validation.
+- `compiler.emit_subset_file(path, output_path)` -> emits bytecode file while preserving package-root imports.
+- `compiler.emit_subset_raw(source, output_path)` -> emits bytecode without Rust-owned subset validation.
+- `compiler.emit_subset_raw_file(path, output_path)` -> emits bytecode with package-root imports and self-host subset validation in Enkai.
 
 The staged bootstrap script (`enkai/tools/bootstrap/enkai_lite.enk`) executes parser/checker/codegen
-phase orchestration in Enkai code.
+phase orchestration in Enkai code. As of `v3.1.1`, the bootstrap script also owns subset
+shape validation over the structural `compiler.describe_subset*_file` output instead of
+delegating all subset validation to Rust helpers. It now also validates every module in
+the loaded package graph via `compiler.describe_subset_package_file(path)` before invoking
+raw package-aware typecheck/codegen. The current self-host semantic slice also rejects:
+- duplicate top-level symbols inside a module
+- duplicate import bindings
+- import binding collisions with local functions/types
+- impl blocks that target missing types
+- local, imported, and constructor arity mismatches
+
+After raw emission, the bootstrap script now validates the emitted bytecode summary via
+`compiler.describe_program_file(path)` so the self-host path owns another codegen gate
+before accepting stage output.
 
 These APIs are policy-gated for filesystem writes where applicable.
 

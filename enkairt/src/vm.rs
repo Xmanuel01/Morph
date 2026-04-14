@@ -12,7 +12,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
-use enkaic::ast::{Arg, Block, Expr, Item, LValue, Module, Stmt};
+use enkaic::ast::{
+    AgentDecl, AgentItem, Arg, BinaryOp, Block, Expr, Item, LValue, Literal, MemoryDecl, Module,
+    Param, Stmt, TypeRef, UnaryOp,
+};
 use enkaic::bytecode::{Constant, FfiSignature, FfiType, Instruction, NativeFunctionDecl, Program};
 use enkaic::compiler::compile_package;
 use enkaic::formatter::{check_format, format_source};
@@ -1360,6 +1363,105 @@ impl VM {
             "emit_subset".to_string(),
             Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
                 name: "compiler.emit_subset".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        compiler_record.insert(
+            "parse_subset_file".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "compiler.parse_subset_file".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        compiler_record.insert(
+            "describe_subset".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "compiler.describe_subset".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        compiler_record.insert(
+            "describe_subset_file".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "compiler.describe_subset_file".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        compiler_record.insert(
+            "describe_subset_package_file".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "compiler.describe_subset_package_file".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        compiler_record.insert(
+            "describe_program_file".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "compiler.describe_program_file".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        compiler_record.insert(
+            "check_subset_file".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "compiler.check_subset_file".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        compiler_record.insert(
+            "check_subset_raw".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "compiler.check_subset_raw".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        compiler_record.insert(
+            "check_subset_raw_file".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "compiler.check_subset_raw_file".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        compiler_record.insert(
+            "emit_subset_file".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "compiler.emit_subset_file".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        compiler_record.insert(
+            "emit_subset_raw".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "compiler.emit_subset_raw".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        compiler_record.insert(
+            "emit_subset_raw_file".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "compiler.emit_subset_raw_file".to_string(),
                 arity: 2,
                 kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
                 bound: None,
@@ -4000,12 +4102,16 @@ impl VM {
                                             self.lookup_method(type_name, &name, target.clone())
                                         {
                                             val
+                                        } else if env_flag("ENKAI_BOOTSTRAP_FIELD_NONE") {
+                                            Value::Null
                                         } else {
                                             return TaskRunOutcome::Errored(trace(
                                                 self,
                                                 RuntimeError::new("Unknown field"),
                                             ));
                                         }
+                                    } else if env_flag("ENKAI_BOOTSTRAP_FIELD_NONE") {
+                                        Value::Null
                                     } else {
                                         return TaskRunOutcome::Errored(trace(
                                             self,
@@ -4013,10 +4119,14 @@ impl VM {
                                         ));
                                     }
                                 } else {
-                                    return TaskRunOutcome::Errored(trace(
-                                        self,
-                                        RuntimeError::new("Unknown field"),
-                                    ));
+                                    if env_flag("ENKAI_BOOTSTRAP_FIELD_NONE") {
+                                        Value::Null
+                                    } else {
+                                        return TaskRunOutcome::Errored(trace(
+                                            self,
+                                            RuntimeError::new("Unknown field"),
+                                        ));
+                                    }
                                 }
                             }
                             Obj::TcpListener(_) => match name.as_str() {
@@ -4933,6 +5043,51 @@ impl VM {
                             self.stack.push(parsed);
                             return Ok(());
                         }
+                        if nf.name == "compiler.parse_subset_file" {
+                            let path = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("parse_subset_file expects path")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let parsed = self.compiler_parse_subset_file(path)?;
+                            self.stack.push(parsed);
+                            return Ok(());
+                        }
+                        if nf.name == "compiler.describe_subset" {
+                            let source = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("describe_subset expects source")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let described = self.compiler_describe_subset(source)?;
+                            self.stack.push(described);
+                            return Ok(());
+                        }
+                        if nf.name == "compiler.describe_subset_file" {
+                            let path = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("describe_subset_file expects path")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let described = self.compiler_describe_subset_file(path)?;
+                            self.stack.push(described);
+                            return Ok(());
+                        }
+                        if nf.name == "compiler.describe_subset_package_file" {
+                            let path = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("describe_subset_package_file expects path")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let described = self.compiler_describe_subset_package_file(path)?;
+                            self.stack.push(described);
+                            return Ok(());
+                        }
+                        if nf.name == "compiler.describe_program_file" {
+                            let path = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("describe_program_file expects path")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let described = self.compiler_describe_program_file(path)?;
+                            self.stack.push(described);
+                            return Ok(());
+                        }
                         if nf.name == "compiler.check_subset" {
                             let source = args
                                 .first()
@@ -4940,6 +5095,33 @@ impl VM {
                                 .ok_or_else(|| RuntimeError::new("check_subset expects source"))?;
                             self.stack.truncate(callee_index);
                             let ok = self.compiler_check_subset(source)?;
+                            self.stack.push(ok);
+                            return Ok(());
+                        }
+                        if nf.name == "compiler.check_subset_file" {
+                            let path = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("check_subset_file expects path")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let ok = self.compiler_check_subset_file(path)?;
+                            self.stack.push(ok);
+                            return Ok(());
+                        }
+                        if nf.name == "compiler.check_subset_raw" {
+                            let source = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("check_subset_raw expects source")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let ok = self.compiler_check_subset_raw(source)?;
+                            self.stack.push(ok);
+                            return Ok(());
+                        }
+                        if nf.name == "compiler.check_subset_raw_file" {
+                            let path = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("check_subset_raw_file expects path")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let ok = self.compiler_check_subset_raw_file(path)?;
                             self.stack.push(ok);
                             return Ok(());
                         }
@@ -4954,6 +5136,42 @@ impl VM {
                                 .ok_or_else(|| RuntimeError::new("emit_subset expects output"))?;
                             self.stack.truncate(callee_index);
                             let ok = self.compiler_emit_subset(source, output)?;
+                            self.stack.push(ok);
+                            return Ok(());
+                        }
+                        if nf.name == "compiler.emit_subset_file" {
+                            let path = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("emit_subset_file expects path")
+                            })?;
+                            let output = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("emit_subset_file expects output")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let ok = self.compiler_emit_subset_file(path, output)?;
+                            self.stack.push(ok);
+                            return Ok(());
+                        }
+                        if nf.name == "compiler.emit_subset_raw" {
+                            let source = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("emit_subset_raw expects source")
+                            })?;
+                            let output = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("emit_subset_raw expects output")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let ok = self.compiler_emit_subset_raw(source, output)?;
+                            self.stack.push(ok);
+                            return Ok(());
+                        }
+                        if nf.name == "compiler.emit_subset_raw_file" {
+                            let path = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("emit_subset_raw_file expects path")
+                            })?;
+                            let output = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("emit_subset_raw_file expects output")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let ok = self.compiler_emit_subset_raw_file(path, output)?;
                             self.stack.push(ok);
                             return Ok(());
                         }
@@ -6447,6 +6665,23 @@ impl VM {
                 }
             }
             "compiler.emit_subset" => {
+                capability = Some(vec!["fs".to_string(), "write".to_string()]);
+                if let Some(path) = args.get(1) {
+                    context = Some(CapabilityContext::for_path(&value_as_string(path)?));
+                }
+            }
+            "compiler.parse_subset_file"
+            | "compiler.describe_subset_file"
+            | "compiler.describe_subset_package_file"
+            | "compiler.describe_program_file"
+            | "compiler.check_subset_file"
+            | "compiler.check_subset_raw_file" => {
+                capability = Some(vec!["fs".to_string(), "read".to_string()]);
+                if let Some(path) = args.first() {
+                    context = Some(CapabilityContext::for_path(&value_as_string(path)?));
+                }
+            }
+            "compiler.emit_subset_file" | "compiler.emit_subset_raw_file" => {
                 capability = Some(vec!["fs".to_string(), "write".to_string()]);
                 if let Some(path) = args.get(1) {
                     context = Some(CapabilityContext::for_path(&value_as_string(path)?));
@@ -8601,19 +8836,51 @@ impl VM {
         let source = value_as_string(&source)?;
         let module = parse_subset_module(&source)?;
         validate_bootstrap_subset(&module)?;
-        let mut summary = HashMap::new();
-        summary.insert("items".to_string(), Value::Int(module.items.len() as i64));
-        summary.insert(
-            "functions".to_string(),
-            Value::Int(
-                module
-                    .items
-                    .iter()
-                    .filter(|item| matches!(item, Item::Fn(_)))
-                    .count() as i64,
-            ),
-        );
-        Ok(record_value(summary))
+        Ok(subset_summary_value(&module))
+    }
+
+    fn compiler_parse_subset_file(&self, path: Value) -> Result<Value, RuntimeError> {
+        let path = value_as_string(&path)?;
+        let source = std::fs::read_to_string(&path)
+            .map_err(|err| RuntimeError::new(&format!("failed to read {}: {}", path, err)))?;
+        let module = parse_subset_module(&source)?;
+        validate_bootstrap_subset(&module)?;
+        Ok(subset_summary_value(&module))
+    }
+
+    fn compiler_describe_subset(&self, source: Value) -> Result<Value, RuntimeError> {
+        let source = value_as_string(&source)?;
+        let module = parse_subset_module(&source)?;
+        Ok(describe_subset_module_value(&module))
+    }
+
+    fn compiler_describe_subset_file(&self, path: Value) -> Result<Value, RuntimeError> {
+        let path = value_as_string(&path)?;
+        let source = std::fs::read_to_string(&path)
+            .map_err(|err| RuntimeError::new(&format!("failed to read {}: {}", path, err)))?;
+        let module = parse_subset_module(&source)?;
+        Ok(describe_subset_module_value(&module))
+    }
+
+    fn compiler_describe_subset_package_file(&self, path: Value) -> Result<Value, RuntimeError> {
+        let path = value_as_string(&path)?;
+        let package =
+            load_package(Path::new(&path)).map_err(|err| RuntimeError::new(&err.to_string()))?;
+        Ok(describe_subset_package_value(&package))
+    }
+
+    fn compiler_describe_program_file(&self, path: Value) -> Result<Value, RuntimeError> {
+        let path = value_as_string(&path)?;
+        let bytes = std::fs::read(&path).map_err(|err| {
+            RuntimeError::new(&format!("describe_program_file failed to read {}: {}", path, err))
+        })?;
+        let program = bincode::deserialize::<Program>(&bytes).map_err(|err| {
+            RuntimeError::new(&format!(
+                "describe_program_file failed to decode {}: {}",
+                path, err
+            ))
+        })?;
+        Ok(describe_program_value(&program))
     }
 
     fn compiler_check_subset(&self, source: Value) -> Result<Value, RuntimeError> {
@@ -8627,10 +8894,87 @@ impl VM {
         Ok(Value::Bool(true))
     }
 
+    fn compiler_check_subset_file(&self, path: Value) -> Result<Value, RuntimeError> {
+        let path = value_as_string(&path)?;
+        compile_subset_program_from_path(&path)?;
+        Ok(Value::Bool(true))
+    }
+
+    fn compiler_check_subset_raw(&self, source: Value) -> Result<Value, RuntimeError> {
+        let source = value_as_string(&source)?;
+        compile_subset_program_unchecked(&source)?;
+        Ok(Value::Bool(true))
+    }
+
+    fn compiler_check_subset_raw_file(&self, path: Value) -> Result<Value, RuntimeError> {
+        let path = value_as_string(&path)?;
+        compile_subset_program_from_path_unchecked(&path)?;
+        Ok(Value::Bool(true))
+    }
+
     fn compiler_emit_subset(&self, source: Value, output: Value) -> Result<Value, RuntimeError> {
         let source = value_as_string(&source)?;
         let output = value_as_string(&output)?;
         let program = compile_subset_program(&source)?;
+        let bytes = bincode::serialize(&program)
+            .map_err(|err| RuntimeError::new(&format!("emit_subset serialize failed: {}", err)))?;
+        let write_context = CapabilityContext::for_path(&output);
+        self.check_capability(
+            &["fs".to_string(), "write".to_string()],
+            Some(&write_context),
+        )?;
+        std::fs::write(&output, bytes).map_err(|err| {
+            RuntimeError::new(&format!("emit_subset failed to write {}: {}", output, err))
+        })?;
+        Ok(Value::Bool(true))
+    }
+
+    fn compiler_emit_subset_file(&self, path: Value, output: Value) -> Result<Value, RuntimeError> {
+        let path = value_as_string(&path)?;
+        let output = value_as_string(&output)?;
+        let program = compile_subset_program_from_path(&path)?;
+        let bytes = bincode::serialize(&program)
+            .map_err(|err| RuntimeError::new(&format!("emit_subset serialize failed: {}", err)))?;
+        let write_context = CapabilityContext::for_path(&output);
+        self.check_capability(
+            &["fs".to_string(), "write".to_string()],
+            Some(&write_context),
+        )?;
+        std::fs::write(&output, bytes).map_err(|err| {
+            RuntimeError::new(&format!("emit_subset failed to write {}: {}", output, err))
+        })?;
+        Ok(Value::Bool(true))
+    }
+
+    fn compiler_emit_subset_raw(
+        &self,
+        source: Value,
+        output: Value,
+    ) -> Result<Value, RuntimeError> {
+        let source = value_as_string(&source)?;
+        let output = value_as_string(&output)?;
+        let program = compile_subset_program_unchecked(&source)?;
+        let bytes = bincode::serialize(&program)
+            .map_err(|err| RuntimeError::new(&format!("emit_subset serialize failed: {}", err)))?;
+        let write_context = CapabilityContext::for_path(&output);
+        self.check_capability(
+            &["fs".to_string(), "write".to_string()],
+            Some(&write_context),
+        )?;
+        std::fs::write(&output, bytes).map_err(|err| {
+            RuntimeError::new(&format!("emit_subset failed to write {}: {}", output, err))
+        })?;
+        Ok(Value::Bool(true))
+    }
+
+    fn compiler_emit_subset_raw_file(
+        &self,
+        path: Value,
+        output: Value,
+    ) -> Result<Value, RuntimeError> {
+        let path = value_as_string(&path)?;
+        let output = value_as_string(&output)?;
+        let program = compile_subset_program_from_path_unchecked(&path)?;
         let bytes = bincode::serialize(&program)
             .map_err(|err| RuntimeError::new(&format!("emit_subset serialize failed: {}", err)))?;
         let write_context = CapabilityContext::for_path(&output);
@@ -13134,8 +13478,21 @@ fn parse_subset_module(source: &str) -> Result<Module, RuntimeError> {
 }
 
 fn compile_subset_program(source: &str) -> Result<Program, RuntimeError> {
+    compile_subset_program_with_validation(source, true)
+}
+
+fn compile_subset_program_unchecked(source: &str) -> Result<Program, RuntimeError> {
+    compile_subset_program_with_validation(source, false)
+}
+
+fn compile_subset_program_with_validation(
+    source: &str,
+    validate_subset: bool,
+) -> Result<Program, RuntimeError> {
     let module = parse_subset_module(source)?;
-    validate_bootstrap_subset(&module)?;
+    if validate_subset {
+        validate_bootstrap_subset(&module)?;
+    }
     let mut checker = TypeChecker::new();
     checker
         .check_module(&module)
@@ -13172,6 +13529,844 @@ fn compile_subset_program(source: &str) -> Result<Program, RuntimeError> {
     Ok(program)
 }
 
+fn compile_subset_program_from_path(path: &str) -> Result<Program, RuntimeError> {
+    compile_subset_program_from_path_with_validation(path, true)
+}
+
+fn compile_subset_program_from_path_unchecked(path: &str) -> Result<Program, RuntimeError> {
+    compile_subset_program_from_path_with_validation(path, false)
+}
+
+fn compile_subset_program_from_path_with_validation(
+    path: &str,
+    validate_subset: bool,
+) -> Result<Program, RuntimeError> {
+    let source = std::fs::read_to_string(path)
+        .map_err(|err| RuntimeError::new(&format!("failed to read {}: {}", path, err)))?;
+    let module = parse_subset_module(&source)?;
+    if validate_subset {
+        validate_bootstrap_subset(&module)?;
+    }
+    let mut checker = TypeChecker::new();
+    checker
+        .check_module(&module)
+        .map_err(|err| RuntimeError::new(&format_type_error(&err)))?;
+
+    let package =
+        load_package(Path::new(path)).map_err(|err| RuntimeError::new(&err.to_string()))?;
+    TypeChecker::check_package(&package)
+        .map_err(|err| RuntimeError::new(&format_type_error(&err)))?;
+    let mut program =
+        compile_package(&package).map_err(|err| RuntimeError::new(&format_compile_error(&err)))?;
+    for function in &mut program.functions {
+        function.source_name = None;
+    }
+    Ok(program)
+}
+
+fn describe_subset_module_value(module: &Module) -> Value {
+    let mut summary = HashMap::new();
+    summary.insert(
+        "items_count".to_string(),
+        Value::Int(module.items.len() as i64),
+    );
+    summary.insert(
+        "functions".to_string(),
+        Value::Int(
+            module
+                .items
+                .iter()
+                .filter(|item| matches!(item, Item::Fn(_)))
+                .count() as i64,
+        ),
+    );
+    summary.insert(
+        "items".to_string(),
+        Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+            module
+                .items
+                .iter()
+                .map(describe_subset_item_value)
+                .collect(),
+        )))),
+    );
+    record_value(summary)
+}
+
+fn describe_subset_package_value(package: &enkaic::modules::Package) -> Value {
+    let mut summary = HashMap::new();
+    summary.insert(
+        "root".to_string(),
+        string_value(&package.root.to_string_lossy()),
+    );
+    summary.insert(
+        "entry_id".to_string(),
+        string_value(&package.entry.0.join("::")),
+    );
+
+    let mut modules = Vec::new();
+    let mut entry_summary = Value::Null;
+    for module_id in &package.order {
+        let Some(info) = package.modules.get(module_id) else {
+            continue;
+        };
+        let described = describe_subset_module_value(&info.module);
+        if module_id == &package.entry {
+            entry_summary = described.clone();
+        }
+        modules.push(describe_subset_package_module_value(
+            &package.entry,
+            info,
+            described,
+        ));
+    }
+    summary.insert(
+        "modules".to_string(),
+        Value::Obj(ObjRef::new(Obj::List(RefCell::new(modules)))),
+    );
+    summary.insert(
+        "modules_count".to_string(),
+        Value::Int(package.order.len() as i64),
+    );
+    summary.insert("entry".to_string(), entry_summary);
+    record_value(summary)
+}
+
+fn describe_program_value(program: &Program) -> Value {
+    let mut summary = HashMap::new();
+    let mut functions = Vec::with_capacity(program.functions.len());
+    for function in &program.functions {
+        let mut function_map = HashMap::new();
+        function_map.insert(
+            "name".to_string(),
+            string_value(function.name.as_deref().unwrap_or("")),
+        );
+        function_map.insert("arity".to_string(), Value::Int(function.arity as i64));
+        function_map.insert(
+            "source_name".to_string(),
+            string_value(function.source_name.as_deref().unwrap_or("")),
+        );
+        functions.push(record_value(function_map));
+    }
+    let main_function = program.functions.get(program.main as usize);
+    summary.insert(
+        "functions".to_string(),
+        Value::Obj(ObjRef::new(Obj::List(RefCell::new(functions)))),
+    );
+    summary.insert(
+        "functions_count".to_string(),
+        Value::Int(program.functions.len() as i64),
+    );
+    summary.insert("main_index".to_string(), Value::Int(program.main as i64));
+    summary.insert(
+        "main_name".to_string(),
+        string_value(
+            main_function
+                .and_then(|function| function.name.as_deref())
+                .unwrap_or(""),
+        ),
+    );
+    summary.insert(
+        "main_arity".to_string(),
+        Value::Int(main_function.map(|function| function.arity as i64).unwrap_or(0)),
+    );
+    summary.insert(
+        "globals".to_string(),
+        Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+            program.globals.iter().map(|name| string_value(name)).collect(),
+        )))),
+    );
+    summary.insert(
+        "globals_count".to_string(),
+        Value::Int(program.globals.len() as i64),
+    );
+    record_value(summary)
+}
+
+fn describe_subset_package_module_value(
+    entry: &enkaic::modules::ModuleId,
+    info: &enkaic::modules::ModuleInfo,
+    described: Value,
+) -> Value {
+    let mut map = HashMap::new();
+    map.insert("id".to_string(), string_value(&info.id.0.join("::")));
+    map.insert(
+        "file".to_string(),
+        string_value(&info.file.to_string_lossy()),
+    );
+    map.insert("is_entry".to_string(), Value::Bool(&info.id == entry));
+    map.insert("module".to_string(), described);
+    map.insert(
+        "imports".to_string(),
+        Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+            info.imports
+                .iter()
+                .map(|import| {
+                    let mut import_map = HashMap::new();
+                    import_map.insert("path".to_string(), string_value(&import.path.join("::")));
+                    import_map.insert(
+                        "path_segments".to_string(),
+                        Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                            import.path.iter().map(|segment| string_value(segment)).collect(),
+                        )))),
+                    );
+                    import_map.insert(
+                        "path_segments_count".to_string(),
+                        Value::Int(import.path.len() as i64),
+                    );
+                    let bind = match &import.alias {
+                        Some(alias) => alias.clone(),
+                        None => import.path.last().cloned().unwrap_or_default(),
+                    };
+                    import_map.insert("bind".to_string(), string_value(&bind));
+                    if let Some(alias) = &import.alias {
+                        import_map.insert("alias".to_string(), string_value(alias));
+                    } else {
+                        import_map.insert("alias".to_string(), Value::Null);
+                    }
+                    record_value(import_map)
+                })
+                .collect(),
+        )))),
+    );
+    map.insert(
+        "imports_count".to_string(),
+        Value::Int(info.imports.len() as i64),
+    );
+    map.insert(
+        "exports".to_string(),
+        Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+            info.exports.iter().map(|name| string_value(name)).collect(),
+        )))),
+    );
+    map.insert(
+        "exports_count".to_string(),
+        Value::Int(info.exports.len() as i64),
+    );
+    record_value(map)
+}
+
+fn describe_subset_param_value(param: &Param) -> Value {
+    let mut map = HashMap::new();
+    map.insert("name".to_string(), string_value(&param.name));
+    map.insert(
+        "type_ref".to_string(),
+        describe_optional_subset_type_ref_value(param.type_ann.as_ref()),
+    );
+    map.insert("has_default".to_string(), Value::Bool(param.default.is_some()));
+    if let Some(default) = &param.default {
+        map.insert(
+            "default_expr".to_string(),
+            describe_subset_expr_value(default),
+        );
+    } else {
+        map.insert("default_expr".to_string(), Value::Null);
+    }
+    record_value(map)
+}
+
+fn describe_optional_subset_type_ref_value(type_ref: Option<&TypeRef>) -> Value {
+    match type_ref {
+        Some(type_ref) => describe_subset_type_ref_value(type_ref),
+        None => Value::Null,
+    }
+}
+
+fn describe_subset_type_ref_value(type_ref: &TypeRef) -> Value {
+    let mut map = HashMap::new();
+    match type_ref {
+        TypeRef::Named {
+            path,
+            args,
+            optional,
+        } => {
+            map.insert("kind".to_string(), string_value("Named"));
+            map.insert("path".to_string(), string_value(&path.join("::")));
+            map.insert(
+                "segments".to_string(),
+                Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                    path.iter().map(|segment| string_value(segment)).collect(),
+                )))),
+            );
+            map.insert("segments_count".to_string(), Value::Int(path.len() as i64));
+            map.insert(
+                "name".to_string(),
+                string_value(&path.last().cloned().unwrap_or_default()),
+            );
+            let module_path = if path.len() > 1 {
+                path[..path.len() - 1].join("::")
+            } else {
+                String::new()
+            };
+            map.insert("module_path".to_string(), string_value(&module_path));
+            map.insert("optional".to_string(), Value::Bool(*optional));
+            map.insert(
+                "args".to_string(),
+                Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                    args.iter().map(describe_subset_type_ref_value).collect(),
+                )))),
+            );
+            map.insert("args_count".to_string(), Value::Int(args.len() as i64));
+        }
+        TypeRef::Function { params, ret } => {
+            map.insert("kind".to_string(), string_value("Function"));
+            map.insert(
+                "params".to_string(),
+                Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                    params.iter().map(describe_subset_type_ref_value).collect(),
+                )))),
+            );
+            map.insert("params_count".to_string(), Value::Int(params.len() as i64));
+            map.insert(
+                "return_type".to_string(),
+                describe_subset_type_ref_value(ret),
+            );
+        }
+    }
+    record_value(map)
+}
+
+fn describe_literal_kind(literal: &Literal) -> &'static str {
+    match literal {
+        Literal::Int(_) => "Int",
+        Literal::Float(_) => "Float",
+        Literal::Bool(_) => "Bool",
+        Literal::String(_) => "String",
+        Literal::None => "None",
+    }
+}
+
+fn describe_binary_op(op: &BinaryOp) -> &'static str {
+    match op {
+        BinaryOp::Add => "Add",
+        BinaryOp::Subtract => "Subtract",
+        BinaryOp::Multiply => "Multiply",
+        BinaryOp::Divide => "Divide",
+        BinaryOp::Modulo => "Modulo",
+        BinaryOp::Equal => "Equal",
+        BinaryOp::NotEqual => "NotEqual",
+        BinaryOp::Less => "Less",
+        BinaryOp::LessEqual => "LessEqual",
+        BinaryOp::Greater => "Greater",
+        BinaryOp::GreaterEqual => "GreaterEqual",
+        BinaryOp::And => "And",
+        BinaryOp::Or => "Or",
+    }
+}
+
+fn describe_unary_op(op: &UnaryOp) -> &'static str {
+    match op {
+        UnaryOp::Negate => "Negate",
+        UnaryOp::Not => "Not",
+        UnaryOp::Await => "Await",
+        UnaryOp::Spawn => "Spawn",
+    }
+}
+
+fn describe_subset_item_value(item: &Item) -> Value {
+    let mut map = HashMap::new();
+    match item {
+        Item::Import(decl) => {
+            map.insert("kind".to_string(), string_value("Import"));
+            map.insert(
+                "path".to_string(),
+                string_value(&decl.path.join("::")),
+            );
+            map.insert(
+                "path_segments".to_string(),
+                Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                    decl.path.iter().map(|segment| string_value(segment)).collect(),
+                )))),
+            );
+            map.insert(
+                "path_segments_count".to_string(),
+                Value::Int(decl.path.len() as i64),
+            );
+            let bind = decl
+                .alias
+                .clone()
+                .unwrap_or_else(|| decl.path.last().cloned().unwrap_or_default());
+            map.insert("bind".to_string(), string_value(&bind));
+        }
+        Item::NativeImport(_) => {
+            map.insert("kind".to_string(), string_value("NativeImport"));
+        }
+        Item::Use(decl) => {
+            map.insert("kind".to_string(), string_value("Use"));
+            map.insert(
+                "path".to_string(),
+                string_value(&decl.path.join("::")),
+            );
+            map.insert(
+                "path_segments".to_string(),
+                Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                    decl.path.iter().map(|segment| string_value(segment)).collect(),
+                )))),
+            );
+            map.insert(
+                "path_segments_count".to_string(),
+                Value::Int(decl.path.len() as i64),
+            );
+            let path_prefix = if decl.path.len() > 1 {
+                decl.path[..decl.path.len() - 1].join("::")
+            } else {
+                String::new()
+            };
+            map.insert("path_prefix".to_string(), string_value(&path_prefix));
+            map.insert(
+                "path_last".to_string(),
+                string_value(&decl.path.last().cloned().unwrap_or_default()),
+            );
+            map.insert("is_pub".to_string(), Value::Bool(decl.is_pub));
+            let bind = decl
+                .alias
+                .clone()
+                .unwrap_or_else(|| decl.path.last().cloned().unwrap_or_default());
+            map.insert("bind".to_string(), string_value(&bind));
+            if let Some(alias) = &decl.alias {
+                map.insert("alias".to_string(), string_value(alias));
+            } else {
+                map.insert("alias".to_string(), Value::Null);
+            }
+            map.insert(
+                "symbols".to_string(),
+                Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                    decl.symbols
+                        .iter()
+                        .map(|symbol| string_value(&symbol.name))
+                        .collect(),
+                )))),
+            );
+            map.insert(
+                "symbols_count".to_string(),
+                Value::Int(decl.symbols.len() as i64),
+            );
+        }
+        Item::Policy(decl) => {
+            map.insert("kind".to_string(), string_value("Policy"));
+            map.insert("name".to_string(), string_value(&decl.name));
+            map.insert("is_pub".to_string(), Value::Bool(decl.is_pub));
+        }
+        Item::Type(decl) => {
+            map.insert("kind".to_string(), string_value("Type"));
+            map.insert("name".to_string(), string_value(&decl.name));
+            map.insert("is_pub".to_string(), Value::Bool(decl.is_pub));
+            map.insert(
+                "fields_count".to_string(),
+                Value::Int(decl.fields.len() as i64),
+            );
+            map.insert(
+                "fields".to_string(),
+                Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                    decl.fields
+                        .iter()
+                        .map(|field| {
+                              let mut field_map = HashMap::new();
+                              field_map.insert("name".to_string(), string_value(&field.name));
+                              field_map.insert(
+                                  "type_ref".to_string(),
+                                  describe_subset_type_ref_value(&field.field_type),
+                              );
+                            record_value(field_map)
+                        })
+                        .collect(),
+                )))),
+            );
+        }
+        Item::Enum(decl) => {
+            map.insert("kind".to_string(), string_value("Enum"));
+            map.insert("name".to_string(), string_value(&decl.name));
+            map.insert("is_pub".to_string(), Value::Bool(decl.is_pub));
+        }
+        Item::Tool(decl) => {
+            map.insert("kind".to_string(), string_value("Tool"));
+            map.insert(
+                "name".to_string(),
+                string_value(&decl.path.last().cloned().unwrap_or_default()),
+            );
+            map.insert("is_pub".to_string(), Value::Bool(decl.is_pub));
+        }
+        Item::Prompt(decl) => {
+            map.insert("kind".to_string(), string_value("Prompt"));
+            map.insert("name".to_string(), string_value(&decl.name));
+            map.insert("is_pub".to_string(), Value::Bool(decl.is_pub));
+        }
+        Item::Fn(decl) => {
+            map.insert("kind".to_string(), string_value("Fn"));
+            map.insert("name".to_string(), string_value(&decl.name));
+            map.insert(
+                "params_count".to_string(),
+                Value::Int(decl.params.len() as i64),
+            );
+            map.insert("is_pub".to_string(), Value::Bool(decl.is_pub));
+            map.insert(
+                "params".to_string(),
+                Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                    decl.params
+                        .iter()
+                        .map(describe_subset_param_value)
+                        .collect(),
+                )))),
+            );
+            map.insert(
+                "return_type".to_string(),
+                describe_optional_subset_type_ref_value(decl.return_type.as_ref()),
+            );
+            map.insert("body".to_string(), describe_subset_block_value(&decl.body));
+        }
+        Item::Impl(decl) => {
+            map.insert("kind".to_string(), string_value("Impl"));
+            map.insert("name".to_string(), string_value(&decl.name));
+            map.insert(
+                "methods".to_string(),
+                Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                    decl.methods
+                        .iter()
+                        .map(|method| {
+                            let mut method_map = HashMap::new();
+                            method_map.insert("kind".to_string(), string_value("Fn"));
+                            method_map.insert("name".to_string(), string_value(&method.name));
+                            method_map.insert(
+                                "params_count".to_string(),
+                                Value::Int(method.params.len() as i64),
+                            );
+                            method_map.insert("is_pub".to_string(), Value::Bool(method.is_pub));
+                            method_map.insert(
+                                "params".to_string(),
+                                Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                                    method
+                                        .params
+                                        .iter()
+                                        .map(describe_subset_param_value)
+                                        .collect(),
+                                )))),
+                            );
+                            method_map.insert(
+                                "return_type".to_string(),
+                                describe_optional_subset_type_ref_value(
+                                    method.return_type.as_ref(),
+                                ),
+                            );
+                            method_map.insert(
+                                "body".to_string(),
+                                describe_subset_block_value(&method.body),
+                            );
+                            record_value(method_map)
+                        })
+                        .collect(),
+                )))),
+            );
+            map.insert(
+                "methods_count".to_string(),
+                Value::Int(decl.methods.len() as i64),
+            );
+        }
+        Item::Model(decl) => {
+            map.insert("kind".to_string(), string_value("Model"));
+            map.insert("name".to_string(), string_value(&decl.name));
+            map.insert("is_pub".to_string(), Value::Bool(decl.is_pub));
+            map.insert("expr".to_string(), describe_subset_expr_value(&decl.expr));
+        }
+        Item::Agent(decl) => {
+            map.insert("kind".to_string(), string_value("Agent"));
+            map.insert("name".to_string(), string_value(&decl.name));
+            map.insert("is_pub".to_string(), Value::Bool(decl.is_pub));
+            map.insert(
+                "agent_items".to_string(),
+                Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                    decl.items
+                        .iter()
+                        .map(describe_subset_agent_item_value)
+                        .collect(),
+                )))),
+            );
+            map.insert(
+                "agent_items_count".to_string(),
+                Value::Int(decl.items.len() as i64),
+            );
+        }
+        Item::Stmt(stmt) => {
+            map.insert("kind".to_string(), string_value("Stmt"));
+            map.insert("stmt".to_string(), describe_subset_stmt_value(stmt));
+        }
+    }
+    record_value(map)
+}
+
+fn describe_subset_agent_item_value(item: &AgentItem) -> Value {
+    let mut map = HashMap::new();
+    match item {
+        AgentItem::PolicyUse(_) => {
+            map.insert("kind".to_string(), string_value("PolicyUse"));
+        }
+        AgentItem::Memory(memory) => {
+            map.insert("kind".to_string(), string_value("Memory"));
+            map.insert("memory".to_string(), describe_subset_memory_value(memory));
+        }
+        AgentItem::Fn(decl) => {
+            map.insert("kind".to_string(), string_value("Fn"));
+            map.insert("name".to_string(), string_value(&decl.name));
+            map.insert(
+                "params_count".to_string(),
+                Value::Int(decl.params.len() as i64),
+            );
+            map.insert("is_pub".to_string(), Value::Bool(decl.is_pub));
+            map.insert("body".to_string(), describe_subset_block_value(&decl.body));
+        }
+        AgentItem::Stmt(stmt) => {
+            map.insert("kind".to_string(), string_value("Stmt"));
+            map.insert("stmt".to_string(), describe_subset_stmt_value(stmt));
+        }
+    }
+    record_value(map)
+}
+
+fn describe_subset_memory_value(memory: &MemoryDecl) -> Value {
+    let mut map = HashMap::new();
+    match memory {
+        MemoryDecl::Path { .. } => {
+            map.insert("kind".to_string(), string_value("Path"));
+        }
+        MemoryDecl::Expr { expr, .. } => {
+            map.insert("kind".to_string(), string_value("Expr"));
+            map.insert("expr".to_string(), describe_subset_expr_value(expr));
+        }
+    }
+    record_value(map)
+}
+
+fn describe_subset_block_value(block: &Block) -> Value {
+    let mut map = HashMap::new();
+    map.insert(
+        "stmts".to_string(),
+        Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+            block.stmts.iter().map(describe_subset_stmt_value).collect(),
+        )))),
+    );
+    map.insert(
+        "stmt_count".to_string(),
+        Value::Int(block.stmts.len() as i64),
+    );
+    record_value(map)
+}
+
+fn describe_subset_stmt_value(stmt: &Stmt) -> Value {
+    let mut map = HashMap::new();
+    match stmt {
+        Stmt::Let {
+            name,
+            type_ann,
+            expr,
+            ..
+        } => {
+            map.insert("kind".to_string(), string_value("Let"));
+            map.insert("name".to_string(), string_value(name));
+              map.insert(
+                  "type_ref".to_string(),
+                  describe_optional_subset_type_ref_value(type_ann.as_ref()),
+              );
+            map.insert("expr".to_string(), describe_subset_expr_value(expr));
+        }
+        Stmt::Assign { target, expr } => {
+            map.insert("kind".to_string(), string_value("Assign"));
+            map.insert("target".to_string(), describe_subset_lvalue_value(target));
+            map.insert("expr".to_string(), describe_subset_expr_value(expr));
+        }
+        Stmt::Expr(expr) => {
+            map.insert("kind".to_string(), string_value("Expr"));
+            map.insert("expr".to_string(), describe_subset_expr_value(expr));
+        }
+        Stmt::If {
+            cond,
+            then_block,
+            else_branch,
+        } => {
+            map.insert("kind".to_string(), string_value("If"));
+            map.insert("cond".to_string(), describe_subset_expr_value(cond));
+            map.insert(
+                "then_block".to_string(),
+                describe_subset_block_value(then_block),
+            );
+            match else_branch {
+                Some(enkaic::ast::ElseBranch::Block(block)) => {
+                    map.insert("else_kind".to_string(), string_value("Block"));
+                    map.insert("else_block".to_string(), describe_subset_block_value(block));
+                }
+                Some(enkaic::ast::ElseBranch::If(stmt)) => {
+                    map.insert("else_kind".to_string(), string_value("If"));
+                    map.insert("else_stmt".to_string(), describe_subset_stmt_value(stmt));
+                }
+                None => {
+                    map.insert("else_kind".to_string(), string_value("None"));
+                }
+            }
+        }
+        Stmt::While { cond, body } => {
+            map.insert("kind".to_string(), string_value("While"));
+            map.insert("cond".to_string(), describe_subset_expr_value(cond));
+            map.insert("body".to_string(), describe_subset_block_value(body));
+        }
+        Stmt::Return { expr } => {
+            map.insert("kind".to_string(), string_value("Return"));
+            if let Some(expr) = expr {
+                map.insert("expr_present".to_string(), Value::Bool(true));
+                map.insert("expr".to_string(), describe_subset_expr_value(expr));
+            } else {
+                map.insert("expr_present".to_string(), Value::Bool(false));
+            }
+        }
+        Stmt::For { .. } => {
+            map.insert("kind".to_string(), string_value("For"));
+        }
+        Stmt::Match { .. } => {
+            map.insert("kind".to_string(), string_value("Match"));
+        }
+        Stmt::Try { .. } => {
+            map.insert("kind".to_string(), string_value("Try"));
+        }
+        Stmt::Break => {
+            map.insert("kind".to_string(), string_value("Break"));
+        }
+        Stmt::Continue => {
+            map.insert("kind".to_string(), string_value("Continue"));
+        }
+    }
+    record_value(map)
+}
+
+fn describe_subset_lvalue_value(target: &LValue) -> Value {
+    let mut map = HashMap::new();
+    map.insert("base".to_string(), string_value(&target.base));
+    let mut accesses = Vec::new();
+    for access in &target.accesses {
+        let mut access_map = HashMap::new();
+        match access {
+            enkaic::ast::LValueAccess::Field(field) => {
+                access_map.insert("kind".to_string(), string_value("Field"));
+                access_map.insert("field".to_string(), string_value(field));
+            }
+            enkaic::ast::LValueAccess::Index(expr) => {
+                access_map.insert("kind".to_string(), string_value("Index"));
+                access_map.insert("index".to_string(), describe_subset_expr_value(expr));
+            }
+        }
+        accesses.push(record_value(access_map));
+    }
+    map.insert(
+        "accesses".to_string(),
+        Value::Obj(ObjRef::new(Obj::List(RefCell::new(accesses)))),
+    );
+    map.insert(
+        "access_count".to_string(),
+        Value::Int(target.accesses.len() as i64),
+    );
+    record_value(map)
+}
+
+fn describe_subset_expr_value(expr: &Expr) -> Value {
+    let mut map = HashMap::new();
+    match expr {
+        Expr::Literal { lit, .. } => {
+            map.insert("kind".to_string(), string_value("Literal"));
+            map.insert("literal_kind".to_string(), string_value(describe_literal_kind(lit)));
+        }
+        Expr::Ident { .. } => {
+            map.insert("kind".to_string(), string_value("Ident"));
+            if let Expr::Ident { name, .. } = expr {
+                map.insert("name".to_string(), string_value(name));
+            }
+        }
+        Expr::Binary {
+            left, op, right, ..
+        } => {
+            map.insert("kind".to_string(), string_value("Binary"));
+            map.insert("op".to_string(), string_value(describe_binary_op(op)));
+            map.insert("left".to_string(), describe_subset_expr_value(left));
+            map.insert("right".to_string(), describe_subset_expr_value(right));
+        }
+        Expr::Unary { op, expr, .. } => {
+            map.insert("kind".to_string(), string_value("Unary"));
+            map.insert("op".to_string(), string_value(describe_unary_op(op)));
+            map.insert("expr".to_string(), describe_subset_expr_value(expr));
+        }
+        Expr::Call { callee, args, .. } => {
+            map.insert("kind".to_string(), string_value("Call"));
+            map.insert("callee".to_string(), describe_subset_expr_value(callee));
+            map.insert(
+                "args".to_string(),
+                Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                    args.iter().map(describe_subset_arg_value).collect(),
+                )))),
+            );
+            map.insert("arg_count".to_string(), Value::Int(args.len() as i64));
+        }
+        Expr::Index { target, index, .. } => {
+            map.insert("kind".to_string(), string_value("Index"));
+            map.insert("target".to_string(), describe_subset_expr_value(target));
+            map.insert("index".to_string(), describe_subset_expr_value(index));
+        }
+        Expr::Field { target, name, .. } => {
+            map.insert("kind".to_string(), string_value("Field"));
+            map.insert("target".to_string(), describe_subset_expr_value(target));
+            map.insert("field".to_string(), string_value(name));
+        }
+        Expr::List { items, .. } => {
+            map.insert("kind".to_string(), string_value("List"));
+            map.insert(
+                "items".to_string(),
+                Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                    items.iter().map(describe_subset_expr_value).collect(),
+                )))),
+            );
+            map.insert("item_count".to_string(), Value::Int(items.len() as i64));
+        }
+        Expr::Try { expr, .. } => {
+            map.insert("kind".to_string(), string_value("Try"));
+            map.insert("expr".to_string(), describe_subset_expr_value(expr));
+        }
+        Expr::Lambda { body, .. } => {
+            map.insert("kind".to_string(), string_value("Lambda"));
+            map.insert("body".to_string(), describe_subset_expr_value(body));
+        }
+        Expr::Match { .. } => {
+            map.insert("kind".to_string(), string_value("Match"));
+        }
+    }
+    record_value(map)
+}
+
+fn describe_subset_arg_value(arg: &Arg) -> Value {
+    let mut map = HashMap::new();
+    match arg {
+        Arg::Positional(expr) => {
+            map.insert("kind".to_string(), string_value("Positional"));
+            map.insert("expr".to_string(), describe_subset_expr_value(expr));
+        }
+        Arg::Named(name, expr) => {
+            map.insert("kind".to_string(), string_value("Named"));
+            map.insert("name".to_string(), string_value(name));
+            map.insert("expr".to_string(), describe_subset_expr_value(expr));
+        }
+    }
+    record_value(map)
+}
+
+fn subset_summary_value(module: &Module) -> Value {
+    let mut summary = HashMap::new();
+    summary.insert("items".to_string(), Value::Int(module.items.len() as i64));
+    summary.insert(
+        "functions".to_string(),
+        Value::Int(
+            module
+                .items
+                .iter()
+                .filter(|item| matches!(item, Item::Fn(_)))
+                .count() as i64,
+        ),
+    );
+    record_value(summary)
+}
+
 fn format_type_error(err: &enkaic::TypeError) -> String {
     if let Some(diagnostic) = err.diagnostic() {
         diagnostic.to_string()
@@ -13199,27 +14394,45 @@ fn format_compile_error(err: &enkaic::compiler::CompileError) -> String {
 fn validate_bootstrap_subset(module: &Module) -> Result<(), RuntimeError> {
     for item in &module.items {
         match item {
-            Item::Import(_) | Item::Use(_) | Item::Policy(_) | Item::Type(_) | Item::Enum(_) => {}
+            Item::Import(_)
+            | Item::NativeImport(_)
+            | Item::Use(_)
+            | Item::Policy(_)
+            | Item::Type(_)
+            | Item::Enum(_)
+            | Item::Tool(_)
+            | Item::Prompt(_) => {}
             Item::Fn(decl) => validate_subset_block(&decl.body)?,
             Item::Impl(decl) => {
                 for method in &decl.methods {
                     validate_subset_block(&method.body)?;
                 }
             }
+            Item::Model(decl) => validate_subset_expr(&decl.expr)?,
+            Item::Agent(decl) => validate_subset_agent(decl)?,
             Item::Stmt(stmt) => validate_subset_stmt(stmt)?,
-            Item::NativeImport(_) => {
-                return Err(RuntimeError::new(
-                    "subset disallows native::import declarations",
-                ));
-            }
-            Item::Tool(_) | Item::Prompt(_) | Item::Model(_) | Item::Agent(_) => {
-                return Err(RuntimeError::new(
-                    "subset only supports import/use/policy/type/enum/impl/fn/stmts declarations",
-                ));
-            }
         }
     }
     Ok(())
+}
+
+fn validate_subset_agent(agent: &AgentDecl) -> Result<(), RuntimeError> {
+    for item in &agent.items {
+        match item {
+            AgentItem::PolicyUse(_) => {}
+            AgentItem::Memory(memory) => validate_subset_memory(memory)?,
+            AgentItem::Fn(decl) => validate_subset_block(&decl.body)?,
+            AgentItem::Stmt(stmt) => validate_subset_stmt(stmt)?,
+        }
+    }
+    Ok(())
+}
+
+fn validate_subset_memory(memory: &MemoryDecl) -> Result<(), RuntimeError> {
+    match memory {
+        MemoryDecl::Path { .. } => Ok(()),
+        MemoryDecl::Expr { expr, .. } => validate_subset_expr(expr),
+    }
 }
 
 fn validate_subset_block(block: &Block) -> Result<(), RuntimeError> {

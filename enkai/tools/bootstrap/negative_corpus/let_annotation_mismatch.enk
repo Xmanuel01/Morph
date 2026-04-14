@@ -1,0 +1,7 @@
+fn main() -> Int ::
+    let label := "oops"
+    let count: Int := label
+    return 0
+::
+
+main()

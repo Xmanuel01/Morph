@@ -1,0 +1,8 @@
+native::import "enkai_native" ::
+    fn handle_live_count() -> Int
+::
+
+fn main() -> Int ::
+    return 0
+::
+main()

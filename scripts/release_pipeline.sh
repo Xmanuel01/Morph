@@ -34,6 +34,12 @@ cargo run -p enkai -- readiness check \
   --skip-check selfhost-mainline \
   --skip-check selfhost-stage0-fallback
 
+echo "[release] Running strict self-host contract freeze gate..."
+cargo run -p enkai -- readiness check \
+  --profile strict_selfhost \
+  --json \
+  --output artifacts/readiness/strict_selfhost.json
+
 echo "[release] Running bootstrap release lane gate..."
 cargo run -p enkai -- litec release-ci enkai/tools/bootstrap/selfhost_corpus --triage-dir artifacts/selfhost
 
@@ -72,6 +78,14 @@ if [ "$skip_package" = "0" ]; then
     --allow-skipped-required-check selfhost-mainline \
     --allow-skipped-required-check selfhost-stage0-fallback
 
+  echo "[release] Bootstrapping strict self-host blocker artifact before evidence archive..."
+  cargo run -p enkai -- readiness verify-blockers \
+    --profile strict_selfhost \
+    --report artifacts/readiness/strict_selfhost.json \
+    --json \
+    --output artifacts/readiness/strict_selfhost_blockers.json \
+    --skip-release-evidence
+
   echo "[release] Collecting strict release evidence bundle..."
   python3 scripts/collect_release_evidence.py --strict
 
@@ -83,6 +97,13 @@ if [ "$skip_package" = "0" ]; then
     --output artifacts/readiness/full_platform_blockers.json \
     --allow-skipped-required-check selfhost-mainline \
     --allow-skipped-required-check selfhost-stage0-fallback
+
+  echo "[release] Verifying strict self-host blocker matrix against archived evidence..."
+  cargo run -p enkai -- readiness verify-blockers \
+    --profile strict_selfhost \
+    --report artifacts/readiness/strict_selfhost.json \
+    --json \
+    --output artifacts/readiness/strict_selfhost_blockers.json
 
   echo "[release] Refreshing strict release evidence bundle with final blocker report..."
   python3 scripts/collect_release_evidence.py --strict
@@ -102,6 +123,14 @@ else
     --skip-release-evidence \
     --allow-skipped-required-check selfhost-mainline \
     --allow-skipped-required-check selfhost-stage0-fallback
+
+  echo "[release] Generating strict self-host blocker artifact for reduced evidence mode..."
+  cargo run -p enkai -- readiness verify-blockers \
+    --profile strict_selfhost \
+    --report artifacts/readiness/strict_selfhost.json \
+    --json \
+    --output artifacts/readiness/strict_selfhost_blockers.json \
+    --skip-release-evidence
 
   echo "[release] Collecting reduced release evidence bundle (package checks skipped)..."
   python3 scripts/collect_release_evidence.py

@@ -1,0 +1,13 @@
+type Box ::
+    value: Int
+::
+
+fn make() -> Box ::
+    return Box(1)
+::
+
+fn main() -> Int ::
+    return make().missing
+::
+
+main()

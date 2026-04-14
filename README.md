@@ -4,9 +4,20 @@ ENKAI PROGRAMMING LANGUAGE
 Overview
 Enkai is a programming language with block structure defined by :: tokens, a clean
 assignment operator (:=), and an AI-native roadmap (tools, agents, memory, policy).
-This repository contains the v3.0.0 implementation in Rust.
+This repository contains the v3.1.1 implementation in Rust.
 
-Status (v3.0.0)
+Strict self-host transition:
+- the `v3.1.0 -> v4.0.0` zero-Rust program is frozen in:
+  - `enkai/contracts/readiness_strict_selfhost_v3_1_0.json`
+  - `enkai/contracts/strict_selfhost_release_blockers_v3_1_0.json`
+  - `enkai/contracts/strict_selfhost_dependency_board_v3_1_0.json`
+  - `enkai/contracts/selfhost_frontier_v3_1_1.json`
+  - `enkai/contracts/selfhost_examples_v3_1_1.json`
+  - `enkai/contracts/selfhost_bootstrap_v3_1_1.json`
+  - `enkai/contracts/selfhost_negative_v3_1_1.json`
+  - `docs/50_strict_selfhost_contract.md`
+
+Status (v3.1.1)
 - Release state: CPU-complete / GPU operator sign-off pending
 - Bytecode VM + globals + type-checking
 - Module system with public/private exports
@@ -59,8 +70,13 @@ Status (v3.0.0)
   - `artifacts/validation/`
   - `artifacts/readiness/full_platform.json`
   - `artifacts/readiness/full_platform_blockers.json`
-  - `artifacts/release/v<version>/release_dashboard.json`
-  - `artifacts/release/v<version>/release_dashboard.md`
+- `artifacts/release/v<version>/release_dashboard.json`
+- `artifacts/release/v<version>/release_dashboard.md`
+- `artifacts/readiness/strict_selfhost_dependency_inventory.json`
+- `artifacts/readiness/selfhost_frontier_verify.json`
+- `artifacts/readiness/selfhost_examples_verify.json`
+- `artifacts/readiness/selfhost_bootstrap_verify.json`
+- `artifacts/readiness/selfhost_negative_verify.json`
 - Validation manifests and local/reference machine profiles live under:
   - `enkai/contracts/validation_cpu_v3_0_0.json`
   - `enkai/contracts/validation_release_blockers_v3_0_0.json`

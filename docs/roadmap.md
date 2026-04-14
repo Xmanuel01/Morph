@@ -3,8 +3,52 @@ Enkai Roadmap
 Note:
 - Historical milestones below capture the path that led to current releases.
 - Current release line is v3.0.0 (CPU-complete / GPU operator sign-off pending).
+- Next major program line is `v3.1.0 -> v4.0.0` zero-Rust strict self-hosting.
 - v2.6.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v3.1.0 (in progress)
+- Strict self-host contract freeze:
+  - adds `strict_selfhost` readiness and blocker profiles
+  - freezes the zero-Rust dependency inventory in:
+    - `enkai/contracts/strict_selfhost_dependency_board_v3_1_0.json`
+  - emits:
+    - `artifacts/readiness/strict_selfhost.json`
+    - `artifacts/readiness/strict_selfhost_dependency_inventory.json`
+    - `artifacts/readiness/strict_selfhost_blockers.json`
+  - extends the release dashboard with:
+    - `strict_selfhost_cpu_complete`
+    - `strict_selfhost_gpu_pending`
+    - `remaining_rust_dependencies`
+  - documents the contract in:
+    - `docs/50_strict_selfhost_contract.md`
+
+v3.1.1 (in progress)
+- Full-language frontend migration tranche:
+  - adds `enkai litec frontend-audit <corpus_dir>`
+  - records Rust/frontend acceptance and stage0/stage2 parity over broader corpora
+  - keeps both the frozen declaration frontier and the shipped `examples/`
+    corpus green under strict self-host readiness
+  - adds strict self-host bootstrap-source and negative semantic corpus audits:
+    - `enkai/contracts/selfhost_bootstrap_v3_1_1.json`
+    - `enkai/contracts/selfhost_negative_v3_1_1.json`
+  - expands the bootstrap subset to accept:
+    - `native::import`
+    - `tool`
+    - `prompt`
+    - `model`
+    - `agent`
+  - adds package-aware bootstrap compiler intrinsics:
+    - `compiler.parse_subset_file`
+    - `compiler.check_subset_file`
+    - `compiler.emit_subset_file`
+  - emits:
+    - `litec_frontend_audit_report.json`
+    - `litec_negative_audit_report.json`
+  - documents the current frontier in:
+    - `docs/51_full_frontend_frontier.md`
+  - current blocker remains:
+    - the self-host frontend is still not the source of truth for the full language
 
 v2.9.1 (done)
 - Quality recovery foundation:

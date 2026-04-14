@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "profile": "strict_selfhost",
+  "version_line": "v3.1.0-v4.0.0",
+  "target_state": "zero_rust_shipped_platform",
+  "policy": {
+    "rust_free_shipped_path": true,
+    "required_rust_binaries": false,
+    "required_rust_crates": false,
+    "sqlite_policy": "compatibility_only_outside_strict_selfhost_release_blockers",
+    "network_db_backends": [
+      "postgres",
+      "mysql"
+    ]
+  },
+  "components": [
+    {
+      "id": "compiler_frontend",
+      "subsystem": "compiler",
+      "shipped_blocker": true,
+      "status": "partial",
+      "rust_workspace_members": [
+        "enkaic"
+      ],
+      "native_components": [],
+      "enkai_replacements": [
+        "enkai/tools/bootstrap/enkai_lite.enk"
+      ],
+      "notes": "Bootstrap subset is self-hosted, but the full-language parser, resolver, typechecker, and codegen still ship through enkaic."
+    },
+    {
+      "id": "runtime_core",
+      "subsystem": "runtime",
+      "shipped_blocker": true,
+      "status": "blocked",
+      "rust_workspace_members": [
+        "enkairt"
+      ],
+      "native_components": [],
+      "enkai_replacements": [],
+      "notes": "The shipped VM, object model, scheduler, HTTP value model, and deterministic simulation runtime still execute through enkairt."
+    },
+    {
+      "id": "systems_and_cli",
+      "subsystem": "systems",
+      "shipped_blocker": true,
+      "status": "blocked",
+      "rust_workspace_members": [
+        "enkai"
+      ],
+      "native_components": [],
+      "enkai_replacements": [],
+      "notes": "Serve, model, deploy, worker, readiness, validation, and release orchestration are still implemented in the Rust CLI."
+    },
+    {
+      "id": "native_std_and_accel",
+      "subsystem": "native_std",
+      "shipped_blocker": true,
+      "status": "blocked",
+      "rust_workspace_members": [
+        "enkai_native"
+      ],
+      "native_components": [
+        "ffi_std_bindings",
+        "sqlite_binding",
+        "tls_binding",
+        "compression_binding",
+        "hash_binding"
+      ],
+      "enkai_replacements": [],
+      "notes": "The shipped std/native path still depends on the Rust-owned FFI module and required native bindings."
+    },
+    {
+      "id": "tensor_backend",
+      "subsystem": "llm_runtime",
+      "shipped_blocker": true,
+      "status": "blocked",
+      "rust_workspace_members": [
+        "enkai_tensor"
+      ],
+      "native_components": [
+        "tensor_backend"
+      ],
+      "enkai_replacements": [],
+      "notes": "Training/eval/serve runtime still depends on the Rust tensor backend and native acceleration stack."
+    },
+    {
+      "id": "data_registry_protocols",
+      "subsystem": "data_registry",
+      "shipped_blocker": true,
+      "status": "partial",
+      "rust_workspace_members": [
+        "enkai",
+        "enkai_native"
+      ],
+      "native_components": [
+        "sqlite_binding"
+      ],
+      "enkai_replacements": [],
+      "notes": "Registry/model lifecycle behavior is implemented, but strict self-host policy still requires Rust-owned CLI/runtime layers and moves SQLite out of the release-blocking core."
+    }
+  ]
+}

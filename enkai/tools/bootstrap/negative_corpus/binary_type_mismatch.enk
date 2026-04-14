@@ -1,0 +1,6 @@
+fn main() -> Int ::
+    let flag := true
+    return flag + 1
+::
+
+main()

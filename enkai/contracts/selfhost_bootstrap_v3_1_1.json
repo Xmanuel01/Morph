@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "profile": "strict_selfhost_bootstrap",
+  "command": "frontend-audit",
+  "corpus": "enkai/tools/bootstrap/enkai_lite.enk",
+  "report_file": "artifacts/selfhost/litec_frontend_audit_report.json",
+  "expected": {
+    "enkai_lite.enk": "pass"
+  }
+}

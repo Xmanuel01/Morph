@@ -37,6 +37,12 @@ pub fn print_usage() {
     eprintln!(
         "  enkai litec replace-check <corpus_dir> [--no-compare-stage0] [--triage-dir <dir>]"
     );
+    eprintln!(
+        "  enkai litec frontend-audit <corpus_dir|file.enk> [--triage-dir <dir>] [--require-full-support]"
+    );
+    eprintln!(
+        "  enkai litec negative-audit <corpus_dir|file.enk> [--triage-dir <dir>] [--require-full-support]"
+    );
     eprintln!("  enkai litec mainline-ci <corpus_dir> [--triage-dir <dir>]");
     eprintln!("  enkai litec release-ci <corpus_dir> [--triage-dir <dir>]");
 }
@@ -490,6 +496,8 @@ pub fn litec_command(args: &[String]) -> i32 {
         "selfhost" => litec_selfhost(&args[1..]),
         "selfhost-ci" => litec_selfhost_ci(&args[1..]),
         "replace-check" => litec_replace_check(&args[1..]),
+        "frontend-audit" => litec_frontend_audit(&args[1..]),
+        "negative-audit" => litec_negative_audit(&args[1..]),
         "mainline-ci" => litec_mainline_ci(&args[1..]),
         "release-ci" => litec_release_ci(&args[1..]),
         other => {
@@ -697,6 +705,13 @@ struct LitecCorpusOptions {
     triage_dir: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone)]
+struct LitecFrontendAuditOptions {
+    corpus: PathBuf,
+    triage_dir: Option<PathBuf>,
+    require_full_support: bool,
+}
+
 fn parse_litec_corpus_options(
     args: &[String],
     usage: &str,
@@ -730,6 +745,41 @@ fn parse_litec_corpus_options(
         corpus,
         compare_stage0,
         triage_dir,
+    })
+}
+
+fn parse_litec_frontend_audit_options(
+    args: &[String],
+    usage: &str,
+) -> Result<LitecFrontendAuditOptions, String> {
+    if args.is_empty() {
+        return Err(usage.to_string());
+    }
+    let corpus = PathBuf::from(&args[0]);
+    if !corpus.exists() {
+        return Err(format!("corpus path not found: {}", corpus.display()));
+    }
+    let mut triage_dir: Option<PathBuf> = None;
+    let mut require_full_support = false;
+    let mut index = 1usize;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--triage-dir" => {
+                index += 1;
+                let Some(path) = args.get(index) else {
+                    return Err("--triage-dir requires a value".to_string());
+                };
+                triage_dir = Some(PathBuf::from(path));
+            }
+            "--require-full-support" => require_full_support = true,
+            other => return Err(format!("Unexpected argument: {}", other)),
+        }
+        index += 1;
+    }
+    Ok(LitecFrontendAuditOptions {
+        corpus,
+        triage_dir,
+        require_full_support,
     })
 }
 
@@ -1400,6 +1450,412 @@ fn litec_replace_check(args: &[String]) -> i32 {
     }
 }
 
+fn litec_frontend_audit(args: &[String]) -> i32 {
+    let options = match parse_litec_frontend_audit_options(
+        args,
+        "Usage: enkai litec frontend-audit <corpus_dir|file.enk> [--triage-dir <dir>] [--require-full-support]",
+    ) {
+        Ok(options) => options,
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    };
+    let files = match sorted_source_files(&options.corpus) {
+        Ok(files) => files,
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    };
+
+    let mainline = match build_litec_mainline_driver() {
+        Ok(build) => build,
+        Err(err) => {
+            eprintln!(
+                "frontend-audit bootstrap compiler build failed: {}",
+                err.message
+            );
+            let report = serde_json::json!({
+                "command": "frontend-audit",
+                "corpus": to_report_path(&options.corpus),
+                "require_full_support": options.require_full_support,
+                "status": "failed",
+                "error": err.message,
+                "error_code": err.code,
+                "stage1_compiler": err.stage1_fp,
+                "stage2_compiler": err.stage2_fp,
+                "stage1_stage2_fixed_point": err.stage1_stage2_equivalent,
+                "files_total": files.len(),
+                "entries": [],
+            });
+            let _ = write_triage_report(
+                options.triage_dir.as_deref(),
+                "litec_frontend_audit_report.json",
+                &report,
+            );
+            return 1;
+        }
+    };
+
+    let mut entries: Vec<serde_json::Value> = Vec::with_capacity(files.len());
+    let mut rust_frontend_files = 0usize;
+    let mut selfhost_frontend_files = 0usize;
+    let mut bytecode_parity_files = 0usize;
+    let mut runtime_parity_files = 0usize;
+    let mut frontier_gap_files = 0usize;
+    let mut invalid_files = 0usize;
+
+    for file in &files {
+        let mut entry = serde_json::json!({
+            "file": to_report_path(file),
+            "status": "gap",
+            "rust_frontend": false,
+            "selfhost_frontend": false,
+            "bytecode_parity": false,
+            "runtime_parity": false,
+        });
+
+        let stage0_bytes = match compile_stage0_program_bytes(file) {
+            Ok(bytes) => {
+                rust_frontend_files += 1;
+                entry["rust_frontend"] = serde_json::json!(true);
+                entry["stage0"] = stage_fingerprint(&bytes);
+                bytes
+            }
+            Err(err) => {
+                let message = format!("stage0 compile failed: {}", err);
+                invalid_files += 1;
+                entry["status"] = serde_json::json!("invalid");
+                entry["error"] = serde_json::json!(message);
+                entries.push(entry);
+                continue;
+            }
+        };
+
+        let stage2_bytes = match compile_with_driver_program(&mainline.stage2_driver, file) {
+            Ok(bytes) => {
+                selfhost_frontend_files += 1;
+                entry["selfhost_frontend"] = serde_json::json!(true);
+                entry["stage2"] = stage_fingerprint(&bytes);
+                bytes
+            }
+            Err(err) => {
+                frontier_gap_files += 1;
+                entry["status"] = serde_json::json!("frontier-gap");
+                entry["error"] = serde_json::json!(format!("selfhost compile failed: {}", err));
+                entries.push(entry);
+                continue;
+            }
+        };
+
+        let bytecode_parity = match equivalent_program_bytes(
+            file,
+            &stage0_bytes,
+            "stage0",
+            &stage2_bytes,
+            "stage2",
+        ) {
+            Ok(equal) => equal,
+            Err(err) => {
+                frontier_gap_files += 1;
+                entry["status"] = serde_json::json!("frontier-gap");
+                entry["error"] = serde_json::json!(err);
+                entries.push(entry);
+                continue;
+            }
+        };
+        entry["bytecode_parity"] = serde_json::json!(bytecode_parity);
+        if bytecode_parity {
+            bytecode_parity_files += 1;
+        } else {
+            frontier_gap_files += 1;
+            entry["status"] = serde_json::json!("frontier-gap");
+            entry["error"] = serde_json::json!(format!(
+                "stage0/stage2 bytecode mismatch (stage0={} bytes, stage2={} bytes)",
+                stage0_bytes.len(),
+                stage2_bytes.len()
+            ));
+            entries.push(entry);
+            continue;
+        }
+
+        let stage0_program = match decode_program_bytes(file, &stage0_bytes, "stage0") {
+            Ok(program) => program,
+            Err(err) => {
+                frontier_gap_files += 1;
+                entry["status"] = serde_json::json!("frontier-gap");
+                entry["error"] = serde_json::json!(err);
+                entries.push(entry);
+                continue;
+            }
+        };
+        let stage2_program = match decode_program_bytes(file, &stage2_bytes, "stage2") {
+            Ok(program) => program,
+            Err(err) => {
+                frontier_gap_files += 1;
+                entry["status"] = serde_json::json!("frontier-gap");
+                entry["error"] = serde_json::json!(err);
+                entries.push(entry);
+                continue;
+            }
+        };
+        let stage0_value = match run_program(&stage0_program) {
+            Ok(value) => value,
+            Err(err) => {
+                frontier_gap_files += 1;
+                entry["status"] = serde_json::json!("frontier-gap");
+                entry["error"] = serde_json::json!(format!("stage0 runtime error: {}", err));
+                entries.push(entry);
+                continue;
+            }
+        };
+        let stage2_value = match run_program(&stage2_program) {
+            Ok(value) => value,
+            Err(err) => {
+                frontier_gap_files += 1;
+                entry["status"] = serde_json::json!("frontier-gap");
+                entry["error"] = serde_json::json!(format!("stage2 runtime error: {}", err));
+                entries.push(entry);
+                continue;
+            }
+        };
+        let stage0_canonical = canonical_value(&stage0_value);
+        let stage2_canonical = canonical_value(&stage2_value);
+        entry["stage0_result"] = serde_json::json!(stage0_canonical.clone());
+        entry["stage2_result"] = serde_json::json!(stage2_canonical.clone());
+        let runtime_parity = stage0_canonical == stage2_canonical;
+        entry["runtime_parity"] = serde_json::json!(runtime_parity);
+        if runtime_parity {
+            runtime_parity_files += 1;
+            entry["status"] = serde_json::json!("pass");
+        } else {
+            frontier_gap_files += 1;
+            entry["status"] = serde_json::json!("frontier-gap");
+            entry["error"] = serde_json::json!(format!(
+                "stage0/stage2 runtime mismatch (stage0={}, stage2={})",
+                stage0_canonical, stage2_canonical
+            ));
+        }
+        entries.push(entry);
+    }
+
+    let full_support_ready = frontier_gap_files == 0 && invalid_files == 0;
+    let status = if full_support_ready {
+        "ok"
+    } else if invalid_files == 0 {
+        "gap"
+    } else {
+        "failed"
+    };
+    let report = serde_json::json!({
+        "command": "frontend-audit",
+        "corpus": to_report_path(&options.corpus),
+        "require_full_support": options.require_full_support,
+        "status": status,
+        "full_support_ready": full_support_ready,
+        "files_total": files.len(),
+        "rust_frontend_files": rust_frontend_files,
+        "selfhost_frontend_files": selfhost_frontend_files,
+        "bytecode_parity_files": bytecode_parity_files,
+        "runtime_parity_files": runtime_parity_files,
+        "frontier_gap_files": frontier_gap_files,
+        "invalid_files": invalid_files,
+        "stage1_compiler": mainline.stage1_fp,
+        "stage2_compiler": mainline.stage2_fp,
+        "stage1_stage2_fixed_point": mainline.stage1_stage2_equivalent,
+        "entries": entries,
+    });
+
+    match write_triage_report(
+        options.triage_dir.as_deref(),
+        "litec_frontend_audit_report.json",
+        &report,
+    ) {
+        Ok(Some(path)) => println!("frontend-audit report: {}", path.display()),
+        Ok(None) => {}
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    }
+
+    println!(
+        "litec frontend-audit {} (files={}, selfhost_frontend_files={}, frontier_gap_files={}, invalid_files={})",
+        status,
+        files.len(),
+        selfhost_frontend_files,
+        frontier_gap_files,
+        invalid_files
+    );
+    if options.require_full_support && !full_support_ready {
+        1
+    } else {
+        0
+    }
+}
+
+fn litec_negative_audit(args: &[String]) -> i32 {
+    let options = match parse_litec_frontend_audit_options(
+        args,
+        "Usage: enkai litec negative-audit <corpus_dir|file.enk> [--triage-dir <dir>] [--require-full-support]",
+    ) {
+        Ok(options) => options,
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    };
+    let files = match sorted_source_files(&options.corpus) {
+        Ok(files) => files,
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    };
+
+    let mainline = match build_litec_mainline_driver() {
+        Ok(build) => build,
+        Err(err) => {
+            eprintln!(
+                "negative-audit bootstrap compiler build failed: {}",
+                err.message
+            );
+            let report = serde_json::json!({
+                "command": "negative-audit",
+                "corpus": to_report_path(&options.corpus),
+                "require_full_support": options.require_full_support,
+                "status": "failed",
+                "error": err.message,
+                "error_code": err.code,
+                "stage1_compiler": err.stage1_fp,
+                "stage2_compiler": err.stage2_fp,
+                "stage1_stage2_fixed_point": err.stage1_stage2_equivalent,
+                "files_total": files.len(),
+                "entries": [],
+            });
+            let _ = write_triage_report(
+                options.triage_dir.as_deref(),
+                "litec_negative_audit_report.json",
+                &report,
+            );
+            return 1;
+        }
+    };
+
+    let mut entries: Vec<serde_json::Value> = Vec::with_capacity(files.len());
+    let mut rust_frontend_files = 0usize;
+    let mut selfhost_frontend_files = 0usize;
+    let mut frontier_gap_files = 0usize;
+    let invalid_files = 0usize;
+
+    for file in &files {
+        let mut entry = serde_json::json!({
+            "file": to_report_path(file),
+            "status": "gap",
+            "rust_frontend": false,
+            "selfhost_frontend": false,
+        });
+
+        match compile_stage0_program_bytes(file) {
+            Ok(_) => {
+                frontier_gap_files += 1;
+                entry["error"] = serde_json::json!("stage0 unexpectedly accepted negative corpus file");
+            }
+            Err(err) => {
+                rust_frontend_files += 1;
+                entry["rust_frontend"] = serde_json::json!(true);
+                entry["stage0_error"] = serde_json::json!(err);
+            }
+        }
+
+        match run_litec_mode_with_program(&mainline.stage2_driver, "check", file, None) {
+            Ok(0) => {
+                frontier_gap_files += 1;
+                let current = entry
+                    .get("error")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string)
+                    .unwrap_or_default();
+                let message = if current.is_empty() {
+                    "stage2 unexpectedly accepted negative corpus file".to_string()
+                } else {
+                    format!(
+                        "{}; stage2 unexpectedly accepted negative corpus file",
+                        current
+                    )
+                };
+                entry["error"] = serde_json::json!(message);
+            }
+            Ok(code) => {
+                selfhost_frontend_files += 1;
+                entry["selfhost_frontend"] = serde_json::json!(true);
+                entry["stage2_exit_code"] = serde_json::json!(code);
+            }
+            Err(err) => {
+                selfhost_frontend_files += 1;
+                entry["selfhost_frontend"] = serde_json::json!(true);
+                entry["stage2_error"] = serde_json::json!(err);
+            }
+        }
+
+        let passed = entry["rust_frontend"] == serde_json::json!(true)
+            && entry["selfhost_frontend"] == serde_json::json!(true);
+        if passed {
+            entry["status"] = serde_json::json!("pass");
+        } else {
+            entry["status"] = serde_json::json!("frontier-gap");
+        }
+        entries.push(entry);
+    }
+
+    let full_support_ready = frontier_gap_files == 0 && invalid_files == 0;
+    let status = if full_support_ready { "ok" } else { "gap" };
+    let report = serde_json::json!({
+        "command": "negative-audit",
+        "corpus": to_report_path(&options.corpus),
+        "require_full_support": options.require_full_support,
+        "status": status,
+        "full_support_ready": full_support_ready,
+        "files_total": files.len(),
+        "rust_frontend_files": rust_frontend_files,
+        "selfhost_frontend_files": selfhost_frontend_files,
+        "frontier_gap_files": frontier_gap_files,
+        "invalid_files": invalid_files,
+        "stage1_compiler": mainline.stage1_fp,
+        "stage2_compiler": mainline.stage2_fp,
+        "stage1_stage2_fixed_point": mainline.stage1_stage2_equivalent,
+        "entries": entries,
+    });
+
+    match write_triage_report(
+        options.triage_dir.as_deref(),
+        "litec_negative_audit_report.json",
+        &report,
+    ) {
+        Ok(Some(path)) => println!("negative-audit report: {}", path.display()),
+        Ok(None) => {}
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    }
+
+    println!(
+        "litec negative-audit {} (files={}, selfhost_frontend_files={}, frontier_gap_files={}, invalid_files={})",
+        status,
+        files.len(),
+        selfhost_frontend_files,
+        frontier_gap_files,
+        invalid_files
+    );
+    if options.require_full_support && !full_support_ready {
+        1
+    } else {
+        0
+    }
+}
+
 fn litec_mainline_ci(args: &[String]) -> i32 {
     let options = match parse_litec_corpus_options(
         args,
@@ -1826,6 +2282,7 @@ fn run_litec_mode_with_program(
                 .to_string(),
         ),
     ];
+    envs.push(("ENKAI_BOOTSTRAP_FIELD_NONE", "1".to_string()));
     if let Some(path) = output {
         envs.push((
             "ENKAI_LITEC_OUTPUT",
@@ -1975,6 +2432,7 @@ fn run_litec_mode(mode: &str, input: &Path, output: Option<&Path>) -> Result<i32
                 .to_string(),
         ),
     ];
+    envs.push(("ENKAI_BOOTSTRAP_FIELD_NONE", "1".to_string()));
     if let Some(output) = output {
         envs.push((
             "ENKAI_LITEC_OUTPUT",
@@ -1989,6 +2447,16 @@ fn run_litec_mode(mode: &str, input: &Path, output: Option<&Path>) -> Result<i32
 }
 
 fn compile_stage0_program_bytes(input: &Path) -> Result<Vec<u8>, String> {
+    let _lock = super::env_guard();
+    let mut env_guards: Vec<EnvOverride> = Vec::new();
+    if env::var("ENKAI_STD").is_err() {
+        if let Some(std_path) = detect_std_path() {
+            env_guards.push(EnvOverride::set(
+                "ENKAI_STD",
+                std_path.to_string_lossy().as_ref(),
+            ));
+        }
+    }
     let source = fs::read_to_string(input)
         .map_err(|err| format!("failed to read {}: {}", input.display(), err))?;
     let module = parse_module_named(&source, Some("<enkai-lite>"))
@@ -1998,31 +2466,13 @@ fn compile_stage0_program_bytes(input: &Path) -> Result<Vec<u8>, String> {
         .check_module(&module)
         .map_err(|err| type_error_to_string(&err))?;
 
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    source.hash(&mut hasher);
-    let source_hash = hasher.finish();
-    let mut temp = env::temp_dir();
-    temp.push(format!(
-        "enkai_subset_{}_{}.enk",
-        std::process::id(),
-        source_hash
-    ));
-    fs::write(&temp, source)
-        .map_err(|err| format!("failed to write {}: {}", temp.display(), err))?;
-    let package = match load_package(&temp) {
-        Ok(package) => package,
-        Err(err) => {
-            let _ = fs::remove_file(&temp);
-            return Err(err.to_string());
-        }
-    };
-    let _ = fs::remove_file(&temp);
+    let package = load_package(input).map_err(|err| err.to_string())?;
     TypeChecker::check_package(&package).map_err(|err| type_error_to_string(&err))?;
     let mut program = compile_package(&package).map_err(|err| compile_error_to_string(&err))?;
     for function in &mut program.functions {
         function.source_name = None;
     }
+    drop(env_guards);
     bincode::serialize(&program).map_err(|err| format!("serialize failed: {}", err))
 }
 
@@ -2547,8 +2997,9 @@ mod tests {
             &input,
             "type Counter ::\n    value: Int\n::\n\
              enum Kind ::\n    One\n::\n\
-             impl Counter ::\n    fn bump(self: Counter, delta: Int) -> Int ::\n        return self.value + delta\n    ::\n::\n\
-             fn main() -> Int ::\n    let add := (x: Int) -> Int => x + 3\n    return add(4)\n::\n\
+             model Demo := 2 + 3\n\n\
+             fn make_counter(value: Int) -> Counter ::\n    return Counter(value)\n::\n\n\
+             fn main() -> Int ::\n    let counter := make_counter(4)\n    return 0\n::\n\
              main()\n",
         )
         .expect("write input");
@@ -2759,6 +3210,674 @@ mod tests {
         assert!(triage.join("litec_selfhost_ci_report.json").is_file());
         assert!(triage.join("litec_replace_check_report.json").is_file());
         assert!(triage.join("litec_mainline_ci_report.json").is_file());
+    }
+
+    #[test]
+    fn litec_frontend_audit_reports_frontier_gaps() {
+        let dir = tempdir().expect("tempdir");
+        let corpus = dir.path().join("frontend-corpus");
+        let triage = dir.path().join("triage");
+        fs::create_dir_all(&corpus).expect("corpus dir");
+        fs::write(
+            corpus.join("supported.enk"),
+            "fn main() -> Int ::\n    let add := (x: Int) -> Int => x + 2\n    return add(5)\n::\nmain()\n",
+        )
+        .expect("write supported");
+        fs::write(
+            corpus.join("unsupported.enk"),
+            "native::import \"libdemo\" ::\n    fn add(a: Int, b: Int) -> Int\n::\nfn main() -> Int ::\n    return 0\n::\nmain()\n",
+        )
+        .expect("write unsupported");
+        let code = litec_command(&[
+            "frontend-audit".to_string(),
+            corpus.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+        ]);
+        assert_eq!(code, 0);
+        let report_path = triage.join("litec_frontend_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "gap");
+        assert_eq!(report["files_total"], 2);
+        assert_eq!(report["rust_frontend_files"], 2);
+        assert_eq!(report["selfhost_frontend_files"], 2);
+        assert_eq!(report["frontier_gap_files"], 1);
+        assert_eq!(report["invalid_files"], 0);
+        assert_eq!(report["stage1_stage2_fixed_point"], true);
+    }
+
+    #[test]
+    fn litec_frontend_audit_require_full_support_fails_on_gap() {
+        let dir = tempdir().expect("tempdir");
+        let corpus = dir.path().join("frontend-corpus");
+        fs::create_dir_all(&corpus).expect("corpus dir");
+        fs::write(
+            corpus.join("unsupported.enk"),
+            "native::import \"libdemo\" ::\n    fn add(a: Int, b: Int) -> Int\n::\nfn main() -> Int ::\n    return 0\n::\nmain()\n",
+        )
+        .expect("write unsupported");
+        let code = litec_command(&[
+            "frontend-audit".to_string(),
+            corpus.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_frontend_audit_supports_decl_frontier_corpus() {
+        let dir = tempdir().expect("tempdir");
+        let corpus = dir.path().join("frontend-corpus");
+        let triage = dir.path().join("triage");
+        fs::create_dir_all(&corpus).expect("corpus dir");
+        fs::write(
+            corpus.join("native_import.enk"),
+            "native::import \"enkai_native\" ::\n    fn handle_live_count() -> Int\n::\nfn main() -> Int ::\n    return 0\n::\nmain()\n",
+        )
+        .expect("write native_import");
+        fs::write(
+            corpus.join("tool_decl.enk"),
+            "tool tools.echo(a: Int) -> Int\n\nfn main() -> Int ::\n    return 0\n::\nmain()\n",
+        )
+        .expect("write tool_decl");
+        fs::write(
+            corpus.join("prompt_decl.enk"),
+            "prompt Greeting ::\n    input ::\n        name: String\n    ::\n    template ::\n        \"Hello\"\n    ::\n::\n\nfn main() -> Int ::\n    return 0\n::\nmain()\n",
+        )
+        .expect("write prompt_decl");
+        fs::write(
+            corpus.join("model_decl.enk"),
+            "model MyModel := 2 + 3\n\nfn main() -> Int ::\n    return 0\n::\nmain()\n",
+        )
+        .expect("write model_decl");
+        fs::write(
+            corpus.join("agent_decl.enk"),
+            "agent Bot ::\n    memory store(\"disk\")\n    fn ping() -> Int ::\n        return 1\n    ::\n::\n\nfn main() -> Int ::\n    return 0\n::\nmain()\n",
+        )
+        .expect("write agent_decl");
+
+        let code = litec_command(&[
+            "frontend-audit".to_string(),
+            corpus.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+        let report_path = triage.join("litec_frontend_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["files_total"], 5);
+        assert_eq!(report["rust_frontend_files"], 5);
+        assert_eq!(report["selfhost_frontend_files"], 5);
+        assert_eq!(report["frontier_gap_files"], 0);
+        assert_eq!(report["invalid_files"], 0);
+        assert_eq!(report["bytecode_parity_files"], 5);
+        assert_eq!(report["runtime_parity_files"], 5);
+        assert_eq!(report["full_support_ready"], true);
+    }
+
+    #[test]
+    fn litec_negative_audit_passes_when_stage0_and_selfhost_reject() {
+        let dir = tempdir().expect("tempdir");
+        let corpus = dir.path().join("negative-corpus");
+        let triage = dir.path().join("triage");
+        fs::create_dir_all(&corpus).expect("corpus dir");
+        fs::write(
+            corpus.join("bad_return.enk"),
+            "fn bad() -> Int ::\n    let label := \"oops\"\n    return label\n::\n\nbad()\n",
+        )
+        .expect("write bad_return");
+        fs::write(
+            corpus.join("binary_type_mismatch.enk"),
+            "fn main() -> Int ::\n    let flag := true\n    return flag + 1\n::\n\nmain()\n",
+        )
+        .expect("write binary mismatch");
+
+        let code = litec_command(&[
+            "negative-audit".to_string(),
+            corpus.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+        let report_path = triage.join("litec_negative_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["files_total"], 2);
+        assert_eq!(report["rust_frontend_files"], 2);
+        assert_eq!(report["selfhost_frontend_files"], 2);
+        assert_eq!(report["frontier_gap_files"], 0);
+        assert_eq!(report["full_support_ready"], true);
+    }
+
+    #[test]
+    fn litec_negative_audit_require_full_support_fails_on_gap() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("accepted.enk");
+        fs::write(&file, "fn main() -> Int ::\n    return 1\n::\n\nmain()\n").expect("write accepted");
+        let code = litec_command(&[
+            "negative-audit".to_string(),
+            file.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_for_loop_via_selfhost_validation() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("unsupported.enk");
+        fs::write(
+            &file,
+            "fn main() -> Int ::\n    for item in [1, 2, 3] ::\n        return item\n    ::\n    return 0\n::\nmain()\n",
+        )
+        .expect("write unsupported");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_imported_for_loop_via_selfhost_package_validation() {
+        let dir = tempdir().expect("tempdir");
+        let src = dir.path().join("src");
+        fs::create_dir_all(&src).expect("src dir");
+        fs::write(
+            src.join("main.enk"),
+            "import foo as foo\n\nfn main() -> Int ::\n    return foo.answer()\n::\n\nmain()\n",
+        )
+        .expect("write main");
+        fs::write(
+            src.join("foo.enk"),
+            "fn answer() -> Int ::\n    for item in [1, 2, 3] ::\n        return item\n    ::\n    return 0\n::\n",
+        )
+        .expect("write lib");
+        let code = litec_command(&[
+            "check".to_string(),
+            src.join("main.enk").to_string_lossy().to_string(),
+        ]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_local_call_arity_mismatch_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("arity.enk");
+        fs::write(
+            &file,
+            "fn add(a: Int, b: Int) -> Int ::\n    return a + b\n::\n\nfn main() -> Int ::\n    return add(1)\n::\n\nmain()\n",
+        )
+        .expect("write arity");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_imported_call_arity_mismatch_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let src = dir.path().join("src");
+        fs::create_dir_all(&src).expect("src dir");
+        fs::write(
+            src.join("main.enk"),
+            "import foo as foo\n\nfn main() -> Int ::\n    return foo.answer()\n::\n\nmain()\n",
+        )
+        .expect("write main");
+        fs::write(
+            src.join("foo.enk"),
+            "pub fn answer(x: Int) -> Int ::\n    return x\n::\n",
+        )
+        .expect("write foo");
+        let code = litec_command(&[
+            "check".to_string(),
+            src.join("main.enk").to_string_lossy().to_string(),
+        ]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_duplicate_top_level_symbols_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("duplicate.enk");
+        fs::write(
+            &file,
+            "fn answer() -> Int ::\n    return 1\n::\n\nfn answer() -> Int ::\n    return 2\n::\n\nfn main() -> Int ::\n    return answer()\n::\n\nmain()\n",
+        )
+        .expect("write duplicate");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_impl_target_without_type_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("impl_missing_type.enk");
+        fs::write(
+            &file,
+            "impl Missing ::\n    fn answer() -> Int ::\n        return 1\n    ::\n::\n\nfn main() -> Int ::\n    return 0\n::\n\nmain()\n",
+        )
+        .expect("write impl");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_constructor_arity_mismatch_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("ctor_arity.enk");
+        fs::write(
+            &file,
+            "type Pair ::\n    left: Int\n    right: Int\n::\n\nfn main() -> Int ::\n    let _pair := Pair(1)\n    return 0\n::\n\nmain()\n",
+        )
+        .expect("write ctor");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_private_use_symbol_via_selfhost_visibility() {
+        let dir = tempdir().expect("tempdir");
+        let src = dir.path().join("src");
+        fs::create_dir_all(&src).expect("src dir");
+        fs::write(
+            src.join("main.enk"),
+            "use foo::{hidden}\n\nfn main() -> Int ::\n    return hidden()\n::\n\nmain()\n",
+        )
+        .expect("write main");
+        fs::write(
+            src.join("foo.enk"),
+            "fn hidden() -> Int ::\n    return 7\n::\n",
+        )
+        .expect("write foo");
+        let code = litec_command(&[
+            "check".to_string(),
+            src.join("main.enk").to_string_lossy().to_string(),
+        ]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_private_imported_call_via_selfhost_visibility() {
+        let dir = tempdir().expect("tempdir");
+        let src = dir.path().join("src");
+        fs::create_dir_all(&src).expect("src dir");
+        fs::write(
+            src.join("main.enk"),
+            "import foo as foo\n\nfn main() -> Int ::\n    return foo.hidden()\n::\n\nmain()\n",
+        )
+        .expect("write main");
+        fs::write(
+            src.join("foo.enk"),
+            "fn hidden() -> Int ::\n    return 9\n::\n",
+        )
+        .expect("write foo");
+        let code = litec_command(&[
+            "check".to_string(),
+            src.join("main.enk").to_string_lossy().to_string(),
+        ]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_let_type_mismatch_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("let_type_mismatch.enk");
+        fs::write(
+            &file,
+            "fn main() -> Int ::\n    let count: Int := true\n    return 0\n::\n\nmain()\n",
+        )
+        .expect("write mismatch");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_imported_argument_type_mismatch_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let src = dir.path().join("src");
+        fs::create_dir_all(&src).expect("src dir");
+        fs::write(
+            src.join("main.enk"),
+            "use foo::{score}\n\nfn main() -> Int ::\n    return score(true)\n::\n\nmain()\n",
+        )
+        .expect("write main");
+        fs::write(
+            src.join("foo.enk"),
+            "pub fn score(value: Int) -> Int ::\n    return value\n::\n",
+        )
+        .expect("write foo");
+        let code = litec_command(&[
+            "check".to_string(),
+            src.join("main.enk").to_string_lossy().to_string(),
+        ]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_local_argument_type_mismatch_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("local_arg_type_mismatch.enk");
+        fs::write(
+            &file,
+            "fn add(a: Int, b: Int) -> Int ::\n    return a + b\n::\n\nfn main() -> Int ::\n    return add(true, 1)\n::\n\nmain()\n",
+        )
+        .expect("write mismatch");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_unary_type_mismatch_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("unary_type_mismatch.enk");
+        fs::write(
+            &file,
+            "fn main() -> Int ::\n    let value := -true\n    return 0\n::\n\nmain()\n",
+        )
+        .expect("write mismatch");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_unknown_param_type_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("param_unknown_type.enk");
+        fs::write(
+            &file,
+            "fn accept(value: MissingType) -> Int ::\n    return 0\n::\n\nfn main() -> Int ::\n    return accept(1)\n::\n\nmain()\n",
+        )
+        .expect("write mismatch");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_duplicate_type_fields_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("duplicate_fields.enk");
+        fs::write(
+            &file,
+            "type Pair ::\n    value: Int\n    value: Int\n::\n\nfn main() -> Int ::\n    return 0\n::\n\nmain()\n",
+        )
+        .expect("write mismatch");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_duplicate_param_names_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("duplicate_params.enk");
+        fs::write(
+            &file,
+            "fn add(x: Int, x: Int) -> Int ::\n    return x\n::\n\nfn main() -> Int ::\n    return add(1, 2)\n::\n\nmain()\n",
+        )
+        .expect("write mismatch");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_let_annotation_mismatch_ident_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("let_annot_mismatch_ident.enk");
+        fs::write(
+            &file,
+            "fn main() -> Int ::\n    let flag := true\n    let value: Int := flag\n    return 0\n::\n\nmain()\n",
+        )
+        .expect("write mismatch");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_list_element_type_mismatch_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("list_elem_mismatch.enk");
+        fs::write(
+            &file,
+            "fn main() -> Int ::\n    let _items := [1, true]\n    return 0\n::\n\nmain()\n",
+        )
+        .expect("write mismatch");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_index_type_mismatch_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("index_type_mismatch.enk");
+        fs::write(
+            &file,
+            "fn main() -> Int ::\n    let items := [1, 2]\n    let _value := items[true]\n    return 0\n::\n\nmain()\n",
+        )
+        .expect("write mismatch");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_assignment_field_type_mismatch_ident_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("assign_field_ident_mismatch.enk");
+        fs::write(
+            &file,
+            "type Box ::\n    value: Int\n::\n\nfn main() -> Int ::\n    let box := Box(0)\n    let flag := true\n    box.value = flag\n    return 0\n::\n\nmain()\n",
+        )
+        .expect("write mismatch");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_unknown_field_on_inferred_target_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("unknown_field_inferred_target.enk");
+        fs::write(
+            &file,
+            "type Box ::\n    value: Int\n::\n\nfn make_box() -> Box ::\n    return Box(1)\n::\n\nfn main() -> Int ::\n    let _value := make_box().missing\n    return 0\n::\n\nmain()\n",
+        )
+        .expect("write mismatch");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_binary_mismatch_from_annotated_locals_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("binary_annotated_mismatch.enk");
+        fs::write(
+            &file,
+            "fn main() -> Int ::\n    let value: Int := 1\n    let flag: Bool := true\n    let _bad := value + flag\n    return 0\n::\n\nmain()\n",
+        )
+        .expect("write mismatch");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_fn_self_param_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("fn_self_param.enk");
+        fs::write(
+            &file,
+            "fn bad(self: Int) -> Int ::\n    return 0\n::\n\nfn main() -> Int ::\n    return bad(1)\n::\n\nmain()\n",
+        )
+        .expect("write mismatch");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_unknown_field_on_unknown_symbol_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("unknown_field.enk");
+        fs::write(
+            &file,
+            "fn main() -> Int ::\n    return missing.value\n::\n\nmain()\n",
+        )
+        .expect("write mismatch");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_constructor_unknown_named_field_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("ctor_unknown_field.enk");
+        fs::write(
+            &file,
+            "type Pair ::\n    left: Int\n    right: Int\n::\n\nfn main() -> Int ::\n    let _pair := Pair(extra: 1)\n    return 0\n::\n\nmain()\n",
+        )
+        .expect("write mismatch");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_deep_assignment_target_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("assign_deep.enk");
+        fs::write(
+            &file,
+            "type Outer ::\n    inner: Inner\n::\n\ntype Inner ::\n    value: Int\n::\n\nfn main() -> Int ::\n    let outer := Outer(Inner(0))\n    outer.inner.value = 1\n    return 0\n::\n\nmain()\n",
+        )
+        .expect("write mismatch");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_literal_binary_type_mismatch_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("binary_literal_mismatch.enk");
+        fs::write(
+            &file,
+            "fn main() -> Int ::\n    let _value := 1 + true\n    return 0\n::\n\nmain()\n",
+        )
+        .expect("write mismatch");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_binary_type_mismatch_with_ident_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("binary_ident_mismatch.enk");
+        fs::write(
+            &file,
+            "fn main() -> Int ::\n    let flag := true\n    let _value := flag + 1\n    return 0\n::\n\nmain()\n",
+        )
+        .expect("write mismatch");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_duplicate_enum_variants_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("duplicate_enum_variants.enk");
+        fs::write(
+            &file,
+            "enum Color ::\n    Red\n    Red\n::\n\nfn main() -> Int ::\n    return 0\n::\n\nmain()\n",
+        )
+        .expect("write mismatch");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_duplicate_impl_methods_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("duplicate_impl_methods.enk");
+        fs::write(
+            &file,
+            "type Thing ::\n    value: Int\n::\n\nimpl Thing ::\n    fn show(self: Thing) -> Int ::\n        return self.value\n    ::\n    fn show(self: Thing) -> Int ::\n        return self.value\n    ::\n::\n\nfn main() -> Int ::\n    return 0\n::\n\nmain()\n",
+        )
+        .expect("write mismatch");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_private_imported_type_annotation_via_selfhost_visibility() {
+        let dir = tempdir().expect("tempdir");
+        let src = dir.path().join("src");
+        fs::create_dir_all(&src).expect("src dir");
+        fs::write(
+            src.join("main.enk"),
+            "use foo::{Hidden}\n\nfn main() -> Int ::\n    let _value: Hidden := none\n    return 0\n::\n\nmain()\n",
+        )
+        .expect("write main");
+        fs::write(
+            src.join("foo.enk"),
+            "type Hidden ::\n    value: Int\n::\n",
+        )
+        .expect("write foo");
+        let code = litec_command(&[
+            "check".to_string(),
+            src.join("main.enk").to_string_lossy().to_string(),
+        ]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_return_type_mismatch_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("return_mismatch.enk");
+        fs::write(
+            &file,
+            "fn main() -> Int ::\n    return true\n::\n\nmain()\n",
+        )
+        .expect("write mismatch");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_return_type_mismatch_ident_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("return_ident_mismatch.enk");
+        fs::write(
+            &file,
+            "fn main() -> Int ::\n    let flag := true\n    return flag\n::\n\nmain()\n",
+        )
+        .expect("write mismatch");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_boolean_condition_type_mismatch_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("cond_mismatch.enk");
+        fs::write(
+            &file,
+            "fn main() -> Int ::\n    if 1 ::\n        return 1\n    ::\n    return 0\n::\n\nmain()\n",
+        )
+        .expect("write mismatch");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn litec_check_rejects_boolean_condition_ident_type_mismatch_via_selfhost_semantics() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("cond_ident_mismatch.enk");
+        fs::write(
+            &file,
+            "fn main() -> Int ::\n    let value := 1\n    if value ::\n        return 1\n    ::\n    return 0\n::\n\nmain()\n",
+        )
+        .expect("write mismatch");
+        let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
+        assert_ne!(code, 0);
     }
 
     #[test]
