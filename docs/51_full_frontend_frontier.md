@@ -41,6 +41,7 @@ The frozen v3.1.1 audit contracts live in:
 - `enkai/contracts/selfhost_examples_v3_1_1.json`
 - `enkai/contracts/selfhost_bootstrap_v3_1_1.json`
 - `enkai/contracts/selfhost_negative_v3_1_1.json`
+- `enkai/contracts/selfhost_audited_surface_v3_1_1.json`
 
 Verification output lives in:
 
@@ -48,6 +49,7 @@ Verification output lives in:
 - `artifacts/readiness/selfhost_examples_verify.json`
 - `artifacts/readiness/selfhost_bootstrap_verify.json`
 - `artifacts/readiness/selfhost_negative_verify.json`
+- `artifacts/readiness/selfhost_audited_surface_verify.json`
 
 The report includes:
 
@@ -71,6 +73,14 @@ The report includes:
 - bootstrap compiler sources now also pass through the self-host frontend audit
 - a curated negative semantic corpus now verifies expected stage0/self-host
   frontend rejections instead of only positive acceptance
+- the curated audited executable surface now also passes:
+  - `frontend-audit --require-full-support`
+  - `selfhost-ci`
+  - `replace-check`
+  - `mainline-ci`
+- package-aware validation examples remain covered by the shipped
+  `examples/` frontend audit contract instead of the bundled audited-surface
+  materialization
 - the bootstrap script now owns another concrete frontend slice: subset shape
   validation over structural compiler output, while Rust still owns the parser,
   typechecker, and final bytecode emitter paths
@@ -79,14 +89,15 @@ The report includes:
   Rust helpers
 - the bootstrap script now owns another semantic slice and a post-emission codegen
   acceptance gate before raw emitted bytecode is accepted
-- broader non-example corpora can still fail for reasons outside the frozen
-  declaration frontier, including unsupported language surfaces not yet
-  migrated into the self-host frontend
+- broader non-audited corpora can still fail for reasons outside the audited
+  v3.1.1 surface and remain out of contract for this tranche
 
 ## Intended Use
 
 - run the audit over broader example and corpus directories
 - use the resulting report as the migration board for replacing the `lite`
   subset boundary with full-language self-host support
-- only treat `v3.1.1` as complete when the frontier report is no longer used as
-  a gap inventory and the self-host frontend is the source of truth
+- `v3.1.1` is complete when the frozen frontier, shipped examples, bootstrap
+  sources, curated negative corpus, and curated audited executable surface are
+  all green and the strict self-host line treats Rust as verifier/fallback for
+  that audited surface, not as the primary decision-maker

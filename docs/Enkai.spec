@@ -1,4 +1,4 @@
-# Enkai Language Specification (v0.1 -> v3.1.1)
+# Enkai Language Specification (v0.1 -> v3.1.2)
 
 Status: stable.
 Grammar and CLI contracts are frozen at the v0.9.3 baseline for the v1.x/v2.x line.
@@ -846,7 +846,7 @@ Checkpoint format:
     with machine-readable output via `--json`.
 
 -------------------------------------------------------------------------------
-12. Known Limits in v3.1.1
+12. Known Limits in v3.1.2
 -------------------------------------------------------------------------------
 
 The following are intentionally not fully implemented yet:

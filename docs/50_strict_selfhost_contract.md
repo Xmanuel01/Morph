@@ -25,6 +25,7 @@ Machine-readable contract inputs live in:
 - `enkai/contracts/selfhost_examples_v3_1_1.json`
 - `enkai/contracts/selfhost_bootstrap_v3_1_1.json`
 - `enkai/contracts/selfhost_negative_v3_1_1.json`
+- `enkai/contracts/selfhost_audited_surface_v3_1_1.json`
 
 Generated inventory output lives in:
 
@@ -33,6 +34,7 @@ Generated inventory output lives in:
 - `artifacts/readiness/selfhost_examples_verify.json`
 - `artifacts/readiness/selfhost_bootstrap_verify.json`
 - `artifacts/readiness/selfhost_negative_verify.json`
+- `artifacts/readiness/selfhost_audited_surface_verify.json`
 
 ## Current Interpretation
 
@@ -42,6 +44,12 @@ Generated inventory output lives in:
   corpus to stay green under the self-host frontend audit.
 - It also requires bootstrap compiler sources and a curated negative semantic
   corpus to stay green under the self-host frontend audit contract.
+- It requires a curated audited executable surface to pass `frontend-audit`,
+  `selfhost-ci`, `replace-check`, and `mainline-ci` proof through one bundled
+  verification artifact.
+- Validation examples that depend on the repository `examples/` package layout
+  remain part of the shipped examples audit, but are not forced through the
+  bundled audited-surface materialization.
 - Any remaining Rust-owned shipped dependency must stay visible in the release
   dashboard until the `v3.4.0` zero-Rust closure milestone removes it.
 

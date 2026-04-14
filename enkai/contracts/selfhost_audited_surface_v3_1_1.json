@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "profile": "strict_selfhost_audited_surface",
+  "scope": "curated executable audited surface",
+  "notes": [
+    "This bundle is intentionally limited to files that must pass both frontend-audit and mainline-ci under one materialized corpus.",
+    "examples/validation/* remain covered by selfhost_examples_v3_1_1.json for package-aware frontend proof, but are excluded here because their repo-root import layout is not preserved by a bundled temporary corpus."
+  ],
+  "files": [
+    "json.enk",
+    "enkai/tools/bootstrap/full_frontier_corpus/agent_decl_gap.enk",
+    "enkai/tools/bootstrap/full_frontier_corpus/model_decl_gap.enk",
+    "enkai/tools/bootstrap/full_frontier_corpus/native_import_gap.enk",
+    "enkai/tools/bootstrap/full_frontier_corpus/prompt_decl_gap.enk",
+    "enkai/tools/bootstrap/full_frontier_corpus/supported_core.enk",
+    "enkai/tools/bootstrap/full_frontier_corpus/tool_decl_gap.enk",
+    "enkai/tools/bootstrap/selfhost_corpus/arith.enk",
+    "enkai/tools/bootstrap/selfhost_corpus/lambda.enk",
+    "enkai/tools/bootstrap/selfhost_corpus/types_impl.enk",
+    "examples/adam0_100.enk",
+    "examples/adam0_fake/json.enk",
+    "examples/adam0_fake/main.enk",
+    "examples/adam0_reference.enk",
+    "examples/adam0_reference/json.enk",
+    "examples/adam0_reference/main.enk",
+    "examples/analysis_pipeline.enk",
+    "examples/hello.enk",
+    "examples/hello/main.enk",
+    "examples/json.enk",
+    "examples/nn_sanity.enk",
+    "examples/project_v02/src/foo/bar.enk",
+    "examples/project_v02/src/main.enk",
+    "examples/snn_agent_kernel.enk",
+    "examples/validation/ffi_handle_live_count.enk"
+  ],
+  "triage_dir": "artifacts/selfhost/audited_surface",
+  "output": "artifacts/readiness/selfhost_audited_surface_verify.json"
+}

@@ -11,7 +11,8 @@
         "selfhost-frontend-frontier",
         "selfhost-frontend-examples",
         "selfhost-frontend-bootstrap",
-        "selfhost-frontend-negative"
+        "selfhost-frontend-negative",
+        "selfhost-frontend-audited-surface"
       ]
     },
     "hardware_evidence": {
@@ -26,14 +27,20 @@
         "enkai/contracts/selfhost_examples_v3_1_1.json",
         "enkai/contracts/selfhost_bootstrap_v3_1_1.json",
         "enkai/contracts/selfhost_negative_v3_1_1.json",
+        "enkai/contracts/selfhost_audited_surface_v3_1_1.json",
         "artifacts/readiness/strict_selfhost.json",
         "artifacts/readiness/strict_selfhost_dependency_inventory.json",
         "artifacts/readiness/selfhost_frontier_verify.json",
         "artifacts/readiness/selfhost_examples_verify.json",
         "artifacts/readiness/selfhost_bootstrap_verify.json",
         "artifacts/readiness/selfhost_negative_verify.json",
+        "artifacts/readiness/selfhost_audited_surface_verify.json",
         "artifacts/selfhost/litec_frontend_audit_report.json",
         "artifacts/selfhost/litec_negative_audit_report.json",
+        "artifacts/selfhost/audited_surface/litec_frontend_audit_report.json",
+        "artifacts/selfhost/audited_surface/litec_selfhost_ci_report.json",
+        "artifacts/selfhost/audited_surface/litec_replace_check_report.json",
+        "artifacts/selfhost/audited_surface/litec_mainline_ci_report.json",
         "artifacts/readiness/strict_selfhost_blockers.json",
         "artifacts/release/v<version>/manifest.json"
       ]

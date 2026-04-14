@@ -4118,15 +4118,13 @@ impl VM {
                                             RuntimeError::new("Unknown field"),
                                         ));
                                     }
+                                } else if env_flag("ENKAI_BOOTSTRAP_FIELD_NONE") {
+                                    Value::Null
                                 } else {
-                                    if env_flag("ENKAI_BOOTSTRAP_FIELD_NONE") {
-                                        Value::Null
-                                    } else {
-                                        return TaskRunOutcome::Errored(trace(
-                                            self,
-                                            RuntimeError::new("Unknown field"),
-                                        ));
-                                    }
+                                    return TaskRunOutcome::Errored(trace(
+                                        self,
+                                        RuntimeError::new("Unknown field"),
+                                    ));
                                 }
                             }
                             Obj::TcpListener(_) => match name.as_str() {
@@ -8872,7 +8870,10 @@ impl VM {
     fn compiler_describe_program_file(&self, path: Value) -> Result<Value, RuntimeError> {
         let path = value_as_string(&path)?;
         let bytes = std::fs::read(&path).map_err(|err| {
-            RuntimeError::new(&format!("describe_program_file failed to read {}: {}", path, err))
+            RuntimeError::new(&format!(
+                "describe_program_file failed to read {}: {}",
+                path, err
+            ))
         })?;
         let program = bincode::deserialize::<Program>(&bytes).map_err(|err| {
             RuntimeError::new(&format!(
@@ -13668,12 +13669,20 @@ fn describe_program_value(program: &Program) -> Value {
     );
     summary.insert(
         "main_arity".to_string(),
-        Value::Int(main_function.map(|function| function.arity as i64).unwrap_or(0)),
+        Value::Int(
+            main_function
+                .map(|function| function.arity as i64)
+                .unwrap_or(0),
+        ),
     );
     summary.insert(
         "globals".to_string(),
         Value::Obj(ObjRef::new(Obj::List(RefCell::new(
-            program.globals.iter().map(|name| string_value(name)).collect(),
+            program
+                .globals
+                .iter()
+                .map(|name| string_value(name))
+                .collect(),
         )))),
     );
     summary.insert(
@@ -13707,7 +13716,11 @@ fn describe_subset_package_module_value(
                     import_map.insert(
                         "path_segments".to_string(),
                         Value::Obj(ObjRef::new(Obj::List(RefCell::new(
-                            import.path.iter().map(|segment| string_value(segment)).collect(),
+                            import
+                                .path
+                                .iter()
+                                .map(|segment| string_value(segment))
+                                .collect(),
                         )))),
                     );
                     import_map.insert(
@@ -13753,7 +13766,10 @@ fn describe_subset_param_value(param: &Param) -> Value {
         "type_ref".to_string(),
         describe_optional_subset_type_ref_value(param.type_ann.as_ref()),
     );
-    map.insert("has_default".to_string(), Value::Bool(param.default.is_some()));
+    map.insert(
+        "has_default".to_string(),
+        Value::Bool(param.default.is_some()),
+    );
     if let Some(default) = &param.default {
         map.insert(
             "default_expr".to_string(),
@@ -13868,14 +13884,14 @@ fn describe_subset_item_value(item: &Item) -> Value {
     match item {
         Item::Import(decl) => {
             map.insert("kind".to_string(), string_value("Import"));
-            map.insert(
-                "path".to_string(),
-                string_value(&decl.path.join("::")),
-            );
+            map.insert("path".to_string(), string_value(&decl.path.join("::")));
             map.insert(
                 "path_segments".to_string(),
                 Value::Obj(ObjRef::new(Obj::List(RefCell::new(
-                    decl.path.iter().map(|segment| string_value(segment)).collect(),
+                    decl.path
+                        .iter()
+                        .map(|segment| string_value(segment))
+                        .collect(),
                 )))),
             );
             map.insert(
@@ -13893,14 +13909,14 @@ fn describe_subset_item_value(item: &Item) -> Value {
         }
         Item::Use(decl) => {
             map.insert("kind".to_string(), string_value("Use"));
-            map.insert(
-                "path".to_string(),
-                string_value(&decl.path.join("::")),
-            );
+            map.insert("path".to_string(), string_value(&decl.path.join("::")));
             map.insert(
                 "path_segments".to_string(),
                 Value::Obj(ObjRef::new(Obj::List(RefCell::new(
-                    decl.path.iter().map(|segment| string_value(segment)).collect(),
+                    decl.path
+                        .iter()
+                        .map(|segment| string_value(segment))
+                        .collect(),
                 )))),
             );
             map.insert(
@@ -13961,12 +13977,12 @@ fn describe_subset_item_value(item: &Item) -> Value {
                     decl.fields
                         .iter()
                         .map(|field| {
-                              let mut field_map = HashMap::new();
-                              field_map.insert("name".to_string(), string_value(&field.name));
-                              field_map.insert(
-                                  "type_ref".to_string(),
-                                  describe_subset_type_ref_value(&field.field_type),
-                              );
+                            let mut field_map = HashMap::new();
+                            field_map.insert("name".to_string(), string_value(&field.name));
+                            field_map.insert(
+                                "type_ref".to_string(),
+                                describe_subset_type_ref_value(&field.field_type),
+                            );
                             record_value(field_map)
                         })
                         .collect(),
@@ -13977,6 +13993,19 @@ fn describe_subset_item_value(item: &Item) -> Value {
             map.insert("kind".to_string(), string_value("Enum"));
             map.insert("name".to_string(), string_value(&decl.name));
             map.insert("is_pub".to_string(), Value::Bool(decl.is_pub));
+            map.insert(
+                "variants_count".to_string(),
+                Value::Int(decl.variants.len() as i64),
+            );
+            map.insert(
+                "variants".to_string(),
+                Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                    decl.variants
+                        .iter()
+                        .map(|variant| string_value(variant))
+                        .collect(),
+                )))),
+            );
         }
         Item::Tool(decl) => {
             map.insert("kind".to_string(), string_value("Tool"));
@@ -14161,10 +14190,10 @@ fn describe_subset_stmt_value(stmt: &Stmt) -> Value {
         } => {
             map.insert("kind".to_string(), string_value("Let"));
             map.insert("name".to_string(), string_value(name));
-              map.insert(
-                  "type_ref".to_string(),
-                  describe_optional_subset_type_ref_value(type_ann.as_ref()),
-              );
+            map.insert(
+                "type_ref".to_string(),
+                describe_optional_subset_type_ref_value(type_ann.as_ref()),
+            );
             map.insert("expr".to_string(), describe_subset_expr_value(expr));
         }
         Stmt::Assign { target, expr } => {
@@ -14268,7 +14297,10 @@ fn describe_subset_expr_value(expr: &Expr) -> Value {
     match expr {
         Expr::Literal { lit, .. } => {
             map.insert("kind".to_string(), string_value("Literal"));
-            map.insert("literal_kind".to_string(), string_value(describe_literal_kind(lit)));
+            map.insert(
+                "literal_kind".to_string(),
+                string_value(describe_literal_kind(lit)),
+            );
         }
         Expr::Ident { .. } => {
             map.insert("kind".to_string(), string_value("Ident"));

@@ -4,7 +4,7 @@ ENKAI PROGRAMMING LANGUAGE
 Overview
 Enkai is a programming language with block structure defined by :: tokens, a clean
 assignment operator (:=), and an AI-native roadmap (tools, agents, memory, policy).
-This repository contains the v3.1.1 implementation in Rust.
+This repository contains the v3.1.2 implementation in Rust.
 
 Strict self-host transition:
 - the `v3.1.0 -> v4.0.0` zero-Rust program is frozen in:
@@ -15,9 +15,10 @@ Strict self-host transition:
   - `enkai/contracts/selfhost_examples_v3_1_1.json`
   - `enkai/contracts/selfhost_bootstrap_v3_1_1.json`
   - `enkai/contracts/selfhost_negative_v3_1_1.json`
+  - `enkai/contracts/selfhost_audited_surface_v3_1_1.json`
   - `docs/50_strict_selfhost_contract.md`
 
-Status (v3.1.1)
+Status (v3.1.2)
 - Release state: CPU-complete / GPU operator sign-off pending
 - Bytecode VM + globals + type-checking
 - Module system with public/private exports
@@ -77,6 +78,10 @@ Status (v3.1.1)
 - `artifacts/readiness/selfhost_examples_verify.json`
 - `artifacts/readiness/selfhost_bootstrap_verify.json`
 - `artifacts/readiness/selfhost_negative_verify.json`
+- `artifacts/readiness/selfhost_audited_surface_verify.json`
+- the shipped `examples/` audit remains the package-aware proof for validation
+  examples; the audited-surface bundle is the smaller executable set that must
+  also pass `selfhost-ci`/`replace-check`/`mainline-ci` in one materialized run
 - Validation manifests and local/reference machine profiles live under:
   - `enkai/contracts/validation_cpu_v3_0_0.json`
   - `enkai/contracts/validation_release_blockers_v3_0_0.json`

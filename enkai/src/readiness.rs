@@ -1044,7 +1044,7 @@ mod tests {
         let manifest = load_manifest("strict_selfhost").expect("manifest");
         assert_eq!(manifest.schema_version, 1);
         assert_eq!(manifest.profile, "strict_selfhost");
-        assert_eq!(manifest.checks.len(), 6);
+        assert_eq!(manifest.checks.len(), 7);
         assert!(manifest
             .checks
             .iter()
@@ -1069,6 +1069,10 @@ mod tests {
             .checks
             .iter()
             .any(|check| check.id == "selfhost-frontend-negative"));
+        assert!(manifest
+            .checks
+            .iter()
+            .any(|check| check.id == "selfhost-frontend-audited-surface"));
     }
 
     #[test]

@@ -30,8 +30,10 @@ Note:
     - `enkai readiness check --profile strict_selfhost --json --output artifacts/readiness/strict_selfhost.json`
     - `enkai readiness verify-blockers --profile strict_selfhost --report artifacts/readiness/strict_selfhost.json --json --output artifacts/readiness/strict_selfhost_blockers.json`
     - `python3 scripts/verify_selfhost_frontier.py --enkai-bin <enkai> --workspace . --contract enkai/contracts/selfhost_frontier_v3_1_1.json --output artifacts/readiness/selfhost_frontier_verify.json`
+    - `python3 scripts/verify_selfhost_frontier.py --enkai-bin <enkai> --workspace . --contract enkai/contracts/selfhost_examples_v3_1_1.json --output artifacts/readiness/selfhost_examples_verify.json`
     - `python3 scripts/verify_selfhost_frontier.py --enkai-bin <enkai> --workspace . --contract enkai/contracts/selfhost_bootstrap_v3_1_1.json --output artifacts/readiness/selfhost_bootstrap_verify.json`
     - `python3 scripts/verify_selfhost_frontier.py --enkai-bin <enkai> --workspace . --contract enkai/contracts/selfhost_negative_v3_1_1.json --output artifacts/readiness/selfhost_negative_verify.json`
+    - `python3 scripts/verify_selfhost_audited_surface.py --enkai-bin <enkai> --workspace . --contract enkai/contracts/selfhost_audited_surface_v3_1_1.json --output artifacts/readiness/selfhost_audited_surface_verify.json`
   - readiness contract:
     - `enkai/contracts/readiness_full_platform_v2_5_0.json`
     - `enkai/contracts/full_platform_release_blockers_v2_5_0.json`
@@ -39,8 +41,10 @@ Note:
     - `enkai/contracts/strict_selfhost_release_blockers_v3_1_0.json`
     - `enkai/contracts/strict_selfhost_dependency_board_v3_1_0.json`
     - `enkai/contracts/selfhost_frontier_v3_1_1.json`
+    - `enkai/contracts/selfhost_examples_v3_1_1.json`
     - `enkai/contracts/selfhost_bootstrap_v3_1_1.json`
     - `enkai/contracts/selfhost_negative_v3_1_1.json`
+    - `enkai/contracts/selfhost_audited_surface_v3_1_1.json`
   - blocker verification:
     - `enkai readiness verify-blockers --profile full_platform --report artifacts/readiness/full_platform.json --json --output artifacts/readiness/full_platform_blockers.json`
     - release pipeline form:
@@ -52,8 +56,10 @@ Note:
     - `artifacts/readiness/deploy_fullstack.json`
     - `artifacts/readiness/strict_selfhost_dependency_inventory.json`
     - `artifacts/readiness/selfhost_frontier_verify.json`
+    - `artifacts/readiness/selfhost_examples_verify.json`
     - `artifacts/readiness/selfhost_bootstrap_verify.json`
     - `artifacts/readiness/selfhost_negative_verify.json`
+    - `artifacts/readiness/selfhost_audited_surface_verify.json`
   - simulation smoke artifacts expected from full-platform readiness:
     - `artifacts/readiness/grpc_smoke.json`
     - `artifacts/readiness/grpc_evidence_verify.json`

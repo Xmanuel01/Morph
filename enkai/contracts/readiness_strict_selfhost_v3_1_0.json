@@ -87,6 +87,22 @@
         "--output",
         "artifacts/readiness/selfhost_negative_verify.json"
       ]
+    },
+    {
+      "id": "selfhost-frontend-audited-surface",
+      "description": "Self-host audited executable surface passes mainline-ci and stage2/stage3 fixed-point gates",
+      "command": [
+        "${PYTHON}",
+        "scripts/verify_selfhost_audited_surface.py",
+        "--enkai-bin",
+        "${ENKAI_BIN}",
+        "--workspace",
+        ".",
+        "--contract",
+        "enkai/contracts/selfhost_audited_surface_v3_1_1.json",
+        "--output",
+        "artifacts/readiness/selfhost_audited_surface_verify.json"
+      ]
     }
   ]
 }

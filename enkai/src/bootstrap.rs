@@ -1760,7 +1760,8 @@ fn litec_negative_audit(args: &[String]) -> i32 {
         match compile_stage0_program_bytes(file) {
             Ok(_) => {
                 frontier_gap_files += 1;
-                entry["error"] = serde_json::json!("stage0 unexpectedly accepted negative corpus file");
+                entry["error"] =
+                    serde_json::json!("stage0 unexpectedly accepted negative corpus file");
             }
             Err(err) => {
                 rust_frontend_files += 1;
@@ -3362,7 +3363,8 @@ mod tests {
     fn litec_negative_audit_require_full_support_fails_on_gap() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("accepted.enk");
-        fs::write(&file, "fn main() -> Int ::\n    return 1\n::\n\nmain()\n").expect("write accepted");
+        fs::write(&file, "fn main() -> Int ::\n    return 1\n::\n\nmain()\n")
+            .expect("write accepted");
         let code = litec_command(&[
             "negative-audit".to_string(),
             file.to_string_lossy().to_string(),
@@ -3816,11 +3818,7 @@ mod tests {
             "use foo::{Hidden}\n\nfn main() -> Int ::\n    let _value: Hidden := none\n    return 0\n::\n\nmain()\n",
         )
         .expect("write main");
-        fs::write(
-            src.join("foo.enk"),
-            "type Hidden ::\n    value: Int\n::\n",
-        )
-        .expect("write foo");
+        fs::write(src.join("foo.enk"), "type Hidden ::\n    value: Int\n::\n").expect("write foo");
         let code = litec_command(&[
             "check".to_string(),
             src.join("main.enk").to_string_lossy().to_string(),

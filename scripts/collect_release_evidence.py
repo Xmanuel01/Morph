@@ -256,6 +256,10 @@ def main() -> int:
         "strict_selfhost_release_blockers_v3_1_0.json",
         "strict_selfhost_dependency_board_v3_1_0.json",
         "selfhost_frontier_v3_1_1.json",
+        "selfhost_examples_v3_1_1.json",
+        "selfhost_bootstrap_v3_1_1.json",
+        "selfhost_negative_v3_1_1.json",
+        "selfhost_audited_surface_v3_1_1.json",
     ]
     if contracts_dir.is_dir():
         if args.strict:
@@ -276,6 +280,10 @@ def main() -> int:
         "strict_selfhost.json",
         "strict_selfhost_dependency_inventory.json",
         "selfhost_frontier_verify.json",
+        "selfhost_examples_verify.json",
+        "selfhost_bootstrap_verify.json",
+        "selfhost_negative_verify.json",
+        "selfhost_audited_surface_verify.json",
         "strict_selfhost_blockers.json",
         "grpc_smoke.json",
         "grpc_evidence_verify.json",

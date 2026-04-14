@@ -5,9 +5,21 @@
 ### Breaking changes
 - None.
 
-## v3.1.1
+## v3.1.2
 
 ### Highlights
+- Completed the remaining `v3.1.1` frontend-proof gap by adding a curated
+  audited-surface bundled verifier:
+  - `enkai/contracts/selfhost_audited_surface_v3_1_1.json`
+  - `scripts/verify_selfhost_audited_surface.py`
+  - `artifacts/readiness/selfhost_audited_surface_verify.json`
+- Tightened strict self-host readiness so the completed `v3.1.1` tranche now requires:
+  - frontier proof
+  - shipped examples proof
+  - bootstrap compiler source proof
+  - curated negative semantic proof
+  - curated audited executable surface proof through `frontend-audit`,
+    `selfhost-ci`, `replace-check`, and `mainline-ci`
 - Added the `v3.1.0` strict self-host contract freeze:
   - `strict_selfhost` readiness profile
   - strict self-host blocker manifest

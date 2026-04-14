@@ -23,7 +23,7 @@ v3.1.0 (in progress)
   - documents the contract in:
     - `docs/50_strict_selfhost_contract.md`
 
-v3.1.1 (in progress)
+v3.1.1 (done)
 - Full-language frontend migration tranche:
   - adds `enkai litec frontend-audit <corpus_dir>`
   - records Rust/frontend acceptance and stage0/stage2 parity over broader corpora
@@ -32,6 +32,9 @@ v3.1.1 (in progress)
   - adds strict self-host bootstrap-source and negative semantic corpus audits:
     - `enkai/contracts/selfhost_bootstrap_v3_1_1.json`
     - `enkai/contracts/selfhost_negative_v3_1_1.json`
+  - adds curated audited-surface bundled proof:
+    - `enkai/contracts/selfhost_audited_surface_v3_1_1.json`
+    - `artifacts/readiness/selfhost_audited_surface_verify.json`
   - expands the bootstrap subset to accept:
     - `native::import`
     - `tool`
@@ -47,8 +50,8 @@ v3.1.1 (in progress)
     - `litec_negative_audit_report.json`
   - documents the current frontier in:
     - `docs/51_full_frontend_frontier.md`
-  - current blocker remains:
-    - the self-host frontend is still not the source of truth for the full language
+  - exit state for this tranche:
+    - the audited v3.1.1 language surface is self-host source-of-truth with Rust retained only as verifier/fallback for that audited surface
 
 v2.9.1 (done)
 - Quality recovery foundation:
