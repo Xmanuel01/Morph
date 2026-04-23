@@ -44,6 +44,20 @@ def archive_entries(archive: pathlib.Path) -> list[str]:
     raise RuntimeError(f"unsupported archive extension: {archive}")
 
 
+def read_archive_text(archive: pathlib.Path, entry: str) -> str:
+    if archive.suffix == ".zip":
+        with zipfile.ZipFile(archive, "r") as zf:
+            return zf.read(entry).decode("utf-8-sig")
+    if archive.name.endswith(".tar.gz"):
+        with tarfile.open(archive, "r:gz") as tf:
+            member = tf.getmember(entry)
+            extracted = tf.extractfile(member)
+            if extracted is None:
+                raise RuntimeError(f"archive entry is not readable: {entry}")
+            return extracted.read().decode("utf-8-sig")
+    raise RuntimeError(f"unsupported archive extension: {archive}")
+
+
 def extract_archive(archive: pathlib.Path, out_dir: pathlib.Path) -> None:
     if archive.suffix == ".zip":
         with zipfile.ZipFile(archive, "r") as zf:
@@ -57,12 +71,58 @@ def extract_archive(archive: pathlib.Path, out_dir: pathlib.Path) -> None:
 
 
 def validate_layout(entries: list[str], exe_name: str) -> None:
-    required = {exe_name, "README.txt", "examples/hello/main.enk"}
+    required = {exe_name, "README.txt", "examples/hello/main.enk", "bundle_manifest.json"}
     missing = sorted(item for item in required if item not in entries)
     if missing:
         raise RuntimeError(f"archive missing required entries: {', '.join(missing)}")
     if not any(name.startswith("std/") for name in entries):
         raise RuntimeError("archive missing std/ contents")
+
+
+def validate_bundle_manifest(
+    archive: pathlib.Path,
+    entries: list[str],
+    version: str,
+    target_os: str,
+    arch: str,
+    exe_name: str,
+) -> dict[str, object]:
+    manifest = json.loads(read_archive_text(archive, "bundle_manifest.json"))
+    failures: list[str] = []
+    expected = {
+        "version": version,
+        "target_os": target_os,
+        "arch": arch,
+        "entrypoint": exe_name,
+    }
+    for key, value in expected.items():
+        if manifest.get(key) != value:
+            failures.append(f"bundle_manifest.{key} expected {value!r} got {manifest.get(key)!r}")
+    required_paths = [str(item) for item in manifest.get("required_paths", [])]
+    entry_set = set(entries)
+    missing_required_paths = sorted(
+        item
+        for item in required_paths
+        if item not in entry_set and not any(name.startswith(f"{item}/") for name in entries)
+    )
+    if missing_required_paths:
+        failures.append(
+            "bundle_manifest.required_paths missing from archive: "
+            + ", ".join(missing_required_paths)
+        )
+    if failures:
+        raise RuntimeError("; ".join(failures))
+    return {
+        "version": manifest.get("version"),
+        "target_os": manifest.get("target_os"),
+        "arch": manifest.get("arch"),
+        "archive_format": manifest.get("archive_format"),
+        "entrypoint": manifest.get("entrypoint"),
+        "required_paths": required_paths,
+        "native_payloads": manifest.get("native_payloads", []),
+        "selfhost_entrypoints": manifest.get("selfhost_entrypoints", []),
+        "missing_required_paths": missing_required_paths,
+    }
 
 
 def smoke_test(extract_dir: pathlib.Path, exe_name: str) -> None:
@@ -90,6 +150,8 @@ def parse_args() -> argparse.Namespace:
         choices=["linux", "macos", "windows"],
         help="Determines expected executable name",
     )
+    parser.add_argument("--version", required=True, help="Expected Enkai semantic version")
+    parser.add_argument("--arch", required=True, help="Expected architecture label")
     parser.add_argument(
         "--smoke",
         action="store_true",
@@ -119,6 +181,9 @@ def main() -> int:
     checksum = verify_checksum(archive, checksum_file)
     entries = archive_entries(archive)
     validate_layout(entries, exe_name)
+    bundle_manifest = validate_bundle_manifest(
+        archive, entries, args.version, args.target_os, args.arch, exe_name
+    )
 
     if args.smoke:
         with tempfile.TemporaryDirectory(prefix="enkai_release_extract_") as tmp_dir:
@@ -131,6 +196,7 @@ def main() -> int:
         "archive": str(archive.relative_to(root)),
         "sha256": checksum,
         "entries": len(entries),
+        "bundle_manifest": bundle_manifest,
         "smoke": args.smoke,
     }
     print(json.dumps(payload, separators=(",", ":")))

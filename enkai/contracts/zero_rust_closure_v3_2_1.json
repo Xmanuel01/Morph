@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.2.1",
+  "profile": "zero_rust_closure",
+  "generated_purpose": "Define the install-bundle closure proof expected for the v3.2.1 installable zero-Rust tranche.",
+  "forbidden_toolchain_binaries_on_path": [
+    "cargo",
+    "rustc"
+  ],
+  "required_diagnostics": {
+    "bundle_layout_ok": true
+  },
+  "require_bundle_manifest_diagnostics": true,
+  "required_runtime_backend": "selfhost",
+  "required_operational_without_rust_toolchain": true,
+  "required_bundle_operational_commands": [
+    "--version",
+    "run examples/hello/main.enk"
+  ]
+}

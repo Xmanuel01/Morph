@@ -36,8 +36,9 @@ use crate::object::{
     agent_env_value, buffer_value, channel_value, event_queue_value_with_native, function_value,
     pool_value_with_native, record_value, rng_stream_value, sim_coroutine_value, sim_world_value,
     snn_network_value, sparse_matrix_value_with_native, sparse_vector_value_with_native,
-    spatial_index_value_with_native, string_value, task_handle_value, BoundFunctionObj, HttpStream,
-    NativeFunction, NativeImpl, Obj, StreamCommand, WebSocketHandle, WsCommand, WsIncoming,
+    spatial_index_value_with_native, string_value, task_handle_value, BoundFunctionObj, ClosureObj,
+    HttpStream, NativeFunction, NativeImpl, Obj, StreamCommand, WebSocketHandle, WsCommand,
+    WsIncoming,
 };
 use crate::tokenizer::{bytes_to_ids, ids_to_bytes, Tokenizer, TrainConfig};
 use crate::value::{object_allocation_count, ObjRef, Value};
@@ -2892,6 +2893,39 @@ impl VM {
                         self.stack.push(v);
                     }
                 }
+                Instruction::MakeClosure { function, captures } => {
+                    let capture_count = captures as usize;
+                    if self.stack.len() < capture_count {
+                        return TaskRunOutcome::Errored(trace(
+                            self,
+                            RuntimeError::new("Closure capture stack underflow"),
+                        ));
+                    }
+                    let start = self.stack.len() - capture_count;
+                    let captured_values = self.stack.split_off(start);
+                    let func_obj = match program.functions.get(function as usize) {
+                        Some(func) => func,
+                        None => {
+                            return TaskRunOutcome::Errored(trace(
+                                self,
+                                RuntimeError::new("Closure function not found"),
+                            ))
+                        }
+                    };
+                    if func_obj.arity < captures {
+                        return TaskRunOutcome::Errored(trace(
+                            self,
+                            RuntimeError::new("Closure capture arity mismatch"),
+                        ));
+                    }
+                    self.stack
+                        .push(Value::Obj(ObjRef::new(Obj::Closure(ClosureObj {
+                            name: func_obj.name.clone(),
+                            arity: func_obj.arity - captures,
+                            func_index: function,
+                            captures: captured_values,
+                        }))));
+                }
                 Instruction::Pop => {
                     self.stack.pop();
                 }
@@ -4448,6 +4482,28 @@ impl VM {
                             func_index: f.func_index,
                             ip: 0,
                             base: callee_index + 1, // locals start at first arg
+                            caller_sp: callee_index,
+                            prev_policy: self.active_policy.clone(),
+                        });
+                    }
+                    Obj::Closure(c) => {
+                        if argc as u16 != c.arity {
+                            return Err(RuntimeError::new("Arity mismatch"));
+                        }
+                        let func = program
+                            .functions
+                            .get(c.func_index as usize)
+                            .ok_or_else(|| RuntimeError::new("Function not found"))?;
+                        if func.arity != c.arity + c.captures.len() as u16 {
+                            return Err(RuntimeError::new("Closure arity mismatch"));
+                        }
+                        for (offset, capture) in c.captures.iter().cloned().enumerate() {
+                            self.stack.insert(callee_index + 1 + offset, capture);
+                        }
+                        self.frames.push(CallFrame {
+                            func_index: c.func_index,
+                            ip: 0,
+                            base: callee_index + 1,
                             caller_sp: callee_index,
                             prev_policy: self.active_policy.clone(),
                         });
@@ -6779,6 +6835,7 @@ impl VM {
         let (func_index, arity) = match func {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::Function(f) => (f.func_index, f.arity),
+                Obj::Closure(c) => (c.func_index, c.arity),
                 _ => return Err(RuntimeError::new("task.spawn expects a function value")),
             },
             _ => return Err(RuntimeError::new("task.spawn expects a function value")),
@@ -11633,6 +11690,7 @@ impl VM {
         let actual_arity = match &func {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::Function(f) => f.arity,
+                Obj::Closure(c) => c.arity,
                 Obj::BoundFunction(bf) => bf.arity,
                 _ => {
                     return Err(RuntimeError::new(
@@ -11695,6 +11753,7 @@ impl VM {
         let actual_arity = match &func {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::Function(f) => f.arity,
+                Obj::Closure(c) => c.arity,
                 Obj::BoundFunction(bf) => bf.arity,
                 _ => {
                     return Err(RuntimeError::new(
@@ -13647,6 +13706,51 @@ fn describe_program_value(program: &Program) -> Value {
             "source_name".to_string(),
             string_value(function.source_name.as_deref().unwrap_or("")),
         );
+        function_map.insert(
+            "code".to_string(),
+            Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                function
+                    .chunk
+                    .code
+                    .iter()
+                    .map(describe_instruction_value)
+                    .collect(),
+            )))),
+        );
+        function_map.insert(
+            "code_count".to_string(),
+            Value::Int(function.chunk.code.len() as i64),
+        );
+        function_map.insert(
+            "constants".to_string(),
+            Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                function
+                    .chunk
+                    .constants
+                    .iter()
+                    .map(describe_constant_value)
+                    .collect(),
+            )))),
+        );
+        function_map.insert(
+            "constants_count".to_string(),
+            Value::Int(function.chunk.constants.len() as i64),
+        );
+        function_map.insert(
+            "lines".to_string(),
+            Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                function
+                    .chunk
+                    .lines
+                    .iter()
+                    .map(|line| Value::Int(*line as i64))
+                    .collect(),
+            )))),
+        );
+        function_map.insert(
+            "lines_count".to_string(),
+            Value::Int(function.chunk.lines.len() as i64),
+        );
         functions.push(record_value(function_map));
     }
     let main_function = program.functions.get(program.main as usize);
@@ -13689,7 +13793,513 @@ fn describe_program_value(program: &Program) -> Value {
         "globals_count".to_string(),
         Value::Int(program.globals.len() as i64),
     );
+    summary.insert(
+        "global_inits".to_string(),
+        Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+            program
+                .global_inits
+                .iter()
+                .map(|value| match value {
+                    Some(constant) => describe_constant_value(constant),
+                    None => Value::Null,
+                })
+                .collect(),
+        )))),
+    );
+    summary.insert(
+        "global_inits_count".to_string(),
+        Value::Int(program.global_inits.len() as i64),
+    );
     record_value(summary)
+}
+
+fn describe_instruction_value(instruction: &Instruction) -> Value {
+    let mut map = HashMap::new();
+    match instruction {
+        Instruction::Const(index) => {
+            map.insert("kind".to_string(), string_value("Const"));
+            map.insert("index".to_string(), Value::Int(*index as i64));
+        }
+        Instruction::MakeClosure { function, captures } => {
+            map.insert("kind".to_string(), string_value("MakeClosure"));
+            map.insert("function".to_string(), Value::Int(*function as i64));
+            map.insert("captures".to_string(), Value::Int(*captures as i64));
+        }
+        Instruction::Pop => {
+            map.insert("kind".to_string(), string_value("Pop"));
+        }
+        Instruction::DefineGlobal(index) => {
+            map.insert("kind".to_string(), string_value("DefineGlobal"));
+            map.insert("index".to_string(), Value::Int(*index as i64));
+        }
+        Instruction::LoadLocal(index) => {
+            map.insert("kind".to_string(), string_value("LoadLocal"));
+            map.insert("index".to_string(), Value::Int(*index as i64));
+        }
+        Instruction::StoreLocal(index) => {
+            map.insert("kind".to_string(), string_value("StoreLocal"));
+            map.insert("index".to_string(), Value::Int(*index as i64));
+        }
+        Instruction::LoadGlobal(index) => {
+            map.insert("kind".to_string(), string_value("LoadGlobal"));
+            map.insert("index".to_string(), Value::Int(*index as i64));
+        }
+        Instruction::StoreGlobal(index) => {
+            map.insert("kind".to_string(), string_value("StoreGlobal"));
+            map.insert("index".to_string(), Value::Int(*index as i64));
+        }
+        Instruction::Add => {
+            map.insert("kind".to_string(), string_value("Add"));
+        }
+        Instruction::Sub => {
+            map.insert("kind".to_string(), string_value("Sub"));
+        }
+        Instruction::Mul => {
+            map.insert("kind".to_string(), string_value("Mul"));
+        }
+        Instruction::Div => {
+            map.insert("kind".to_string(), string_value("Div"));
+        }
+        Instruction::Mod => {
+            map.insert("kind".to_string(), string_value("Mod"));
+        }
+        Instruction::Neg => {
+            map.insert("kind".to_string(), string_value("Neg"));
+        }
+        Instruction::Not => {
+            map.insert("kind".to_string(), string_value("Not"));
+        }
+        Instruction::Eq => {
+            map.insert("kind".to_string(), string_value("Eq"));
+        }
+        Instruction::Neq => {
+            map.insert("kind".to_string(), string_value("Neq"));
+        }
+        Instruction::Lt => {
+            map.insert("kind".to_string(), string_value("Lt"));
+        }
+        Instruction::Gt => {
+            map.insert("kind".to_string(), string_value("Gt"));
+        }
+        Instruction::Le => {
+            map.insert("kind".to_string(), string_value("Le"));
+        }
+        Instruction::Ge => {
+            map.insert("kind".to_string(), string_value("Ge"));
+        }
+        Instruction::Jump(target) => {
+            map.insert("kind".to_string(), string_value("Jump"));
+            map.insert("target".to_string(), Value::Int(*target as i64));
+        }
+        Instruction::JumpIfFalse(target) => {
+            map.insert("kind".to_string(), string_value("JumpIfFalse"));
+            map.insert("target".to_string(), Value::Int(*target as i64));
+        }
+        Instruction::MakeRecord(count) => {
+            map.insert("kind".to_string(), string_value("MakeRecord"));
+            map.insert("count".to_string(), Value::Int(*count as i64));
+        }
+        Instruction::MakeList(count) => {
+            map.insert("kind".to_string(), string_value("MakeList"));
+            map.insert("count".to_string(), Value::Int(*count as i64));
+        }
+        Instruction::GetField(index) => {
+            map.insert("kind".to_string(), string_value("GetField"));
+            map.insert("index".to_string(), Value::Int(*index as i64));
+        }
+        Instruction::GetIndex => {
+            map.insert("kind".to_string(), string_value("GetIndex"));
+        }
+        Instruction::SetField(index) => {
+            map.insert("kind".to_string(), string_value("SetField"));
+            map.insert("index".to_string(), Value::Int(*index as i64));
+        }
+        Instruction::SetIndex => {
+            map.insert("kind".to_string(), string_value("SetIndex"));
+        }
+        Instruction::Call(argc) => {
+            map.insert("kind".to_string(), string_value("Call"));
+            map.insert("argc".to_string(), Value::Int(*argc as i64));
+        }
+        Instruction::Return => {
+            map.insert("kind".to_string(), string_value("Return"));
+        }
+        Instruction::TryUnwrap => {
+            map.insert("kind".to_string(), string_value("TryUnwrap"));
+        }
+    }
+    record_value(map)
+}
+
+fn describe_constant_value(constant: &Constant) -> Value {
+    let mut map = HashMap::new();
+    match constant {
+        Constant::Int(value) => {
+            map.insert("kind".to_string(), string_value("Int"));
+            map.insert("value".to_string(), Value::Int(*value));
+        }
+        Constant::Float(value) => {
+            map.insert("kind".to_string(), string_value("Float"));
+            map.insert("value".to_string(), Value::Float(*value));
+        }
+        Constant::Bool(value) => {
+            map.insert("kind".to_string(), string_value("Bool"));
+            map.insert("value".to_string(), Value::Bool(*value));
+        }
+        Constant::Null => {
+            map.insert("kind".to_string(), string_value("Null"));
+            map.insert("value".to_string(), Value::Null);
+        }
+        Constant::String(value) => {
+            map.insert("kind".to_string(), string_value("String"));
+            map.insert("value".to_string(), string_value(value));
+        }
+        Constant::Function(index) => {
+            map.insert("kind".to_string(), string_value("Function"));
+            map.insert("function_index".to_string(), Value::Int(*index as i64));
+        }
+        Constant::NativeFunction(decl) => {
+            map.insert("kind".to_string(), string_value("NativeFunction"));
+            map.insert("library".to_string(), string_value(&decl.library));
+            map.insert("name".to_string(), string_value(&decl.name));
+            map.insert(
+                "signature".to_string(),
+                describe_ffi_signature_value(&decl.signature),
+            );
+        }
+    }
+    record_value(map)
+}
+
+fn describe_ffi_signature_value(signature: &FfiSignature) -> Value {
+    let mut map = HashMap::new();
+    map.insert(
+        "params".to_string(),
+        Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+            signature
+                .params
+                .iter()
+                .map(describe_ffi_type_value)
+                .collect(),
+        )))),
+    );
+    map.insert(
+        "params_count".to_string(),
+        Value::Int(signature.params.len() as i64),
+    );
+    map.insert("ret".to_string(), describe_ffi_type_value(&signature.ret));
+    record_value(map)
+}
+
+fn describe_ffi_type_value(ty: &FfiType) -> Value {
+    let mut map = HashMap::new();
+    match ty {
+        FfiType::Int => {
+            map.insert("kind".to_string(), string_value("Int"));
+        }
+        FfiType::Float => {
+            map.insert("kind".to_string(), string_value("Float"));
+        }
+        FfiType::Bool => {
+            map.insert("kind".to_string(), string_value("Bool"));
+        }
+        FfiType::String => {
+            map.insert("kind".to_string(), string_value("String"));
+        }
+        FfiType::Buffer => {
+            map.insert("kind".to_string(), string_value("Buffer"));
+        }
+        FfiType::Handle => {
+            map.insert("kind".to_string(), string_value("Handle"));
+        }
+        FfiType::Void => {
+            map.insert("kind".to_string(), string_value("Void"));
+        }
+        FfiType::Optional(inner) => {
+            map.insert("kind".to_string(), string_value("Optional"));
+            map.insert("inner".to_string(), describe_ffi_type_value(inner));
+        }
+    }
+    record_value(map)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use enkaic::bytecode::{ByteFunction, Chunk};
+
+    fn record_field(value: &Value, key: &str) -> Value {
+        match value {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::Record(map) => map.borrow().get(key).cloned().unwrap_or(Value::Null),
+                other => panic!("expected record, got {}", other.type_name()),
+            },
+            other => panic!("expected object, got {}", other.type_name()),
+        }
+    }
+
+    fn list_len(value: &Value) -> usize {
+        match value {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::List(items) => items.borrow().len(),
+                other => panic!("expected list, got {}", other.type_name()),
+            },
+            other => panic!("expected object, got {}", other.type_name()),
+        }
+    }
+
+    fn list_items(value: &Value) -> Vec<Value> {
+        match value {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::List(items) => items.borrow().iter().cloned().collect(),
+                other => panic!("expected list, got {}", other.type_name()),
+            },
+            other => panic!("expected object, got {}", other.type_name()),
+        }
+    }
+
+    #[test]
+    fn describe_program_value_includes_bytecode_and_constants() {
+        let mut chunk = Chunk::new();
+        let const_index = chunk.add_constant(Constant::Int(41));
+        chunk.write(Instruction::Const(const_index), 12);
+        chunk.write(Instruction::Return, 12);
+        let program = Program {
+            functions: vec![ByteFunction {
+                name: Some("main".to_string()),
+                arity: 0,
+                chunk,
+                source_name: Some("sample.enk".to_string()),
+            }],
+            main: 0,
+            globals: vec!["answer".to_string()],
+            global_inits: vec![Some(Constant::Int(7))],
+        };
+
+        let described = describe_program_value(&program);
+        assert_eq!(record_field(&described, "functions_count"), Value::Int(1));
+        assert_eq!(record_field(&described, "globals_count"), Value::Int(1));
+        assert_eq!(
+            record_field(&described, "global_inits_count"),
+            Value::Int(1)
+        );
+
+        let functions = record_field(&described, "functions");
+        assert_eq!(list_len(&functions), 1);
+        let function = match functions {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::List(items) => items.borrow()[0].clone(),
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        };
+        assert_eq!(record_field(&function, "code_count"), Value::Int(2));
+        assert_eq!(record_field(&function, "constants_count"), Value::Int(1));
+        assert_eq!(record_field(&function, "lines_count"), Value::Int(2));
+
+        let code = record_field(&function, "code");
+        assert_eq!(list_len(&code), 2);
+        let first_instr = match code {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::List(items) => items.borrow()[0].clone(),
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        };
+        assert_eq!(record_field(&first_instr, "kind"), string_value("Const"));
+        assert_eq!(record_field(&first_instr, "index"), Value::Int(0));
+
+        let constants = record_field(&function, "constants");
+        assert_eq!(list_len(&constants), 1);
+        let first_constant = match constants {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::List(items) => items.borrow()[0].clone(),
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        };
+        assert_eq!(record_field(&first_constant, "kind"), string_value("Int"));
+        assert_eq!(record_field(&first_constant, "value"), Value::Int(41));
+    }
+
+    #[test]
+    fn describe_program_value_includes_record_constructor_and_field_access_shapes() {
+        let module = enkaic::parser::parse_module(
+            "type Pair ::\n    left: Int\n    right: Int\n::\n\nfn main() -> Int ::\n    let pair := Pair(4, 5)\n    return pair.left + pair.right\n::\n",
+        )
+        .expect("parse record module");
+        let program = enkaic::compiler::compile_module(&module).expect("compile record module");
+        let described = describe_program_value(&program);
+        let functions = list_items(&record_field(&described, "functions"));
+
+        let mut saw_make_record = false;
+        let mut saw_get_field = false;
+        for function in functions {
+            for instruction in list_items(&record_field(&function, "code")) {
+                let kind = record_field(&instruction, "kind");
+                if kind == string_value("MakeRecord") {
+                    saw_make_record = true;
+                }
+                if kind == string_value("GetField") {
+                    saw_get_field = true;
+                }
+            }
+        }
+
+        assert!(
+            saw_make_record,
+            "expected compiled record constructor to emit MakeRecord"
+        );
+        assert!(
+            saw_get_field,
+            "expected compiled record access to emit GetField"
+        );
+    }
+
+    #[test]
+    fn describe_program_value_includes_record_mutation_shape() {
+        let module = enkaic::parser::parse_module(
+            "type Pair ::\n    left: Int\n    right: Int\n::\n\nfn main() -> Int ::\n    let pair := Pair(4, 5)\n    pair.left := pair.left + 3\n    return pair.left + pair.right\n::\n",
+        )
+        .expect("parse record mutation module");
+        let program =
+            enkaic::compiler::compile_module(&module).expect("compile record mutation module");
+        let described = describe_program_value(&program);
+        let functions = list_items(&record_field(&described, "functions"));
+
+        let mut saw_set_field = false;
+        for function in functions {
+            for instruction in list_items(&record_field(&function, "code")) {
+                let kind = record_field(&instruction, "kind");
+                if kind == string_value("SetField") {
+                    saw_set_field = true;
+                }
+            }
+        }
+
+        assert!(
+            saw_set_field,
+            "expected compiled record mutation to emit SetField"
+        );
+    }
+
+    #[test]
+    fn describe_program_value_includes_try_unwrap_shape() {
+        let module = enkaic::parser::parse_module(
+            "fn maybe() -> Int? ::\n    return 7\n::\n\nfn main() -> Int ::\n    return maybe()? + 1\n::\n",
+        )
+        .expect("parse try unwrap module");
+        let program = enkaic::compiler::compile_module(&module).expect("compile try unwrap module");
+        let described = describe_program_value(&program);
+        let functions = list_items(&record_field(&described, "functions"));
+
+        let mut saw_try_unwrap = false;
+        for function in functions {
+            for instruction in list_items(&record_field(&function, "code")) {
+                let kind = record_field(&instruction, "kind");
+                if kind == string_value("TryUnwrap") {
+                    saw_try_unwrap = true;
+                }
+            }
+        }
+
+        assert!(
+            saw_try_unwrap,
+            "expected compiled optional unwrap to emit TryUnwrap"
+        );
+    }
+
+    #[test]
+    fn describe_program_value_includes_native_function_constant_shape() {
+        let module = enkaic::parser::parse_module(
+            "native::import \"enkai_native\" ::\n    fn parse_i64(text: String) -> Int\n::\n\nfn main() -> Int ::\n    return 0\n::\n",
+        )
+        .expect("parse native import module");
+        let program =
+            enkaic::compiler::compile_module(&module).expect("compile native import module");
+        let described = describe_program_value(&program);
+        let functions = list_items(&record_field(&described, "functions"));
+
+        let mut saw_native_constant = false;
+        for function in functions {
+            for constant in list_items(&record_field(&function, "constants")) {
+                let kind = record_field(&constant, "kind");
+                if kind == string_value("NativeFunction") {
+                    saw_native_constant = true;
+                    assert_eq!(
+                        record_field(&constant, "library"),
+                        string_value("enkai_native")
+                    );
+                    assert_eq!(record_field(&constant, "name"), string_value("parse_i64"));
+                }
+            }
+        }
+
+        assert!(
+            saw_native_constant,
+            "expected compiled native import to emit NativeFunction constant"
+        );
+    }
+
+    #[test]
+    fn describe_program_value_includes_list_constructor_and_index_shapes() {
+        let module = enkaic::parser::parse_module(
+            "fn main() -> Int ::\n    let xs := [4, 5, 6]\n    return xs[1]\n::\n",
+        )
+        .expect("parse list module");
+        let program = enkaic::compiler::compile_module(&module).expect("compile list module");
+        let described = describe_program_value(&program);
+        let functions = list_items(&record_field(&described, "functions"));
+
+        let mut saw_make_list = false;
+        let mut saw_get_index = false;
+        for function in functions {
+            for instruction in list_items(&record_field(&function, "code")) {
+                let kind = record_field(&instruction, "kind");
+                if kind == string_value("MakeList") {
+                    saw_make_list = true;
+                }
+                if kind == string_value("GetIndex") {
+                    saw_get_index = true;
+                }
+            }
+        }
+
+        assert!(
+            saw_make_list,
+            "expected compiled list literal to emit MakeList"
+        );
+        assert!(
+            saw_get_index,
+            "expected compiled list access to emit GetIndex"
+        );
+    }
+
+    #[test]
+    fn describe_program_value_includes_closure_shape() {
+        let module = enkaic::parser::parse_module(
+            "fn main() -> Int ::\n    let base := 3\n    let f := (x: Int) -> Int => x + base\n    return f(5)\n::\n",
+        )
+        .expect("parse closure module");
+        let program = enkaic::compiler::compile_module(&module).expect("compile closure module");
+        let described = describe_program_value(&program);
+        let functions = list_items(&record_field(&described, "functions"));
+
+        let mut saw_make_closure = false;
+        for function in functions {
+            for instruction in list_items(&record_field(&function, "code")) {
+                let kind = record_field(&instruction, "kind");
+                if kind == string_value("MakeClosure") {
+                    saw_make_closure = true;
+                }
+            }
+        }
+
+        assert!(
+            saw_make_closure,
+            "expected compiled capturing lambda to emit MakeClosure"
+        );
+    }
 }
 
 fn describe_subset_package_module_value(
@@ -14748,6 +15358,7 @@ fn display_value(v: &Value) -> String {
             Obj::List(values) => format!("<list {} items>", values.borrow().len()),
             Obj::Json(_) => "<json>".to_string(),
             Obj::Function(f) => format!("<fn {}>", f.name.clone().unwrap_or_default()),
+            Obj::Closure(c) => format!("<closure {}>", c.name.clone().unwrap_or_default()),
             Obj::BoundFunction(_) => "<bound_fn>".to_string(),
             Obj::NativeFunction(n) => format!("<native {}>", n.name),
             Obj::NativeHandle(_) => "<handle>".to_string(),

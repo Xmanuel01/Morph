@@ -103,6 +103,102 @@
         "--output",
         "artifacts/readiness/selfhost_audited_surface_verify.json"
       ]
+    },
+    {
+      "id": "selfhost-runtime-tasks-channels",
+      "description": "Self-host runtime audit proves task spawn/join/sleep, FIFO channels, and scheduler metrics on the shipped runtime path",
+      "command": [
+        "${ENKAI_BIN}",
+        "litec",
+        "runtime-audit",
+        "examples/validation/runtime_tasks_channels.enk",
+        "--triage-dir",
+        "artifacts/selfhost/runtime_audit_tasks_channels",
+        "--require-full-support"
+      ]
+    },
+    {
+      "id": "selfhost-runtime-coverage",
+      "description": "Self-host runtime covers the full audited instruction subset used by the shipped example corpus",
+      "command": [
+        "${ENKAI_BIN}",
+        "litec",
+        "runtime-coverage",
+        "examples",
+        "--triage-dir",
+        "artifacts/selfhost/runtime_coverage_examples",
+        "--require-full-support"
+      ]
+    },
+    {
+      "id": "selfhost-runtime-examples",
+      "description": "All shipped examples execute with parity on the self-host runtime path",
+      "command": [
+        "${ENKAI_BIN}",
+        "litec",
+        "runtime-audit",
+        "examples",
+        "--triage-dir",
+        "artifacts/selfhost/runtime_audit_examples",
+        "--require-full-support"
+      ]
+    },
+    {
+      "id": "selfhost-runtime-determinism",
+      "description": "Repeated self-host runtime runs preserve deterministic outputs for the audited event/coroutine/replay corpus",
+      "command": [
+        "${PYTHON}",
+        "scripts/verify_selfhost_runtime_determinism.py",
+        "--enkai-bin",
+        "${ENKAI_BIN}",
+        "--workspace",
+        ".",
+        "--runs",
+        "10",
+        "--output",
+        "artifacts/readiness/selfhost_runtime_determinism_verify.json",
+        "--triage-dir",
+        "artifacts/selfhost/runtime_determinism"
+      ]
+    },
+    {
+      "id": "selfhost-runtime-error-taxonomy",
+      "description": "Self-host runtime error taxonomy is release-blocked against stable machine-readable error codes",
+      "command": [
+        "${ENKAI_BIN}",
+        "litec",
+        "runtime-error-audit",
+        "enkai/contracts/selfhost_runtime_error_taxonomy_v3_2_0.json",
+        "--triage-dir",
+        "artifacts/selfhost/runtime_error_taxonomy",
+        "--require-full-support"
+      ]
+    },
+    {
+      "id": "install-bundle-smoke",
+      "description": "Portable install bundle runs without cargo/rustc present on PATH and exposes a working enkai entrypoint",
+      "command": [
+        "${PYTHON}",
+        "scripts/verify_install_bundle.py",
+        "--enkai-bin",
+        "${ENKAI_BIN}",
+        "--output-dir",
+        "artifacts/install_bundle_smoke"
+      ]
+    },
+    {
+      "id": "install-flow-proof",
+      "description": "The host installer proves install, upgrade, and uninstall flows against the staged v3.2.1 bundle without requiring Rust on the target install path",
+      "command": [
+        "${PYTHON}",
+        "scripts/verify_install_flows.py",
+        "--enkai-bin",
+        "${ENKAI_BIN}",
+        "--output",
+        "artifacts/install_bundle_smoke/install_flow_proof.json",
+        "--release-artifact-output",
+        "artifacts/install_bundle_smoke/release_artifact_proof.json"
+      ]
     }
   ]
 }

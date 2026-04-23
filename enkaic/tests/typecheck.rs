@@ -152,3 +152,81 @@ fn unknown_callee_call_is_permitted() {
          main()\n"
     ));
 }
+
+#[test]
+fn record_constructor_and_field_access_typecheck() {
+    assert!(type_ok(
+        "type Pair ::\n    left: Int\n    right: Int\n::\n\
+         fn main() -> Int ::\n    let pair := Pair(4, 5)\n    return pair.left + pair.right\n::\n\
+         main()\n"
+    ));
+}
+
+#[test]
+fn unknown_record_field_is_rejected() {
+    let msg = type_err(
+        "type Pair ::\n    left: Int\n    right: Int\n::\n\
+         fn main() -> Int ::\n    let pair := Pair(4, 5)\n    return pair.missing\n::\n\
+         main()\n",
+    );
+    assert!(msg.contains("Unknown field Pair.missing"));
+}
+
+#[test]
+fn record_field_mutation_typechecks() {
+    assert!(type_ok(
+        "type Pair ::\n    left: Int\n    right: Int\n::\n\
+         fn main() -> Int ::\n    let pair := Pair(4, 5)\n    pair.left := pair.left + 3\n    return pair.left + pair.right\n::\n\
+         main()\n"
+    ));
+}
+
+#[test]
+fn record_field_mutation_rejects_type_mismatch() {
+    let msg = type_err(
+        "type Pair ::\n    left: Int\n    right: Int\n::\n\
+         fn main() -> Int ::\n    let pair := Pair(4, 5)\n    pair.left := true\n    return pair.left\n::\n\
+         main()\n",
+    );
+    assert!(msg.contains("Type mismatch: variable pair is Int, assigned Bool"));
+}
+
+#[test]
+fn list_index_typechecks() {
+    assert!(type_ok(
+        "fn main() -> Int ::\n    let xs := [4, 5, 6]\n    return xs[1]\n::\nmain()\n"
+    ));
+}
+
+#[test]
+fn list_index_rejects_non_int_index() {
+    let msg =
+        type_err("fn main() -> Int ::\n    let xs := [4, 5, 6]\n    return xs[true]\n::\nmain()\n");
+    assert!(msg.contains("Index expects Int"));
+}
+
+#[test]
+fn coroutine_args_accepts_heterogeneous_dynamic_list() {
+    assert!(type_ok(
+        "import std::sim\n\
+         import std::sparse\n\
+         fn worker(coro: SimCoroutine, start: Int, weights: SparseMatrix) -> Int ::\n\
+             return start\n\
+         ::\n\
+         fn main() -> Int ::\n\
+             let world := sim.make_seeded(16, 7)\n\
+             let weights := sparse.matrix()\n\
+             let coro := sim.coroutine_args(world, worker, [3, weights])\n\
+             sim.join(coro)?\n\
+             return 0\n\
+         ::\n\
+         main()\n"
+    ));
+}
+
+#[test]
+fn capturing_lambda_typechecks() {
+    assert!(type_ok(
+        "fn main() -> Int ::\n    let base := 3\n    let f := (x: Int) -> Int => x + base\n    return f(5)\n::\nmain()\n"
+    ));
+}

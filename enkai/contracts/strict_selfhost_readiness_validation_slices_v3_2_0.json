@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "profile": "strict_selfhost",
+  "version_line": "v3.2.0-v4.0.0",
+  "generated_purpose": "Isolate readiness and validation surfaces into explicit replacement tranches so the Rust CLI no longer owns the policy model by accident.",
+  "surfaces": [
+    {
+      "id": "readiness_profile_execution",
+      "status": "contract_driven",
+      "rust_owner": "enkai::readiness",
+      "current_scope": [
+        "manifest-backed plan loading",
+        "skip-check filtering through executor plans",
+        "per-check execution through the contract executor",
+        "readiness report emission through output policy"
+      ],
+      "next_slice": "Replace the Rust executor with a self-host-owned profile runner while keeping the manifest contract stable.",
+      "priority": 1
+    },
+    {
+      "id": "release_blocker_verification",
+      "status": "contract_driven",
+      "rust_owner": "enkai::readiness",
+      "current_scope": [
+        "blocker manifest-backed verification plan loading",
+        "required check verification through the contract executor",
+        "artifact existence verification through output policy",
+        "GPU/release evidence gates through the verifier plan"
+      ],
+      "next_slice": "Replace the Rust verifier with a self-host-owned blocker executor while preserving the blocker manifest contract.",
+      "priority": 2
+    },
+    {
+      "id": "validation_suite_dispatch",
+      "status": "blocked",
+      "rust_owner": "enkai::validate",
+      "current_scope": [
+        "ffi-correctness",
+        "determinism",
+        "perf-baseline",
+        "pool-safety",
+        "adam0-cpu"
+      ],
+      "next_slice": "Define a suite manifest/report surface so validation selection and artifact emission stop living only in Rust command dispatch.",
+      "priority": 3
+    },
+    {
+      "id": "release_evidence_collection",
+      "status": "blocked",
+      "rust_owner": "enkai + scripts",
+      "current_scope": [
+        "artifact collation",
+        "SBOM/report bundling",
+        "release evidence packaging"
+      ],
+      "next_slice": "Stabilize a contract for required evidence bundles and make the current Python/Rust tooling a thin executor of that contract.",
+      "priority": 4
+    }
+  ]
+}

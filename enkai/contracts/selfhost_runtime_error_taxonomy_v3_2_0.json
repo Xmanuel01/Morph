@@ -1,0 +1,28 @@
+{
+    "schema_version":  1,
+    "contract":  "selfhost_runtime_error_taxonomy",
+    "version_line":  "v3.2.0",
+    "description":  "Stable runtime error-code taxonomy required for the self-host runtime production contract.",
+    "cases":  [
+                  {
+                      "id":  "division_by_zero",
+                      "file":  "enkai/tests/fixtures/runtime_errors/division_by_zero.enk",
+                      "expected_code":  "E_RUNTIME_DIVISION_BY_ZERO"
+                  },
+                  {
+                      "id":  "modulo_by_zero",
+                      "file":  "enkai/tests/fixtures/runtime_errors/modulo_by_zero.enk",
+                      "expected_code":  "E_RUNTIME_MODULO_BY_ZERO"
+                  },
+                  {
+                      "id":  "list_index_out_of_range",
+                      "file":  "enkai/tests/fixtures/runtime_errors/list_index_out_of_range.enk",
+                      "expected_code":  "E_RUNTIME_INDEX_OUT_OF_RANGE"
+                  },
+                  {
+                      "id":  "invalid_task_join",
+                      "file":  "enkai/tests/fixtures/runtime_errors/invalid_task_join.enk",
+                      "expected_code":  "E_RUNTIME_INVALID_TASK_HANDLE"
+                  }
+              ]
+}

@@ -1,10 +1,11 @@
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use enkai_compiler::bytecode::Program;
+use enkai_compiler::bytecode::{Constant, FfiType, Instruction, NativeFunctionDecl, Program};
 use enkai_compiler::compiler::{compile_package, CompileError};
 use enkai_compiler::modules::load_package;
 use enkai_compiler::parse_module_named;
@@ -18,6 +19,7 @@ const LINT_LITE_SCRIPT: &str = include_str!("../tools/bootstrap/lint_lite.enk");
 const TOKENIZER_LITE_SCRIPT: &str = include_str!("../tools/bootstrap/tokenizer_lite.enk");
 const DATASET_LITE_SCRIPT: &str = include_str!("../tools/bootstrap/dataset_lite.enk");
 const ENKAI_LITEC_SCRIPT: &str = include_str!("../tools/bootstrap/enkai_lite.enk");
+const ENKAI_RUNTIME_CORE_SCRIPT: &str = include_str!("../tools/bootstrap/enkai_runtime_core.enk");
 const LITEC_TRIAGE_DIR_ENV: &str = "ENKAI_LITEC_TRIAGE_DIR";
 const LITEC_MAINLINE_FALLBACK_REPORT: &str = "litec_mainline_fallback_report.json";
 const LITEC_FORCE_MAINLINE_FAIL_ENV: &str = "ENKAI_LITEC_FORCE_MAINLINE_FAIL";
@@ -42,6 +44,15 @@ pub fn print_usage() {
     );
     eprintln!(
         "  enkai litec negative-audit <corpus_dir|file.enk> [--triage-dir <dir>] [--require-full-support]"
+    );
+    eprintln!(
+        "  enkai litec runtime-audit <corpus_dir|file.enk> [--triage-dir <dir>] [--require-full-support]"
+    );
+    eprintln!(
+        "  enkai litec runtime-error-audit <contract.json> [--triage-dir <dir>] [--require-full-support]"
+    );
+    eprintln!(
+        "  enkai litec runtime-coverage <corpus_dir|file.enk> [--triage-dir <dir>] [--require-full-support]"
     );
     eprintln!("  enkai litec mainline-ci <corpus_dir> [--triage-dir <dir>]");
     eprintln!("  enkai litec release-ci <corpus_dir> [--triage-dir <dir>]");
@@ -498,6 +509,9 @@ pub fn litec_command(args: &[String]) -> i32 {
         "replace-check" => litec_replace_check(&args[1..]),
         "frontend-audit" => litec_frontend_audit(&args[1..]),
         "negative-audit" => litec_negative_audit(&args[1..]),
+        "runtime-audit" => litec_runtime_audit(&args[1..]),
+        "runtime-error-audit" => litec_runtime_error_audit(&args[1..]),
+        "runtime-coverage" => litec_runtime_coverage(&args[1..]),
         "mainline-ci" => litec_mainline_ci(&args[1..]),
         "release-ci" => litec_release_ci(&args[1..]),
         other => {
@@ -636,6 +650,205 @@ fn litec_run(args: &[String]) -> i32 {
             1
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SelfhostRunBackend {
+    Selfhost,
+    Rust,
+}
+
+impl SelfhostRunBackend {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            SelfhostRunBackend::Selfhost => "selfhost",
+            SelfhostRunBackend::Rust => "rust",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct SelfhostRunOutcome {
+    pub backend: SelfhostRunBackend,
+    pub exit_code: i32,
+}
+
+pub(crate) fn try_run_selfhost_entry(input: &Path) -> Result<Option<SelfhostRunOutcome>, String> {
+    let program_path = temp_stage1_program_path()
+        .map_err(|err| format!("failed to allocate selfhost program path: {}", err))?;
+    let summary_path = temp_runtime_summary_path()
+        .map_err(|err| format!("failed to allocate selfhost summary path: {}", err))?;
+
+    let result = (|| -> Result<Option<SelfhostRunOutcome>, String> {
+        let mainline = build_litec_mainline_driver()
+            .map_err(|err| format!("selfhost compiler bootstrap failed: {}", err.message))?;
+        let envs = vec![
+            ("ENKAI_LITEC_MODE", "codegen".to_string()),
+            (
+                "ENKAI_LITEC_INPUT",
+                input
+                    .canonicalize()
+                    .unwrap_or_else(|_| input.to_path_buf())
+                    .to_string_lossy()
+                    .to_string(),
+            ),
+            (
+                "ENKAI_LITEC_OUTPUT",
+                program_path
+                    .canonicalize()
+                    .unwrap_or_else(|_| program_path.to_path_buf())
+                    .to_string_lossy()
+                    .to_string(),
+            ),
+            ("ENKAI_BOOTSTRAP_FIELD_NONE", "1".to_string()),
+            ("ENKAI_LITEC_QUIET", "1".to_string()),
+        ];
+        let code = match execute_program_with_env(&mainline.stage2_driver, &envs)? {
+            Value::Int(code) => code as i32,
+            Value::Null => 0,
+            _ => return Err("selfhost compiler returned non-int result".to_string()),
+        };
+        if code != 0 {
+            return Ok(None);
+        }
+
+        let runtime_driver =
+            compile_embedded_script_program("enkai_runtime_core.enk", ENKAI_RUNTIME_CORE_SCRIPT)
+                .map_err(|err| format!("selfhost runtime-core build failed: {}", err))?;
+        let runtime_code =
+            run_runtime_mode_with_program(&runtime_driver, "audit", &program_path, &summary_path)
+                .map_err(|err| format!("selfhost runtime driver failed: {}", err))?;
+        if runtime_code != 0 {
+            return Ok(None);
+        }
+
+        let summary_text = fs::read_to_string(&summary_path).map_err(|err| {
+            format!(
+                "failed to read selfhost runtime summary {}: {}",
+                summary_path.display(),
+                err
+            )
+        })?;
+        let summary: serde_json::Value = serde_json::from_str(&summary_text)
+            .map_err(|err| format!("selfhost runtime summary JSON invalid: {}", err))?;
+        if summary.get("ok") != Some(&serde_json::json!(true))
+            || summary.get("supported") != Some(&serde_json::json!(true))
+        {
+            return Ok(None);
+        }
+
+        let exit_code = match summary
+            .get("result_kind")
+            .and_then(serde_json::Value::as_str)
+        {
+            Some("Int") => summary
+                .get("result")
+                .and_then(serde_json::Value::as_object)
+                .and_then(|object| object.get("value"))
+                .and_then(serde_json::Value::as_i64)
+                .and_then(|value| i32::try_from(value).ok())
+                .unwrap_or(0),
+            _ => 0,
+        };
+        Ok(Some(SelfhostRunOutcome {
+            backend: SelfhostRunBackend::Selfhost,
+            exit_code,
+        }))
+    })();
+
+    let _ = fs::remove_file(&program_path);
+    let _ = fs::remove_file(&summary_path);
+    result
+}
+
+pub(crate) fn try_check_selfhost_entry(input: &Path) -> Result<Option<SelfhostRunOutcome>, String> {
+    let result = (|| -> Result<Option<SelfhostRunOutcome>, String> {
+        let mainline = build_litec_mainline_driver()
+            .map_err(|err| format!("selfhost compiler bootstrap failed: {}", err.message))?;
+        let envs = vec![
+            ("ENKAI_LITEC_MODE", "check".to_string()),
+            (
+                "ENKAI_LITEC_INPUT",
+                input
+                    .canonicalize()
+                    .unwrap_or_else(|_| input.to_path_buf())
+                    .to_string_lossy()
+                    .to_string(),
+            ),
+            ("ENKAI_BOOTSTRAP_FIELD_NONE", "1".to_string()),
+            ("ENKAI_LITEC_QUIET", "1".to_string()),
+        ];
+        let code = match execute_program_with_env(&mainline.stage2_driver, &envs)? {
+            Value::Int(code) => code as i32,
+            Value::Null => 0,
+            _ => return Err("selfhost compiler returned non-int result".to_string()),
+        };
+        Ok(Some(SelfhostRunOutcome {
+            backend: SelfhostRunBackend::Selfhost,
+            exit_code: code,
+        }))
+    })();
+    result
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct SelfhostCompiledProgram {
+    pub backend: SelfhostRunBackend,
+    pub program: Program,
+}
+
+pub(crate) fn try_compile_selfhost_program(
+    input: &Path,
+) -> Result<Option<SelfhostCompiledProgram>, String> {
+    let output = temp_stage1_program_path()
+        .map_err(|err| format!("failed to allocate selfhost compiler output path: {}", err))?;
+    let result = (|| -> Result<Option<SelfhostCompiledProgram>, String> {
+        let mainline = build_litec_mainline_driver()
+            .map_err(|err| format!("selfhost compiler bootstrap failed: {}", err.message))?;
+        let envs = vec![
+            ("ENKAI_LITEC_MODE", "codegen".to_string()),
+            (
+                "ENKAI_LITEC_INPUT",
+                input
+                    .canonicalize()
+                    .unwrap_or_else(|_| input.to_path_buf())
+                    .to_string_lossy()
+                    .to_string(),
+            ),
+            (
+                "ENKAI_LITEC_OUTPUT",
+                output
+                    .canonicalize()
+                    .unwrap_or_else(|_| output.to_path_buf())
+                    .to_string_lossy()
+                    .to_string(),
+            ),
+            ("ENKAI_BOOTSTRAP_FIELD_NONE", "1".to_string()),
+            ("ENKAI_LITEC_QUIET", "1".to_string()),
+        ];
+        let code = match execute_program_with_env(&mainline.stage2_driver, &envs)? {
+            Value::Int(code) => code as i32,
+            Value::Null => 0,
+            _ => return Err("selfhost compiler returned non-int result".to_string()),
+        };
+        if code != 0 {
+            return Ok(None);
+        }
+        let bytes = fs::read(&output).map_err(|err| {
+            format!(
+                "failed to read selfhost compiler output {}: {}",
+                output.display(),
+                err
+            )
+        })?;
+        let program = decode_program_bytes(input, &bytes, "selfhost-stage2")?;
+        Ok(Some(SelfhostCompiledProgram {
+            backend: SelfhostRunBackend::Selfhost,
+            program,
+        }))
+    })();
+    let _ = fs::remove_file(&output);
+    result
 }
 
 fn litec_stage(args: &[String]) -> i32 {
@@ -814,6 +1027,22 @@ fn stage_fingerprint(bytes: &[u8]) -> serde_json::Value {
         "bytes": bytes.len(),
         "sha256": bytes_sha256_hex(bytes),
     })
+}
+
+const RUNTIME_AUDIT_INLINE_BYTES_LIMIT: usize = 8 * 1024;
+
+fn json_value_fingerprint(value: &serde_json::Value) -> serde_json::Value {
+    let bytes = serde_json::to_vec(value).unwrap_or_else(|_| b"null".to_vec());
+    serde_json::json!({
+        "bytes": bytes.len(),
+        "sha256": bytes_sha256_hex(&bytes),
+    })
+}
+
+fn runtime_audit_inline_value(value: &serde_json::Value) -> bool {
+    serde_json::to_vec(value)
+        .map(|bytes| bytes.len() <= RUNTIME_AUDIT_INLINE_BYTES_LIMIT)
+        .unwrap_or(false)
 }
 
 #[derive(Debug, Clone)]
@@ -1857,6 +2086,1365 @@ fn litec_negative_audit(args: &[String]) -> i32 {
     }
 }
 
+fn runtime_subset_label() -> &'static str {
+    "full_bytecode_v1"
+}
+
+fn instruction_kind_name(instruction: &Instruction) -> &'static str {
+    match instruction {
+        Instruction::Const(_) => "Const",
+        Instruction::MakeClosure { .. } => "MakeClosure",
+        Instruction::Pop => "Pop",
+        Instruction::DefineGlobal(_) => "DefineGlobal",
+        Instruction::LoadLocal(_) => "LoadLocal",
+        Instruction::StoreLocal(_) => "StoreLocal",
+        Instruction::LoadGlobal(_) => "LoadGlobal",
+        Instruction::StoreGlobal(_) => "StoreGlobal",
+        Instruction::Add => "Add",
+        Instruction::Sub => "Sub",
+        Instruction::Mul => "Mul",
+        Instruction::Div => "Div",
+        Instruction::Mod => "Mod",
+        Instruction::Neg => "Neg",
+        Instruction::Not => "Not",
+        Instruction::Eq => "Eq",
+        Instruction::Neq => "Neq",
+        Instruction::Lt => "Lt",
+        Instruction::Gt => "Gt",
+        Instruction::Le => "Le",
+        Instruction::Ge => "Ge",
+        Instruction::Jump(_) => "Jump",
+        Instruction::JumpIfFalse(_) => "JumpIfFalse",
+        Instruction::MakeRecord(_) => "MakeRecord",
+        Instruction::MakeList(_) => "MakeList",
+        Instruction::GetField(_) => "GetField",
+        Instruction::GetIndex => "GetIndex",
+        Instruction::SetField(_) => "SetField",
+        Instruction::SetIndex => "SetIndex",
+        Instruction::Call(_) => "Call",
+        Instruction::Return => "Return",
+        Instruction::TryUnwrap => "TryUnwrap",
+    }
+}
+
+fn declared_instruction_kinds() -> &'static [&'static str] {
+    &[
+        "Const",
+        "MakeClosure",
+        "Pop",
+        "DefineGlobal",
+        "LoadLocal",
+        "StoreLocal",
+        "LoadGlobal",
+        "StoreGlobal",
+        "Add",
+        "Sub",
+        "Mul",
+        "Div",
+        "Mod",
+        "Neg",
+        "Not",
+        "Eq",
+        "Neq",
+        "Lt",
+        "Gt",
+        "Le",
+        "Ge",
+        "Jump",
+        "JumpIfFalse",
+        "MakeRecord",
+        "MakeList",
+        "GetField",
+        "GetIndex",
+        "SetField",
+        "SetIndex",
+        "Call",
+        "Return",
+        "TryUnwrap",
+    ]
+}
+
+fn constant_kind_name(constant: &Constant) -> &'static str {
+    match constant {
+        Constant::Int(_) => "Int",
+        Constant::Float(_) => "Float",
+        Constant::Bool(_) => "Bool",
+        Constant::Null => "Null",
+        Constant::String(_) => "String",
+        Constant::Function(_) => "Function",
+        Constant::NativeFunction(_) => "NativeFunction",
+    }
+}
+
+fn runtime_supports_instruction(instruction: &Instruction) -> bool {
+    match instruction {
+        Instruction::Const(_)
+        | Instruction::MakeClosure { .. }
+        | Instruction::Pop
+        | Instruction::DefineGlobal(_)
+        | Instruction::LoadLocal(_)
+        | Instruction::StoreLocal(_)
+        | Instruction::LoadGlobal(_)
+        | Instruction::StoreGlobal(_)
+        | Instruction::Add
+        | Instruction::Sub
+        | Instruction::Mul
+        | Instruction::Div
+        | Instruction::Mod
+        | Instruction::Neg
+        | Instruction::Not
+        | Instruction::Eq
+        | Instruction::Neq
+        | Instruction::Lt
+        | Instruction::Gt
+        | Instruction::Le
+        | Instruction::Ge
+        | Instruction::Jump(_)
+        | Instruction::JumpIfFalse(_)
+        | Instruction::MakeRecord(_)
+        | Instruction::MakeList(_)
+        | Instruction::GetField(_)
+        | Instruction::SetField(_)
+        | Instruction::GetIndex
+        | Instruction::SetIndex
+        | Instruction::Call(_)
+        | Instruction::TryUnwrap
+        | Instruction::Return => true,
+    }
+}
+
+fn runtime_supports_declared_instruction_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "Const"
+            | "MakeClosure"
+            | "Pop"
+            | "DefineGlobal"
+            | "LoadLocal"
+            | "StoreLocal"
+            | "LoadGlobal"
+            | "StoreGlobal"
+            | "Add"
+            | "Sub"
+            | "Mul"
+            | "Div"
+            | "Mod"
+            | "Neg"
+            | "Not"
+            | "Eq"
+            | "Neq"
+            | "Lt"
+            | "Gt"
+            | "Le"
+            | "Ge"
+            | "Jump"
+            | "JumpIfFalse"
+            | "MakeRecord"
+            | "MakeList"
+            | "GetField"
+            | "GetIndex"
+            | "SetField"
+            | "SetIndex"
+            | "Call"
+            | "Return"
+            | "TryUnwrap"
+    )
+}
+
+fn runtime_supports_ffi_type(ty: &FfiType) -> bool {
+    match ty {
+        FfiType::Int
+        | FfiType::Float
+        | FfiType::Bool
+        | FfiType::String
+        | FfiType::Buffer
+        | FfiType::Handle
+        | FfiType::Void => true,
+        FfiType::Optional(inner) => matches!(inner.as_ref(), FfiType::String),
+    }
+}
+
+fn runtime_supports_native_function_decl(decl: &NativeFunctionDecl) -> bool {
+    decl.signature.params.iter().all(runtime_supports_ffi_type)
+        && runtime_supports_ffi_type(&decl.signature.ret)
+}
+
+fn runtime_supports_constant(constant: &Constant) -> bool {
+    match constant {
+        Constant::Int(_)
+        | Constant::Float(_)
+        | Constant::Bool(_)
+        | Constant::Null
+        | Constant::String(_)
+        | Constant::Function(_) => true,
+        Constant::NativeFunction(decl) => runtime_supports_native_function_decl(decl),
+    }
+}
+
+fn runtime_gap_family_for_instruction(instruction: &Instruction) -> Option<&'static str> {
+    match instruction {
+        Instruction::DefineGlobal(_) => None,
+        Instruction::SetField(_) => None,
+        Instruction::SetIndex => None,
+        Instruction::TryUnwrap => None,
+        _ => None,
+    }
+}
+
+fn runtime_gap_family_for_constant(constant: &Constant) -> Option<&'static str> {
+    match constant {
+        Constant::NativeFunction(decl) => {
+            if runtime_supports_native_function_decl(decl) {
+                None
+            } else {
+                Some("native_function_constants")
+            }
+        }
+        Constant::Float(_) => None,
+        _ => None,
+    }
+}
+
+fn increment_count(map: &mut BTreeMap<String, usize>, key: impl Into<String>) {
+    *map.entry(key.into()).or_insert(0) += 1;
+}
+
+fn sorted_json_counts(map: &BTreeMap<String, usize>) -> serde_json::Value {
+    let mut out = serde_json::Map::with_capacity(map.len());
+    for (key, value) in map {
+        out.insert(key.clone(), serde_json::json!(*value));
+    }
+    serde_json::Value::Object(out)
+}
+
+fn top_count_entry(map: &BTreeMap<String, usize>) -> Option<serde_json::Value> {
+    map.iter()
+        .max_by(|lhs, rhs| lhs.1.cmp(rhs.1).then_with(|| rhs.0.cmp(lhs.0)))
+        .map(|(kind, count)| serde_json::json!({ "kind": kind, "count": count }))
+}
+
+fn runtime_value_kind(value: &Value) -> &'static str {
+    match value {
+        Value::Int(_) => "Int",
+        Value::Float(_) => "Float",
+        Value::Bool(_) => "Bool",
+        Value::Null => "Null",
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::String(_) => "String",
+            Obj::Buffer(_) => "Buffer",
+            Obj::List(_) => "List",
+            Obj::Record(_) => "Record",
+            Obj::Json(_) => "Json",
+            Obj::Function(_) => "Function",
+            Obj::Closure(_) => "Closure",
+            Obj::BoundFunction(_) => "BoundFunction",
+            Obj::NativeFunction(_) => "NativeFunction",
+            Obj::NativeHandle(_) => "Handle",
+            Obj::SparseVector(_) => "SparseVector",
+            Obj::SparseMatrix(_) => "SparseMatrix",
+            Obj::EventQueue(_) => "EventQueue",
+            Obj::Pool(_) => "Pool",
+            Obj::SimWorld(_) => "SimWorld",
+            Obj::SimCoroutine(_) => "SimCoroutine",
+            Obj::SpatialIndex(_) => "SpatialIndex",
+            Obj::SnnNetwork(_) => "SnnNetwork",
+            Obj::AgentEnv(_) => "AgentEnv",
+            Obj::RngStream(_) => "RngStream",
+            Obj::TaskHandle(_) => "TaskHandle",
+            Obj::Channel(_) => "Channel",
+            Obj::TcpListener(_) => "TcpListener",
+            Obj::TcpConnection(_) => "TcpConnection",
+            Obj::HttpStream(_) => "HttpStream",
+            Obj::WebSocket(_) => "WebSocket",
+            Obj::Tokenizer(_) => "Tokenizer",
+            Obj::DatasetStream(_) => "DatasetStream",
+        },
+    }
+}
+
+fn litec_runtime_coverage(args: &[String]) -> i32 {
+    let options = match parse_litec_frontend_audit_options(
+        args,
+        "Usage: enkai litec runtime-coverage <corpus_dir|file.enk> [--triage-dir <dir>] [--require-full-support]",
+    ) {
+        Ok(options) => options,
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    };
+    let files = match sorted_source_files(&options.corpus) {
+        Ok(files) => files,
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    };
+
+    let mainline = match build_litec_mainline_driver() {
+        Ok(build) => build,
+        Err(err) => {
+            eprintln!(
+                "runtime-coverage bootstrap compiler build failed: {}",
+                err.message
+            );
+            let report = serde_json::json!({
+                "command": "runtime-coverage",
+                "corpus": to_report_path(&options.corpus),
+                "require_full_support": options.require_full_support,
+                "status": "failed",
+                "error": err.message,
+                "error_code": err.code,
+                "stage1_compiler": err.stage1_fp,
+                "stage2_compiler": err.stage2_fp,
+                "stage1_stage2_fixed_point": err.stage1_stage2_equivalent,
+                "files_total": files.len(),
+                "entries": [],
+            });
+            let _ = write_triage_report(
+                options.triage_dir.as_deref(),
+                "litec_runtime_coverage_report.json",
+                &report,
+            );
+            return 1;
+        }
+    };
+
+    let mut entries: Vec<serde_json::Value> = Vec::with_capacity(files.len());
+    let mut compiled_files = 0usize;
+    let mut runtime_supported_files = 0usize;
+    let mut runtime_gap_files = 0usize;
+    let mut instruction_counts = BTreeMap::new();
+    let mut unsupported_instruction_counts = BTreeMap::new();
+    let mut constant_counts = BTreeMap::new();
+    let mut unsupported_constant_counts = BTreeMap::new();
+    let mut gap_family_counts = BTreeMap::new();
+    let mut result_kind_counts = BTreeMap::new();
+    let mut unsupported_result_kind_counts = BTreeMap::new();
+
+    for file in &files {
+        let mut entry = serde_json::json!({
+            "file": to_report_path(file),
+            "status": "gap",
+            "compiled": false,
+            "runtime_supported": false,
+            "unsupported_instruction_kinds": [],
+            "unsupported_constant_kinds": [],
+            "unsupported_gap_families": [],
+        });
+        let program_path = match temp_stage1_program_path() {
+            Ok(path) => path,
+            Err(err) => {
+                runtime_gap_files += 1;
+                entry["error"] = serde_json::json!(err);
+                entries.push(entry);
+                continue;
+            }
+        };
+        let stage2_bytes = match run_litec_mode_with_program(
+            &mainline.stage2_driver,
+            "codegen",
+            file,
+            Some(&program_path),
+        ) {
+            Ok(0) => match fs::read(&program_path) {
+                Ok(bytes) => {
+                    compiled_files += 1;
+                    entry["compiled"] = serde_json::json!(true);
+                    entry["stage2"] = stage_fingerprint(&bytes);
+                    bytes
+                }
+                Err(err) => {
+                    runtime_gap_files += 1;
+                    entry["error"] = serde_json::json!(format!(
+                        "failed to read emitted program {}: {}",
+                        program_path.display(),
+                        err
+                    ));
+                    let _ = fs::remove_file(&program_path);
+                    entries.push(entry);
+                    continue;
+                }
+            },
+            Ok(code) => {
+                runtime_gap_files += 1;
+                entry["error"] = serde_json::json!(format!(
+                    "selfhost codegen returned non-zero status {}",
+                    code
+                ));
+                let _ = fs::remove_file(&program_path);
+                entries.push(entry);
+                continue;
+            }
+            Err(err) => {
+                runtime_gap_files += 1;
+                entry["error"] = serde_json::json!(format!("selfhost codegen failed: {}", err));
+                let _ = fs::remove_file(&program_path);
+                entries.push(entry);
+                continue;
+            }
+        };
+        let _ = fs::remove_file(&program_path);
+
+        let program = match decode_program_bytes(file, &stage2_bytes, "stage2") {
+            Ok(program) => program,
+            Err(err) => {
+                runtime_gap_files += 1;
+                entry["error"] = serde_json::json!(err);
+                entries.push(entry);
+                continue;
+            }
+        };
+
+        let mut unsupported_instruction_kinds = BTreeMap::new();
+        let mut unsupported_constant_kinds = BTreeMap::new();
+        let mut unsupported_gap_families = BTreeMap::new();
+
+        for function in &program.functions {
+            for instruction in &function.chunk.code {
+                let kind = instruction_kind_name(instruction);
+                increment_count(&mut instruction_counts, kind);
+                if !runtime_supports_instruction(instruction) {
+                    increment_count(&mut unsupported_instruction_counts, kind);
+                    increment_count(&mut unsupported_instruction_kinds, kind);
+                    if let Some(family) = runtime_gap_family_for_instruction(instruction) {
+                        increment_count(&mut gap_family_counts, family);
+                        increment_count(&mut unsupported_gap_families, family);
+                    }
+                }
+            }
+            for constant in &function.chunk.constants {
+                let kind = constant_kind_name(constant);
+                increment_count(&mut constant_counts, kind);
+                if !runtime_supports_constant(constant) {
+                    increment_count(&mut unsupported_constant_counts, kind);
+                    increment_count(&mut unsupported_constant_kinds, kind);
+                    if let Some(family) = runtime_gap_family_for_constant(constant) {
+                        increment_count(&mut gap_family_counts, family);
+                        increment_count(&mut unsupported_gap_families, family);
+                    }
+                }
+            }
+        }
+
+        let rust_value = match run_program(&program) {
+            Ok(value) => value,
+            Err(err) => {
+                runtime_gap_files += 1;
+                entry["error"] = serde_json::json!(format!("rust runtime error: {}", err));
+                entries.push(entry);
+                continue;
+            }
+        };
+        let result_kind = runtime_value_kind(&rust_value);
+        increment_count(&mut result_kind_counts, result_kind);
+        let result_json_supported = runtime_audit_json_value(&rust_value).is_some();
+        if !result_json_supported {
+            increment_count(&mut unsupported_result_kind_counts, result_kind);
+            increment_count(&mut unsupported_gap_families, "result_kind_support");
+            increment_count(&mut gap_family_counts, "result_kind_support");
+        }
+
+        let runtime_supported = unsupported_instruction_kinds.is_empty()
+            && unsupported_constant_kinds.is_empty()
+            && result_json_supported;
+
+        if runtime_supported {
+            runtime_supported_files += 1;
+            entry["status"] = serde_json::json!("pass");
+            entry["runtime_supported"] = serde_json::json!(true);
+        } else {
+            runtime_gap_files += 1;
+            entry["status"] = serde_json::json!("runtime-gap");
+        }
+
+        entry["functions_count"] = serde_json::json!(program.functions.len());
+        entry["globals_count"] = serde_json::json!(program.globals.len());
+        entry["global_inits_count"] = serde_json::json!(program.global_inits.len());
+        entry["instruction_counts"] = sorted_json_counts(&instruction_counts_for_program(&program));
+        entry["constant_counts"] = sorted_json_counts(&constant_counts_for_program(&program));
+        entry["unsupported_instruction_kinds"] = sorted_json_counts(&unsupported_instruction_kinds);
+        entry["unsupported_constant_kinds"] = sorted_json_counts(&unsupported_constant_kinds);
+        entry["unsupported_gap_families"] = sorted_json_counts(&unsupported_gap_families);
+        entry["rust_result_kind"] = serde_json::json!(result_kind);
+        entry["rust_result_json_supported"] = serde_json::json!(result_json_supported);
+        entries.push(entry);
+    }
+
+    let declared_unsupported_instruction_kinds = declared_instruction_kinds()
+        .iter()
+        .copied()
+        .filter(|kind| !runtime_supports_declared_instruction_kind(kind))
+        .collect::<Vec<_>>();
+    let full_instruction_surface_supported = declared_unsupported_instruction_kinds.is_empty();
+    let full_support_ready = runtime_gap_files == 0 && full_instruction_surface_supported;
+    let status = if full_support_ready { "ok" } else { "gap" };
+    let report = serde_json::json!({
+        "command": "runtime-coverage",
+        "corpus": to_report_path(&options.corpus),
+        "require_full_support": options.require_full_support,
+        "status": status,
+        "subset": runtime_subset_label(),
+        "bytecode_instruction_surface": "full_current_language",
+        "declared_instruction_kinds": declared_instruction_kinds(),
+        "declared_unsupported_instruction_kinds": declared_unsupported_instruction_kinds,
+        "full_instruction_surface_supported": full_instruction_surface_supported,
+        "full_support_ready": full_support_ready,
+        "files_total": files.len(),
+        "compiled_files": compiled_files,
+        "runtime_supported_files": runtime_supported_files,
+        "runtime_gap_files": runtime_gap_files,
+        "instruction_counts": sorted_json_counts(&instruction_counts),
+        "unsupported_instruction_counts": sorted_json_counts(&unsupported_instruction_counts),
+        "constant_counts": sorted_json_counts(&constant_counts),
+        "unsupported_constant_counts": sorted_json_counts(&unsupported_constant_counts),
+        "result_kind_counts": sorted_json_counts(&result_kind_counts),
+        "unsupported_result_kind_counts": sorted_json_counts(&unsupported_result_kind_counts),
+        "gap_family_counts": sorted_json_counts(&gap_family_counts),
+        "top_missing_instruction": top_count_entry(&unsupported_instruction_counts),
+        "top_missing_constant": top_count_entry(&unsupported_constant_counts),
+        "top_gap_family": top_count_entry(&gap_family_counts),
+        "stage1_compiler": mainline.stage1_fp,
+        "stage2_compiler": mainline.stage2_fp,
+        "stage1_stage2_fixed_point": mainline.stage1_stage2_equivalent,
+        "entries": entries,
+    });
+
+    match write_triage_report(
+        options.triage_dir.as_deref(),
+        "litec_runtime_coverage_report.json",
+        &report,
+    ) {
+        Ok(Some(path)) => println!("runtime-coverage report: {}", path.display()),
+        Ok(None) => {}
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    }
+
+    println!(
+        "litec runtime-coverage {} (subset={}, files={}, runtime_gap_files={})",
+        status,
+        runtime_subset_label(),
+        files.len(),
+        runtime_gap_files
+    );
+    if options.require_full_support && !full_support_ready {
+        1
+    } else {
+        0
+    }
+}
+
+fn instruction_counts_for_program(program: &Program) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for function in &program.functions {
+        for instruction in &function.chunk.code {
+            increment_count(&mut counts, instruction_kind_name(instruction));
+        }
+    }
+    counts
+}
+
+fn constant_counts_for_program(program: &Program) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for function in &program.functions {
+        for constant in &function.chunk.constants {
+            increment_count(&mut counts, constant_kind_name(constant));
+        }
+    }
+    counts
+}
+
+fn litec_runtime_audit(args: &[String]) -> i32 {
+    let options = match parse_litec_frontend_audit_options(
+        args,
+        "Usage: enkai litec runtime-audit <corpus_dir|file.enk> [--triage-dir <dir>] [--require-full-support]",
+    ) {
+        Ok(options) => options,
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    };
+    let files = match sorted_source_files(&options.corpus) {
+        Ok(files) => files,
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    };
+
+    let mainline = match build_litec_mainline_driver() {
+        Ok(build) => build,
+        Err(err) => {
+            eprintln!(
+                "runtime-audit bootstrap compiler build failed: {}",
+                err.message
+            );
+            let report = serde_json::json!({
+                "command": "runtime-audit",
+                "corpus": to_report_path(&options.corpus),
+                "require_full_support": options.require_full_support,
+                "status": "failed",
+                "error": err.message,
+                "error_code": err.code,
+                "stage1_compiler": err.stage1_fp,
+                "stage2_compiler": err.stage2_fp,
+                "stage1_stage2_fixed_point": err.stage1_stage2_equivalent,
+                "files_total": files.len(),
+                "entries": [],
+            });
+            let _ = write_triage_report(
+                options.triage_dir.as_deref(),
+                "litec_runtime_audit_report.json",
+                &report,
+            );
+            return 1;
+        }
+    };
+
+    let runtime_driver = match compile_embedded_script_program(
+        "enkai_runtime_core.enk",
+        ENKAI_RUNTIME_CORE_SCRIPT,
+    ) {
+        Ok(program) => program,
+        Err(err) => {
+            eprintln!("runtime-audit runtime-core build failed: {}", err);
+            let report = serde_json::json!({
+                "command": "runtime-audit",
+                "corpus": to_report_path(&options.corpus),
+                "require_full_support": options.require_full_support,
+                "status": "failed",
+                "error": err,
+                "files_total": files.len(),
+                "entries": [],
+            });
+            let _ = write_triage_report(
+                options.triage_dir.as_deref(),
+                "litec_runtime_audit_report.json",
+                &report,
+            );
+            return 1;
+        }
+    };
+
+    let mut entries: Vec<serde_json::Value> = Vec::with_capacity(files.len());
+    let mut compiled_files = 0usize;
+    let mut rust_runtime_files = 0usize;
+    let mut selfhost_runtime_files = 0usize;
+    let mut parity_files = 0usize;
+    let mut runtime_gap_files = 0usize;
+    let invalid_files = 0usize;
+
+    for file in &files {
+        let mut entry = serde_json::json!({
+            "file": to_report_path(file),
+            "status": "gap",
+            "compiled": false,
+            "rust_runtime": false,
+            "selfhost_runtime": false,
+            "runtime_parity": false,
+        });
+
+        let program_path = match temp_stage1_program_path() {
+            Ok(path) => path,
+            Err(err) => {
+                runtime_gap_files += 1;
+                entry["error"] = serde_json::json!(err);
+                entries.push(entry);
+                continue;
+            }
+        };
+        let summary_path = match temp_runtime_summary_path() {
+            Ok(path) => path,
+            Err(err) => {
+                let _ = fs::remove_file(&program_path);
+                runtime_gap_files += 1;
+                entry["error"] = serde_json::json!(err);
+                entries.push(entry);
+                continue;
+            }
+        };
+
+        let stage2_bytes = match run_litec_mode_with_program(
+            &mainline.stage2_driver,
+            "codegen",
+            file,
+            Some(&program_path),
+        ) {
+            Ok(0) => match fs::read(&program_path) {
+                Ok(bytes) => {
+                    compiled_files += 1;
+                    entry["compiled"] = serde_json::json!(true);
+                    entry["stage2"] = stage_fingerprint(&bytes);
+                    bytes
+                }
+                Err(err) => {
+                    runtime_gap_files += 1;
+                    entry["error"] = serde_json::json!(format!(
+                        "failed to read emitted program {}: {}",
+                        program_path.display(),
+                        err
+                    ));
+                    let _ = fs::remove_file(&program_path);
+                    let _ = fs::remove_file(&summary_path);
+                    entries.push(entry);
+                    continue;
+                }
+            },
+            Ok(code) => {
+                runtime_gap_files += 1;
+                entry["error"] = serde_json::json!(format!(
+                    "selfhost codegen returned non-zero status {}",
+                    code
+                ));
+                let _ = fs::remove_file(&program_path);
+                let _ = fs::remove_file(&summary_path);
+                entries.push(entry);
+                continue;
+            }
+            Err(err) => {
+                runtime_gap_files += 1;
+                entry["error"] = serde_json::json!(format!("selfhost codegen failed: {}", err));
+                let _ = fs::remove_file(&program_path);
+                let _ = fs::remove_file(&summary_path);
+                entries.push(entry);
+                continue;
+            }
+        };
+
+        let program = match decode_program_bytes(file, &stage2_bytes, "stage2") {
+            Ok(program) => program,
+            Err(err) => {
+                runtime_gap_files += 1;
+                entry["error"] = serde_json::json!(err);
+                let _ = fs::remove_file(&program_path);
+                let _ = fs::remove_file(&summary_path);
+                entries.push(entry);
+                continue;
+            }
+        };
+
+        let rust_value = match run_program(&program) {
+            Ok(value) => {
+                rust_runtime_files += 1;
+                entry["rust_runtime"] = serde_json::json!(true);
+                entry["rust_result"] = serde_json::json!(canonical_value(&value));
+                value
+            }
+            Err(err) => {
+                runtime_gap_files += 1;
+                entry["error"] = serde_json::json!(format!("rust runtime error: {}", err));
+                let _ = fs::remove_file(&program_path);
+                let _ = fs::remove_file(&summary_path);
+                entries.push(entry);
+                continue;
+            }
+        };
+
+        let rust_json = match runtime_audit_json_value(&rust_value) {
+            Some(value) => value,
+            None => {
+                runtime_gap_files += 1;
+                entry["error"] = serde_json::json!(format!(
+                    "rust runtime produced unsupported audit value {}",
+                    canonical_value(&rust_value)
+                ));
+                let _ = fs::remove_file(&program_path);
+                let _ = fs::remove_file(&summary_path);
+                entries.push(entry);
+                continue;
+            }
+        };
+
+        let runtime_code = match run_runtime_mode_with_program(
+            &runtime_driver,
+            "audit",
+            &program_path,
+            &summary_path,
+        ) {
+            Ok(code) => code,
+            Err(err) => {
+                runtime_gap_files += 1;
+                entry["error"] =
+                    serde_json::json!(format!("selfhost runtime driver failed: {}", err));
+                let _ = fs::remove_file(&program_path);
+                let _ = fs::remove_file(&summary_path);
+                entries.push(entry);
+                continue;
+            }
+        };
+
+        let summary_text = match fs::read_to_string(&summary_path) {
+            Ok(text) => text,
+            Err(err) => {
+                runtime_gap_files += 1;
+                entry["error"] = serde_json::json!(format!(
+                    "failed to read runtime summary {}: {}",
+                    summary_path.display(),
+                    err
+                ));
+                let _ = fs::remove_file(&program_path);
+                let _ = fs::remove_file(&summary_path);
+                entries.push(entry);
+                continue;
+            }
+        };
+        let summary: serde_json::Value = match serde_json::from_str(&summary_text) {
+            Ok(value) => value,
+            Err(err) => {
+                runtime_gap_files += 1;
+                entry["error"] =
+                    serde_json::json!(format!("runtime summary JSON invalid: {}", err));
+                let _ = fs::remove_file(&program_path);
+                let _ = fs::remove_file(&summary_path);
+                entries.push(entry);
+                continue;
+            }
+        };
+        let _ = fs::remove_file(&program_path);
+        let _ = fs::remove_file(&summary_path);
+
+        entry["selfhost_exit_code"] = serde_json::json!(runtime_code);
+        entry["selfhost_summary"] = summary.clone();
+        if summary.get("ok") == Some(&serde_json::json!(true)) {
+            selfhost_runtime_files += 1;
+            entry["selfhost_runtime"] = serde_json::json!(true);
+        }
+        let selfhost_result_raw = summary
+            .get("result")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        let selfhost_result = match summary
+            .get("result_kind")
+            .and_then(serde_json::Value::as_str)
+        {
+            Some("Record") | Some("List") => decode_selfhost_runtime_result(&selfhost_result_raw)
+                .unwrap_or(selfhost_result_raw.clone()),
+            _ => selfhost_result_raw.clone(),
+        };
+        let runtime_parity = summary.get("ok") == Some(&serde_json::json!(true))
+            && summary.get("supported") == Some(&serde_json::json!(true))
+            && runtime_code == 0
+            && runtime_json_equal(&selfhost_result, &rust_json);
+        let rust_result_fp = json_value_fingerprint(&rust_json);
+        let selfhost_result_fp = json_value_fingerprint(&selfhost_result);
+        entry["rust_result_fingerprint"] = rust_result_fp;
+        entry["selfhost_result_fingerprint"] = selfhost_result_fp;
+        if runtime_audit_inline_value(&rust_json) {
+            entry["rust_result_json"] = rust_json.clone();
+            entry["rust_result_inlined"] = serde_json::json!(true);
+        } else {
+            entry["rust_result_json"] = serde_json::Value::Null;
+            entry["rust_result_inlined"] = serde_json::json!(false);
+        }
+        if runtime_audit_inline_value(&selfhost_result) {
+            entry["selfhost_result"] = selfhost_result.clone();
+            entry["selfhost_result_inlined"] = serde_json::json!(true);
+        } else {
+            entry["selfhost_result"] = serde_json::Value::Null;
+            entry["selfhost_result_inlined"] = serde_json::json!(false);
+        }
+        entry["runtime_parity"] = serde_json::json!(runtime_parity);
+        if runtime_parity {
+            parity_files += 1;
+            entry["status"] = serde_json::json!("pass");
+        } else {
+            runtime_gap_files += 1;
+            entry["status"] = serde_json::json!("runtime-gap");
+            if entry.get("error").is_none() {
+                entry["error"] = serde_json::json!(format!(
+                    "runtime mismatch (rust={}, selfhost={}, supported={})",
+                    rust_json,
+                    selfhost_result,
+                    summary
+                        .get("supported")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null)
+                ));
+            }
+        }
+        entries.push(entry);
+    }
+
+    let full_support_ready = runtime_gap_files == 0 && invalid_files == 0;
+    let status = if full_support_ready { "ok" } else { "gap" };
+    let report = serde_json::json!({
+        "command": "runtime-audit",
+        "corpus": to_report_path(&options.corpus),
+        "require_full_support": options.require_full_support,
+        "status": status,
+        "subset": runtime_subset_label(),
+        "full_support_ready": full_support_ready,
+        "files_total": files.len(),
+        "compiled_files": compiled_files,
+        "rust_runtime_files": rust_runtime_files,
+        "selfhost_runtime_files": selfhost_runtime_files,
+        "runtime_parity_files": parity_files,
+        "runtime_gap_files": runtime_gap_files,
+        "invalid_files": invalid_files,
+        "stage1_compiler": mainline.stage1_fp,
+        "stage2_compiler": mainline.stage2_fp,
+        "stage1_stage2_fixed_point": mainline.stage1_stage2_equivalent,
+        "entries": entries,
+    });
+
+    match write_triage_report(
+        options.triage_dir.as_deref(),
+        "litec_runtime_audit_report.json",
+        &report,
+    ) {
+        Ok(Some(path)) => println!("runtime-audit report: {}", path.display()),
+        Ok(None) => {}
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    }
+
+    println!(
+        "litec runtime-audit {} (subset={}, files={}, runtime_gap_files={})",
+        status,
+        runtime_subset_label(),
+        files.len(),
+        runtime_gap_files
+    );
+    if options.require_full_support && !full_support_ready {
+        1
+    } else {
+        0
+    }
+}
+
+#[derive(Debug)]
+struct LitecRuntimeErrorAuditOptions {
+    contract: PathBuf,
+    triage_dir: Option<PathBuf>,
+    require_full_support: bool,
+}
+
+fn parse_litec_runtime_error_audit_options(
+    args: &[String],
+) -> Result<LitecRuntimeErrorAuditOptions, String> {
+    let usage = "Usage: enkai litec runtime-error-audit <contract.json> [--triage-dir <dir>] [--require-full-support]";
+    let mut contract: Option<PathBuf> = None;
+    let mut triage_dir: Option<PathBuf> = None;
+    let mut require_full_support = false;
+    let mut i = 0usize;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--triage-dir" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err(usage.to_string());
+                }
+                triage_dir = Some(PathBuf::from(&args[i]));
+            }
+            "--require-full-support" => {
+                require_full_support = true;
+            }
+            value if value.starts_with("--") => {
+                return Err(format!("unknown runtime-error-audit option: {}", value));
+            }
+            value => {
+                if contract.is_some() {
+                    return Err(usage.to_string());
+                }
+                contract = Some(PathBuf::from(value));
+            }
+        }
+        i += 1;
+    }
+    Ok(LitecRuntimeErrorAuditOptions {
+        contract: contract.ok_or_else(|| usage.to_string())?,
+        triage_dir,
+        require_full_support,
+    })
+}
+
+fn runtime_error_code_from_message(message: &str) -> &'static str {
+    if message.contains("Division by zero") {
+        return "E_RUNTIME_DIVISION_BY_ZERO";
+    }
+    if message.contains("Modulo by zero") {
+        return "E_RUNTIME_MODULO_BY_ZERO";
+    }
+    if message.contains("list index out of bounds") || message.contains("Index out of range") {
+        return "E_RUNTIME_INDEX_OUT_OF_RANGE";
+    }
+    if message.contains("Tried to unwrap none") {
+        return "E_RUNTIME_UNWRAP_NONE";
+    }
+    if message.contains("chan.recv would block") {
+        return "E_RUNTIME_CHANNEL_WOULD_BLOCK";
+    }
+    if message.contains("task.join expects TaskHandle") || message.contains("Unknown task") {
+        return "E_RUNTIME_INVALID_TASK_HANDLE";
+    }
+    if message.contains("Arity mismatch") {
+        return "E_RUNTIME_ARITY_MISMATCH";
+    }
+    if message.contains("Call expects") || message.contains("Can only call functions") {
+        return "E_RUNTIME_CALL_TARGET";
+    }
+    if message.contains("Stack underflow") || message.contains("stack underflow") {
+        return "E_RUNTIME_STACK_UNDERFLOW";
+    }
+    if message.contains("Unknown field") || message.contains("Field access expects") {
+        return "E_RUNTIME_FIELD_ACCESS";
+    }
+    if message.contains("unsupported") {
+        return "E_RUNTIME_UNSUPPORTED";
+    }
+    "E_RUNTIME_ERROR"
+}
+
+fn litec_runtime_error_audit(args: &[String]) -> i32 {
+    let options = match parse_litec_runtime_error_audit_options(args) {
+        Ok(options) => options,
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    };
+    let contract_text = match fs::read_to_string(&options.contract) {
+        Ok(text) => text,
+        Err(err) => {
+            eprintln!(
+                "failed to read contract {}: {}",
+                options.contract.display(),
+                err
+            );
+            return 1;
+        }
+    };
+    let contract: serde_json::Value = match serde_json::from_str(&contract_text) {
+        Ok(value) => value,
+        Err(err) => {
+            eprintln!("runtime error contract is invalid JSON: {}", err);
+            return 1;
+        }
+    };
+    let cases = match contract.get("cases").and_then(serde_json::Value::as_array) {
+        Some(cases) => cases,
+        None => {
+            eprintln!("runtime error contract must contain a cases array");
+            return 1;
+        }
+    };
+
+    let mainline = match build_litec_mainline_driver() {
+        Ok(build) => build,
+        Err(err) => {
+            eprintln!(
+                "runtime-error-audit bootstrap compiler build failed: {}",
+                err.message
+            );
+            let report = serde_json::json!({
+                "command": "runtime-error-audit",
+                "contract": to_report_path(&options.contract),
+                "require_full_support": options.require_full_support,
+                "status": "failed",
+                "error": err.message,
+                "error_code": err.code,
+                "files_total": cases.len(),
+                "entries": [],
+            });
+            let _ = write_triage_report(
+                options.triage_dir.as_deref(),
+                "litec_runtime_error_audit_report.json",
+                &report,
+            );
+            return 1;
+        }
+    };
+    let runtime_driver = match compile_embedded_script_program(
+        "enkai_runtime_core.enk",
+        ENKAI_RUNTIME_CORE_SCRIPT,
+    ) {
+        Ok(program) => program,
+        Err(err) => {
+            eprintln!("runtime-error-audit runtime-core build failed: {}", err);
+            let report = serde_json::json!({
+                "command": "runtime-error-audit",
+                "contract": to_report_path(&options.contract),
+                "require_full_support": options.require_full_support,
+                "status": "failed",
+                "error": err,
+                "files_total": cases.len(),
+                "entries": [],
+            });
+            let _ = write_triage_report(
+                options.triage_dir.as_deref(),
+                "litec_runtime_error_audit_report.json",
+                &report,
+            );
+            return 1;
+        }
+    };
+
+    let mut entries = Vec::with_capacity(cases.len());
+    let mut passed = 0usize;
+    let mut gaps = 0usize;
+    for case in cases {
+        let id = case
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("<missing-id>");
+        let file_value = case.get("file").and_then(serde_json::Value::as_str);
+        let expected_code = case
+            .get("expected_code")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let mut entry = serde_json::json!({
+            "id": id,
+            "status": "gap",
+            "expected_code": expected_code,
+            "compiled": false,
+            "rust_runtime_error": false,
+            "selfhost_runtime_error": false,
+            "taxonomy_parity": false,
+        });
+        let Some(file_text) = file_value else {
+            gaps += 1;
+            entry["error"] = serde_json::json!("case is missing file");
+            entries.push(entry);
+            continue;
+        };
+        let file = PathBuf::from(file_text);
+        entry["file"] = serde_json::json!(to_report_path(&file));
+        if expected_code.is_empty() {
+            gaps += 1;
+            entry["error"] = serde_json::json!("case is missing expected_code");
+            entries.push(entry);
+            continue;
+        }
+
+        let program_path = match temp_stage1_program_path() {
+            Ok(path) => path,
+            Err(err) => {
+                gaps += 1;
+                entry["error"] = serde_json::json!(err);
+                entries.push(entry);
+                continue;
+            }
+        };
+        let summary_path = match temp_runtime_summary_path() {
+            Ok(path) => path,
+            Err(err) => {
+                let _ = fs::remove_file(&program_path);
+                gaps += 1;
+                entry["error"] = serde_json::json!(err);
+                entries.push(entry);
+                continue;
+            }
+        };
+
+        let stage2_bytes = match run_litec_mode_with_program(
+            &mainline.stage2_driver,
+            "codegen",
+            &file,
+            Some(&program_path),
+        ) {
+            Ok(0) => match fs::read(&program_path) {
+                Ok(bytes) => {
+                    entry["compiled"] = serde_json::json!(true);
+                    entry["stage2"] = stage_fingerprint(&bytes);
+                    bytes
+                }
+                Err(err) => {
+                    gaps += 1;
+                    entry["error"] = serde_json::json!(format!(
+                        "failed to read emitted program {}: {}",
+                        program_path.display(),
+                        err
+                    ));
+                    let _ = fs::remove_file(&program_path);
+                    let _ = fs::remove_file(&summary_path);
+                    entries.push(entry);
+                    continue;
+                }
+            },
+            Ok(code) => {
+                gaps += 1;
+                entry["error"] = serde_json::json!(format!(
+                    "selfhost codegen returned non-zero status {}",
+                    code
+                ));
+                let _ = fs::remove_file(&program_path);
+                let _ = fs::remove_file(&summary_path);
+                entries.push(entry);
+                continue;
+            }
+            Err(err) => {
+                gaps += 1;
+                entry["error"] = serde_json::json!(format!("selfhost codegen failed: {}", err));
+                let _ = fs::remove_file(&program_path);
+                let _ = fs::remove_file(&summary_path);
+                entries.push(entry);
+                continue;
+            }
+        };
+
+        let program = match decode_program_bytes(&file, &stage2_bytes, "stage2") {
+            Ok(program) => program,
+            Err(err) => {
+                gaps += 1;
+                entry["error"] = serde_json::json!(err);
+                let _ = fs::remove_file(&program_path);
+                let _ = fs::remove_file(&summary_path);
+                entries.push(entry);
+                continue;
+            }
+        };
+
+        let rust_code = match run_program(&program) {
+            Ok(value) => {
+                gaps += 1;
+                entry["error"] = serde_json::json!(format!(
+                    "rust runtime unexpectedly succeeded with {}",
+                    canonical_value(&value)
+                ));
+                let _ = fs::remove_file(&program_path);
+                let _ = fs::remove_file(&summary_path);
+                entries.push(entry);
+                continue;
+            }
+            Err(err) => {
+                let code = runtime_error_code_from_message(&err).to_string();
+                entry["rust_runtime_error"] = serde_json::json!(true);
+                entry["rust_error"] = serde_json::json!(err);
+                entry["rust_error_code"] = serde_json::json!(code.clone());
+                code
+            }
+        };
+
+        let runtime_code = match run_runtime_mode_with_program(
+            &runtime_driver,
+            "audit",
+            &program_path,
+            &summary_path,
+        ) {
+            Ok(code) => code,
+            Err(err) => {
+                gaps += 1;
+                entry["error"] =
+                    serde_json::json!(format!("selfhost runtime driver failed: {}", err));
+                let _ = fs::remove_file(&program_path);
+                let _ = fs::remove_file(&summary_path);
+                entries.push(entry);
+                continue;
+            }
+        };
+        let summary_text = match fs::read_to_string(&summary_path) {
+            Ok(text) => text,
+            Err(err) => {
+                gaps += 1;
+                entry["error"] = serde_json::json!(format!(
+                    "failed to read runtime summary {}: {}",
+                    summary_path.display(),
+                    err
+                ));
+                let _ = fs::remove_file(&program_path);
+                let _ = fs::remove_file(&summary_path);
+                entries.push(entry);
+                continue;
+            }
+        };
+        let summary: serde_json::Value = match serde_json::from_str(&summary_text) {
+            Ok(value) => value,
+            Err(err) => {
+                gaps += 1;
+                entry["error"] =
+                    serde_json::json!(format!("runtime summary JSON invalid: {}", err));
+                let _ = fs::remove_file(&program_path);
+                let _ = fs::remove_file(&summary_path);
+                entries.push(entry);
+                continue;
+            }
+        };
+        let _ = fs::remove_file(&program_path);
+        let _ = fs::remove_file(&summary_path);
+
+        let selfhost_code = summary
+            .get("error_code")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("E_RUNTIME_ERROR")
+            .to_string();
+        entry["selfhost_exit_code"] = serde_json::json!(runtime_code);
+        entry["selfhost_summary"] = summary.clone();
+        entry["selfhost_error_code"] = serde_json::json!(selfhost_code.clone());
+        if summary.get("ok") == Some(&serde_json::json!(false)) && runtime_code != 0 {
+            entry["selfhost_runtime_error"] = serde_json::json!(true);
+        }
+
+        let pass = rust_code == expected_code
+            && selfhost_code == expected_code
+            && summary.get("ok") == Some(&serde_json::json!(false))
+            && summary.get("error_kind") == Some(&serde_json::json!("runtime"))
+            && runtime_code != 0;
+        entry["taxonomy_parity"] = serde_json::json!(pass);
+        if pass {
+            passed += 1;
+            entry["status"] = serde_json::json!("pass");
+        } else {
+            gaps += 1;
+            entry["status"] = serde_json::json!("taxonomy-gap");
+            if entry.get("error").is_none() {
+                entry["error"] = serde_json::json!(format!(
+                    "expected {}, rust={}, selfhost={}, exit={}",
+                    expected_code, rust_code, selfhost_code, runtime_code
+                ));
+            }
+        }
+        entries.push(entry);
+    }
+
+    let full_support_ready = gaps == 0;
+    let status = if full_support_ready { "ok" } else { "gap" };
+    let report = serde_json::json!({
+        "command": "runtime-error-audit",
+        "contract": to_report_path(&options.contract),
+        "require_full_support": options.require_full_support,
+        "status": status,
+        "full_support_ready": full_support_ready,
+        "cases_total": cases.len(),
+        "cases_passed": passed,
+        "taxonomy_gap_cases": gaps,
+        "stage1_compiler": mainline.stage1_fp,
+        "stage2_compiler": mainline.stage2_fp,
+        "stage1_stage2_fixed_point": mainline.stage1_stage2_equivalent,
+        "entries": entries,
+    });
+
+    match write_triage_report(
+        options.triage_dir.as_deref(),
+        "litec_runtime_error_audit_report.json",
+        &report,
+    ) {
+        Ok(Some(path)) => println!("runtime-error-audit report: {}", path.display()),
+        Ok(None) => {}
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    }
+
+    println!(
+        "litec runtime-error-audit {} (cases={}, taxonomy_gap_cases={})",
+        status,
+        cases.len(),
+        gaps
+    );
+    if options.require_full_support && !full_support_ready {
+        1
+    } else {
+        0
+    }
+}
+
 fn litec_mainline_ci(args: &[String]) -> i32 {
     let options = match parse_litec_corpus_options(
         args,
@@ -2253,7 +3841,32 @@ fn litec_triage_dir() -> PathBuf {
 fn compile_with_driver_program(driver: &Program, input: &Path) -> Result<Vec<u8>, String> {
     let output = temp_stage1_program_path()
         .map_err(|err| format!("failed to allocate compiler output path: {}", err))?;
-    let code = run_litec_mode_with_program(driver, "codegen", input, Some(&output))?;
+    let envs = vec![
+        ("ENKAI_LITEC_MODE", "codegen".to_string()),
+        (
+            "ENKAI_LITEC_INPUT",
+            input
+                .canonicalize()
+                .unwrap_or_else(|_| input.to_path_buf())
+                .to_string_lossy()
+                .to_string(),
+        ),
+        (
+            "ENKAI_LITEC_OUTPUT",
+            output
+                .canonicalize()
+                .unwrap_or_else(|_| output.to_path_buf())
+                .to_string_lossy()
+                .to_string(),
+        ),
+        ("ENKAI_BOOTSTRAP_FIELD_NONE", "1".to_string()),
+        ("ENKAI_LITEC_QUIET", "1".to_string()),
+    ];
+    let code = match execute_program_with_env(driver, &envs)? {
+        Value::Int(code) => code as i32,
+        Value::Null => 0,
+        _ => return Err("litec program returned non-int result".to_string()),
+    };
     if code != 0 {
         let _ = fs::remove_file(&output);
         return Err(format!("compiler returned non-zero status {}", code));
@@ -2301,6 +3914,47 @@ fn run_litec_mode_with_program(
     }
 }
 
+fn run_runtime_mode_with_program(
+    program: &Program,
+    mode: &str,
+    input: &Path,
+    output: &Path,
+) -> Result<i32, String> {
+    let envs = vec![
+        ("ENKAI_RUNTIME_MODE", mode.to_string()),
+        (
+            "ENKAI_RUNTIME_INPUT",
+            input
+                .canonicalize()
+                .unwrap_or_else(|_| input.to_path_buf())
+                .to_string_lossy()
+                .to_string(),
+        ),
+        (
+            "ENKAI_RUNTIME_OUTPUT",
+            output
+                .canonicalize()
+                .unwrap_or_else(|_| output.to_path_buf())
+                .to_string_lossy()
+                .to_string(),
+        ),
+        (
+            "ENKAI_SELFHOST_RUNTIME_INSTRUCTION_LIMIT",
+            "200000000".to_string(),
+        ),
+        (
+            "ENKAI_SELFHOST_COROUTINE_RESUME_LIMIT",
+            "2000000".to_string(),
+        ),
+    ];
+    let value = execute_program_with_env(program, &envs)?;
+    match value {
+        Value::Int(code) => Ok(code as i32),
+        Value::Null => Ok(0),
+        _ => Err("runtime script returned non-int result".to_string()),
+    }
+}
+
 fn decode_program_bytes(input: &Path, bytes: &[u8], label: &str) -> Result<Program, String> {
     bincode::deserialize::<Program>(bytes)
         .map_err(|err| format!("{} decode failed for {}: {}", label, input.display(), err))
@@ -2342,8 +3996,15 @@ fn equivalent_program_bytes(
 }
 
 fn run_program(program: &Program) -> Result<Value, String> {
+    let _lock = super::env_guard();
+    let mut env_guards: Vec<EnvOverride> = Vec::new();
+    if let Some(native_dir) = detect_native_library_dir() {
+        env_guards.push(prepend_path_override(&native_dir));
+    }
     let mut vm = VM::new(false, false, false, false);
-    vm.run(program).map_err(|err| err.to_string())
+    let value = vm.run(program).map_err(|err| err.to_string())?;
+    drop(env_guards);
+    Ok(value)
 }
 
 fn canonical_value(value: &Value) -> String {
@@ -2377,6 +4038,12 @@ fn canonical_value(value: &Value) -> String {
             }
             Obj::Json(value) => format!("Json({})", value),
             Obj::Function(func) => format!("Function({:?}/{})", func.name, func.arity),
+            Obj::Closure(func) => format!(
+                "Closure({:?}/{},captures={})",
+                func.name,
+                func.arity,
+                func.captures.len()
+            ),
             Obj::BoundFunction(func) => {
                 format!(
                     "BoundFunction(func={},arity={})",
@@ -2407,6 +4074,110 @@ fn canonical_value(value: &Value) -> String {
     }
 }
 
+fn runtime_audit_json_value(value: &Value) -> Option<serde_json::Value> {
+    match value {
+        Value::Int(v) => Some(serde_json::json!(v)),
+        Value::Float(v) => Some(serde_json::json!(v)),
+        Value::Bool(v) => Some(serde_json::json!(v)),
+        Value::Null => Some(serde_json::Value::Null),
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::String(text) => Some(serde_json::json!(text)),
+            Obj::List(items) => {
+                let mut values = Vec::with_capacity(items.borrow().len());
+                for item in items.borrow().iter() {
+                    values.push(runtime_audit_json_value(item)?);
+                }
+                Some(serde_json::Value::Array(values))
+            }
+            Obj::Record(map) => {
+                let map = map.borrow();
+                let mut out = serde_json::Map::with_capacity(map.len());
+                for (key, value) in map.iter() {
+                    out.insert(key.clone(), runtime_audit_json_value(value)?);
+                }
+                Some(serde_json::Value::Object(out))
+            }
+            Obj::Json(value) => Some(value.clone()),
+            _ => None,
+        },
+    }
+}
+
+fn runtime_json_equal(left: &serde_json::Value, right: &serde_json::Value) -> bool {
+    match (left, right) {
+        (serde_json::Value::Number(lhs), serde_json::Value::Number(rhs)) => {
+            match (lhs.as_f64(), rhs.as_f64()) {
+                (Some(lhs), Some(rhs)) => (lhs - rhs).abs() <= 1e-12,
+                _ => lhs == rhs,
+            }
+        }
+        (serde_json::Value::Array(lhs), serde_json::Value::Array(rhs)) => {
+            lhs.len() == rhs.len()
+                && lhs
+                    .iter()
+                    .zip(rhs.iter())
+                    .all(|(lhs, rhs)| runtime_json_equal(lhs, rhs))
+        }
+        (serde_json::Value::Object(lhs), serde_json::Value::Object(rhs)) => {
+            lhs.len() == rhs.len()
+                && lhs.iter().all(|(key, lhs_value)| {
+                    rhs.get(key)
+                        .map(|rhs_value| runtime_json_equal(lhs_value, rhs_value))
+                        .unwrap_or(false)
+                })
+        }
+        _ => left == right,
+    }
+}
+
+fn decode_selfhost_runtime_result(value: &serde_json::Value) -> Option<serde_json::Value> {
+    let object = value.as_object()?;
+    let kind = object.get("kind")?.as_str()?;
+    match kind {
+        "Int" | "Float" | "Bool" | "String" => object.get("value").cloned(),
+        "Null" => Some(serde_json::Value::Null),
+        "List" => {
+            let mut out = Vec::new();
+            let mut current = object.get("items").unwrap_or(&serde_json::Value::Null);
+            while !current.is_null() {
+                let node = current.as_object()?;
+                out.push(decode_selfhost_runtime_result(node.get("value")?)?);
+                current = node.get("next").unwrap_or(&serde_json::Value::Null);
+            }
+            Some(serde_json::Value::Array(out))
+        }
+        "Record" => {
+            let mut out = serde_json::Map::new();
+            let mut current = object.get("fields").unwrap_or(&serde_json::Value::Null);
+            while !current.is_null() {
+                let node = current.as_object()?;
+                let name = node.get("name")?.as_str()?.to_string();
+                let decoded = decode_selfhost_runtime_result(node.get("value")?)?;
+                out.insert(name, decoded);
+                current = node.get("next").unwrap_or(&serde_json::Value::Null);
+            }
+            Some(serde_json::Value::Object(out))
+        }
+        "EventLogChunks" => {
+            let mut out = Vec::new();
+            let mut chunk_current = object.get("chunks").unwrap_or(&serde_json::Value::Null);
+            while !chunk_current.is_null() {
+                let chunk_node = chunk_current.as_object()?;
+                let chunk = chunk_node.get("value")?.as_object()?;
+                let mut event_current = chunk.get("events").unwrap_or(&serde_json::Value::Null);
+                while !event_current.is_null() {
+                    let event_node = event_current.as_object()?;
+                    out.push(decode_selfhost_runtime_result(event_node.get("value")?)?);
+                    event_current = event_node.get("next").unwrap_or(&serde_json::Value::Null);
+                }
+                chunk_current = chunk_node.get("next").unwrap_or(&serde_json::Value::Null);
+            }
+            Some(serde_json::Value::Array(out))
+        }
+        _ => None,
+    }
+}
+
 fn temp_stage1_program_path() -> Result<PathBuf, String> {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -2415,6 +4186,20 @@ fn temp_stage1_program_path() -> Result<PathBuf, String> {
     let mut path = env::temp_dir();
     path.push(format!(
         "enkai_litec_stage1_{}_{}.bin",
+        std::process::id(),
+        nonce
+    ));
+    Ok(path)
+}
+
+fn temp_runtime_summary_path() -> Result<PathBuf, String> {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|err| err.to_string())?
+        .as_nanos();
+    let mut path = env::temp_dir();
+    path.push(format!(
+        "enkai_runtime_audit_{}_{}.json",
         std::process::id(),
         nonce
     ));
@@ -2458,6 +4243,9 @@ fn compile_stage0_program_bytes(input: &Path) -> Result<Vec<u8>, String> {
             ));
         }
     }
+    if let Some(native_dir) = detect_native_library_dir() {
+        env_guards.push(prepend_path_override(&native_dir));
+    }
     let source = fs::read_to_string(input)
         .map_err(|err| format!("failed to read {}: {}", input.display(), err))?;
     let module = parse_module_named(&source, Some("<enkai-lite>"))
@@ -2497,6 +4285,9 @@ fn run_embedded_script(
             ));
         }
     }
+    if let Some(native_dir) = detect_native_library_dir() {
+        env_guards.push(prepend_path_override(&native_dir));
+    }
     let package = load_package(&script_path).map_err(|err| err.to_string())?;
     TypeChecker::check_package(&package).map_err(|err| type_error_to_string(&err))?;
     let program = compile_package(&package).map_err(|err| compile_error_to_string(&err))?;
@@ -2525,6 +4316,9 @@ fn compile_embedded_script_program(name: &str, source: &str) -> Result<Program, 
             ));
         }
     }
+    if let Some(native_dir) = detect_native_library_dir() {
+        env_guards.push(prepend_path_override(&native_dir));
+    }
     let package = load_package(&script_path).map_err(|err| err.to_string())?;
     TypeChecker::check_package(&package).map_err(|err| type_error_to_string(&err))?;
     let program = compile_package(&package).map_err(|err| compile_error_to_string(&err))?;
@@ -2550,6 +4344,9 @@ fn execute_program_with_env(
                 std_path.to_string_lossy().as_ref(),
             ));
         }
+    }
+    if let Some(native_dir) = detect_native_library_dir() {
+        env_guards.push(prepend_path_override(&native_dir));
     }
     let mut vm = VM::new(false, false, false, false);
     let value = vm.run(program).map_err(|err| err.to_string())?;
@@ -2596,6 +4393,59 @@ fn detect_std_path() -> Option<PathBuf> {
         }
     }
     None
+}
+
+fn native_library_file_name() -> &'static str {
+    if cfg!(windows) {
+        "enkai_native.dll"
+    } else if cfg!(target_os = "macos") {
+        "libenkai_native.dylib"
+    } else {
+        "libenkai_native.so"
+    }
+}
+
+fn detect_native_library_dir() -> Option<PathBuf> {
+    let library_name = native_library_file_name();
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Ok(exe) = env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.to_path_buf());
+            candidates.push(dir.join("deps"));
+        }
+    }
+    if let Some(workspace_root) = Path::new(env!("CARGO_MANIFEST_DIR")).parent() {
+        candidates.push(workspace_root.join("target").join("debug"));
+        candidates.push(workspace_root.join("target").join("debug").join("deps"));
+        if let Ok(entries) = fs::read_dir(workspace_root) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+                    continue;
+                };
+                if !name.starts_with("target") || !path.is_dir() {
+                    continue;
+                }
+                candidates.push(path.join("debug"));
+                candidates.push(path.join("debug").join("deps"));
+            }
+        }
+    }
+    candidates.sort();
+    candidates.dedup();
+    candidates
+        .into_iter()
+        .find(|dir| dir.join(library_name).is_file())
+}
+
+fn prepend_path_override(dir: &Path) -> EnvOverride {
+    let previous = env::var_os("PATH").unwrap_or_default();
+    let mut parts = env::split_paths(&previous).collect::<Vec<_>>();
+    if !parts.iter().any(|existing| existing == dir) {
+        parts.insert(0, dir.to_path_buf());
+    }
+    let joined = env::join_paths(parts).unwrap_or(previous);
+    EnvOverride::set("PATH", &joined.to_string_lossy())
 }
 
 fn type_error_to_string(err: &TypeError) -> String {
@@ -3374,6 +5224,1057 @@ mod tests {
     }
 
     #[test]
+    fn litec_runtime_audit_executes_const_return_subset() {
+        let dir = tempdir().expect("tempdir");
+        let corpus = dir.path().join("runtime-corpus");
+        let triage = dir.path().join("triage");
+        fs::create_dir_all(&corpus).expect("corpus dir");
+        fs::write(
+            corpus.join("answer.enk"),
+            "fn main() -> Int ::\n    return 7\n::\nmain()\n",
+        )
+        .expect("write int");
+        fs::write(
+            corpus.join("flag.enk"),
+            "fn main() -> Bool ::\n    return true\n::\nmain()\n",
+        )
+        .expect("write bool");
+        fs::write(
+            corpus.join("empty.enk"),
+            "fn main() ::\n    return none\n::\nmain()\n",
+        )
+        .expect("write null");
+
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            corpus.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["files_total"], 3);
+        assert_eq!(report["runtime_parity_files"], 3);
+        assert_eq!(report["runtime_gap_files"], 0);
+        assert_eq!(report["full_support_ready"], true);
+    }
+
+    #[test]
+    fn litec_runtime_audit_executes_float_subset() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("float.enk");
+        let triage = dir.path().join("triage");
+        fs::write(
+            &file,
+            "fn main() -> Float ::\n    let base := 1.5\n    return base + 2.25\n::\nmain()\n",
+        )
+        .expect("write float");
+
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            file.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["runtime_parity_files"], 1);
+        assert_eq!(report["runtime_gap_files"], 0);
+        assert_eq!(report["entries"][0]["selfhost_result"], 3.75);
+    }
+
+    #[test]
+    fn litec_runtime_coverage_reports_unsupported_native_function_gap_family() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("native_import_handle.enk");
+        let triage = dir.path().join("triage");
+        fs::write(
+            &file,
+            "native::import \"enkai_native\" ::\n    fn handle_maybe_new(flag: Bool, value: Int) -> Handle?\n::\nfn main() -> Int ::\n    return 0\n::\nmain()\n",
+        )
+        .expect("write native import");
+
+        let code = litec_command(&[
+            "runtime-coverage".to_string(),
+            file.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_coverage_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "gap");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["runtime_supported_files"], 0);
+        assert_eq!(report["unsupported_constant_counts"]["NativeFunction"], 1);
+        assert_eq!(report["gap_family_counts"]["native_function_constants"], 1);
+        assert_eq!(report["entries"][0]["rust_result_kind"], "Int");
+    }
+
+    #[test]
+    fn litec_runtime_coverage_accepts_supported_native_function_signature() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("native_import_parse.enk");
+        let triage = dir.path().join("triage");
+        fs::write(
+            &file,
+            "native::import \"enkai_native\" ::\n    fn parse_i64(text: String) -> Int\n::\nfn main() -> Int ::\n    return parse_i64(\"12\")\n::\nmain()\n",
+        )
+        .expect("write native import");
+
+        let code = litec_command(&[
+            "runtime-coverage".to_string(),
+            file.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_coverage_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["runtime_supported_files"], 1);
+        assert_eq!(report["runtime_gap_files"], 0);
+    }
+
+    #[test]
+    fn litec_runtime_coverage_reports_full_bytecode_instruction_surface() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("set_index.enk");
+        let triage = dir.path().join("triage");
+        fs::write(
+            &file,
+            "fn main() -> Int ::\n    let xs := [1, 2, 3]\n    xs[1] := 8\n    return xs[1]\n::\nmain()\n",
+        )
+        .expect("write set_index");
+
+        let code = litec_command(&[
+            "runtime-coverage".to_string(),
+            file.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_coverage_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], "full_bytecode_v1");
+        assert_eq!(
+            report["bytecode_instruction_surface"],
+            "full_current_language"
+        );
+        assert_eq!(report["full_instruction_surface_supported"], true);
+        assert_eq!(
+            report["declared_unsupported_instruction_kinds"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
+        assert_eq!(report["entries"][0]["instruction_counts"]["SetIndex"], 1);
+        assert_eq!(report["runtime_gap_files"], 0);
+    }
+
+    #[test]
+    fn litec_runtime_audit_executes_zero_arg_call_wrappers() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("call.enk");
+        let triage = dir.path().join("triage");
+        fs::write(
+            &file,
+            "fn answer() -> Int ::\n    return 7\n::\nfn main() -> Int ::\n    return answer()\n::\nmain()\n",
+        )
+        .expect("write call");
+
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            file.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["runtime_parity_files"], 1);
+        assert_eq!(report["runtime_gap_files"], 0);
+        assert_eq!(report["entries"][0]["selfhost_result"], 7);
+    }
+
+    #[test]
+    fn litec_runtime_audit_executes_try_unwrap_subset() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("try_unwrap.enk");
+        let triage = dir.path().join("triage");
+        fs::write(
+            &file,
+            "native::import \"enkai_native\" ::\n    fn path_dirname(path: String) -> String?\n    fn parse_i64(text: String) -> Int\n::\nfn main() -> Int ::\n    return parse_i64(path_dirname(\"7/file.txt\")?) + 1\n::\nmain()\n",
+        )
+        .expect("write try_unwrap");
+
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            file.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["runtime_parity_files"], 1);
+        assert_eq!(report["runtime_gap_files"], 0);
+        assert_eq!(report["entries"][0]["selfhost_result"], 8);
+    }
+
+    #[test]
+    fn litec_runtime_audit_executes_native_function_subset() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("native_parse_i64.enk");
+        let triage = dir.path().join("triage");
+        fs::write(
+            &file,
+            "native::import \"enkai_native\" ::\n    fn parse_i64(text: String) -> Int\n::\nfn main() -> Int ::\n    return parse_i64(\"12\") + 1\n::\nmain()\n",
+        )
+        .expect("write native parse_i64");
+
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            file.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["runtime_parity_files"], 1);
+        assert_eq!(report["runtime_gap_files"], 0);
+        assert_eq!(report["entries"][0]["selfhost_result"], 13);
+    }
+
+    #[test]
+    fn litec_runtime_audit_executes_buffer_native_subset() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("native_buffer.enk");
+        let triage = dir.path().join("triage");
+        fs::write(
+            &file,
+            "native::import \"enkai_native\" ::\n    fn buffer_from_string(text: String) -> Buffer\n    fn buffer_to_string(data: Buffer) -> String?\n    fn parse_i64(text: String) -> Int\n::\nfn main() -> Int ::\n    let buf := buffer_from_string(\"12\")\n    return parse_i64(buffer_to_string(buf)?) + 1\n::\nmain()\n",
+        )
+        .expect("write native buffer");
+
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            file.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["runtime_parity_files"], 1);
+        assert_eq!(report["runtime_gap_files"], 0);
+        assert_eq!(report["entries"][0]["selfhost_result"], 13);
+    }
+
+    #[test]
+    fn litec_runtime_audit_executes_handle_native_subset() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("native_handle.enk");
+        let triage = dir.path().join("triage");
+        fs::write(
+            &file,
+            "native::import \"enkai_native\" ::\n    fn handle_new(value: Int) -> Handle\n    fn handle_read(handle: Handle) -> Int\n::\nfn main() -> Int ::\n    return handle_read(handle_new(12)) + 1\n::\nmain()\n",
+        )
+        .expect("write native handle");
+
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            file.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["runtime_parity_files"], 1);
+        assert_eq!(report["runtime_gap_files"], 0);
+        assert_eq!(report["entries"][0]["selfhost_result"], 13);
+    }
+
+    #[test]
+    fn litec_runtime_audit_executes_example_hello() {
+        let dir = tempdir().expect("tempdir");
+        let triage = dir.path().join("triage");
+        let file = repo_root().join("examples").join("hello.enk");
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            file.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["runtime_gap_files"], 0);
+    }
+
+    #[test]
+    fn litec_runtime_audit_executes_example_project_v02_main() {
+        let dir = tempdir().expect("tempdir");
+        let triage = dir.path().join("triage");
+        let file = repo_root()
+            .join("examples")
+            .join("project_v02")
+            .join("src")
+            .join("main.enk");
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            file.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["runtime_gap_files"], 0);
+    }
+
+    #[test]
+    fn litec_runtime_audit_executes_example_ffi_safety() {
+        let dir = tempdir().expect("tempdir");
+        let triage = dir.path().join("triage");
+        let file = repo_root()
+            .join("examples")
+            .join("validation")
+            .join("ffi_safety.enk");
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            file.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["runtime_gap_files"], 0);
+    }
+
+    #[test]
+    fn litec_runtime_audit_executes_define_global_subset() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("global.enk");
+        let triage = dir.path().join("triage");
+        fs::write(
+            &file,
+            "let answer := 7\nfn main() -> Int ::\n    return answer\n::\nmain()\n",
+        )
+        .expect("write global");
+
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            file.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["runtime_parity_files"], 1);
+        assert_eq!(report["runtime_gap_files"], 0);
+        assert_eq!(report["entries"][0]["selfhost_result"], 7);
+    }
+
+    #[test]
+    fn litec_runtime_audit_executes_noncapturing_function_value_subset() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("lambda_nocapture.enk");
+        let triage = dir.path().join("triage");
+        fs::write(
+            &file,
+            "fn main() -> Int ::\n    let f := (x: Int) -> Int => x + 2\n    return f(5)\n::\nmain()\n",
+        )
+        .expect("write lambda_nocapture");
+
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            file.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["runtime_parity_files"], 1);
+        assert_eq!(report["runtime_gap_files"], 0);
+        assert_eq!(report["entries"][0]["selfhost_result"], 7);
+    }
+
+    #[test]
+    fn litec_runtime_audit_executes_capturing_closure_subset() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("lambda_capture.enk");
+        let triage = dir.path().join("triage");
+        fs::write(
+            &file,
+            "fn main() -> Int ::\n    let base := 3\n    let f := (x: Int) -> Int => x + base\n    return f(5)\n::\nmain()\n",
+        )
+        .expect("write lambda_capture");
+
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            file.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["runtime_parity_files"], 1);
+        assert_eq!(report["runtime_gap_files"], 0);
+        assert_eq!(report["entries"][0]["selfhost_result"], 8);
+    }
+
+    #[test]
+    fn litec_runtime_audit_executes_record_field_subset() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("record.enk");
+        let triage = dir.path().join("triage");
+        fs::write(
+            &file,
+            "type Pair ::\n    left: Int\n    right: Int\n::\nfn main() -> Int ::\n    let pair := Pair(4, 5)\n    return pair.left + pair.right\n::\nmain()\n",
+        )
+        .expect("write record");
+
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            file.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["runtime_parity_files"], 1);
+        assert_eq!(report["runtime_gap_files"], 0);
+        assert_eq!(report["entries"][0]["selfhost_result"], 9);
+    }
+
+    #[test]
+    fn litec_runtime_audit_executes_record_mutation_subset() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("record_mutation.enk");
+        let triage = dir.path().join("triage");
+        fs::write(
+            &file,
+            "type Pair ::\n    left: Int\n    right: Int\n::\nfn main() -> Int ::\n    let pair := Pair(4, 5)\n    pair.left := pair.left + 3\n    return pair.left + pair.right\n::\nmain()\n",
+        )
+        .expect("write record mutation");
+
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            file.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["runtime_parity_files"], 1);
+        assert_eq!(report["runtime_gap_files"], 0);
+        assert_eq!(report["entries"][0]["selfhost_result"], 12);
+    }
+
+    #[test]
+    fn litec_runtime_audit_executes_list_index_subset() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("list.enk");
+        let triage = dir.path().join("triage");
+        fs::write(
+            &file,
+            "fn main() -> Int ::\n    let xs := [4, 5, 6]\n    return xs[1]\n::\nmain()\n",
+        )
+        .expect("write list");
+
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            file.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["runtime_parity_files"], 1);
+        assert_eq!(report["runtime_gap_files"], 0);
+        assert_eq!(report["entries"][0]["selfhost_result"], 5);
+    }
+
+    #[test]
+    fn litec_runtime_audit_executes_tasks_channels_scheduler_primitives() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("runtime_tasks_channels.enk");
+        let triage = dir.path().join("triage");
+        fs::write(
+            &file,
+            "let c := chan.make()\nlet acc := 0\n\nfn fast() -> Int ::\n    acc := acc + 2\n    return 2\n::\n\nfn slow() -> Int ::\n    task.sleep(5)\n    acc := acc + 1\n    return 1\n::\n\nfn sender() -> Int ::\n    chan.send(c, 7)\n    acc := acc + 4\n    return 4\n::\n\nfn main() -> Int ::\n    let h1 := task.spawn(slow)\n    let h2 := task.spawn(fast)\n    let h3 := task.spawn(sender)\n    chan.recv(c)\n    task.join(h2)\n    task.join(h1)\n    task.join(h3)\n    return acc\n::\n\nmain()\n",
+        )
+        .expect("write tasks/channels");
+
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            file.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["runtime_parity_files"], 1);
+        assert_eq!(report["runtime_gap_files"], 0);
+        assert_eq!(report["entries"][0]["selfhost_result"], 7);
+        assert_eq!(
+            report["entries"][0]["selfhost_summary"]["metrics"]["tasks_spawned"],
+            3
+        );
+        assert_eq!(
+            report["entries"][0]["selfhost_summary"]["metrics"]["task_joins"],
+            3
+        );
+        assert_eq!(
+            report["entries"][0]["selfhost_summary"]["metrics"]["task_sleeps"],
+            1
+        );
+        assert_eq!(
+            report["entries"][0]["selfhost_summary"]["metrics"]["channel_sends"],
+            1
+        );
+        assert_eq!(
+            report["entries"][0]["selfhost_summary"]["metrics"]["channel_recvs"],
+            1
+        );
+    }
+
+    #[test]
+    fn litec_runtime_error_audit_enforces_stable_taxonomy() {
+        let dir = tempdir().expect("tempdir");
+        let cases = dir.path().join("runtime-errors");
+        let triage = dir.path().join("triage");
+        fs::create_dir_all(&cases).expect("cases dir");
+        let division = cases.join("division_by_zero.enk");
+        let index = cases.join("list_index_out_of_range.enk");
+        fs::write(
+            &division,
+            "fn main() -> Int ::\n    return 10 / 0\n::\n\nmain()\n",
+        )
+        .expect("write division");
+        fs::write(
+            &index,
+            "fn main() -> Int ::\n    let xs := [1, 2]\n    return xs[3]\n::\n\nmain()\n",
+        )
+        .expect("write index");
+        let contract = dir.path().join("runtime_error_contract.json");
+        fs::write(
+            &contract,
+            serde_json::json!({
+                "schema_version": 1,
+                "contract": "selfhost_runtime_error_taxonomy_test",
+                "cases": [
+                    {
+                        "id": "division_by_zero",
+                        "file": division.to_string_lossy(),
+                        "expected_code": "E_RUNTIME_DIVISION_BY_ZERO"
+                    },
+                    {
+                        "id": "list_index_out_of_range",
+                        "file": index.to_string_lossy(),
+                        "expected_code": "E_RUNTIME_INDEX_OUT_OF_RANGE"
+                    }
+                ]
+            })
+            .to_string(),
+        )
+        .expect("write contract");
+
+        let code = litec_command(&[
+            "runtime-error-audit".to_string(),
+            contract.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_error_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["cases_total"], 2);
+        assert_eq!(report["cases_passed"], 2);
+        assert_eq!(report["taxonomy_gap_cases"], 0);
+        assert_eq!(
+            report["entries"][0]["selfhost_error_code"],
+            "E_RUNTIME_DIVISION_BY_ZERO"
+        );
+        assert_eq!(
+            report["entries"][1]["selfhost_error_code"],
+            "E_RUNTIME_INDEX_OUT_OF_RANGE"
+        );
+    }
+
+    #[test]
+    fn litec_runtime_audit_executes_list_mutation_full_bytecode() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("list_set.enk");
+        let triage = dir.path().join("triage");
+        fs::write(
+            &file,
+            "fn main() -> Int ::\n    let xs := [4, 5, 6]\n    xs[1] := 9\n    return xs[0] + xs[1] + xs[2]\n::\nmain()\n",
+        )
+        .expect("write list_set");
+
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            file.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["runtime_parity_files"], 1);
+        assert_eq!(report["runtime_gap_files"], 0);
+        assert_eq!(report["entries"][0]["selfhost_result"], 19);
+    }
+
+    #[test]
+    fn litec_runtime_audit_executes_add_subset() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("sum.enk");
+        let triage = dir.path().join("triage");
+        fs::write(&file, "fn main() -> Int ::\n    return 1 + 2\n::\nmain()\n").expect("write sum");
+
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            file.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["runtime_parity_files"], 1);
+        assert_eq!(report["runtime_gap_files"], 0);
+        assert_eq!(report["entries"][0]["selfhost_result"], 3);
+    }
+
+    #[test]
+    fn litec_runtime_audit_executes_locals_and_parameters_subset() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("param.enk");
+        let triage = dir.path().join("triage");
+        fs::write(
+            &file,
+            "fn inc(x: Int) -> Int ::\n    let y := x + 1\n    return y\n::\nfn main() -> Int ::\n    return inc(4)\n::\nmain()\n",
+        )
+        .expect("write param");
+
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            file.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["runtime_parity_files"], 1);
+        assert_eq!(report["runtime_gap_files"], 0);
+        assert_eq!(report["entries"][0]["selfhost_result"], 5);
+    }
+
+    #[test]
+    fn litec_runtime_audit_executes_logic_subset() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("logic.enk");
+        let triage = dir.path().join("triage");
+        fs::write(
+            &file,
+            "fn same(x: Int) -> Bool ::\n    return x == 4\n::\nfn main() -> Bool ::\n    return not same(3)\n::\nmain()\n",
+        )
+        .expect("write logic");
+
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            file.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["runtime_parity_files"], 1);
+        assert_eq!(report["runtime_gap_files"], 0);
+        assert_eq!(report["entries"][0]["selfhost_result"], true);
+    }
+
+    #[test]
+    fn litec_runtime_audit_executes_extended_arithmetic_and_comparisons() {
+        let dir = tempdir().expect("tempdir");
+        let corpus = dir.path().join("control-corpus");
+        let triage = dir.path().join("triage");
+        fs::create_dir_all(&corpus).expect("corpus dir");
+        fs::write(
+            corpus.join("arith.enk"),
+            "fn calc(x: Int, y: Int) -> Int ::\n    return x - y * 2 / 1\n::\nfn main() -> Int ::\n    return calc(9, 3)\n::\nmain()\n",
+        )
+        .expect("write arith");
+        fs::write(
+            corpus.join("compare.enk"),
+            "fn lt_case() -> Bool ::\n    return 2 < 3\n::\nfn gt_case() -> Bool ::\n    return 5 > 4\n::\nfn le_case() -> Bool ::\n    return 3 <= 3\n::\nfn ge_case() -> Bool ::\n    return 7 >= 7\n::\nfn main() -> Bool ::\n    return lt_case() == gt_case() == le_case() == ge_case()\n::\nmain()\n",
+        )
+        .expect("write compare");
+
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            corpus.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["files_total"], 2);
+        assert_eq!(report["runtime_parity_files"], 2);
+        assert_eq!(report["runtime_gap_files"], 0);
+    }
+
+    #[test]
+    fn litec_runtime_audit_executes_if_control_flow_subset() {
+        let dir = tempdir().expect("tempdir");
+        let corpus = dir.path().join("if-corpus");
+        let triage = dir.path().join("triage");
+        fs::create_dir_all(&corpus).expect("corpus dir");
+        fs::write(
+            corpus.join("if_true.enk"),
+            "fn main() -> Int ::\n    if 3 < 4 ::\n        return 9\n    ::\n    return 1\n::\nmain()\n",
+        )
+        .expect("write if_true");
+        fs::write(
+            corpus.join("if_false.enk"),
+            "fn main() -> Int ::\n    if 5 < 4 ::\n        return 9\n    ::\n    return 1\n::\nmain()\n",
+        )
+        .expect("write if_false");
+
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            corpus.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["files_total"], 2);
+        assert_eq!(report["runtime_parity_files"], 2);
+        assert_eq!(report["runtime_gap_files"], 0);
+    }
+
+    #[test]
+    fn litec_runtime_audit_executes_neg_mod_neq_subset() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("ops.enk");
+        let triage = dir.path().join("triage");
+        fs::write(
+            &file,
+            "fn main() -> Int ::\n    let x := -5\n    let y := 7 % 3\n    if x != -4 ::\n        return 0\n    ::\n    return y\n::\nmain()\n",
+        )
+        .expect("write ops");
+
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            file.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["runtime_parity_files"], 1);
+        assert_eq!(report["runtime_gap_files"], 0);
+        assert_eq!(report["entries"][0]["selfhost_result"], 0);
+    }
+
+    #[test]
+    fn litec_runtime_audit_executes_while_loop_subset() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("whileloop.enk");
+        let triage = dir.path().join("triage");
+        fs::write(
+            &file,
+            "fn main() -> Int ::\n    let i := 0\n    let acc := 0\n    while i < 4 ::\n        acc := acc + i\n        i := i + 1\n    ::\n    return acc\n::\nmain()\n",
+        )
+        .expect("write whileloop");
+
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            file.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["runtime_parity_files"], 1);
+        assert_eq!(report["runtime_gap_files"], 0);
+        assert_eq!(report["entries"][0]["selfhost_result"], 6);
+    }
+
+    #[test]
+    fn litec_runtime_audit_executes_boolean_short_circuit_subset() {
+        let dir = tempdir().expect("tempdir");
+        let corpus = dir.path().join("short-circuit-corpus");
+        let triage = dir.path().join("triage");
+        fs::create_dir_all(&corpus).expect("corpus dir");
+        fs::write(
+            corpus.join("and_bool.enk"),
+            "fn main() -> Bool ::\n    return (1 < 2) and (3 < 4)\n::\nmain()\n",
+        )
+        .expect("write and_bool");
+        fs::write(
+            corpus.join("or_bool.enk"),
+            "fn main() -> Bool ::\n    return (1 > 2) or (3 < 4)\n::\nmain()\n",
+        )
+        .expect("write or_bool");
+
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            corpus.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["files_total"], 2);
+        assert_eq!(report["runtime_parity_files"], 2);
+        assert_eq!(report["runtime_gap_files"], 0);
+    }
+
+    #[test]
+    fn litec_runtime_audit_executes_pop_cleanup_subset() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("if_unused_call.enk");
+        let triage = dir.path().join("triage");
+        fs::write(
+            &file,
+            "fn ping() -> Int ::\n    return 1\n::\nfn main() -> Int ::\n    if ping() == 1 ::\n        ping()\n    ::\n    return 0\n::\nmain()\n",
+        )
+        .expect("write if_unused_call");
+
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            file.to_string_lossy().to_string(),
+            "--triage-dir".to_string(),
+            triage.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+
+        let report_path = triage.join("litec_runtime_audit_report.json");
+        assert!(report_path.is_file());
+        let report_text = fs::read_to_string(report_path).expect("read report");
+        let report: serde_json::Value = serde_json::from_str(&report_text).expect("json report");
+        assert_eq!(report["status"], "ok");
+        assert_eq!(report["subset"], runtime_subset_label());
+        assert_eq!(report["runtime_parity_files"], 1);
+        assert_eq!(report["runtime_gap_files"], 0);
+        assert_eq!(report["entries"][0]["selfhost_result"], 0);
+    }
+
+    #[test]
+    fn litec_runtime_audit_require_full_support_accepts_string_results() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("string.enk");
+        fs::write(
+            &file,
+            "fn main() -> String ::\n    return \"gap\"\n::\nmain()\n",
+        )
+        .expect("write string");
+
+        let code = litec_command(&[
+            "runtime-audit".to_string(),
+            file.to_string_lossy().to_string(),
+            "--require-full-support".to_string(),
+        ]);
+        assert_eq!(code, 0);
+    }
+
+    #[test]
     fn litec_check_rejects_for_loop_via_selfhost_validation() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("unsupported.enk");
@@ -3640,16 +6541,19 @@ mod tests {
     }
 
     #[test]
-    fn litec_check_rejects_list_element_type_mismatch_via_selfhost_semantics() {
+    fn litec_check_accepts_coroutine_args_mixed_list_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
-        let file = dir.path().join("list_elem_mismatch.enk");
+        let file = dir.path().join("coroutine_args_mixed_list.enk");
         fs::write(
             &file,
-            "fn main() -> Int ::\n    let _items := [1, true]\n    return 0\n::\n\nmain()\n",
+            "import std::sim\n\
+             import std::sparse\n\
+             fn worker(coro: SimCoroutine, start: Int, weights: SparseMatrix) -> Int ::\n    return start\n::\n\
+             fn main() -> Int ::\n    let world := sim.make_seeded(16, 7)\n    let weights := sparse.matrix()\n    let coro := sim.coroutine_args(world, worker, [3, weights])\n    sim.join(coro)?\n    return 0\n::\n\nmain()\n",
         )
         .expect("write mismatch");
         let code = litec_command(&["check".to_string(), file.to_string_lossy().to_string()]);
-        assert_ne!(code, 0);
+        assert_eq!(code, 0);
     }
 
     #[test]

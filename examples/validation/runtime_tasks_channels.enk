@@ -1,0 +1,32 @@
+let c := chan.make()
+let acc := 0
+
+fn fast() -> Int ::
+    acc := acc + 2
+    return 2
+::
+
+fn slow() -> Int ::
+    task.sleep(5)
+    acc := acc + 1
+    return 1
+::
+
+fn sender() -> Int ::
+    chan.send(c, 7)
+    acc := acc + 4
+    return 4
+::
+
+fn main() -> Int ::
+    let h1 := task.spawn(slow)
+    let h2 := task.spawn(fast)
+    let h3 := task.spawn(sender)
+    chan.recv(c)
+    task.join(h2)
+    task.join(h1)
+    task.join(h3)
+    return acc
+::
+
+main()

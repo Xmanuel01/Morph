@@ -77,6 +77,34 @@ struct VerifyReleaseBlockersContext<'a> {
     allow_skipped_required_checks: &'a [String],
 }
 
+#[derive(Debug, Clone)]
+struct ReadinessOutputPolicy {
+    json: bool,
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+struct ReadinessExecutionPlan {
+    workspace: PathBuf,
+    manifest: ReadinessManifest,
+    checks: Vec<ReadinessCheckSpec>,
+    skipped_checks: Vec<String>,
+    output: ReadinessOutputPolicy,
+}
+
+#[derive(Debug, Clone)]
+struct ReleaseBlockerVerificationPlan {
+    workspace: PathBuf,
+    manifest: ReleaseBlockerManifest,
+    readiness_report: ReadinessReport,
+    readiness_report_path: PathBuf,
+    version: String,
+    require_gpu_evidence: bool,
+    skip_release_evidence: bool,
+    allow_skipped_required_checks: Vec<String>,
+    output: ReadinessOutputPolicy,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ReadinessReport {
     schema_version: u32,
@@ -157,132 +185,58 @@ fn readiness_verify_blockers_command(args: &[String]) -> i32 {
             return 1;
         }
     };
-    let manifest = match load_release_blocker_manifest(&parsed.profile) {
-        Ok(manifest) => manifest,
+    match build_release_blocker_verification_plan(&parsed)
+        .and_then(|plan| execute_release_blocker_verification(&plan))
+    {
+        Ok(report) => {
+            if report.all_passed {
+                println!(
+                    "[readiness] blocker verification passed for profile '{}'",
+                    parsed.profile
+                );
+                0
+            } else {
+                if !report.missing_checks.is_empty() {
+                    eprintln!(
+                        "[readiness] missing required checks: {}",
+                        report.missing_checks.join(", ")
+                    );
+                }
+                if !report.failed_checks.is_empty() {
+                    eprintln!(
+                        "[readiness] failed required checks: {}",
+                        report.failed_checks.join(", ")
+                    );
+                }
+                if !report.skipped_required_checks.is_empty() {
+                    eprintln!(
+                        "[readiness] skipped required checks: {}",
+                        report.skipped_required_checks.join(", ")
+                    );
+                }
+                if !report.missing_artifacts.is_empty() {
+                    eprintln!(
+                        "[readiness] missing required artifacts: {}",
+                        report.missing_artifacts.join(", ")
+                    );
+                }
+                if !report.missing_gpu_artifacts.is_empty() {
+                    eprintln!(
+                        "[readiness] missing required GPU artifacts: {}",
+                        report.missing_gpu_artifacts.join(", ")
+                    );
+                }
+                eprintln!(
+                    "[readiness] blocker verification failed for profile '{}'",
+                    parsed.profile
+                );
+                1
+            }
+        }
         Err(err) => {
             eprintln!("enkai readiness verify-blockers: {}", err);
-            return 1;
+            1
         }
-    };
-    let readiness_report = match fs::read_to_string(&parsed.report) {
-        Ok(raw) => match serde_json::from_str::<ReadinessReport>(&raw) {
-            Ok(report) => report,
-            Err(err) => {
-                eprintln!(
-                    "enkai readiness verify-blockers: failed to parse readiness report {}: {}",
-                    parsed.report.display(),
-                    err
-                );
-                return 1;
-            }
-        },
-        Err(err) => {
-            eprintln!(
-                "enkai readiness verify-blockers: failed to read readiness report {}: {}",
-                parsed.report.display(),
-                err
-            );
-            return 1;
-        }
-    };
-
-    let version = parsed
-        .version
-        .clone()
-        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
-    let verify_context = VerifyReleaseBlockersContext {
-        workspace: &workspace_root(),
-        manifest: &manifest,
-        readiness_report: &readiness_report,
-        readiness_report_path: &parsed.report,
-        version: &version,
-        require_gpu_evidence: parsed.require_gpu_evidence,
-        skip_release_evidence: parsed.skip_release_evidence,
-        allow_skipped_required_checks: &parsed.allow_skipped_required_checks,
-    };
-    let report = verify_release_blockers(&verify_context);
-
-    let json = match serde_json::to_string_pretty(&report) {
-        Ok(json) => json,
-        Err(err) => {
-            eprintln!(
-                "enkai readiness verify-blockers: failed to serialize blocker report: {}",
-                err
-            );
-            return 1;
-        }
-    };
-
-    if let Some(path) = parsed.output.as_ref() {
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                if let Err(err) = fs::create_dir_all(parent) {
-                    eprintln!(
-                        "enkai readiness verify-blockers: failed to create output directory {}: {}",
-                        parent.display(),
-                        err
-                    );
-                    return 1;
-                }
-            }
-        }
-        if let Err(err) = fs::write(path, json.as_bytes()) {
-            eprintln!(
-                "enkai readiness verify-blockers: failed to write report {}: {}",
-                path.display(),
-                err
-            );
-            return 1;
-        }
-        println!("[readiness] blocker report written: {}", path.display());
-    }
-
-    if parsed.json {
-        println!("{}", json);
-    }
-
-    if report.all_passed {
-        println!(
-            "[readiness] blocker verification passed for profile '{}'",
-            parsed.profile
-        );
-        0
-    } else {
-        if !report.missing_checks.is_empty() {
-            eprintln!(
-                "[readiness] missing required checks: {}",
-                report.missing_checks.join(", ")
-            );
-        }
-        if !report.failed_checks.is_empty() {
-            eprintln!(
-                "[readiness] failed required checks: {}",
-                report.failed_checks.join(", ")
-            );
-        }
-        if !report.skipped_required_checks.is_empty() {
-            eprintln!(
-                "[readiness] skipped required checks: {}",
-                report.skipped_required_checks.join(", ")
-            );
-        }
-        if !report.missing_artifacts.is_empty() {
-            eprintln!(
-                "[readiness] missing required artifacts: {}",
-                report.missing_artifacts.join(", ")
-            );
-        }
-        if !report.missing_gpu_artifacts.is_empty() {
-            eprintln!(
-                "[readiness] missing required GPU artifacts: {}",
-                report.missing_gpu_artifacts.join(", ")
-            );
-        }
-        eprintln!(
-            "[readiness] blocker verification failed for profile '{}'",
-            parsed.profile
-        );
-        1
     }
 }
 
@@ -295,32 +249,51 @@ fn readiness_check_command(args: &[String]) -> i32 {
             return 1;
         }
     };
-    let manifest = match load_manifest(&parsed.profile) {
-        Ok(manifest) => manifest,
+    match build_readiness_execution_plan(&parsed).and_then(|plan| execute_readiness_plan(&plan)) {
+        Ok(report) => {
+            if report.all_passed {
+                println!("[readiness] profile '{}' passed", parsed.profile);
+                0
+            } else {
+                eprintln!("[readiness] profile '{}' has failed checks", parsed.profile);
+                1
+            }
+        }
         Err(err) => {
             eprintln!("enkai readiness check: {}", err);
-            return 1;
+            1
         }
-    };
-    let (checks, skipped_checks) = match filter_manifest_checks(&manifest, &parsed.skip_checks) {
-        Ok(value) => value,
-        Err(err) => {
-            eprintln!("enkai readiness check: {}", err);
-            return 1;
-        }
-    };
+    }
+}
 
+fn build_readiness_execution_plan(
+    parsed: &ReadinessCheckArgs,
+) -> Result<ReadinessExecutionPlan, String> {
+    let manifest = load_manifest(&parsed.profile)?;
+    let (checks, skipped_checks) = filter_manifest_checks(&manifest, &parsed.skip_checks)?;
+    Ok(ReadinessExecutionPlan {
+        workspace: workspace_root(),
+        manifest,
+        checks,
+        skipped_checks,
+        output: ReadinessOutputPolicy {
+            json: parsed.json,
+            output: parsed.output.clone(),
+        },
+    })
+}
+
+fn execute_readiness_plan(plan: &ReadinessExecutionPlan) -> Result<ReadinessReport, String> {
     let started_unix_ms = unix_millis();
-    let workspace = workspace_root();
-    let mut check_reports = Vec::with_capacity(checks.len());
+    let mut check_reports = Vec::with_capacity(plan.checks.len());
 
-    for check in &checks {
+    for check in &plan.checks {
         println!(
             "[readiness] [{}] {}",
             check.id.trim(),
             check.description.trim()
         );
-        let report = run_check(&workspace, check);
+        let report = run_check(&plan.workspace, check);
         let status = if report.success { "PASS" } else { "FAIL" };
         println!(
             "[readiness] {} {} ({} ms, exit={})",
@@ -329,66 +302,121 @@ fn readiness_check_command(args: &[String]) -> i32 {
         check_reports.push(report);
     }
 
-    let finished_unix_ms = unix_millis();
-    let all_passed = check_reports.iter().all(|check| check.success);
     let report = ReadinessReport {
-        schema_version: manifest.schema_version,
-        profile: manifest.profile,
+        schema_version: plan.manifest.schema_version,
+        profile: plan.manifest.profile.clone(),
         language_version: env!("ENKAI_LANG_VERSION").to_string(),
         cli_version: env!("CARGO_PKG_VERSION").to_string(),
         started_unix_ms,
-        finished_unix_ms,
-        all_passed,
-        skipped_checks,
+        finished_unix_ms: unix_millis(),
+        all_passed: check_reports.iter().all(|check| check.success),
+        skipped_checks: plan.skipped_checks.clone(),
         checks: check_reports,
     };
 
-    let json = match serde_json::to_string_pretty(&report) {
-        Ok(json) => json,
-        Err(err) => {
-            eprintln!(
-                "enkai readiness check: failed to serialize readiness report: {}",
-                err
-            );
-            return 1;
-        }
+    emit_json_report(
+        "[readiness] report written",
+        &plan.output,
+        serde_json::to_string_pretty(&report)
+            .map_err(|err| format!("failed to serialize readiness report: {}", err))?,
+    )?;
+    Ok(report)
+}
+
+fn build_release_blocker_verification_plan(
+    parsed: &VerifyBlockersArgs,
+) -> Result<ReleaseBlockerVerificationPlan, String> {
+    let manifest = load_release_blocker_manifest(&parsed.profile)?;
+    let readiness_report = load_readiness_report(&parsed.report)?;
+    let version = parsed
+        .version
+        .clone()
+        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+    Ok(ReleaseBlockerVerificationPlan {
+        workspace: workspace_root(),
+        manifest,
+        readiness_report,
+        readiness_report_path: parsed.report.clone(),
+        version,
+        require_gpu_evidence: parsed.require_gpu_evidence,
+        skip_release_evidence: parsed.skip_release_evidence,
+        allow_skipped_required_checks: parsed.allow_skipped_required_checks.clone(),
+        output: ReadinessOutputPolicy {
+            json: parsed.json,
+            output: parsed.output.clone(),
+        },
+    })
+}
+
+fn execute_release_blocker_verification(
+    plan: &ReleaseBlockerVerificationPlan,
+) -> Result<ReleaseBlockerReport, String> {
+    let verify_context = VerifyReleaseBlockersContext {
+        workspace: &plan.workspace,
+        manifest: &plan.manifest,
+        readiness_report: &plan.readiness_report,
+        readiness_report_path: &plan.readiness_report_path,
+        version: &plan.version,
+        require_gpu_evidence: plan.require_gpu_evidence,
+        skip_release_evidence: plan.skip_release_evidence,
+        allow_skipped_required_checks: &plan.allow_skipped_required_checks,
     };
+    let report = verify_release_blockers(&verify_context);
+    emit_json_report(
+        "[readiness] blocker report written",
+        &plan.output,
+        serde_json::to_string_pretty(&report)
+            .map_err(|err| format!("failed to serialize blocker report: {}", err))?,
+    )?;
+    Ok(report)
+}
 
-    if let Some(path) = parsed.output.as_ref() {
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                if let Err(err) = fs::create_dir_all(parent) {
-                    eprintln!(
-                        "enkai readiness check: failed to create output directory {}: {}",
-                        parent.display(),
-                        err
-                    );
-                    return 1;
-                }
-            }
-        }
-        if let Err(err) = fs::write(path, json.as_bytes()) {
-            eprintln!(
-                "enkai readiness check: failed to write report {}: {}",
-                path.display(),
-                err
-            );
-            return 1;
-        }
-        println!("[readiness] report written: {}", path.display());
+fn load_readiness_report(path: &Path) -> Result<ReadinessReport, String> {
+    let raw = fs::read_to_string(path).map_err(|err| {
+        format!(
+            "failed to read readiness report {}: {}",
+            path.display(),
+            err
+        )
+    })?;
+    serde_json::from_str::<ReadinessReport>(&raw).map_err(|err| {
+        format!(
+            "failed to parse readiness report {}: {}",
+            path.display(),
+            err
+        )
+    })
+}
+
+fn emit_json_report(
+    write_prefix: &str,
+    output: &ReadinessOutputPolicy,
+    json: String,
+) -> Result<(), String> {
+    if let Some(path) = output.output.as_ref() {
+        write_output_file(path, json.as_bytes())?;
+        println!("{}: {}", write_prefix, path.display());
     }
-
-    if parsed.json {
+    if output.json {
         println!("{}", json);
     }
+    Ok(())
+}
 
-    if all_passed {
-        println!("[readiness] profile '{}' passed", parsed.profile);
-        0
-    } else {
-        eprintln!("[readiness] profile '{}' has failed checks", parsed.profile);
-        1
+fn write_output_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(|err| {
+                format!(
+                    "failed to create output directory {}: {}",
+                    parent.display(),
+                    err
+                )
+            })?;
+        }
     }
+    fs::write(path, bytes)
+        .map_err(|err| format!("failed to write report {}: {}", path.display(), err))
 }
 
 fn parse_check_args(args: &[String]) -> Result<ReadinessCheckArgs, String> {
@@ -1044,7 +1072,7 @@ mod tests {
         let manifest = load_manifest("strict_selfhost").expect("manifest");
         assert_eq!(manifest.schema_version, 1);
         assert_eq!(manifest.profile, "strict_selfhost");
-        assert_eq!(manifest.checks.len(), 7);
+        assert_eq!(manifest.checks.len(), 14);
         assert!(manifest
             .checks
             .iter()
@@ -1073,6 +1101,34 @@ mod tests {
             .checks
             .iter()
             .any(|check| check.id == "selfhost-frontend-audited-surface"));
+        assert!(manifest
+            .checks
+            .iter()
+            .any(|check| check.id == "selfhost-runtime-tasks-channels"));
+        assert!(manifest
+            .checks
+            .iter()
+            .any(|check| check.id == "selfhost-runtime-coverage"));
+        assert!(manifest
+            .checks
+            .iter()
+            .any(|check| check.id == "selfhost-runtime-examples"));
+        assert!(manifest
+            .checks
+            .iter()
+            .any(|check| check.id == "selfhost-runtime-determinism"));
+        assert!(manifest
+            .checks
+            .iter()
+            .any(|check| check.id == "selfhost-runtime-error-taxonomy"));
+        assert!(manifest
+            .checks
+            .iter()
+            .any(|check| check.id == "install-bundle-smoke"));
+        assert!(manifest
+            .checks
+            .iter()
+            .any(|check| check.id == "install-flow-proof"));
     }
 
     #[test]
@@ -1113,6 +1169,80 @@ mod tests {
         let manifest = load_manifest("production").expect("manifest");
         let err = filter_manifest_checks(&manifest, &["missing".to_string()]).expect_err("unknown");
         assert!(err.contains("missing"));
+    }
+
+    #[test]
+    fn build_readiness_execution_plan_carries_manifest_and_output_policy() {
+        let args = ReadinessCheckArgs {
+            profile: "strict_selfhost".to_string(),
+            json: true,
+            output: Some(PathBuf::from("artifacts/readiness/test.json")),
+            skip_checks: vec!["docs-consistency".to_string()],
+        };
+        let plan = build_readiness_execution_plan(&args).expect("plan");
+        assert_eq!(plan.manifest.profile, "strict_selfhost");
+        assert_eq!(
+            plan.output.output,
+            Some(PathBuf::from("artifacts/readiness/test.json"))
+        );
+        assert!(plan.output.json);
+        assert_eq!(plan.skipped_checks, vec!["docs-consistency".to_string()]);
+        assert!(plan
+            .checks
+            .iter()
+            .all(|check| check.id.as_str() != "docs-consistency"));
+    }
+
+    #[test]
+    fn build_release_blocker_verification_plan_loads_report_and_policy() {
+        let workspace = temp_dir("enkai_readiness_plan");
+        let report_path = workspace.join("artifacts/readiness/strict_selfhost.json");
+        if let Some(parent) = report_path.parent() {
+            fs::create_dir_all(parent).expect("mkdir");
+        }
+        let report = ReadinessReport {
+            schema_version: 1,
+            profile: "strict_selfhost".to_string(),
+            language_version: "3.1.2".to_string(),
+            cli_version: "3.1.2".to_string(),
+            started_unix_ms: 1,
+            finished_unix_ms: 2,
+            all_passed: true,
+            skipped_checks: vec!["docs-consistency".to_string()],
+            checks: Vec::new(),
+        };
+        fs::write(
+            &report_path,
+            serde_json::to_vec(&report).expect("serialize report"),
+        )
+        .expect("write report");
+        let args = VerifyBlockersArgs {
+            profile: "strict_selfhost".to_string(),
+            report: report_path.clone(),
+            json: true,
+            output: Some(PathBuf::from(
+                "artifacts/readiness/strict_selfhost_blockers.json",
+            )),
+            require_gpu_evidence: false,
+            skip_release_evidence: true,
+            allow_skipped_required_checks: vec!["docs-consistency".to_string()],
+            version: Some("3.1.2".to_string()),
+        };
+        let plan = build_release_blocker_verification_plan(&args).expect("plan");
+        assert_eq!(plan.manifest.profile, "strict_selfhost");
+        assert_eq!(plan.readiness_report.profile, "strict_selfhost");
+        assert_eq!(plan.readiness_report_path, report_path);
+        assert!(plan.output.json);
+        assert_eq!(
+            plan.output.output,
+            Some(PathBuf::from(
+                "artifacts/readiness/strict_selfhost_blockers.json"
+            ))
+        );
+        assert!(plan.skip_release_evidence);
+        assert_eq!(plan.version, "3.1.2");
+
+        let _ = fs::remove_dir_all(workspace);
     }
 
     #[test]

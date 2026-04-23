@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "profile": "strict_selfhost",
+  "version_line": "v3.2.0-v4.0.0",
+  "generated_purpose": "Isolate remaining Rust-owned CLI/system surfaces into explicit self-host replacement tranches without overstating zero-Rust closure.",
+  "surfaces": [
+    {
+      "id": "project_entrypoints",
+      "status": "partial",
+      "rust_owner": "enkai",
+      "current_scope": [
+        "run",
+        "check",
+        "build",
+        "test"
+      ],
+      "selfhost_progress": [
+        "selfhost-first compiler path",
+        "selfhost-first runtime path for supported run/test programs",
+        "backend provenance in build cache"
+      ],
+      "next_slice": "Lift manifest resolution, package loading policy, and cache orchestration out of Rust command handlers.",
+      "priority": 1
+    },
+    {
+      "id": "readiness_and_validation",
+      "status": "blocked",
+      "rust_owner": "enkai",
+      "current_scope": [
+        "readiness",
+        "validate",
+        "release evidence orchestration"
+      ],
+      "selfhost_progress": [],
+      "next_slice": "Define an Enkai-owned manifest/report runner for readiness contracts and validation suites before replacing CLI wrappers.",
+      "priority": 2
+    },
+    {
+      "id": "serve_and_transports",
+      "status": "blocked",
+      "rust_owner": "enkai",
+      "current_scope": [
+        "serve",
+        "grpc"
+      ],
+      "selfhost_progress": [],
+      "next_slice": "Peel off request/response configuration and service manifest loading before replacing HTTP/WS/gRPC transport implementations.",
+      "priority": 3
+    },
+    {
+      "id": "worker_runtime",
+      "status": "blocked",
+      "rust_owner": "enkai",
+      "current_scope": [
+        "worker"
+      ],
+      "selfhost_progress": [],
+      "next_slice": "Isolate worker job manifest parsing, retry policy, and queue contract handling into Enkai-owned code before transport/runtime migration.",
+      "priority": 4
+    },
+    {
+      "id": "model_and_registry_ops",
+      "status": "blocked",
+      "rust_owner": "enkai",
+      "current_scope": [
+        "model",
+        "train",
+        "pretrain",
+        "eval"
+      ],
+      "selfhost_progress": [],
+      "next_slice": "Separate registry metadata/state transitions and training config loading from Rust command orchestration before backend replacement.",
+      "priority": 5
+    },
+    {
+      "id": "deploy_and_cluster_ops",
+      "status": "blocked",
+      "rust_owner": "enkai",
+      "current_scope": [
+        "deploy",
+        "cluster"
+      ],
+      "selfhost_progress": [],
+      "next_slice": "Extract deployment plan/config evaluation into Enkai-owned manifests before replacing Rust automation shells.",
+      "priority": 6
+    }
+  ]
+}

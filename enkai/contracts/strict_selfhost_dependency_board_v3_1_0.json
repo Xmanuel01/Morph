@@ -26,19 +26,21 @@
       "enkai_replacements": [
         "enkai/tools/bootstrap/enkai_lite.enk"
       ],
-      "notes": "Bootstrap subset is self-hosted, but the full-language parser, resolver, typechecker, and codegen still ship through enkaic."
+      "notes": "Audited `enkai check`, `enkai build`, and the cache-miss compile path for `enkai run` now prefer the self-host frontend/compiler path for supported programs. Full-language parser, resolver, typechecker, and codegen outside the audited self-host surface still ship through enkaic."
     },
     {
       "id": "runtime_core",
       "subsystem": "runtime",
       "shipped_blocker": true,
-      "status": "blocked",
+      "status": "partial",
       "rust_workspace_members": [
         "enkairt"
       ],
       "native_components": [],
-      "enkai_replacements": [],
-      "notes": "The shipped VM, object model, scheduler, HTTP value model, and deterministic simulation runtime still execute through enkairt."
+      "enkai_replacements": [
+        "enkai/tools/bootstrap/enkai_runtime_core.enk"
+      ],
+      "notes": "The shipped runtime is still not zero-Rust, but audited `enkai run` execution can now route supported programs through the self-host runtime core instead of executing user bytecode directly in enkairt. Scheduler, HTTP value model, and unsupported programs still fall back to enkairt."
     },
     {
       "id": "systems_and_cli",
@@ -50,7 +52,7 @@
       ],
       "native_components": [],
       "enkai_replacements": [],
-      "notes": "Serve, model, deploy, worker, readiness, validation, and release orchestration are still implemented in the Rust CLI."
+      "notes": "The Rust CLI still owns command dispatch and most system surfaces. Audited `run`/`check`/`build`/`test` entrypoints now route through self-host compiler/runtime paths first where supported, but serve/model/deploy/worker/readiness/validation/release orchestration remain Rust-owned. The next peelable CLI/system tranches are isolated in `enkai/contracts/strict_selfhost_cli_system_slices_v3_2_0.json`, and readiness/validation-specific tranches are isolated in `enkai/contracts/strict_selfhost_readiness_validation_slices_v3_2_0.json`."
     },
     {
       "id": "native_std_and_accel",

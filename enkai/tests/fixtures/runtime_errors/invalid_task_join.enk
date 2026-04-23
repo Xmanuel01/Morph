@@ -1,0 +1,6 @@
+fn main() -> Int ::
+    task.join(1)
+    return 0
+::
+
+main()

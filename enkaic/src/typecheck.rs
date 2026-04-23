@@ -25,6 +25,7 @@ pub struct TypeChecker {
     scopes: Vec<std::collections::HashMap<String, Type>>,
     imports: std::collections::HashMap<String, ModuleId>,
     exports: std::collections::HashMap<ModuleId, std::collections::HashMap<String, Type>>,
+    record_fields: std::collections::HashMap<String, Vec<(String, Type)>>,
     source_name: Option<String>,
     source: Option<String>,
 }
@@ -35,6 +36,7 @@ impl Default for TypeChecker {
             scopes: vec![std::collections::HashMap::new()],
             imports: std::collections::HashMap::new(),
             exports: std::collections::HashMap::new(),
+            record_fields: std::collections::HashMap::new(),
             source_name: None,
             source: None,
         }
@@ -58,6 +60,7 @@ impl TypeChecker {
             scopes: vec![std::collections::HashMap::new()],
             imports,
             exports,
+            record_fields: std::collections::HashMap::new(),
             source_name: None,
             source: None,
         }
@@ -96,6 +99,59 @@ impl TypeChecker {
             source_name: self.source_name.clone(),
             source: self.source.clone(),
         }
+    }
+
+    fn register_type_decl(&mut self, decl: &TypeDecl) {
+        let mut fields = Vec::with_capacity(decl.fields.len());
+        for field in &decl.fields {
+            fields.push((field.name.clone(), type_from_ref(field.field_type.clone())));
+        }
+        self.record_fields.insert(decl.name.clone(), fields);
+    }
+
+    fn record_field_type(&self, type_name: &str, field_name: &str) -> Option<Type> {
+        self.record_fields.get(type_name).and_then(|fields| {
+            fields
+                .iter()
+                .find(|(name, _)| name == field_name)
+                .map(|(_, field_type)| field_type.clone())
+        })
+    }
+
+    fn check_lvalue_target_type(&mut self, target: &LValue) -> Result<Type, TypeError> {
+        let mut current = self
+            .resolve(&target.base)
+            .ok_or_else(|| self.error("Undefined variable", target.base_span.clone()))?;
+        for access in &target.accesses {
+            current = match access {
+                LValueAccess::Field(name) => match current {
+                    Type::Named(type_name) => {
+                        if let Some(field_type) = self.record_field_type(&type_name, name) {
+                            field_type
+                        } else {
+                            return Err(self.error(
+                                format!("Unknown field {}.{}", type_name, name),
+                                target.base_span.clone(),
+                            ));
+                        }
+                    }
+                    Type::Unknown => Type::Unknown,
+                    _ => Type::Unknown,
+                },
+                LValueAccess::Index(index) => {
+                    let index_type = self.check_expr(index)?;
+                    if index_type != Type::Int && index_type != Type::Unknown {
+                        return Err(self.error("Index expects Int", line_span(index)));
+                    }
+                    match current {
+                        Type::List(inner) => *inner,
+                        Type::Unknown => Type::Unknown,
+                        _ => Type::Unknown,
+                    }
+                }
+            };
+        }
+        Ok(current)
     }
 
     fn check_native_import(&self, decl: &NativeImportDecl) -> Result<(), TypeError> {
@@ -156,7 +212,8 @@ impl TypeChecker {
                     self.define(&func.name, Type::Function(params, Box::new(ret)));
                 }
             } else if let Item::Type(decl) = item {
-                self.define(&decl.name, Type::Unknown);
+                self.register_type_decl(decl);
+                self.define(&decl.name, Type::Named(decl.name.clone()));
             } else if let Item::Enum(decl) = item {
                 self.define(&decl.name, Type::Unknown);
             } else if let Item::Model(decl) = item {
@@ -243,15 +300,13 @@ impl TypeChecker {
             }
             Stmt::Assign { target, expr } => {
                 let t_expr = self.check_expr(expr)?;
-                let var_t = self
-                    .resolve(&target.base)
-                    .ok_or_else(|| self.error("Undefined variable", target.base_span.clone()))?;
-                if var_t != Type::Unknown && !compatible(&var_t, &t_expr) {
+                let target_t = self.check_lvalue_target_type(target)?;
+                if target_t != Type::Unknown && !compatible(&target_t, &t_expr) {
                     return Err(self.error(
                         format!(
                             "Type mismatch: variable {} is {}, assigned {}",
                             target.base,
-                            var_t.display(),
+                            target_t.display(),
                             t_expr.display()
                         ),
                         target.base_span.clone(),
@@ -381,6 +436,93 @@ impl TypeChecker {
                 }
             }
             Expr::Call { callee, args, span } => {
+                if let Expr::Ident {
+                    name,
+                    span: callee_span,
+                } = &**callee
+                {
+                    if let Some(Type::Named(type_name)) = self.resolve(name) {
+                        if let Some(fields) = self.record_fields.get(&type_name).cloned() {
+                            if fields.len() != args.len() {
+                                return Err(self.error(
+                                    format!(
+                                        "Constructor arity mismatch: expected {}, got {}",
+                                        fields.len(),
+                                        args.len()
+                                    ),
+                                    span.clone(),
+                                ));
+                            }
+                            for (index, arg) in args.iter().enumerate() {
+                                let (field_name, expected) = match arg {
+                                    Arg::Positional(_) => fields
+                                        .get(index)
+                                        .map(|(field_name, expected)| {
+                                            (field_name.clone(), expected.clone())
+                                        })
+                                        .ok_or_else(|| {
+                                            self.error(
+                                                "Constructor arity mismatch",
+                                                line_span(match arg {
+                                                    Arg::Positional(expr) => expr,
+                                                    Arg::Named(_, expr) => expr,
+                                                }),
+                                            )
+                                        })?,
+                                    Arg::Named(name, _) => {
+                                        let expected = self
+                                            .record_field_type(&type_name, name)
+                                            .ok_or_else(|| {
+                                                self.error(
+                                                    format!(
+                                                        "Unknown constructor field {}.{}",
+                                                        type_name, name
+                                                    ),
+                                                    callee_span.clone(),
+                                                )
+                                            })?;
+                                        (name.clone(), expected)
+                                    }
+                                };
+                                let actual = self.check_expr(match arg {
+                                    Arg::Positional(expr) => expr,
+                                    Arg::Named(_, expr) => expr,
+                                })?;
+                                if expected != Type::Unknown && !compatible(&expected, &actual) {
+                                    return Err(self.error(
+                                        format!(
+                                            "Constructor field type mismatch for {}.{}: expected {}, found {}",
+                                            type_name,
+                                            field_name,
+                                            expected.display(),
+                                            actual.display()
+                                        ),
+                                        line_span(match arg {
+                                            Arg::Positional(expr) => expr,
+                                            Arg::Named(_, expr) => expr,
+                                        }),
+                                    ));
+                                }
+                            }
+                            return Ok(Type::Named(type_name));
+                        }
+                    }
+                }
+                if let Expr::Field { target, name, .. } = &**callee {
+                    let target_type = self.check_expr(target)?;
+                    if let Type::Named(type_name) = target_type {
+                        if self.record_field_type(&type_name, name).is_none() {
+                            for arg in args {
+                                let expr = match arg {
+                                    Arg::Positional(expr) => expr,
+                                    Arg::Named(_, expr) => expr,
+                                };
+                                self.check_expr(expr)?;
+                            }
+                            return Ok(Type::Unknown);
+                        }
+                    }
+                }
                 let ct = self.check_expr(callee)?;
                 if let Type::Function(params, ret) = ct {
                     if params.len() != args.len() {
@@ -444,19 +586,41 @@ impl TypeChecker {
                         ));
                     }
                 }
-                self.check_expr(target)?;
+                let target_type = self.check_expr(target)?;
+                if let Type::Named(type_name) = target_type {
+                    if let Some(field_type) = self.record_field_type(&type_name, name) {
+                        return Ok(field_type);
+                    }
+                    return Err(self.error(
+                        format!("Unknown field {}.{}", type_name, name),
+                        span.clone(),
+                    ));
+                }
                 Ok(Type::Unknown)
             }
             Expr::Index { target, index, .. } => {
-                self.check_expr(target)?;
-                self.check_expr(index)?;
-                Ok(Type::Unknown)
+                let target_type = self.check_expr(target)?;
+                let index_type = self.check_expr(index)?;
+                if index_type != Type::Int && index_type != Type::Unknown {
+                    return Err(self.error("Index expects Int", line_span(index)));
+                }
+                match target_type {
+                    Type::List(inner) => Ok(*inner),
+                    Type::Unknown => Ok(Type::Unknown),
+                    _ => Ok(Type::Unknown),
+                }
             }
             Expr::List { items, .. } => {
+                let mut item_type = Type::Unknown;
                 for item in items {
-                    self.check_expr(item)?;
+                    let current = self.check_expr(item)?;
+                    if item_type == Type::Unknown {
+                        item_type = current;
+                    } else if current != Type::Unknown && !compatible(&item_type, &current) {
+                        item_type = Type::Unknown;
+                    }
                 }
-                Ok(Type::Unknown)
+                Ok(Type::List(Box::new(item_type)))
             }
             Expr::Try { expr, .. } => match self.check_expr(expr)? {
                 Type::Optional(inner) => Ok(*inner),
@@ -574,8 +738,12 @@ fn type_from_ref(r: TypeRef) -> Type {
                 Some("Request") => Type::HttpRequest,
                 Some("Response") => Type::HttpResponse,
                 Some("HttpStream") => Type::HttpStream,
+                Some("Any") => Type::Unknown,
+                Some("Record") => Type::Unknown,
+                Some("List") => Type::Unknown,
                 Some("Void") => Type::Void,
-                _ => Type::Unknown,
+                Some(_) => Type::Named(path.join("::")),
+                None => Type::Unknown,
             };
             if optional {
                 t = Type::Optional(Box::new(t));
@@ -597,6 +765,20 @@ fn compatible(expected: &Type, found: &Type) -> bool {
     match (expected, found) {
         (Type::Optional(inner), Type::Optional(f)) => compatible(inner, f),
         (Type::Optional(inner), f) => compatible(inner, f), // allow T to satisfy Optional<T>
+        (Type::List(expected_inner), Type::List(found_inner)) => {
+            compatible(expected_inner, found_inner)
+        }
+        (
+            Type::Function(expected_params, expected_ret),
+            Type::Function(found_params, found_ret),
+        ) => {
+            expected_params.len() == found_params.len()
+                && expected_params
+                    .iter()
+                    .zip(found_params.iter())
+                    .all(|(expected, found)| compatible(expected, found))
+                && compatible(expected_ret, found_ret)
+        }
         (Type::Device, Type::String) => true,
         (Type::DType, Type::String) => true,
         (Type::Shape, Type::String) => true,
@@ -1779,7 +1961,7 @@ fn collect_export_types(module: &Module) -> std::collections::HashMap<String, Ty
             }
         } else if let Item::Type(decl) = item {
             if decl.is_pub {
-                out.insert(decl.name.clone(), Type::Unknown);
+                out.insert(decl.name.clone(), Type::Named(decl.name.clone()));
             }
         } else if let Item::Enum(decl) = item {
             if decl.is_pub {

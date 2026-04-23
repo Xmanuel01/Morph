@@ -71,6 +71,39 @@ def stage_release_tree(
         shutil.copy2(candidate, stage / name)
 
 
+def write_bundle_manifest(
+    stage: pathlib.Path,
+    version: str,
+    target_os: str,
+    arch: str,
+    archive_format: str,
+    exe_name: str,
+    native_paths: list[pathlib.Path],
+) -> pathlib.Path:
+    native_payload_names = sorted({path.name for path in native_paths if path.is_file()})
+    manifest_path = stage / "bundle_manifest.json"
+    payload = {
+        "schema_version": 1,
+        "profile": "install_bundle_manifest",
+        "version": version,
+        "target_os": target_os,
+        "arch": arch,
+        "archive_format": archive_format,
+        "entrypoint": exe_name,
+        "required_paths": [
+            exe_name,
+            "README.txt",
+            "std",
+            "examples/hello/main.enk",
+            "bundle_manifest.json",
+        ],
+        "native_payloads": native_payload_names,
+        "selfhost_entrypoints": ["run", "check", "build", "test"],
+    }
+    manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return manifest_path
+
+
 def iter_files(stage: pathlib.Path) -> list[pathlib.Path]:
     files: list[pathlib.Path] = []
     for path in stage.rglob("*"):
@@ -215,6 +248,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="enkai_release_stage_") as tmp_dir:
         stage = pathlib.Path(tmp_dir) / "stage"
         stage_release_tree(root, stage, exe_name, bin_path, native_paths)
+        write_bundle_manifest(stage, version, args.target_os, args.arch, archive_format, exe_name, native_paths)
         verify_required_layout(stage, exe_name)
 
         if archive_format == "tar.gz":
@@ -243,7 +277,7 @@ def main() -> int:
             "checksum_file": str(checksum_path.relative_to(root)),
             "format": archive_format,
             "deterministic": args.check_deterministic,
-            "native_included": [path.name for path in native_paths if path.is_file()],
+            "native_included": sorted({path.name for path in native_paths if path.is_file()}),
         }
         print(json.dumps(payload, separators=(",", ":")))
     return 0

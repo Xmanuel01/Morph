@@ -5,6 +5,61 @@
 ### Breaking changes
 - None.
 
+## v3.2.1
+
+### Highlights
+- Closed the `v3.2.1` installable zero-Rust toolchain tranche for the current
+  shipped path by adding versioned bundle/install contracts and executable proof:
+  - `enkai/contracts/install_bundle_v3_2_1.json`
+  - `enkai/contracts/zero_rust_closure_v3_2_1.json`
+  - `enkai/contracts/install_flow_v3_2_1.json`
+  - `enkai/contracts/install_flow_v3_2_1_windows.json`
+  - `enkai/contracts/install_flow_v3_2_1_linux.json`
+- Added concrete install lifecycle proof for staged bundles:
+  - deterministic archive packaging
+  - install
+  - upgrade
+  - uninstall
+  - installed `run`/`check`/`build`/`test` self-host entrypoint execution
+  - install and bundle manifest validation through `enkai install-diagnostics`
+- Added release-archive proof to the install-flow gate:
+  - `scripts/package_release.py`
+  - `scripts/verify_install_bundle.py`
+  - `scripts/verify_install_flows.py`
+  - `scripts/verify_release_artifact.py`
+- Promoted install-flow proof into strict self-host readiness/blockers for the
+  shipped toolchain path while keeping Linux host execution truthfully separate
+  from the Windows-host evidence produced in-repo.
+- Added `v3.2.0` release-candidate wrapper scripts for the finalized runtime
+  tranche and `v3.2.1` wrapper scripts for the installable-toolchain tranche.
+
+## v3.2.0
+
+### Highlights
+- Completed the `v3.2.0` self-host runtime-core proof tranche:
+  - full shipped-example runtime parity proof
+  - full shipped-example runtime instruction coverage proof
+  - task/channel/scheduler runtime proof
+  - repeated event/coroutine/replay determinism proof
+  - stable runtime error taxonomy proof
+- Moved readiness profile execution and release blocker verification behind
+  contract-driven executors in:
+  - `enkai/src/readiness.rs`
+  - `enkai/contracts/strict_selfhost_readiness_validation_slices_v3_2_0.json`
+- Added runtime determinism verification and promoted it into strict self-host
+  release blockers:
+  - `scripts/verify_selfhost_runtime_determinism.py`
+  - `artifacts/readiness/selfhost_runtime_determinism_verify.json`
+- Tightened strict self-host readiness so `v3.2.0` now requires:
+  - runtime task/channel parity
+  - runtime instruction-surface coverage over shipped examples
+  - runtime example parity over shipped examples
+  - repeated deterministic runtime behavior for the audited simulation/event corpus
+  - runtime error taxonomy stability
+- Kept zero-Rust closure truthfully out of scope for this cut:
+  - `v3.2.0` closes the self-host runtime-core tranche
+  - remaining Rust-owned shipped dependencies remain tracked for `v3.2.1+`
+
 ## v3.1.2
 
 ### Highlights

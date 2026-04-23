@@ -1,3 +1,6 @@
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use libffi::middle::{Arg, Cif, CodePtr, Type};
+use libloading::Library;
 use memmap2::Mmap;
 use mysql::{prelude::Queryable as MyQueryable, Conn as MyConn, Opts as MyOpts, Value as MyValue};
 use postgres::{types::Type as PgType, Client as PgClient, NoTls};
@@ -5,14 +8,15 @@ use rusqlite::types::ValueRef;
 use rusqlite::Connection;
 use sha2::{Digest, Sha256};
 use std::cmp::{Ordering as CmpOrdering, Reverse};
-use std::collections::{BTreeMap, BinaryHeap, HashMap};
+use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
 use std::ffi::c_void;
 use std::fs;
 use std::net::{SocketAddr, TcpStream};
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{
     atomic::{AtomicI64, Ordering},
-    Mutex, OnceLock,
+    Arc, Mutex, OnceLock,
 };
 
 static HANDLE_LIVE_COUNT: AtomicI64 = AtomicI64::new(0);
@@ -420,6 +424,880 @@ pub unsafe extern "C" fn parse_i64(text_ptr: *const u8, text_len: usize) -> i64 
         return -1;
     };
     text.trim().parse::<i64>().unwrap_or(-1)
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid UTF-8 string buffer.
+pub unsafe extern "C" fn parse_f64(text_ptr: *const u8, text_len: usize) -> f64 {
+    let Some(text) = string_from_raw(text_ptr, text_len) else {
+        return f64::NAN;
+    };
+    text.trim().parse::<f64>().unwrap_or(f64::NAN)
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid UTF-8 string buffer.
+pub unsafe extern "C" fn canonical_builtin_global_name(
+    text_ptr: *const u8,
+    text_len: usize,
+) -> FfiSlice {
+    let Some(text) = string_from_raw(text_ptr, text_len) else {
+        return string_slice(String::new());
+    };
+    let candidate = text.rsplit("::").next().unwrap_or(text.as_str());
+    let canonical = match candidate {
+        "print" => Some("print"),
+        "policy" => Some("policy"),
+        "json" => Some("json"),
+        "sparse" => Some("sparse"),
+        "event" => Some("event"),
+        "pool" => Some("pool"),
+        "task" => Some("task"),
+        "chan" => Some("chan"),
+        "sim" => Some("sim"),
+        "spatial" => Some("spatial"),
+        "snn" => Some("snn"),
+        "agent" => Some("agent"),
+        _ => None,
+    };
+    string_slice(canonical.unwrap_or("").to_string())
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid UTF-8 string buffer.
+pub unsafe extern "C" fn qualified_name_tail(text_ptr: *const u8, text_len: usize) -> FfiSlice {
+    let Some(text) = string_from_raw(text_ptr, text_len) else {
+        return string_slice(String::new());
+    };
+    string_slice(
+        text.rsplit("::")
+            .next()
+            .unwrap_or(text.as_str())
+            .to_string(),
+    )
+}
+
+fn runtime_list_node(value: serde_json::Value, next: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({ "value": value, "next": next })
+}
+
+fn runtime_field_node(
+    name: &str,
+    value: serde_json::Value,
+    next: serde_json::Value,
+) -> serde_json::Value {
+    serde_json::json!({ "name": name, "value": value, "next": next })
+}
+
+fn raw_json_to_runtime_value(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Null => {
+            serde_json::json!({ "kind": "Null", "value": serde_json::Value::Null })
+        }
+        serde_json::Value::Bool(flag) => serde_json::json!({ "kind": "Bool", "value": flag }),
+        serde_json::Value::Number(number) => {
+            if let Some(value) = number.as_i64() {
+                serde_json::json!({ "kind": "Int", "value": value })
+            } else if let Some(value) = number.as_u64() {
+                if value <= i64::MAX as u64 {
+                    serde_json::json!({ "kind": "Int", "value": value as i64 })
+                } else {
+                    serde_json::json!({ "kind": "Float", "value": value as f64 })
+                }
+            } else {
+                serde_json::json!({ "kind": "Float", "value": number.as_f64().unwrap_or(0.0) })
+            }
+        }
+        serde_json::Value::String(text) => serde_json::json!({ "kind": "String", "value": text }),
+        serde_json::Value::Array(items) => {
+            let mut head = serde_json::Value::Null;
+            for item in items.iter().rev() {
+                head = runtime_list_node(raw_json_to_runtime_value(item), head);
+            }
+            serde_json::json!({ "kind": "List", "items": head })
+        }
+        serde_json::Value::Object(fields) => {
+            let mut head = serde_json::Value::Null;
+            for (name, value) in fields.iter().rev() {
+                head = runtime_field_node(name, raw_json_to_runtime_value(value), head);
+            }
+            serde_json::json!({ "kind": "Record", "fields": head })
+        }
+    }
+}
+
+fn runtime_list_to_raw_json(mut node: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let mut out = Vec::new();
+    while !node.is_null() {
+        let value = node
+            .get("value")
+            .ok_or_else(|| "runtime list node is missing value".to_string())?;
+        out.push(runtime_value_to_raw_json(value)?);
+        node = node.get("next").unwrap_or(&serde_json::Value::Null);
+    }
+    Ok(serde_json::Value::Array(out))
+}
+
+fn runtime_record_to_raw_json(mut node: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let mut out = serde_json::Map::new();
+    while !node.is_null() {
+        let name = node
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| "runtime record field is missing name".to_string())?;
+        let value = node
+            .get("value")
+            .ok_or_else(|| "runtime record field is missing value".to_string())?;
+        out.insert(name.to_string(), runtime_value_to_raw_json(value)?);
+        node = node.get("next").unwrap_or(&serde_json::Value::Null);
+    }
+    Ok(serde_json::Value::Object(out))
+}
+
+fn runtime_value_to_raw_json(value: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let kind = value
+        .get("kind")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "runtime value is missing kind".to_string())?;
+    match kind {
+        "Null" => Ok(serde_json::Value::Null),
+        "Bool" => value
+            .get("value")
+            .and_then(serde_json::Value::as_bool)
+            .map(serde_json::Value::Bool)
+            .ok_or_else(|| "runtime Bool is missing bool value".to_string()),
+        "Int" => value
+            .get("value")
+            .and_then(serde_json::Value::as_i64)
+            .map(|value| serde_json::json!(value))
+            .ok_or_else(|| "runtime Int is missing integer value".to_string()),
+        "Float" => value
+            .get("value")
+            .and_then(serde_json::Value::as_f64)
+            .map(|value| serde_json::json!(value))
+            .ok_or_else(|| "runtime Float is missing float value".to_string()),
+        "String" => value
+            .get("value")
+            .and_then(serde_json::Value::as_str)
+            .map(|value| serde_json::Value::String(value.to_string()))
+            .ok_or_else(|| "runtime String is missing string value".to_string()),
+        "List" => runtime_list_to_raw_json(value.get("items").unwrap_or(&serde_json::Value::Null)),
+        "Record" => {
+            runtime_record_to_raw_json(value.get("fields").unwrap_or(&serde_json::Value::Null))
+        }
+        other => Err(format!(
+            "cannot stringify runtime value kind {other} as JSON"
+        )),
+    }
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid UTF-8 JSON buffer.
+pub unsafe extern "C" fn runtime_json_parse_value(
+    text_ptr: *const u8,
+    text_len: usize,
+) -> FfiSlice {
+    let Some(text) = string_from_raw(text_ptr, text_len) else {
+        return string_slice(
+            serde_json::json!({ "ok": false, "error": "json.parse input is not valid UTF-8" })
+                .to_string(),
+        );
+    };
+    match serde_json::from_str::<serde_json::Value>(&text) {
+        Ok(value) => string_slice(
+            serde_json::json!({ "ok": true, "value": raw_json_to_runtime_value(&value) })
+                .to_string(),
+        ),
+        Err(err) => string_slice(
+            serde_json::json!({ "ok": false, "error": format!("json.parse failed: {err}") })
+                .to_string(),
+        ),
+    }
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid UTF-8 encoded runtime value JSON buffer.
+pub unsafe extern "C" fn runtime_json_stringify_value(
+    value_ptr: *const u8,
+    value_len: usize,
+) -> FfiSlice {
+    let Some(text) = string_from_raw(value_ptr, value_len) else {
+        return string_slice(
+            serde_json::json!({ "ok": false, "error": "json.stringify input is not valid UTF-8" })
+                .to_string(),
+        );
+    };
+    let value = match serde_json::from_str::<serde_json::Value>(&text) {
+        Ok(value) => value,
+        Err(err) => {
+            return string_slice(serde_json::json!({ "ok": false, "error": format!("runtime value payload is not valid JSON: {err}") }).to_string());
+        }
+    };
+    match runtime_value_to_raw_json(&value)
+        .and_then(|raw| serde_json::to_string(&raw).map_err(|err| err.to_string()))
+    {
+        Ok(encoded) => {
+            string_slice(serde_json::json!({ "ok": true, "value": encoded }).to_string())
+        }
+        Err(err) => string_slice(serde_json::json!({ "ok": false, "error": err }).to_string()),
+    }
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid UTF-8 string buffer.
+pub unsafe extern "C" fn runtime_stable_domain_hash(text_ptr: *const u8, text_len: usize) -> i64 {
+    let Some(text) = string_from_raw(text_ptr, text_len) else {
+        return 0;
+    };
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in text.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    (hash & i64::MAX as u64) as i64
+}
+
+#[no_mangle]
+pub extern "C" fn runtime_mix_rng_seed(world_seed: i64, stream_id: i64, domain_id: i64) -> i64 {
+    let mut state = (world_seed as u64)
+        ^ (stream_id as u64).rotate_left(21)
+        ^ (domain_id as u64).rotate_left(42)
+        ^ 0x9E37_79B9_7F4A_7C15;
+    if state == 0 {
+        state = 0xA076_1D64_78BD_642F;
+    }
+    state as i64
+}
+
+#[no_mangle]
+pub extern "C" fn runtime_rng_next_state(state: i64) -> i64 {
+    let mut state = state as u64;
+    state = state.wrapping_add(0x9e3779b97f4a7c15);
+    state as i64
+}
+
+#[no_mangle]
+pub extern "C" fn runtime_rng_state_to_float(state: i64) -> f64 {
+    let mut z = state as u64;
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
+    let mixed = z ^ (z >> 31);
+    let raw = mixed >> 11;
+    (raw as f64) * (1.0 / ((1u64 << 53) as f64))
+}
+
+#[no_mangle]
+pub extern "C" fn runtime_rng_state_to_int(state: i64, upper: i64) -> i64 {
+    if upper <= 0 {
+        return 0;
+    }
+    let mut z = state as u64;
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
+    ((z ^ (z >> 31)) % upper as u64) as i64
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum RuntimeBridgeType {
+    Int,
+    Float,
+    Bool,
+    String,
+    Buffer,
+    Handle,
+    Void,
+    OptionalString,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct RuntimeBridgeSignature {
+    params: Vec<RuntimeBridgeType>,
+    ret: RuntimeBridgeType,
+}
+
+#[derive(Clone)]
+struct RuntimeBridgeFunction {
+    signature: RuntimeBridgeSignature,
+    _library: Arc<Library>,
+    code_ptr: CodePtr,
+    cif: Cif,
+    free_ptr: Option<CodePtr>,
+    free_cif: Option<Cif>,
+}
+
+fn runtime_bridge_type_from_json(value: &serde_json::Value) -> Result<RuntimeBridgeType, String> {
+    let kind = value
+        .get("kind")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "runtime FFI signature missing kind".to_string())?;
+    match kind {
+        "Int" => Ok(RuntimeBridgeType::Int),
+        "Float" => Ok(RuntimeBridgeType::Float),
+        "Bool" => Ok(RuntimeBridgeType::Bool),
+        "String" => Ok(RuntimeBridgeType::String),
+        "Buffer" => Ok(RuntimeBridgeType::Buffer),
+        "Handle" => Ok(RuntimeBridgeType::Handle),
+        "Void" => Ok(RuntimeBridgeType::Void),
+        "Optional" => {
+            let inner = value
+                .get("inner")
+                .ok_or_else(|| "runtime FFI optional signature missing inner".to_string())?;
+            match runtime_bridge_type_from_json(inner)? {
+                RuntimeBridgeType::String => Ok(RuntimeBridgeType::OptionalString),
+                _ => Err("runtime FFI supports Optional(String) only".to_string()),
+            }
+        }
+        other => Err(format!("runtime FFI unsupported signature kind {}", other)),
+    }
+}
+
+fn runtime_bridge_signature_from_json(
+    value: &serde_json::Value,
+) -> Result<RuntimeBridgeSignature, String> {
+    let params = value
+        .get("params")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "runtime FFI signature missing params".to_string())?;
+    let mut out_params = Vec::with_capacity(params.len());
+    for param in params {
+        out_params.push(runtime_bridge_type_from_json(param)?);
+    }
+    let ret = value
+        .get("ret")
+        .ok_or_else(|| "runtime FFI signature missing ret".to_string())?;
+    Ok(RuntimeBridgeSignature {
+        params: out_params,
+        ret: runtime_bridge_type_from_json(ret)?,
+    })
+}
+
+fn runtime_bridge_param_types(param: &RuntimeBridgeType) -> Vec<Type> {
+    match param {
+        RuntimeBridgeType::Int => vec![Type::i64()],
+        RuntimeBridgeType::Float => vec![Type::f64()],
+        RuntimeBridgeType::Bool => vec![Type::u8()],
+        RuntimeBridgeType::String
+        | RuntimeBridgeType::Buffer
+        | RuntimeBridgeType::OptionalString => {
+            vec![Type::pointer(), Type::usize()]
+        }
+        RuntimeBridgeType::Handle => vec![Type::usize()],
+        RuntimeBridgeType::Void => Vec::new(),
+    }
+}
+
+fn runtime_bridge_return_type(ret: &RuntimeBridgeType) -> Type {
+    match ret {
+        RuntimeBridgeType::Int => Type::i64(),
+        RuntimeBridgeType::Float => Type::f64(),
+        RuntimeBridgeType::Bool => Type::u8(),
+        RuntimeBridgeType::Handle => Type::usize(),
+        RuntimeBridgeType::Void => Type::void(),
+        RuntimeBridgeType::String
+        | RuntimeBridgeType::Buffer
+        | RuntimeBridgeType::OptionalString => {
+            Type::structure(vec![Type::pointer(), Type::usize()])
+        }
+    }
+}
+
+fn runtime_library_candidates(name: &str) -> Vec<PathBuf> {
+    let path = Path::new(name);
+    if path.is_absolute() || name.contains('\\') || name.contains('/') {
+        return vec![path.to_path_buf()];
+    }
+    let mut names = vec![name.to_string()];
+    let ext = if cfg!(target_os = "windows") {
+        "dll"
+    } else if cfg!(target_os = "macos") {
+        "dylib"
+    } else {
+        "so"
+    };
+    if path.extension().is_none() {
+        names.push(format!("{}.{}", name, ext));
+        if !cfg!(target_os = "windows") && !name.starts_with("lib") {
+            names.push(format!("lib{}.{}", name, ext));
+        }
+    }
+    let mut unique_names = HashSet::new();
+    names.retain(|entry| unique_names.insert(entry.clone()));
+
+    let mut dirs = Vec::new();
+    let mut seen_dirs = HashSet::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            for candidate in [dir.to_path_buf(), dir.join("deps")] {
+                if seen_dirs.insert(candidate.clone()) {
+                    dirs.push(candidate);
+                }
+            }
+            if let Some(parent) = dir.parent() {
+                for candidate in [parent.to_path_buf(), parent.join("deps")] {
+                    if seen_dirs.insert(candidate.clone()) {
+                        dirs.push(candidate);
+                    }
+                }
+            }
+        }
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        if seen_dirs.insert(cwd.clone()) {
+            dirs.push(cwd);
+        }
+    }
+
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for dir in dirs {
+        for candidate_name in &names {
+            let candidate = dir.join(candidate_name);
+            if seen.insert(candidate.clone()) {
+                out.push(candidate);
+            }
+        }
+    }
+    for candidate_name in names {
+        let candidate = PathBuf::from(candidate_name);
+        if seen.insert(candidate.clone()) {
+            out.push(candidate);
+        }
+    }
+    out
+}
+
+fn runtime_load_library(name: &str) -> Result<Arc<Library>, String> {
+    let mut last_err = None;
+    for candidate in runtime_library_candidates(name) {
+        match unsafe { Library::new(&candidate) } {
+            Ok(lib) => return Ok(Arc::new(lib)),
+            Err(err) => last_err = Some(format!("{} ({})", candidate.display(), err)),
+        }
+    }
+    Err(format!(
+        "runtime FFI failed to load library '{}': {}",
+        name,
+        last_err.unwrap_or_else(|| "not found".to_string())
+    ))
+}
+
+fn runtime_load_symbol(lib: &Library, symbol: &str) -> Result<*const c_void, String> {
+    unsafe {
+        lib.get::<*const c_void>(symbol.as_bytes())
+            .map(|symbol_ref| *symbol_ref)
+            .map_err(|err| format!("runtime FFI failed to resolve symbol '{}': {}", symbol, err))
+    }
+}
+
+fn runtime_bind_bridge_function(
+    library: &str,
+    name: &str,
+    signature_json: &serde_json::Value,
+) -> Result<RuntimeBridgeFunction, String> {
+    let signature = runtime_bridge_signature_from_json(signature_json)?;
+    let library_handle = runtime_load_library(library)?;
+    let symbol = runtime_load_symbol(&library_handle, name)?;
+    let mut arg_types = Vec::new();
+    for param in &signature.params {
+        arg_types.extend(runtime_bridge_param_types(param));
+    }
+    let cif = Cif::new(arg_types, runtime_bridge_return_type(&signature.ret));
+    let free_ptr = match signature.ret {
+        RuntimeBridgeType::String
+        | RuntimeBridgeType::Buffer
+        | RuntimeBridgeType::OptionalString => Some(CodePtr::from_ptr(runtime_load_symbol(
+            &library_handle,
+            "enkai_free",
+        )?)),
+        _ => None,
+    };
+    let free_cif = free_ptr.map(|_| Cif::new(vec![Type::pointer(), Type::usize()], Type::void()));
+    Ok(RuntimeBridgeFunction {
+        signature,
+        _library: library_handle,
+        code_ptr: CodePtr::from_ptr(symbol),
+        cif,
+        free_ptr,
+        free_cif,
+    })
+}
+
+fn runtime_value_kind(value: &serde_json::Value) -> Result<&str, String> {
+    value
+        .get("kind")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "runtime FFI value missing kind".to_string())
+}
+
+fn runtime_args_from_list(
+    mut current: &serde_json::Value,
+) -> Result<Vec<serde_json::Value>, String> {
+    let mut out = Vec::new();
+    while !current.is_null() {
+        let value = current
+            .get("value")
+            .cloned()
+            .ok_or_else(|| "runtime FFI args missing value".to_string())?;
+        out.push(value);
+        current = current.get("next").unwrap_or(&serde_json::Value::Null);
+    }
+    Ok(out)
+}
+
+fn runtime_int_json(value: i64) -> serde_json::Value {
+    serde_json::json!({ "kind": "Int", "value": value })
+}
+
+fn runtime_float_json(value: f64) -> serde_json::Value {
+    serde_json::json!({ "kind": "Float", "value": value })
+}
+
+fn runtime_bool_json(value: bool) -> serde_json::Value {
+    serde_json::json!({ "kind": "Bool", "value": value })
+}
+
+fn runtime_string_json(value: String) -> serde_json::Value {
+    serde_json::json!({ "kind": "String", "value": value })
+}
+
+fn runtime_buffer_json(bytes: &[u8]) -> serde_json::Value {
+    serde_json::json!({
+        "kind": "Buffer",
+        "encoding": "base64",
+        "value": BASE64.encode(bytes),
+        "len": bytes.len()
+    })
+}
+
+fn runtime_handle_json(ptr: *mut c_void) -> serde_json::Value {
+    serde_json::json!({
+        "kind": "Handle",
+        "value": format!("{:x}", ptr as usize)
+    })
+}
+
+fn runtime_null_json() -> serde_json::Value {
+    serde_json::json!({ "kind": "Null", "value": serde_json::Value::Null })
+}
+
+fn runtime_decode_buffer(arg: &serde_json::Value) -> Result<Vec<u8>, String> {
+    if runtime_value_kind(arg)? != "Buffer" {
+        return Err("runtime FFI arg expects Buffer".to_string());
+    }
+    let encoding = arg
+        .get("encoding")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("base64");
+    if encoding != "base64" {
+        return Err(format!(
+            "runtime FFI Buffer arg uses unsupported encoding {}",
+            encoding
+        ));
+    }
+    let text = arg
+        .get("value")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "runtime FFI Buffer arg missing value".to_string())?;
+    BASE64
+        .decode(text)
+        .map_err(|err| format!("runtime FFI Buffer arg is not valid base64: {}", err))
+}
+
+fn runtime_decode_handle(arg: &serde_json::Value) -> Result<*mut c_void, String> {
+    if runtime_value_kind(arg)? != "Handle" {
+        return Err("runtime FFI arg expects Handle".to_string());
+    }
+    let text = arg
+        .get("value")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "runtime FFI Handle arg missing value".to_string())?;
+    let raw = usize::from_str_radix(text, 16)
+        .map_err(|err| format!("runtime FFI Handle arg is not valid hex: {}", err))?;
+    Ok(raw as *mut c_void)
+}
+
+impl RuntimeBridgeFunction {
+    fn free_slice(&self, ptr: *mut u8, len: usize) -> Result<(), String> {
+        let Some(free_ptr) = self.free_ptr else {
+            return Err("runtime FFI string return requires enkai_free".to_string());
+        };
+        let Some(free_cif) = &self.free_cif else {
+            return Err("runtime FFI string return missing free CIF".to_string());
+        };
+        let ptr_args = [ptr as *const c_void];
+        let len_args = [len];
+        let args = vec![Arg::new(&ptr_args[0]), Arg::new(&len_args[0])];
+        let _: () = unsafe { free_cif.call(free_ptr, &args) };
+        Ok(())
+    }
+
+    fn call(&self, args: &[serde_json::Value]) -> Result<serde_json::Value, String> {
+        if args.len() != self.signature.params.len() {
+            return Err(format!(
+                "runtime FFI arity mismatch: expected {}, found {}",
+                self.signature.params.len(),
+                args.len()
+            ));
+        }
+
+        let mut i64_args = Vec::new();
+        let mut f64_args = Vec::new();
+        let mut u8_args = Vec::new();
+        let mut usize_args = Vec::new();
+        let mut ptr_args: Vec<*const c_void> = Vec::new();
+        let mut string_args: Vec<Vec<u8>> = Vec::new();
+        let mut buffer_args: Vec<Vec<u8>> = Vec::new();
+        let mut ffi_args = Vec::new();
+
+        for (arg, param) in args.iter().zip(self.signature.params.iter()) {
+            match param {
+                RuntimeBridgeType::Int => {
+                    if runtime_value_kind(arg)? != "Int" {
+                        return Err("runtime FFI arg expects Int".to_string());
+                    }
+                    let value = arg
+                        .get("value")
+                        .and_then(serde_json::Value::as_i64)
+                        .ok_or_else(|| "runtime FFI Int arg missing value".to_string())?;
+                    i64_args.push(value);
+                    ffi_args.push(Arg::new(i64_args.last().unwrap()));
+                }
+                RuntimeBridgeType::Float => {
+                    let value = match runtime_value_kind(arg)? {
+                        "Float" => arg
+                            .get("value")
+                            .and_then(serde_json::Value::as_f64)
+                            .ok_or_else(|| "runtime FFI Float arg missing value".to_string())?,
+                        "Int" => arg
+                            .get("value")
+                            .and_then(serde_json::Value::as_i64)
+                            .ok_or_else(|| "runtime FFI Int arg missing value".to_string())?
+                            as f64,
+                        _ => return Err("runtime FFI arg expects Float".to_string()),
+                    };
+                    f64_args.push(value);
+                    ffi_args.push(Arg::new(f64_args.last().unwrap()));
+                }
+                RuntimeBridgeType::Bool => {
+                    if runtime_value_kind(arg)? != "Bool" {
+                        return Err("runtime FFI arg expects Bool".to_string());
+                    }
+                    let value = if arg
+                        .get("value")
+                        .and_then(serde_json::Value::as_bool)
+                        .ok_or_else(|| "runtime FFI Bool arg missing value".to_string())?
+                    {
+                        1u8
+                    } else {
+                        0u8
+                    };
+                    u8_args.push(value);
+                    ffi_args.push(Arg::new(u8_args.last().unwrap()));
+                }
+                RuntimeBridgeType::String => {
+                    if runtime_value_kind(arg)? != "String" {
+                        return Err("runtime FFI arg expects String".to_string());
+                    }
+                    let text = arg
+                        .get("value")
+                        .and_then(serde_json::Value::as_str)
+                        .ok_or_else(|| "runtime FFI String arg missing value".to_string())?;
+                    string_args.push(text.as_bytes().to_vec());
+                    let bytes = string_args.last().unwrap();
+                    ptr_args.push(bytes.as_ptr() as *const c_void);
+                    usize_args.push(bytes.len());
+                    ffi_args.push(Arg::new(ptr_args.last().unwrap()));
+                    ffi_args.push(Arg::new(usize_args.last().unwrap()));
+                }
+                RuntimeBridgeType::Buffer => {
+                    buffer_args.push(runtime_decode_buffer(arg)?);
+                    let bytes = buffer_args.last().unwrap();
+                    ptr_args.push(bytes.as_ptr() as *const c_void);
+                    usize_args.push(bytes.len());
+                    ffi_args.push(Arg::new(ptr_args.last().unwrap()));
+                    ffi_args.push(Arg::new(usize_args.last().unwrap()));
+                }
+                RuntimeBridgeType::Handle => {
+                    let value = runtime_decode_handle(arg)?;
+                    usize_args.push(value as usize);
+                    ffi_args.push(Arg::new(usize_args.last().unwrap()));
+                }
+                RuntimeBridgeType::OptionalString => match runtime_value_kind(arg)? {
+                    "Null" => {
+                        ptr_args.push(std::ptr::null());
+                        usize_args.push(0);
+                        ffi_args.push(Arg::new(ptr_args.last().unwrap()));
+                        ffi_args.push(Arg::new(usize_args.last().unwrap()));
+                    }
+                    "String" => {
+                        let text = arg
+                            .get("value")
+                            .and_then(serde_json::Value::as_str)
+                            .ok_or_else(|| "runtime FFI String arg missing value".to_string())?;
+                        string_args.push(text.as_bytes().to_vec());
+                        let bytes = string_args.last().unwrap();
+                        ptr_args.push(bytes.as_ptr() as *const c_void);
+                        usize_args.push(bytes.len());
+                        ffi_args.push(Arg::new(ptr_args.last().unwrap()));
+                        ffi_args.push(Arg::new(usize_args.last().unwrap()));
+                    }
+                    _ => return Err("runtime FFI arg expects String?".to_string()),
+                },
+                RuntimeBridgeType::Void => {
+                    return Err("runtime FFI parameter cannot be Void".to_string());
+                }
+            }
+        }
+
+        match self.signature.ret {
+            RuntimeBridgeType::Int => {
+                let value: i64 = unsafe { self.cif.call(self.code_ptr, &ffi_args) };
+                Ok(runtime_int_json(value))
+            }
+            RuntimeBridgeType::Float => {
+                let value: f64 = unsafe { self.cif.call(self.code_ptr, &ffi_args) };
+                Ok(runtime_float_json(value))
+            }
+            RuntimeBridgeType::Bool => {
+                let value: u8 = unsafe { self.cif.call(self.code_ptr, &ffi_args) };
+                Ok(runtime_bool_json(value != 0))
+            }
+            RuntimeBridgeType::Handle => {
+                let value: usize = unsafe { self.cif.call(self.code_ptr, &ffi_args) };
+                if value == 0 {
+                    return Err("runtime FFI returned null handle".to_string());
+                }
+                Ok(runtime_handle_json(value as *mut c_void))
+            }
+            RuntimeBridgeType::Void => {
+                let _: () = unsafe { self.cif.call(self.code_ptr, &ffi_args) };
+                Ok(runtime_null_json())
+            }
+            RuntimeBridgeType::String => {
+                let slice: FfiSlice = unsafe { self.cif.call(self.code_ptr, &ffi_args) };
+                if slice.ptr.is_null() {
+                    return Err("runtime FFI returned null string".to_string());
+                }
+                let bytes = unsafe { std::slice::from_raw_parts(slice.ptr, slice.len) }.to_vec();
+                self.free_slice(slice.ptr, slice.len)?;
+                let text = String::from_utf8(bytes)
+                    .map_err(|_| "runtime FFI returned invalid UTF-8".to_string())?;
+                Ok(runtime_string_json(text))
+            }
+            RuntimeBridgeType::Buffer => {
+                let slice: FfiSlice = unsafe { self.cif.call(self.code_ptr, &ffi_args) };
+                if slice.ptr.is_null() && slice.len != 0 {
+                    return Err("runtime FFI returned invalid buffer".to_string());
+                }
+                let bytes = if slice.ptr.is_null() {
+                    Vec::new()
+                } else {
+                    unsafe { std::slice::from_raw_parts(slice.ptr, slice.len) }.to_vec()
+                };
+                if !slice.ptr.is_null() {
+                    self.free_slice(slice.ptr, slice.len)?;
+                }
+                Ok(runtime_buffer_json(&bytes))
+            }
+            RuntimeBridgeType::OptionalString => {
+                let slice: FfiSlice = unsafe { self.cif.call(self.code_ptr, &ffi_args) };
+                if slice.ptr.is_null() {
+                    return Ok(runtime_null_json());
+                }
+                let bytes = unsafe { std::slice::from_raw_parts(slice.ptr, slice.len) }.to_vec();
+                self.free_slice(slice.ptr, slice.len)?;
+                let text = String::from_utf8(bytes)
+                    .map_err(|_| "runtime FFI returned invalid UTF-8".to_string())?;
+                Ok(runtime_string_json(text))
+            }
+        }
+    }
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid UTF-8 JSON payload.
+pub unsafe extern "C" fn runtime_ffi_invoke(
+    payload_ptr: *const u8,
+    payload_len: usize,
+) -> FfiSlice {
+    let Some(payload_text) = string_from_raw(payload_ptr, payload_len) else {
+        return string_slice(
+            serde_json::json!({
+                "ok": false,
+                "error": "runtime FFI payload is not valid UTF-8"
+            })
+            .to_string(),
+        );
+    };
+    let payload: serde_json::Value = match serde_json::from_str(&payload_text) {
+        Ok(value) => value,
+        Err(err) => {
+            return string_slice(
+                serde_json::json!({
+                    "ok": false,
+                    "error": format!("runtime FFI payload is not valid JSON: {}", err)
+                })
+                .to_string(),
+            )
+        }
+    };
+    let library = match payload.get("library").and_then(serde_json::Value::as_str) {
+        Some(value) => value,
+        None => {
+            return string_slice(
+                serde_json::json!({
+                    "ok": false,
+                    "error": "runtime FFI payload missing library"
+                })
+                .to_string(),
+            )
+        }
+    };
+    let name = match payload.get("name").and_then(serde_json::Value::as_str) {
+        Some(value) => value,
+        None => {
+            return string_slice(
+                serde_json::json!({
+                    "ok": false,
+                    "error": "runtime FFI payload missing name"
+                })
+                .to_string(),
+            )
+        }
+    };
+    let signature_json = match payload.get("signature") {
+        Some(value) => value,
+        None => {
+            return string_slice(
+                serde_json::json!({
+                    "ok": false,
+                    "error": "runtime FFI payload missing signature"
+                })
+                .to_string(),
+            )
+        }
+    };
+    let args = match runtime_args_from_list(payload.get("args").unwrap_or(&serde_json::Value::Null))
+    {
+        Ok(args) => args,
+        Err(err) => {
+            return string_slice(serde_json::json!({ "ok": false, "error": err }).to_string())
+        }
+    };
+    let response = match runtime_bind_bridge_function(library, name, signature_json)
+        .and_then(|bridge| bridge.call(&args))
+    {
+        Ok(value) => serde_json::json!({ "ok": true, "value": value }),
+        Err(err) => serde_json::json!({ "ok": false, "error": err }),
+    };
+    string_slice(response.to_string())
 }
 
 #[no_mangle]
@@ -4411,6 +5289,220 @@ mod tests {
     #[test]
     fn add_i64_overflow_wraps() {
         assert_eq!(add_i64(i64::MAX, 1), i64::MIN);
+    }
+
+    #[test]
+    fn parse_f64_roundtrip() {
+        let text = b"3.75";
+        let value = unsafe { parse_f64(text.as_ptr(), text.len()) };
+        assert!((value - 3.75).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn canonical_builtin_global_name_maps_module_aliases() {
+        let text = b"examples::adam0_100::sim";
+        let out = unsafe { canonical_builtin_global_name(text.as_ptr(), text.len()) };
+        let value = string_from_raw(out.ptr, out.len).expect("result utf8");
+        unsafe { enkai_free(out.ptr, out.len) };
+        assert_eq!(value, "sim");
+    }
+
+    #[test]
+    fn canonical_builtin_global_name_ignores_non_builtin_suffixes() {
+        let text = b"examples::adam0_100::main";
+        let out = unsafe { canonical_builtin_global_name(text.as_ptr(), text.len()) };
+        let value = string_from_raw(out.ptr, out.len).expect("result utf8");
+        unsafe { enkai_free(out.ptr, out.len) };
+        assert_eq!(value, "");
+    }
+
+    #[test]
+    fn qualified_name_tail_extracts_last_segment() {
+        let text = b"examples::adam0_100::build_connectivity";
+        let out = unsafe { qualified_name_tail(text.as_ptr(), text.len()) };
+        let value = string_from_raw(out.ptr, out.len).expect("result utf8");
+        unsafe { enkai_free(out.ptr, out.len) };
+        assert_eq!(value, "build_connectivity");
+    }
+
+    #[test]
+    fn runtime_json_parse_value_wraps_nested_json() {
+        let text = br#"{"team":"red","scores":[10,2.5,true,null]}"#;
+        let out = unsafe { runtime_json_parse_value(text.as_ptr(), text.len()) };
+        let result_text = string_from_raw(out.ptr, out.len).expect("result utf8");
+        unsafe { enkai_free(out.ptr, out.len) };
+        let result: serde_json::Value = serde_json::from_str(&result_text).expect("result json");
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["value"]["kind"], "Record");
+        let mut node = &result["value"]["fields"];
+        let mut found_team = false;
+        while !node.is_null() {
+            if node["name"] == "team" {
+                assert_eq!(node["value"]["kind"], "String");
+                assert_eq!(node["value"]["value"], "red");
+                found_team = true;
+            }
+            node = node.get("next").unwrap_or(&serde_json::Value::Null);
+        }
+        assert!(found_team);
+    }
+
+    #[test]
+    fn runtime_json_stringify_value_unwraps_nested_runtime_value() {
+        let value = serde_json::json!({
+            "kind": "Record",
+            "fields": {
+                "name": "team",
+                "value": { "kind": "String", "value": "red" },
+                "next": {
+                    "name": "scores",
+                    "value": {
+                        "kind": "List",
+                        "items": {
+                            "value": { "kind": "Int", "value": 10 },
+                            "next": {
+                                "value": { "kind": "Bool", "value": true },
+                                "next": serde_json::Value::Null
+                            }
+                        }
+                    },
+                    "next": serde_json::Value::Null
+                }
+            }
+        })
+        .to_string();
+        let out = unsafe { runtime_json_stringify_value(value.as_ptr(), value.len()) };
+        let result_text = string_from_raw(out.ptr, out.len).expect("result utf8");
+        unsafe { enkai_free(out.ptr, out.len) };
+        let result: serde_json::Value = serde_json::from_str(&result_text).expect("result json");
+        assert_eq!(result["ok"], true);
+        let raw: serde_json::Value =
+            serde_json::from_str(result["value"].as_str().expect("encoded json"))
+                .expect("raw json");
+        assert_eq!(raw["team"], "red");
+        assert_eq!(raw["scores"][0], 10);
+        assert_eq!(raw["scores"][1], true);
+    }
+
+    #[test]
+    fn runtime_ffi_invoke_calls_supported_parse_i64() {
+        let payload = serde_json::json!({
+            "library": "enkai_native",
+            "name": "parse_i64",
+            "signature": {
+                "params": [{ "kind": "String" }],
+                "ret": { "kind": "Int" }
+            },
+            "args": {
+                "value": { "kind": "String", "value": "12" },
+                "next": serde_json::Value::Null
+            }
+        })
+        .to_string();
+        let out = unsafe { runtime_ffi_invoke(payload.as_ptr(), payload.len()) };
+        let text = string_from_raw(out.ptr, out.len).expect("result utf8");
+        unsafe { enkai_free(out.ptr, out.len) };
+        let value: serde_json::Value = serde_json::from_str(&text).expect("result json");
+        assert_eq!(value["ok"], true);
+        assert_eq!(value["value"]["kind"], "Int");
+        assert_eq!(value["value"]["value"], 12);
+    }
+
+    #[test]
+    fn runtime_ffi_invoke_calls_supported_buffer_signature() {
+        let encode = serde_json::json!({
+            "library": "enkai_native",
+            "name": "buffer_from_string",
+            "signature": {
+                "params": [{ "kind": "String" }],
+                "ret": { "kind": "Buffer" }
+            },
+            "args": {
+                "value": { "kind": "String", "value": "12" },
+                "next": serde_json::Value::Null
+            }
+        })
+        .to_string();
+        let out = unsafe { runtime_ffi_invoke(encode.as_ptr(), encode.len()) };
+        let text = string_from_raw(out.ptr, out.len).expect("result utf8");
+        unsafe { enkai_free(out.ptr, out.len) };
+        let value: serde_json::Value = serde_json::from_str(&text).expect("result json");
+        assert_eq!(value["ok"], true);
+        assert_eq!(value["value"]["kind"], "Buffer");
+
+        let decode = serde_json::json!({
+            "library": "enkai_native",
+            "name": "buffer_to_string",
+            "signature": {
+                "params": [{ "kind": "Buffer" }],
+                "ret": { "kind": "Optional", "inner": { "kind": "String" } }
+            },
+            "args": {
+                "value": value["value"].clone(),
+                "next": serde_json::Value::Null
+            }
+        })
+        .to_string();
+        let out = unsafe { runtime_ffi_invoke(decode.as_ptr(), decode.len()) };
+        let text = string_from_raw(out.ptr, out.len).expect("result utf8");
+        unsafe { enkai_free(out.ptr, out.len) };
+        let value: serde_json::Value = serde_json::from_str(&text).expect("result json");
+        assert_eq!(value["ok"], true);
+        assert_eq!(value["value"]["kind"], "String");
+        assert_eq!(value["value"]["value"], "12");
+    }
+
+    #[test]
+    fn runtime_ffi_invoke_calls_supported_handle_signature() {
+        let create = serde_json::json!({
+            "library": "enkai_native",
+            "name": "handle_new",
+            "signature": {
+                "params": [{ "kind": "Int" }],
+                "ret": { "kind": "Handle" }
+            },
+            "args": {
+                "value": { "kind": "Int", "value": 9 },
+                "next": serde_json::Value::Null
+            }
+        })
+        .to_string();
+        let out = unsafe { runtime_ffi_invoke(create.as_ptr(), create.len()) };
+        let text = string_from_raw(out.ptr, out.len).expect("result utf8");
+        unsafe { enkai_free(out.ptr, out.len) };
+        let value: serde_json::Value = serde_json::from_str(&text).expect("result json");
+        assert_eq!(value["ok"], true);
+        assert_eq!(value["value"]["kind"], "Handle");
+        assert!(value["value"]["value"].as_str().is_some());
+    }
+
+    #[test]
+    fn runtime_ffi_invoke_rejects_unsupported_optional_handle_signature() {
+        let payload = serde_json::json!({
+            "library": "enkai_native",
+            "name": "handle_maybe_new",
+            "signature": {
+                "params": [{ "kind": "Bool" }, { "kind": "Int" }],
+                "ret": { "kind": "Optional", "inner": { "kind": "Handle" } }
+            },
+            "args": {
+                "value": { "kind": "Bool", "value": true },
+                "next": {
+                    "value": { "kind": "Int", "value": 9 },
+                    "next": serde_json::Value::Null
+                }
+            }
+        })
+        .to_string();
+        let out = unsafe { runtime_ffi_invoke(payload.as_ptr(), payload.len()) };
+        let text = string_from_raw(out.ptr, out.len).expect("result utf8");
+        unsafe { enkai_free(out.ptr, out.len) };
+        let value: serde_json::Value = serde_json::from_str(&text).expect("result json");
+        assert_eq!(value["ok"], false);
+        assert!(value["error"]
+            .as_str()
+            .expect("error string")
+            .contains("Optional(String) only"));
     }
 
     #[test]

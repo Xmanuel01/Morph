@@ -71,6 +71,11 @@ def parse_args() -> argparse.Namespace:
         help="Validation evidence source directory",
     )
     parser.add_argument(
+        "--install-dir",
+        default="artifacts/install_bundle_smoke",
+        help="Install bundle smoke / closure evidence source directory",
+    )
+    parser.add_argument(
         "--out-dir",
         default="artifacts/release",
         help="Output directory for evidence bundle",
@@ -192,6 +197,7 @@ def main() -> int:
     registry_dir = (root / args.registry_dir).resolve()
     grpc_dir = (root / args.grpc_dir).resolve()
     validation_dir = (root / args.validation_dir).resolve()
+    install_dir = (root / args.install_dir).resolve()
     out_root = (root / args.out_dir / f"v{version}").resolve()
     out_root.mkdir(parents=True, exist_ok=True)
 
@@ -233,6 +239,9 @@ def main() -> int:
         "litec_mainline_ci_report.json",
         "litec_release_ci_report.json",
         "litec_frontend_audit_report.json",
+        "runtime_audit_tasks_channels/litec_runtime_audit_report.json",
+        "runtime_audit_examples/litec_runtime_audit_report.json",
+        "runtime_error_taxonomy/litec_runtime_error_audit_report.json",
     ]
     if selfhost_dir.is_dir():
         if args.strict:
@@ -260,6 +269,7 @@ def main() -> int:
         "selfhost_bootstrap_v3_1_1.json",
         "selfhost_negative_v3_1_1.json",
         "selfhost_audited_surface_v3_1_1.json",
+        "selfhost_runtime_error_taxonomy_v3_2_0.json",
     ]
     if contracts_dir.is_dir():
         if args.strict:
@@ -367,6 +377,25 @@ def main() -> int:
     elif args.strict:
         raise RuntimeError(
             f"validation directory not found for strict evidence mode: {validation_dir}"
+        )
+
+    required_install = [
+        "install_bundle_smoke.json",
+        "zero_rust_closure.json",
+    ]
+    if install_dir.is_dir():
+        if args.strict:
+            install_files = ensure_required_files(
+                install_dir, required_install, "install bundle evidence"
+            )
+        else:
+            install_files = sorted(path for path in install_dir.glob("*.json") if path.is_file())
+        file_rows.extend(
+            copy_files(root, install_dir, out_root / "install", "install", install_files)
+        )
+    elif args.strict:
+        raise RuntimeError(
+            f"install bundle directory not found for strict evidence mode: {install_dir}"
         )
 
     required_sim = [

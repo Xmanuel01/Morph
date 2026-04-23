@@ -39,6 +39,13 @@ These scripts:
 - verify checksum (if available)
 - install to a safe folder
 - add that folder to PATH
+- do not require `cargo` or `rustc` on the target machine
+- support local-bundle proof mode via:
+  - PowerShell: `-BundlePath <zip> -InstallDir <dir> -NoPathUpdate`
+  - shell: `--bundle-path <tar.gz> --install-dir <dir> --no-path-update`
+- support uninstall proof mode via:
+  - PowerShell: `-Uninstall -InstallDir <dir>`
+  - shell: `--uninstall --install-dir <dir>`
 
 ### Option B: Manual install
 
@@ -51,6 +58,7 @@ These scripts:
 
 ```
 enkai --version
+enkai install-diagnostics --json
 ```
 
 ## 3) Write your first program
@@ -77,6 +85,20 @@ enkai run hello.enk
 2) Type-check
 3) Compile to bytecode
 4) Execute in the VM
+
+The installed bundle is intended to be operational on a machine that does not have Rust installed.
+Rust remains a repo-side build/bootstrap dependency only while the zero-Rust self-host line is still closing.
+`enkai install-diagnostics` reports whether the bundle layout is intact, whether the bundled stdlib/examples are present, and whether `cargo`/`rustc` are visible on the current PATH.
+The install proof for the `v3.2.1` tranche is contract-driven:
+- `enkai/contracts/install_bundle_v3_2_1.json`
+- `enkai/contracts/zero_rust_closure_v3_2_1.json`
+and emits:
+- `artifacts/install_bundle_smoke/install_bundle_manifest.json`
+- `artifacts/install_bundle_smoke/install_bundle_smoke.json`
+- `artifacts/install_bundle_smoke/zero_rust_closure.json`
+- `artifacts/install_bundle_smoke/install_flow_proof.json`
+Release archives also embed `bundle_manifest.json`, and `scripts/verify_release_artifact.py`
+checks that manifest against the archive checksum, target OS, architecture, and version.
 
 ## 5) Building from source (developers)
 
@@ -114,14 +136,9 @@ Recommended approach:
 
 If the secrets are not set, signing is skipped.
 
-## 7) Notes on FFI
+## 8) Notes on Native Extensions
 
-Native-backed modules require the native library:
-
-```
-cargo build -p enkai_native --release
-```
-
-Ensure `enkai_native.dll` is in the current directory or on PATH when running.
+Optional native-backed modules require the matching companion library in the install directory or on PATH.
+The base language toolchain (`enkai --version`, compile, run, bundled stdlib/examples) is validated as an install bundle without requiring the Rust toolchain on the target machine.
 
 

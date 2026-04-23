@@ -12,7 +12,15 @@
         "selfhost-frontend-examples",
         "selfhost-frontend-bootstrap",
         "selfhost-frontend-negative",
-        "selfhost-frontend-audited-surface"
+        "selfhost-frontend-audited-surface",
+        "selfhost-runtime-tasks-channels",
+        "selfhost-runtime-coverage",
+        "selfhost-runtime-examples",
+        "selfhost-runtime-determinism",
+        "selfhost-runtime-error-taxonomy"
+        ,
+        "install-bundle-smoke",
+        "install-flow-proof"
       ]
     },
     "hardware_evidence": {
@@ -28,6 +36,7 @@
         "enkai/contracts/selfhost_bootstrap_v3_1_1.json",
         "enkai/contracts/selfhost_negative_v3_1_1.json",
         "enkai/contracts/selfhost_audited_surface_v3_1_1.json",
+        "enkai/contracts/selfhost_runtime_error_taxonomy_v3_2_0.json",
         "artifacts/readiness/strict_selfhost.json",
         "artifacts/readiness/strict_selfhost_dependency_inventory.json",
         "artifacts/readiness/selfhost_frontier_verify.json",
@@ -41,6 +50,21 @@
         "artifacts/selfhost/audited_surface/litec_selfhost_ci_report.json",
         "artifacts/selfhost/audited_surface/litec_replace_check_report.json",
         "artifacts/selfhost/audited_surface/litec_mainline_ci_report.json",
+        "artifacts/selfhost/runtime_audit_tasks_channels/litec_runtime_audit_report.json",
+        "artifacts/selfhost/runtime_coverage_examples/litec_runtime_coverage_report.json",
+        "artifacts/selfhost/runtime_audit_examples/litec_runtime_audit_report.json",
+        "artifacts/readiness/selfhost_runtime_determinism_verify.json",
+        "artifacts/selfhost/runtime_error_taxonomy/litec_runtime_error_audit_report.json",
+        "enkai/contracts/install_bundle_v3_2_1.json",
+        "enkai/contracts/zero_rust_closure_v3_2_1.json",
+        "enkai/contracts/install_flow_v3_2_1.json",
+        "enkai/contracts/install_flow_v3_2_1_windows.json",
+        "enkai/contracts/install_flow_v3_2_1_linux.json",
+        "artifacts/install_bundle_smoke/install_bundle_manifest.json",
+        "artifacts/install_bundle_smoke/install_bundle_smoke.json",
+        "artifacts/install_bundle_smoke/zero_rust_closure.json",
+        "artifacts/install_bundle_smoke/install_flow_proof.json",
+        "artifacts/install_bundle_smoke/release_artifact_proof.json",
         "artifacts/readiness/strict_selfhost_blockers.json",
         "artifacts/release/v<version>/manifest.json"
       ]

@@ -673,7 +673,15 @@ fn infer_expr_type_key(pkg: Record, module_info: Record, scope: Record?, expr: R
         return expr.literal_kind
     ::
     if expr.kind == "Ident" ::
-        return scope_type_key(scope, expr.name)
+        let scoped_type := scope_type_key(scope, expr.name)
+        if scoped_type != "" ::
+            return scoped_type
+        ::
+        let function_decl := find_visible_function_record(pkg, module_info, expr.name)
+        if function_decl != none ::
+            return "Function"
+        ::
+        return ""
     ::
     if expr.kind == "Call" ::
         return infer_call_type_key(pkg, module_info, scope, expr)
@@ -1082,7 +1090,7 @@ fn validate_expr_type_semantics(pkg: Record, module_info: Record, scope: Record?
                 ::
                 if expected != "" ::
                     if expected != item_type ::
-                        return "selfhost semantic list element type mismatch"
+                        expected := ""
                     ::
                 ::
             ::
@@ -2106,8 +2114,16 @@ fn main() -> Int ::
         summary.input := input?
         summary.functions := parsed.functions
         summary.items := parsed.items
-        io.stdout_write_text(json.stringify(summary))
-        io.stdout_write_text("\n")
+        let quiet := env.get("ENKAI_LITEC_QUIET")
+        if quiet == none ::
+            io.stdout_write_text(json.stringify(summary))
+            io.stdout_write_text("\n")
+            return 0
+        ::
+        if quiet? != "1" ::
+            io.stdout_write_text(json.stringify(summary))
+            io.stdout_write_text("\n")
+        ::
         return 0
     ::
     if mode? == "check" ::
@@ -2116,8 +2132,16 @@ fn main() -> Int ::
         summary.input := input?
         summary.functions := parsed.functions
         summary.items := parsed.items
-        io.stdout_write_text(json.stringify(summary))
-        io.stdout_write_text("\n")
+        let quiet := env.get("ENKAI_LITEC_QUIET")
+        if quiet == none ::
+            io.stdout_write_text(json.stringify(summary))
+            io.stdout_write_text("\n")
+            return 0
+        ::
+        if quiet? != "1" ::
+            io.stdout_write_text(json.stringify(summary))
+            io.stdout_write_text("\n")
+        ::
         return 0
     ::
     if mode? == "compile" ::
@@ -2135,8 +2159,16 @@ fn main() -> Int ::
         summary.output := output?
         summary.functions := parsed.functions
         summary.items := parsed.items
-        io.stdout_write_text(json.stringify(summary))
-        io.stdout_write_text("\n")
+        let quiet := env.get("ENKAI_LITEC_QUIET")
+        if quiet == none ::
+            io.stdout_write_text(json.stringify(summary))
+            io.stdout_write_text("\n")
+            return 0
+        ::
+        if quiet? != "1" ::
+            io.stdout_write_text(json.stringify(summary))
+            io.stdout_write_text("\n")
+        ::
         return 0
     ::
     if mode? == "codegen" ::
@@ -2154,8 +2186,16 @@ fn main() -> Int ::
         summary.output := output?
         summary.functions := parsed.functions
         summary.items := parsed.items
-        io.stdout_write_text(json.stringify(summary))
-        io.stdout_write_text("\n")
+        let quiet := env.get("ENKAI_LITEC_QUIET")
+        if quiet == none ::
+            io.stdout_write_text(json.stringify(summary))
+            io.stdout_write_text("\n")
+            return 0
+        ::
+        if quiet? != "1" ::
+            io.stdout_write_text(json.stringify(summary))
+            io.stdout_write_text("\n")
+        ::
         return 0
     ::
     return fail("unknown ENKAI_LITEC_MODE")

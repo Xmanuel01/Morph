@@ -1,0 +1,5 @@
+fn main() -> Int ::
+    return 10 % 0
+::
+
+main()

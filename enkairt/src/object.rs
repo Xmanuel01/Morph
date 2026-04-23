@@ -24,6 +24,7 @@ pub enum Obj {
     List(RefCell<Vec<Value>>),
     Json(serde_json::Value),
     Function(FunctionObj),
+    Closure(ClosureObj),
     BoundFunction(BoundFunctionObj),
     NativeFunction(NativeFunction),
     NativeHandle(NativeHandle),
@@ -56,6 +57,7 @@ impl Obj {
             Obj::List(_) => "List",
             Obj::Json(_) => "Json",
             Obj::Function(_) => "Function",
+            Obj::Closure(_) => "Closure",
             Obj::BoundFunction(_) => "BoundFunction",
             Obj::NativeFunction(_) => "NativeFunction",
             Obj::NativeHandle(_) => "Handle",
@@ -87,6 +89,14 @@ pub struct FunctionObj {
     pub name: Option<String>,
     pub arity: u16,
     pub func_index: u16,
+}
+
+#[derive(Debug)]
+pub struct ClosureObj {
+    pub name: Option<String>,
+    pub arity: u16,
+    pub func_index: u16,
+    pub captures: Vec<Value>,
 }
 
 #[derive(Debug)]

@@ -697,7 +697,7 @@ checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
 [[package]]
 name = "enkai"
-version = "3.1.2"
+version = "3.2.1"
 dependencies = [
  "bincode",
  "enkaic",
@@ -719,9 +719,12 @@ dependencies = [
 
 [[package]]
 name = "enkai_native"
-version = "3.1.1"
+version = "3.2.1"
 dependencies = [
+ "base64 0.22.1",
  "csv",
+ "libffi",
+ "libloading",
  "memmap2",
  "mysql",
  "native-tls",
@@ -734,7 +737,7 @@ dependencies = [
 
 [[package]]
 name = "enkai_tensor"
-version = "3.1.1"
+version = "3.2.1"
 dependencies = [
  "libc",
  "once_cell",
@@ -745,7 +748,7 @@ dependencies = [
 
 [[package]]
 name = "enkaic"
-version = "3.1.2"
+version = "3.2.1"
 dependencies = [
  "bumpalo",
  "serde",
@@ -755,7 +758,7 @@ dependencies = [
 
 [[package]]
 name = "enkairt"
-version = "3.1.2"
+version = "3.2.1"
 dependencies = [
  "base64 0.22.1",
  "bincode",

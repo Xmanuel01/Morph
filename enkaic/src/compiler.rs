@@ -314,6 +314,7 @@ impl<'a> ProgramBuilder<'a> {
 struct FunctionBuilder<'a, 'p> {
     name: String,
     params: Vec<Param>,
+    capture_names: Vec<String>,
     chunk: Chunk,
     enclosing: &'p mut ProgramBuilder<'a>,
     is_root: bool,
@@ -330,6 +331,17 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
         is_root: bool,
         module: ModuleContext,
     ) -> Self {
+        Self::new_with_captures(name, params, &[], enclosing, is_root, module)
+    }
+
+    fn new_with_captures(
+        name: &str,
+        params: &[Param],
+        capture_names: &[String],
+        enclosing: &'p mut ProgramBuilder<'a>,
+        is_root: bool,
+        module: ModuleContext,
+    ) -> Self {
         let mut scopes = Vec::new();
         let mut next_local = Vec::new();
         // function scope
@@ -338,6 +350,7 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
         Self {
             name: name.to_string(),
             params: params.to_vec(),
+            capture_names: capture_names.to_vec(),
             chunk: Chunk::new(),
             enclosing,
             is_root,
@@ -348,6 +361,9 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
     }
 
     fn compile_items(&mut self, items: &[Item]) -> Result<(), CompileError> {
+        for name in self.capture_names.clone() {
+            self.define_local(&name);
+        }
         // define params as locals
         let param_names: Vec<String> = self.params.iter().map(|p| p.name.clone()).collect();
         for name in param_names {
@@ -1081,11 +1097,13 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                     )
                     .with_span(span.clone()));
                 }
+                let captures = self.collect_lambda_captures(body, params);
                 let lambda_name = format!("{}$lambda{}", self.name, self.enclosing.functions.len());
                 let lambda_func_idx = {
-                    let mut lambda_builder = FunctionBuilder::new(
+                    let mut lambda_builder = FunctionBuilder::new_with_captures(
                         &lambda_name,
                         params,
+                        &captures,
                         self.enclosing,
                         false,
                         self.module.clone(),
@@ -1097,12 +1115,42 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                     self.enclosing.functions.push(function);
                     func_idx
                 };
-                let const_idx = self.chunk.add_constant(Constant::Function(lambda_func_idx));
-                self.chunk.write(Instruction::Const(const_idx), span.line);
+                for capture in &captures {
+                    match self.resolve_var(capture)? {
+                        ResolvedVar::Local(i) => {
+                            self.chunk.write(Instruction::LoadLocal(i), span.line)
+                        }
+                        ResolvedVar::Global(i) => {
+                            self.chunk.write(Instruction::LoadGlobal(i), span.line)
+                        }
+                    }
+                }
+                self.chunk.write(
+                    Instruction::MakeClosure {
+                        function: lambda_func_idx,
+                        captures: captures.len() as u16,
+                    },
+                    span.line,
+                );
             }
             _ => return Err(CompileError::new("Unsupported expression")),
         }
         Ok(())
+    }
+
+    fn collect_lambda_captures(&self, body: &Expr, params: &[Param]) -> Vec<String> {
+        let mut visible = params
+            .iter()
+            .map(|param| param.name.clone())
+            .collect::<HashSet<_>>();
+        let outer_locals = self
+            .scopes
+            .iter()
+            .flat_map(|scope| scope.keys().cloned())
+            .collect::<HashSet<_>>();
+        let mut captures = Vec::new();
+        collect_lambda_captures_expr(body, &mut visible, &outer_locals, &mut captures);
+        captures
     }
 
     fn ensure_method_table(&mut self, type_name: &str, line: usize) -> u16 {
@@ -1256,10 +1304,56 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
             } else {
                 Some(self.name)
             },
-            arity: self.params.len() as u16,
+            arity: (self.capture_names.len() + self.params.len()) as u16,
             chunk: self.chunk,
             source_name: self.module.source_name.clone(),
         }
+    }
+}
+
+fn collect_lambda_captures_expr(
+    expr: &Expr,
+    visible: &mut HashSet<String>,
+    outer_locals: &HashSet<String>,
+    captures: &mut Vec<String>,
+) {
+    match expr {
+        Expr::Literal { .. } => {}
+        Expr::Ident { name, .. } => {
+            if !visible.contains(name) && outer_locals.contains(name) && !captures.contains(name) {
+                captures.push(name.clone());
+            }
+        }
+        Expr::Unary { expr, .. } | Expr::Try { expr, .. } => {
+            collect_lambda_captures_expr(expr, visible, outer_locals, captures);
+        }
+        Expr::Binary { left, right, .. } => {
+            collect_lambda_captures_expr(left, visible, outer_locals, captures);
+            collect_lambda_captures_expr(right, visible, outer_locals, captures);
+        }
+        Expr::Call { callee, args, .. } => {
+            collect_lambda_captures_expr(callee, visible, outer_locals, captures);
+            for arg in args {
+                match arg {
+                    Arg::Positional(expr) | Arg::Named(_, expr) => {
+                        collect_lambda_captures_expr(expr, visible, outer_locals, captures)
+                    }
+                }
+            }
+        }
+        Expr::Index { target, index, .. } => {
+            collect_lambda_captures_expr(target, visible, outer_locals, captures);
+            collect_lambda_captures_expr(index, visible, outer_locals, captures);
+        }
+        Expr::Field { target, .. } => {
+            collect_lambda_captures_expr(target, visible, outer_locals, captures);
+        }
+        Expr::List { items, .. } => {
+            for item in items {
+                collect_lambda_captures_expr(item, visible, outer_locals, captures);
+            }
+        }
+        Expr::Lambda { .. } | Expr::Match { .. } => {}
     }
 }
 

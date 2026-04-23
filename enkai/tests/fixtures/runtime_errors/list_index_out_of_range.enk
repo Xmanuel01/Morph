@@ -1,0 +1,6 @@
+fn main() -> Int ::
+    let xs := [1, 2]
+    return xs[3]
+::
+
+main()

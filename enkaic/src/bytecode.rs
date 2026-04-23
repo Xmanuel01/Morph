@@ -39,6 +39,7 @@ pub enum FfiType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Instruction {
     Const(u16),
+    MakeClosure { function: u16, captures: u16 },
     Pop,
     DefineGlobal(u16),
     LoadLocal(u16),

@@ -22,6 +22,7 @@ mod cluster;
 mod deploy;
 mod frontend;
 mod grpc;
+mod install_diag;
 mod migrate;
 mod model;
 mod readiness;
@@ -71,6 +72,7 @@ struct BuildCacheMeta {
     entry: String,
     hash: String,
     program: String,
+    compiler_backend: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,6 +105,7 @@ fn main() {
         "readiness" => readiness::readiness_command(&args[2..]),
         "deploy" => deploy::deploy_command(&args[2..]),
         "grpc" => grpc::grpc_command(&args[2..]),
+        "install-diagnostics" => install_diag::install_diagnostics_command(&args[2..]),
         "sim" => sim::sim_command(&args[2..]),
         "validate" => validate::validate_command(&args[2..]),
         "worker" => worker::worker_command(&args[2..]),
@@ -137,15 +140,35 @@ fn run_command(args: &[String]) -> i32 {
     let mut disasm = false;
     let mut trace_task = false;
     let mut trace_net = false;
+    let mut runtime_backend = "auto".to_string();
     let mut file_arg: Option<String> = None;
-    for arg in args {
-        match arg.as_str() {
+    let mut index = 0usize;
+    while index < args.len() {
+        match args[index].as_str() {
             "--trace-vm" => trace_vm = true,
             "--disasm" => disasm = true,
             "--trace-task" => trace_task = true,
             "--trace-net" => trace_net = true,
-            _ => file_arg = Some(arg.clone()),
+            "--runtime-backend" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    eprintln!("enkai run --runtime-backend requires a value");
+                    return 1;
+                };
+                match value.as_str() {
+                    "auto" | "selfhost" | "rust" => runtime_backend = value.clone(),
+                    other => {
+                        eprintln!(
+                            "enkai run --runtime-backend must be one of auto|selfhost|rust, got {}",
+                            other
+                        );
+                        return 1;
+                    }
+                }
+            }
+            other => file_arg = Some(other.to_string()),
         }
+        index += 1;
     }
     let target = match file_arg {
         Some(t) => PathBuf::from(t),
@@ -161,51 +184,64 @@ fn run_command(args: &[String]) -> i32 {
             return 1;
         }
     };
+    if runtime_backend != "rust" {
+        if trace_vm || disasm || trace_task || trace_net {
+            if runtime_backend == "selfhost" {
+                eprintln!(
+                    "enkai run --runtime-backend selfhost does not support --trace-vm/--disasm/--trace-task/--trace-net"
+                );
+                return 1;
+            }
+        } else {
+            match bootstrap::try_run_selfhost_entry(&entry) {
+                Ok(Some(outcome)) => {
+                    emit_command_backend_report("run", &entry, &root, outcome.backend);
+                    return outcome.exit_code;
+                }
+                Ok(None) => {
+                    if runtime_backend == "selfhost" {
+                        eprintln!(
+                            "enkai run --runtime-backend selfhost could not execute {} on the self-host runtime path",
+                            entry.display()
+                        );
+                        return 1;
+                    }
+                }
+                Err(err) => {
+                    if runtime_backend == "selfhost" {
+                        eprintln!("enkai run selfhost runtime failed: {}", err);
+                        return 1;
+                    }
+                }
+            }
+        }
+    }
     let program = match load_cached_program(&root, &entry) {
         Ok(Some(program)) => program,
         Ok(None) => {
-            let package = match load_package(&entry) {
-                Ok(p) => p,
+            let (program, _backend) = match compile_program_prefer_selfhost(&entry) {
+                Ok(value) => value,
                 Err(err) => {
                     eprintln!("{}", err);
                     return 1;
                 }
             };
-            if let Err(err) = TypeChecker::check_package(&package) {
-                print_type_error(&err);
-                return 1;
-            }
-            match compile_package(&package) {
-                Ok(p) => p,
-                Err(err) => {
-                    print_compile_error(&err);
-                    return 1;
-                }
-            }
+            program
         }
         Err(err) => {
             eprintln!("cache disabled: {}", err);
-            let package = match load_package(&entry) {
-                Ok(p) => p,
+            let (program, _backend) = match compile_program_prefer_selfhost(&entry) {
+                Ok(value) => value,
                 Err(err) => {
                     eprintln!("{}", err);
                     return 1;
                 }
             };
-            if let Err(err) = TypeChecker::check_package(&package) {
-                print_type_error(&err);
-                return 1;
-            }
-            match compile_package(&package) {
-                Ok(p) => p,
-                Err(err) => {
-                    print_compile_error(&err);
-                    return 1;
-                }
-            }
+            program
         }
     };
     let mut vm = VM::new(trace_vm, disasm, trace_task, trace_net);
+    emit_command_backend_report("run", &entry, &root, bootstrap::SelfhostRunBackend::Rust);
     match vm.run(&program) {
         Ok(Value::Int(code)) => code as i32,
         Ok(_) => 0,
@@ -214,6 +250,56 @@ fn run_command(args: &[String]) -> i32 {
             1
         }
     }
+}
+
+fn emit_command_backend_report(
+    command: &str,
+    entry: &Path,
+    root: &Path,
+    backend: bootstrap::SelfhostRunBackend,
+) {
+    let env_key = match command {
+        "run" => "ENKAI_RUN_BACKEND_REPORT",
+        "check" => "ENKAI_CHECK_BACKEND_REPORT",
+        "build" => "ENKAI_BUILD_BACKEND_REPORT",
+        _ => return,
+    };
+    let report = serde_json::json!({
+        "command": command,
+        "entry": entry.to_string_lossy(),
+        "root": root.to_string_lossy(),
+        "backend": backend.as_str(),
+    });
+    if let Err(err) = write_json_report_to_env_path(env_key, &report) {
+        eprintln!("[{}] failed to write backend report: {}", command, err);
+    }
+}
+
+fn write_json_report_to_env_path(env_key: &str, payload: &serde_json::Value) -> Result<(), String> {
+    let Some(path) = env::var_os(env_key) else {
+        return Ok(());
+    };
+    let path_buf = PathBuf::from(path);
+    if let Some(parent) = path_buf.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(|err| {
+                format!(
+                    "failed to create report directory {}: {}",
+                    parent.display(),
+                    err
+                )
+            })?;
+        }
+    }
+    let json = serde_json::to_string_pretty(payload)
+        .map_err(|err| format!("failed to serialize backend report: {}", err))?;
+    fs::write(&path_buf, json).map_err(|err| {
+        format!(
+            "failed to write backend report {}: {}",
+            path_buf.display(),
+            err
+        )
+    })
 }
 
 fn serve_command(args: &[String]) -> i32 {
@@ -600,13 +686,21 @@ fn check_command(args: &[String]) -> i32 {
         return 1;
     }
     let target = PathBuf::from(&args[0]);
-    let (_root, entry) = match resolve_entry(&target) {
+    let (root, entry) = match resolve_entry(&target) {
         Ok(value) => value,
         Err(err) => {
             eprintln!("{}", err);
             return 1;
         }
     };
+    match bootstrap::try_check_selfhost_entry(&entry) {
+        Ok(Some(outcome)) => {
+            emit_command_backend_report("check", &entry, &root, outcome.backend);
+            return outcome.exit_code;
+        }
+        Ok(None) => {}
+        Err(_) => {}
+    }
     let package = match load_package(&entry) {
         Ok(p) => p,
         Err(err) => {
@@ -614,6 +708,7 @@ fn check_command(args: &[String]) -> i32 {
             return 1;
         }
     };
+    emit_command_backend_report("check", &entry, &root, bootstrap::SelfhostRunBackend::Rust);
     match TypeChecker::check_package(&package) {
         Ok(_) => 0,
         Err(err) => {
@@ -654,47 +749,81 @@ fn test_command(args: &[String]) -> i32 {
     }
     let mut passed = 0usize;
     let mut failed = 0usize;
+    let mut backend_rows: Vec<serde_json::Value> = Vec::new();
     for file in files {
-        let package = match load_package(&file) {
-            Ok(p) => p,
-            Err(err) => {
-                eprintln!("[fail] {}: {}", file.display(), err);
-                failed += 1;
-                continue;
-            }
-        };
-        if let Err(err) = TypeChecker::check_package(&package) {
-            eprintln!("[fail] {}:", file.display());
-            print_type_error(&err);
-            failed += 1;
-            continue;
-        }
-        let program = match compile_package(&package) {
-            Ok(p) => p,
-            Err(err) => {
-                eprintln!("[fail] {}:", file.display());
-                print_compile_error(&err);
-                failed += 1;
-                continue;
-            }
-        };
-        let mut vm = VM::new(false, false, false, false);
-        match vm.run(&program) {
-            Ok(_) => {
+        match bootstrap::try_run_selfhost_entry(&file) {
+            Ok(Some(_outcome)) => {
                 println!("[pass] {}", file.display());
+                backend_rows.push(serde_json::json!({
+                    "file": file.to_string_lossy(),
+                    "compiler_backend": "selfhost",
+                    "runtime_backend": "selfhost",
+                    "status": "pass",
+                }));
                 passed += 1;
             }
-            Err(err) => {
-                eprintln!("[fail] {}: Runtime error: {}", file.display(), err);
-                failed += 1;
+            Ok(None) | Err(_) => {
+                let (program, compiler_backend) = match compile_program_prefer_selfhost(&file) {
+                    Ok(value) => value,
+                    Err(err) => {
+                        eprintln!("[fail] {}: {}", file.display(), err);
+                        backend_rows.push(serde_json::json!({
+                            "file": file.to_string_lossy(),
+                            "compiler_backend": "error",
+                            "runtime_backend": "none",
+                            "status": "fail",
+                            "error": err,
+                        }));
+                        failed += 1;
+                        continue;
+                    }
+                };
+                let mut vm = VM::new(false, false, false, false);
+                match vm.run(&program) {
+                    Ok(_) => {
+                        println!("[pass] {}", file.display());
+                        backend_rows.push(serde_json::json!({
+                            "file": file.to_string_lossy(),
+                            "compiler_backend": compiler_backend.as_str(),
+                            "runtime_backend": "rust",
+                            "status": "pass",
+                        }));
+                        passed += 1;
+                    }
+                    Err(err) => {
+                        eprintln!("[fail] {}: Runtime error: {}", file.display(), err);
+                        backend_rows.push(serde_json::json!({
+                            "file": file.to_string_lossy(),
+                            "compiler_backend": compiler_backend.as_str(),
+                            "runtime_backend": "rust",
+                            "status": "fail",
+                            "error": err.to_string(),
+                        }));
+                        failed += 1;
+                    }
+                }
             }
         }
     }
+    emit_test_backend_report(&root, passed, failed, &backend_rows);
     println!("Tests: {} passed, {} failed", passed, failed);
     if failed == 0 {
         0
     } else {
         1
+    }
+}
+
+fn emit_test_backend_report(root: &Path, passed: usize, failed: usize, rows: &[serde_json::Value]) {
+    let payload = serde_json::json!({
+        "command": "test",
+        "root": root.to_string_lossy(),
+        "passed": passed,
+        "failed": failed,
+        "entries": rows,
+    });
+    if let Err(err) = write_json_report_to_env_path("ENKAI_TEST_BACKEND_REPORT", &payload) {
+        eprintln!("[test] failed to write backend report: {}", err);
     }
 }
 
@@ -706,19 +835,6 @@ fn print_type_error(err: &TypeError) {
             "Type error: {} at {}:{}",
             err.message, err.span.line, err.span.col
         );
-    }
-}
-
-fn print_compile_error(err: &CompileError) {
-    if let Some(diagnostic) = err.diagnostic() {
-        eprintln!("{}", diagnostic);
-    } else if let Some(span) = &err.span {
-        eprintln!(
-            "Compile error: {} at {}:{}",
-            err.message, span.line, span.col
-        );
-    } else {
-        eprintln!("Compile error: {}", err.message);
     }
 }
 
@@ -842,34 +958,73 @@ fn build_command(args: &[String]) -> i32 {
         .to_string();
     if let Ok(Some(meta)) = load_build_cache(&root) {
         if is_cache_valid(&meta, &entry_rel, &hash) {
+            if let Some(backend) = meta.compiler_backend.as_deref() {
+                let report_backend = match backend {
+                    "selfhost" => bootstrap::SelfhostRunBackend::Selfhost,
+                    _ => bootstrap::SelfhostRunBackend::Rust,
+                };
+                emit_command_backend_report("build", &entry, &root, report_backend);
+            }
             println!("build up to date");
             return 0;
         }
     }
-    let package = match load_package(&entry) {
-        Ok(p) => p,
+    let (program, backend) = match compile_program_prefer_selfhost(&entry) {
+        Ok(value) => value,
         Err(err) => {
             eprintln!("{}", err);
             return 1;
         }
     };
-    if let Err(err) = TypeChecker::check_package(&package) {
-        print_type_error(&err);
-        return 1;
-    }
-    let program = match compile_package(&package) {
-        Ok(p) => p,
-        Err(err) => {
-            print_compile_error(&err);
-            return 1;
-        }
-    };
-    if let Err(err) = write_build_cache(&root, &entry_rel, &hash, &program) {
+    if let Err(err) = write_build_cache(&root, &entry_rel, &hash, &program, backend) {
         eprintln!("{}", err);
         return 1;
     }
+    emit_command_backend_report("build", &entry, &root, backend);
     println!("build ok");
     0
+}
+
+fn compile_program_prefer_selfhost(
+    entry: &Path,
+) -> Result<(Program, bootstrap::SelfhostRunBackend), String> {
+    match bootstrap::try_compile_selfhost_program(entry) {
+        Ok(Some(compiled)) => Ok((compiled.program, compiled.backend)),
+        Ok(None) | Err(_) => compile_program_with_rust_backend(entry),
+    }
+}
+
+fn compile_program_with_rust_backend(
+    entry: &Path,
+) -> Result<(Program, bootstrap::SelfhostRunBackend), String> {
+    let package = load_package(entry).map_err(|err| err.to_string())?;
+    TypeChecker::check_package(&package).map_err(type_error_message)?;
+    let program = compile_package(&package).map_err(compile_error_message)?;
+    Ok((program, bootstrap::SelfhostRunBackend::Rust))
+}
+
+fn type_error_message(err: TypeError) -> String {
+    if let Some(diagnostic) = err.diagnostic() {
+        diagnostic.to_string()
+    } else {
+        format!(
+            "Type error: {} at {}:{}",
+            err.message, err.span.line, err.span.col
+        )
+    }
+}
+
+fn compile_error_message(err: CompileError) -> String {
+    if let Some(diagnostic) = err.diagnostic() {
+        diagnostic.to_string()
+    } else if let Some(span) = &err.span {
+        format!(
+            "Compile error: {} at {}:{}",
+            err.message, span.line, span.col
+        )
+    } else {
+        format!("Compile error: {}", err.message)
+    }
 }
 
 fn train_command(args: &[String]) -> i32 {
@@ -1076,7 +1231,9 @@ fn print_usage() {
     eprintln!("Enkai CLI");
     eprintln!("Usage:");
     eprintln!("  enkai --version");
-    eprintln!("  enkai run [--trace-vm] [--disasm] [--trace-task] [--trace-net] <file|dir>");
+    eprintln!(
+        "  enkai run [--runtime-backend <auto|selfhost|rust>] [--trace-vm] [--disasm] [--trace-task] [--trace-net] <file|dir>"
+    );
     eprintln!(
         "  enkai serve [--host <host>] [--port <port>] [--grpc-host <host>] [--grpc-port <port>] [--registry <dir> --model <name> [--model-version <v>|--latest] [--require-loaded] | --multi-model --registry <dir> | --checkpoint <path>] [--trace-vm] [--disasm] [--trace-task] [--trace-net] [file|dir]"
     );
@@ -1088,6 +1245,7 @@ fn print_usage() {
     eprintln!("  enkai cluster <validate|plan|run> <config.enk> [--json] [--dry-run]");
     deploy::print_deploy_usage();
     grpc::print_grpc_usage();
+    install_diag::print_install_diagnostics_usage();
     sim::print_sim_usage();
     validate::print_validate_usage();
     worker::print_worker_usage();
@@ -1157,6 +1315,7 @@ fn write_build_cache(
     entry: &str,
     hash: &str,
     program: &Program,
+    backend: bootstrap::SelfhostRunBackend,
 ) -> Result<(), String> {
     let dir = cache_dir(root);
     fs::create_dir_all(&dir)
@@ -1172,6 +1331,7 @@ fn write_build_cache(
         entry: entry.to_string(),
         hash: hash.to_string(),
         program: "program.bin".to_string(),
+        compiler_backend: Some(backend.as_str().to_string()),
     };
     let meta_text =
         serde_json::to_string_pretty(&meta).map_err(|err| format!("Cache meta error: {}", err))?;
@@ -1517,6 +1677,42 @@ mod tests {
         fs::write(&file, "fn f() -> Int ::\n    return true\n::\n").unwrap();
         let code = run_command(&[file.to_string_lossy().to_string()]);
         assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn run_prefers_selfhost_backend_for_supported_programs() {
+        let _guard = env_guard();
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("ok.enk");
+        let report = dir.path().join("run_backend.json");
+        fs::write(&file, "fn main() -> Int ::\n    return 0\n::\n").expect("program");
+        env::set_var("ENKAI_RUN_BACKEND_REPORT", &report);
+        let code = run_command(&[file.to_string_lossy().to_string()]);
+        env::remove_var("ENKAI_RUN_BACKEND_REPORT");
+        assert_eq!(code, 0);
+        let payload: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&report).expect("report")).expect("json");
+        assert_eq!(payload.get("backend"), Some(&serde_json::json!("selfhost")));
+    }
+
+    #[test]
+    fn run_rust_backend_flag_skips_selfhost_path() {
+        let _guard = env_guard();
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("ok.enk");
+        let report = dir.path().join("run_backend_rust.json");
+        fs::write(&file, "fn main() -> Int ::\n    return 0\n::\n").expect("program");
+        env::set_var("ENKAI_RUN_BACKEND_REPORT", &report);
+        let code = run_command(&[
+            "--runtime-backend".to_string(),
+            "rust".to_string(),
+            file.to_string_lossy().to_string(),
+        ]);
+        env::remove_var("ENKAI_RUN_BACKEND_REPORT");
+        assert_eq!(code, 0);
+        let payload: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&report).expect("report")).expect("json");
+        assert_eq!(payload.get("backend"), Some(&serde_json::json!("rust")));
     }
 
     #[test]
