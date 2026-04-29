@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.3.0",
+  "profile": "tensor_backend",
+  "generated_purpose": "Prove the strict-selfhost tensor backend shipped surface is complete by requiring the manifest-backed train/model slice to remain green, requiring native train manifests to terminate inside train_runtime with deterministic runtime-owned fallback behavior, and requiring the aggregate strict-selfhost readiness and blocker artifacts to remain green.",
+  "required_reports": [
+    "artifacts/readiness/strict_selfhost_model_registry_ops_slice.json",
+    "artifacts/readiness/strict_selfhost.json",
+    "artifacts/readiness/strict_selfhost_blockers.json"
+  ],
+  "required_status_fields": {
+    "artifacts/readiness/strict_selfhost_model_registry_ops_slice.json:all_passed": true,
+    "artifacts/readiness/strict_selfhost_model_registry_ops_slice.json:checks.4.passed": true,
+    "artifacts/readiness/strict_selfhost_model_registry_ops_slice.json:checks.4.native_exec_ok": true,
+    "artifacts/readiness/strict_selfhost_model_registry_ops_slice.json:checks.4.native_manifest_ok": true,
+    "artifacts/readiness/strict_selfhost_model_registry_ops_slice.json:checks.4.fallback_note_ok": true,
+    "artifacts/readiness/strict_selfhost.json:all_passed": true,
+    "artifacts/readiness/strict_selfhost_blockers.json:all_passed": true
+  }
+}

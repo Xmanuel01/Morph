@@ -32,28 +32,28 @@
     },
     {
       "id": "validation_suite_dispatch",
-      "status": "blocked",
+      "status": "contract_driven",
       "rust_owner": "enkai::validate",
       "current_scope": [
-        "ffi-correctness",
-        "determinism",
-        "perf-baseline",
-        "pool-safety",
-        "adam0-cpu"
+        "suite-manifest contract loading",
+        "suite-exec manifest-backed dispatch",
+        "artifact emission policy carried in the suite manifest",
+        "legacy validate subcommands now dispatch through the manifest executor"
       ],
-      "next_slice": "Define a suite manifest/report surface so validation selection and artifact emission stop living only in Rust command dispatch.",
+      "next_slice": "Replace the Rust suite executor with a self-host-owned validation runner while preserving the suite manifest contract.",
       "priority": 3
     },
     {
       "id": "release_evidence_collection",
-      "status": "blocked",
+      "status": "contract_driven",
       "rust_owner": "enkai + scripts",
       "current_scope": [
-        "artifact collation",
-        "SBOM/report bundling",
-        "release evidence packaging"
+        "release evidence collection contract loading",
+        "manifest.json bundle emission through the collector contract",
+        "archived proof collation validated against required archived files",
+        "legacy release scripts now call the collector as a thin evidence executor"
       ],
-      "next_slice": "Stabilize a contract for required evidence bundles and make the current Python/Rust tooling a thin executor of that contract.",
+      "next_slice": "Replace the collector implementation with a self-host-owned evidence archiver while preserving the release evidence contract.",
       "priority": 4
     }
   ]

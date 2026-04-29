@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.3.0",
+  "profile": "worker_runtime_surface",
+  "generated_purpose": "Prove the v3.3.0 self-host worker runtime surface is complete by validating manifest-backed queue persistence, scheduling, and handler execution behind the dedicated queue backend.",
+  "required_artifacts": [
+    "artifacts/readiness/strict_selfhost_systems_controlplane_slice.json"
+  ],
+  "required_controlplane_all_passed": true,
+  "required_backend_kind": "selfhost_jsonl_queue_v2",
+  "required_queue_files": [
+    "pending.jsonl",
+    "inflight.jsonl",
+    "scheduled.jsonl",
+    "dead_letter.jsonl",
+    "queue_state.json"
+  ],
+  "required_retry_counts": {
+    "enqueue_count": 1,
+    "lease_count": 2,
+    "acked_count": 1,
+    "retry_count": 1,
+    "dead_letter_count": 0
+  },
+  "required_retry_report": {
+    "processed": 2,
+    "acked": 1,
+    "requeued": 1,
+    "dead_lettered": 0
+  }
+}

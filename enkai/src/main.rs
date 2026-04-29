@@ -4,32 +4,39 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::{Mutex, OnceLock};
 
-use semver::Version;
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use toml::Value as TomlValue;
-
 use enkai_compiler::bytecode::Program;
-use enkai_compiler::compiler::{compile_package, CompileError};
+use enkai_compiler::compiler::CompileError;
 use enkai_compiler::formatter::{check_format, format_source};
-use enkai_compiler::modules::load_package;
-use enkai_compiler::{TypeChecker, TypeError};
-use enkai_runtime::{Value, VM};
+use enkai_compiler::TypeError;
 
 mod bench;
 mod bootstrap;
 mod cluster;
+mod cluster_runtime;
+mod cluster_sim_runtime;
 mod deploy;
+mod deploy_runtime;
 mod frontend;
 mod grpc;
+mod grpc_runtime;
 mod install_diag;
 mod migrate;
 mod model;
+mod model_runtime;
+mod program_runtime;
+mod project_entrypoints;
+mod queue_backend;
+mod queue_runtime;
 mod readiness;
+mod runtime_exec;
+mod service_runtime;
 mod sim;
+mod systems;
 mod train;
+mod train_runtime;
 mod validate;
 mod worker;
+mod worker_handler_runtime;
 
 pub(crate) fn env_guard() -> std::sync::MutexGuard<'static, ()> {
     static ENV_GUARD: OnceLock<Mutex<()>> = OnceLock::new();
@@ -39,49 +46,9 @@ pub(crate) fn env_guard() -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(|err| err.into_inner())
 }
 
-#[derive(Debug, Clone)]
-struct DependencySpec {
-    name: String,
-    path: PathBuf,
-    version_req: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-struct ResolvedDependency {
-    name: String,
-    path: PathBuf,
-    version: Option<String>,
-    package: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-struct ManifestInfo {
-    dependencies: Vec<DependencySpec>,
-}
-
-#[derive(Debug, Clone, Default)]
-struct PackageInfo {
-    name: Option<String>,
-    version: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct BuildCacheMeta {
-    cache_version: u32,
-    lang_version: String,
-    entry: String,
-    hash: String,
-    program: String,
-    compiler_backend: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ServeModelSelection {
-    checkpoint_path: PathBuf,
-    model_name: Option<String>,
-    model_version: Option<String>,
-    registry: Option<PathBuf>,
-}
+#[cfg(test)]
+#[allow(dead_code)]
+type ServeModelSelection = systems::ResolvedServeModelSelection;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -107,6 +74,7 @@ fn main() {
         "grpc" => grpc::grpc_command(&args[2..]),
         "install-diagnostics" => install_diag::install_diagnostics_command(&args[2..]),
         "sim" => sim::sim_command(&args[2..]),
+        "systems" => systems::systems_command(&args[2..]),
         "validate" => validate::validate_command(&args[2..]),
         "worker" => worker::worker_command(&args[2..]),
         "fmt-lite" => bootstrap::fmt_lite_command(&args[2..]),
@@ -119,6 +87,8 @@ fn main() {
         "build" => build_command(&args[2..]),
         "test" => test_command(&args[2..]),
         "train" => train_command(&args[2..]),
+        "train-manifest" => train_manifest_command(&args[2..]),
+        "train-exec" => train_exec_command(&args[2..]),
         "pretrain" => pretrain_command(&args[2..]),
         "eval" => eval_command(&args[2..]),
         "migrate" => migrate::migrate_command(&args[2..]),
@@ -131,7 +101,7 @@ fn main() {
     process::exit(exit_code);
 }
 
-fn run_command(args: &[String]) -> i32 {
+pub(crate) fn run_command(args: &[String]) -> i32 {
     if args.is_empty() {
         eprintln!("enkai run requires a file or directory");
         return 1;
@@ -140,7 +110,7 @@ fn run_command(args: &[String]) -> i32 {
     let mut disasm = false;
     let mut trace_task = false;
     let mut trace_net = false;
-    let mut runtime_backend = "auto".to_string();
+    let mut runtime_backend = runtime_exec::RuntimeBackendMode::Auto;
     let mut file_arg: Option<String> = None;
     let mut index = 0usize;
     while index < args.len() {
@@ -156,7 +126,9 @@ fn run_command(args: &[String]) -> i32 {
                     return 1;
                 };
                 match value.as_str() {
-                    "auto" | "selfhost" | "rust" => runtime_backend = value.clone(),
+                    "auto" => runtime_backend = runtime_exec::RuntimeBackendMode::Auto,
+                    "selfhost" => runtime_backend = runtime_exec::RuntimeBackendMode::Selfhost,
+                    "rust" => runtime_backend = runtime_exec::RuntimeBackendMode::Rust,
                     other => {
                         eprintln!(
                             "enkai run --runtime-backend must be one of auto|selfhost|rust, got {}",
@@ -177,82 +149,26 @@ fn run_command(args: &[String]) -> i32 {
             return 1;
         }
     };
-    let (root, entry) = match resolve_entry(&target) {
-        Ok(value) => value,
+    match execute_runtime_target(
+        &target,
+        runtime_exec::RuntimeExecOptions {
+            trace_vm,
+            disasm,
+            trace_task,
+            trace_net,
+            runtime_backend,
+            report_command: Some("run"),
+        },
+    ) {
+        Ok(exit_code) => exit_code,
         Err(err) => {
             eprintln!("{}", err);
-            return 1;
-        }
-    };
-    if runtime_backend != "rust" {
-        if trace_vm || disasm || trace_task || trace_net {
-            if runtime_backend == "selfhost" {
-                eprintln!(
-                    "enkai run --runtime-backend selfhost does not support --trace-vm/--disasm/--trace-task/--trace-net"
-                );
-                return 1;
-            }
-        } else {
-            match bootstrap::try_run_selfhost_entry(&entry) {
-                Ok(Some(outcome)) => {
-                    emit_command_backend_report("run", &entry, &root, outcome.backend);
-                    return outcome.exit_code;
-                }
-                Ok(None) => {
-                    if runtime_backend == "selfhost" {
-                        eprintln!(
-                            "enkai run --runtime-backend selfhost could not execute {} on the self-host runtime path",
-                            entry.display()
-                        );
-                        return 1;
-                    }
-                }
-                Err(err) => {
-                    if runtime_backend == "selfhost" {
-                        eprintln!("enkai run selfhost runtime failed: {}", err);
-                        return 1;
-                    }
-                }
-            }
-        }
-    }
-    let program = match load_cached_program(&root, &entry) {
-        Ok(Some(program)) => program,
-        Ok(None) => {
-            let (program, _backend) = match compile_program_prefer_selfhost(&entry) {
-                Ok(value) => value,
-                Err(err) => {
-                    eprintln!("{}", err);
-                    return 1;
-                }
-            };
-            program
-        }
-        Err(err) => {
-            eprintln!("cache disabled: {}", err);
-            let (program, _backend) = match compile_program_prefer_selfhost(&entry) {
-                Ok(value) => value,
-                Err(err) => {
-                    eprintln!("{}", err);
-                    return 1;
-                }
-            };
-            program
-        }
-    };
-    let mut vm = VM::new(trace_vm, disasm, trace_task, trace_net);
-    emit_command_backend_report("run", &entry, &root, bootstrap::SelfhostRunBackend::Rust);
-    match vm.run(&program) {
-        Ok(Value::Int(code)) => code as i32,
-        Ok(_) => 0,
-        Err(err) => {
-            eprintln!("Runtime error: {}", err);
             1
         }
     }
 }
 
-fn emit_command_backend_report(
+pub(crate) fn emit_command_backend_report(
     command: &str,
     entry: &Path,
     root: &Path,
@@ -275,7 +191,10 @@ fn emit_command_backend_report(
     }
 }
 
-fn write_json_report_to_env_path(env_key: &str, payload: &serde_json::Value) -> Result<(), String> {
+pub(crate) fn write_json_report_to_env_path(
+    env_key: &str,
+    payload: &serde_json::Value,
+) -> Result<(), String> {
     let Some(path) = env::var_os(env_key) else {
         return Ok(());
     };
@@ -303,216 +222,18 @@ fn write_json_report_to_env_path(env_key: &str, payload: &serde_json::Value) -> 
 }
 
 fn serve_command(args: &[String]) -> i32 {
-    let mut host: Option<String> = None;
-    let mut port: Option<String> = None;
-    let mut grpc_host: Option<String> = None;
-    let mut grpc_port: Option<String> = None;
-    let mut registry: Option<String> = None;
-    let mut model: Option<String> = None;
-    let mut model_version: Option<String> = None;
-    let mut latest = false;
-    let mut checkpoint: Option<String> = None;
-    let mut multi_model = false;
-    let mut require_loaded = false;
-    let mut run_args = Vec::new();
-    let mut target: Option<String> = None;
-    let mut idx = 0usize;
-    while idx < args.len() {
-        let arg = &args[idx];
-        match arg.as_str() {
-            "--host" => {
-                idx += 1;
-                if idx >= args.len() {
-                    eprintln!("enkai serve --host requires a value");
-                    return 1;
-                }
-                host = Some(args[idx].clone());
-            }
-            "--port" => {
-                idx += 1;
-                if idx >= args.len() {
-                    eprintln!("enkai serve --port requires a value");
-                    return 1;
-                }
-                port = Some(args[idx].clone());
-            }
-            "--grpc-host" => {
-                idx += 1;
-                if idx >= args.len() {
-                    eprintln!("enkai serve --grpc-host requires a value");
-                    return 1;
-                }
-                grpc_host = Some(args[idx].clone());
-            }
-            "--grpc-port" => {
-                idx += 1;
-                if idx >= args.len() {
-                    eprintln!("enkai serve --grpc-port requires a value");
-                    return 1;
-                }
-                grpc_port = Some(args[idx].clone());
-            }
-            "--registry" => {
-                idx += 1;
-                if idx >= args.len() {
-                    eprintln!("enkai serve --registry requires a value");
-                    return 1;
-                }
-                registry = Some(args[idx].clone());
-            }
-            "--model" => {
-                idx += 1;
-                if idx >= args.len() {
-                    eprintln!("enkai serve --model requires a value");
-                    return 1;
-                }
-                model = Some(args[idx].clone());
-            }
-            "--model-version" => {
-                idx += 1;
-                if idx >= args.len() {
-                    eprintln!("enkai serve --model-version requires a value");
-                    return 1;
-                }
-                model_version = Some(args[idx].clone());
-            }
-            "--latest" => {
-                latest = true;
-            }
-            "--multi-model" => {
-                multi_model = true;
-            }
-            "--require-loaded" => {
-                require_loaded = true;
-            }
-            "--checkpoint" => {
-                idx += 1;
-                if idx >= args.len() {
-                    eprintln!("enkai serve --checkpoint requires a value");
-                    return 1;
-                }
-                checkpoint = Some(args[idx].clone());
-            }
-            "--trace-vm" | "--disasm" | "--trace-task" | "--trace-net" => {
-                run_args.push(arg.clone());
-            }
-            _ => {
-                if arg.starts_with("--") {
-                    eprintln!("Unknown serve option: {}", arg);
-                    return 1;
-                }
-                if target.is_some() {
-                    eprintln!("enkai serve accepts only one file or directory target");
-                    return 1;
-                }
-                target = Some(arg.clone());
-            }
-        }
-        idx += 1;
-    }
-    let model_selection = if multi_model {
-        if checkpoint.is_some() || model.is_some() || model_version.is_some() || latest {
-            eprintln!(
-                "enkai serve: --multi-model cannot be combined with --checkpoint/--model/--model-version/--latest"
-            );
+    let manifest = match systems::build_serve_runtime_manifest(args) {
+        Ok(value) => value,
+        Err(err) => {
+            eprintln!("{}", err);
             return 1;
-        }
-        let Some(registry_raw) = registry.as_deref() else {
-            eprintln!("enkai serve: --multi-model requires --registry <dir>");
-            return 1;
-        };
-        let registry_path = match canonical_existing_path(Path::new(registry_raw), "--registry") {
-            Ok(path) => path,
-            Err(err) => {
-                eprintln!("enkai serve: {}", err);
-                return 1;
-            }
-        };
-        env::set_var("ENKAI_SERVE_MULTI_MODEL", "1");
-        env::set_var("ENKAI_REQUIRE_MODEL_VERSION_HEADER", "1");
-        env::set_var(
-            "ENKAI_SERVE_MODEL_REGISTRY",
-            registry_path.to_string_lossy().to_string(),
-        );
-        env::remove_var("ENKAI_SERVE_MODEL_PATH");
-        env::remove_var("ENKAI_SERVE_MODEL_NAME");
-        env::remove_var("ENKAI_SERVE_MODEL_VERSION");
-        None
-    } else {
-        env::remove_var("ENKAI_SERVE_MULTI_MODEL");
-        match resolve_serve_model_selection(
-            checkpoint.as_deref(),
-            registry.as_deref(),
-            model.as_deref(),
-            model_version.as_deref(),
-            latest,
-            require_loaded,
-        ) {
-            Ok(selection) => selection,
-            Err(err) => {
-                eprintln!("enkai serve: {}", err);
-                return 1;
-            }
         }
     };
-    if let Some(ref host) = host {
-        env::set_var("ENKAI_SERVE_HOST", host);
-    }
-    if let Some(ref port) = port {
-        env::set_var("ENKAI_SERVE_PORT", port);
-    }
-    if let Some(grpc_host) = &grpc_host {
-        env::set_var("ENKAI_GRPC_HOST", grpc_host);
-    }
-    if let Some(grpc_port) = &grpc_port {
-        env::set_var("ENKAI_GRPC_PORT", grpc_port);
-    }
-    let http_port_check = port.clone().or_else(|| env::var("ENKAI_SERVE_PORT").ok());
-    let grpc_port_check = grpc_port
-        .clone()
-        .or_else(|| env::var("ENKAI_GRPC_PORT").ok());
-    if let (Some(http_port), Some(grpc_port)) =
-        (http_port_check.as_deref(), grpc_port_check.as_deref())
-    {
-        if http_port.trim() == grpc_port.trim() && !http_port.trim().is_empty() {
-            eprintln!("enkai serve: --port and --grpc-port must be different");
-            return 1;
-        }
-    }
-    if let Some(selection) = model_selection {
-        env::set_var(
-            "ENKAI_SERVE_MODEL_PATH",
-            selection.checkpoint_path.to_string_lossy().to_string(),
-        );
-        if let Some(name) = selection.model_name {
-            env::set_var("ENKAI_SERVE_MODEL_NAME", name);
-        }
-        if let Some(version) = selection.model_version {
-            env::set_var("ENKAI_SERVE_MODEL_VERSION", version);
-        }
-        if let Some(registry_path) = selection.registry {
-            env::set_var(
-                "ENKAI_SERVE_MODEL_REGISTRY",
-                registry_path.to_string_lossy().to_string(),
-            );
-        }
-    }
-    let grpc_handle =
-        match grpc::maybe_start_grpc_server(grpc_host.as_deref(), grpc_port.as_deref()) {
-            Ok(handle) => handle,
-            Err(err) => {
-                eprintln!("enkai serve: {}", err);
-                return 1;
-            }
-        };
-    run_args.push(target.unwrap_or_else(|| ".".to_string()));
-    let exit_code = run_command(&run_args);
-    if let Some(handle) = grpc_handle {
-        handle.shutdown();
-    }
-    exit_code
+    systems::execute_serve_runtime_manifest(&manifest)
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 fn resolve_serve_model_selection(
     checkpoint: Option<&str>,
     registry: Option<&str>,
@@ -521,321 +242,29 @@ fn resolve_serve_model_selection(
     latest: bool,
     require_loaded: bool,
 ) -> Result<Option<ServeModelSelection>, String> {
-    if checkpoint.is_some()
-        && (registry.is_some() || model.is_some() || model_version.is_some() || latest)
-    {
-        return Err(
-            "use either --checkpoint or --registry/--model/--model-version/--latest".to_string(),
-        );
-    }
-
-    if let Some(path) = checkpoint {
-        let checkpoint_path = canonical_existing_path(Path::new(path), "--checkpoint")?;
-        return Ok(Some(ServeModelSelection {
-            checkpoint_path,
-            model_name: None,
-            model_version: None,
-            registry: None,
-        }));
-    }
-
-    if registry.is_none() && model.is_none() && model_version.is_none() && !latest {
-        return Ok(None);
-    }
-
-    let registry =
-        registry.ok_or_else(|| "missing --registry for model registry resolution".to_string())?;
-    let model = model.ok_or_else(|| "missing --model for model registry resolution".to_string())?;
-    if latest && model_version.is_some() {
-        return Err("use --latest or --model-version, not both".to_string());
-    }
-
-    let registry_path = canonical_existing_path(Path::new(registry), "--registry")?;
-    let model_root = registry_path.join(model);
-    if !model_root.is_dir() {
-        return Err(format!(
-            "model '{}' not found under registry {}",
-            model,
-            registry_path.display()
-        ));
-    }
-
-    let version = if let Some(version) = model_version {
-        version.to_string()
-    } else if !latest {
-        select_active_or_latest_model_version(&model_root)?
-    } else {
-        select_latest_model_version(&model_root)?
-    };
-    let version_dir = model_root.join(&version);
-    if !version_dir.exists() {
-        return Err(format!(
-            "version '{}' for model '{}' does not exist in {}",
-            version,
-            model,
-            model_root.display()
-        ));
-    }
-    let checkpoint_path = if version_dir.join("checkpoint").exists() {
-        canonical_existing_path(&version_dir.join("checkpoint"), "checkpoint directory")?
-    } else if let Some(pointer) = model::resolve_checkpoint_pointer(&version_dir) {
-        canonical_existing_path(&pointer, "checkpoint pointer")?
-    } else {
-        canonical_existing_path(&version_dir, "model version directory")?
-    };
-    if require_loaded {
-        let loaded = model::is_model_loaded(&registry_path, model, &version)
-            .map_err(|err| format!("failed to read serve load state: {}", err))?;
-        if !loaded {
-            return Err(format!(
-                "model '{}' version '{}' is not loaded for serving (run: enkai model load {} {} {})",
-                model,
-                version,
-                registry_path.display(),
-                model,
-                version
-            ));
-        }
-    }
-    Ok(Some(ServeModelSelection {
-        checkpoint_path,
-        model_name: Some(model.to_string()),
-        model_version: Some(version),
-        registry: Some(registry_path),
-    }))
+    systems::resolve_serve_model_selection(
+        checkpoint,
+        registry,
+        model,
+        model_version,
+        latest,
+        require_loaded,
+    )
 }
 
-fn canonical_existing_path(path: &Path, label: &str) -> Result<PathBuf, String> {
-    if !path.exists() {
-        return Err(format!("{} not found: {}", label, path.display()));
-    }
-    fs::canonicalize(path)
-        .map_err(|err| format!("failed to resolve {} {}: {}", label, path.display(), err))
-}
-
-fn select_latest_model_version(model_root: &Path) -> Result<String, String> {
-    let mut versions = Vec::new();
-    let entries = fs::read_dir(model_root).map_err(|err| {
-        format!(
-            "failed to read model registry {}: {}",
-            model_root.display(),
-            err
-        )
-    })?;
-    for entry in entries {
-        let entry = entry.map_err(|err| {
-            format!(
-                "failed to read model registry entry in {}: {}",
-                model_root.display(),
-                err
-            )
-        })?;
-        if !entry.path().is_dir() {
-            continue;
-        }
-        let name = entry.file_name();
-        let name = name.to_string_lossy().to_string();
-        if !name.is_empty() {
-            versions.push(name);
-        }
-    }
-    if versions.is_empty() {
-        return Err(format!(
-            "no versions found for model directory {}",
-            model_root.display()
-        ));
-    }
-    versions.sort_by(compare_version_labels);
-    versions
-        .pop()
-        .ok_or_else(|| "failed to select latest model version".to_string())
-}
-
-fn select_active_or_latest_model_version(model_root: &Path) -> Result<String, String> {
-    if let Some(active) = model::read_active_model_version(model_root) {
-        if model_root.join(&active).is_dir() {
-            return Ok(active);
-        }
-    }
-    select_latest_model_version(model_root)
-}
-
-fn compare_version_labels(a: &String, b: &String) -> std::cmp::Ordering {
-    let parsed_a = parse_semver_label(a);
-    let parsed_b = parse_semver_label(b);
-    match (parsed_a, parsed_b) {
-        (Some(left), Some(right)) => left.cmp(&right),
-        (Some(_), None) => std::cmp::Ordering::Greater,
-        (None, Some(_)) => std::cmp::Ordering::Less,
-        (None, None) => a.cmp(b),
-    }
-}
-
-fn parse_semver_label(value: &str) -> Option<Version> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let candidate = trimmed.strip_prefix('v').unwrap_or(trimmed);
-    Version::parse(candidate).ok()
+pub(crate) fn execute_runtime_target(
+    target: &Path,
+    options: runtime_exec::RuntimeExecOptions,
+) -> Result<i32, String> {
+    runtime_exec::execute_runtime_target(target, options)
 }
 
 fn check_command(args: &[String]) -> i32 {
-    if args.is_empty() {
-        eprintln!("enkai check requires a file or directory");
-        return 1;
-    }
-    let target = PathBuf::from(&args[0]);
-    let (root, entry) = match resolve_entry(&target) {
-        Ok(value) => value,
-        Err(err) => {
-            eprintln!("{}", err);
-            return 1;
-        }
-    };
-    match bootstrap::try_check_selfhost_entry(&entry) {
-        Ok(Some(outcome)) => {
-            emit_command_backend_report("check", &entry, &root, outcome.backend);
-            return outcome.exit_code;
-        }
-        Ok(None) => {}
-        Err(_) => {}
-    }
-    let package = match load_package(&entry) {
-        Ok(p) => p,
-        Err(err) => {
-            eprintln!("{}", err);
-            return 1;
-        }
-    };
-    emit_command_backend_report("check", &entry, &root, bootstrap::SelfhostRunBackend::Rust);
-    match TypeChecker::check_package(&package) {
-        Ok(_) => 0,
-        Err(err) => {
-            print_type_error(&err);
-            1
-        }
-    }
+    project_entrypoints::check_command(args)
 }
 
 fn test_command(args: &[String]) -> i32 {
-    let target = if args.is_empty() {
-        PathBuf::from(".")
-    } else {
-        PathBuf::from(&args[0])
-    };
-    let root = if target.is_dir() {
-        find_project_root(&target).unwrap_or_else(|| target.clone())
-    } else {
-        let parent = target
-            .parent()
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| PathBuf::from("."));
-        find_project_root(&parent).unwrap_or(parent)
-    };
-    let tests_dir = root.join("tests");
-    if !tests_dir.is_dir() {
-        eprintln!("tests directory not found: {}", tests_dir.display());
-        return 1;
-    }
-    let mut files = Vec::new();
-    if let Err(err) = collect_source_files_in_dir(&tests_dir, &mut files) {
-        eprintln!("{}", err);
-        return 1;
-    }
-    if files.is_empty() {
-        eprintln!("No .enk/.en tests found in {}", tests_dir.display());
-        return 1;
-    }
-    let mut passed = 0usize;
-    let mut failed = 0usize;
-    let mut backend_rows: Vec<serde_json::Value> = Vec::new();
-    for file in files {
-        match bootstrap::try_run_selfhost_entry(&file) {
-            Ok(Some(_outcome)) => {
-                println!("[pass] {}", file.display());
-                backend_rows.push(serde_json::json!({
-                    "file": file.to_string_lossy(),
-                    "compiler_backend": "selfhost",
-                    "runtime_backend": "selfhost",
-                    "status": "pass",
-                }));
-                passed += 1;
-            }
-            Ok(None) | Err(_) => {
-                let (program, compiler_backend) = match compile_program_prefer_selfhost(&file) {
-                    Ok(value) => value,
-                    Err(err) => {
-                        eprintln!("[fail] {}: {}", file.display(), err);
-                        backend_rows.push(serde_json::json!({
-                            "file": file.to_string_lossy(),
-                            "compiler_backend": "error",
-                            "runtime_backend": "none",
-                            "status": "fail",
-                            "error": err,
-                        }));
-                        failed += 1;
-                        continue;
-                    }
-                };
-                let mut vm = VM::new(false, false, false, false);
-                match vm.run(&program) {
-                    Ok(_) => {
-                        println!("[pass] {}", file.display());
-                        backend_rows.push(serde_json::json!({
-                            "file": file.to_string_lossy(),
-                            "compiler_backend": compiler_backend.as_str(),
-                            "runtime_backend": "rust",
-                            "status": "pass",
-                        }));
-                        passed += 1;
-                    }
-                    Err(err) => {
-                        eprintln!("[fail] {}: Runtime error: {}", file.display(), err);
-                        backend_rows.push(serde_json::json!({
-                            "file": file.to_string_lossy(),
-                            "compiler_backend": compiler_backend.as_str(),
-                            "runtime_backend": "rust",
-                            "status": "fail",
-                            "error": err.to_string(),
-                        }));
-                        failed += 1;
-                    }
-                }
-            }
-        }
-    }
-    emit_test_backend_report(&root, passed, failed, &backend_rows);
-    println!("Tests: {} passed, {} failed", passed, failed);
-    if failed == 0 {
-        0
-    } else {
-        1
-    }
-}
-
-fn emit_test_backend_report(root: &Path, passed: usize, failed: usize, rows: &[serde_json::Value]) {
-    let payload = serde_json::json!({
-        "command": "test",
-        "root": root.to_string_lossy(),
-        "passed": passed,
-        "failed": failed,
-        "entries": rows,
-    });
-    if let Err(err) = write_json_report_to_env_path("ENKAI_TEST_BACKEND_REPORT", &payload) {
-        eprintln!("[test] failed to write backend report: {}", err);
-    }
-}
-
-fn print_type_error(err: &TypeError) {
-    if let Some(diagnostic) = err.diagnostic() {
-        eprintln!("{}", diagnostic);
-    } else {
-        eprintln!(
-            "Type error: {} at {}:{}",
-            err.message, err.span.line, err.span.col
-        );
-    }
+    project_entrypoints::test_command(args)
 }
 
 fn fmt_command(args: &[String]) -> i32 {
@@ -910,100 +339,16 @@ fn fmt_command(args: &[String]) -> i32 {
 }
 
 fn build_command(args: &[String]) -> i32 {
-    let target = if args.is_empty() {
-        PathBuf::from(".")
-    } else {
-        PathBuf::from(&args[0])
-    };
-    let (root, entry) = match resolve_entry(&target) {
-        Ok(value) => value,
-        Err(err) => {
-            eprintln!("{}", err);
-            return 1;
-        }
-    };
-    if find_manifest(&root).is_none() {
-        eprintln!("enkai.toml not found in {}", root.display());
-        return 1;
-    }
-    let manifest = match read_manifest_info(&root) {
-        Ok(info) => info,
-        Err(err) => {
-            eprintln!("{}", err);
-            return 1;
-        }
-    };
-    let deps = match resolve_dependencies(&root, &manifest) {
-        Ok(list) => list,
-        Err(err) => {
-            eprintln!("{}", err);
-            return 1;
-        }
-    };
-    if let Err(err) = write_lockfile(&root, &deps) {
-        eprintln!("{}", err);
-        return 1;
-    }
-    let hash = match compute_build_hash(&root, &deps) {
-        Ok(value) => value,
-        Err(err) => {
-            eprintln!("{}", err);
-            return 1;
-        }
-    };
-    let entry_rel = entry
-        .strip_prefix(&root)
-        .unwrap_or(&entry)
-        .to_string_lossy()
-        .to_string();
-    if let Ok(Some(meta)) = load_build_cache(&root) {
-        if is_cache_valid(&meta, &entry_rel, &hash) {
-            if let Some(backend) = meta.compiler_backend.as_deref() {
-                let report_backend = match backend {
-                    "selfhost" => bootstrap::SelfhostRunBackend::Selfhost,
-                    _ => bootstrap::SelfhostRunBackend::Rust,
-                };
-                emit_command_backend_report("build", &entry, &root, report_backend);
-            }
-            println!("build up to date");
-            return 0;
-        }
-    }
-    let (program, backend) = match compile_program_prefer_selfhost(&entry) {
-        Ok(value) => value,
-        Err(err) => {
-            eprintln!("{}", err);
-            return 1;
-        }
-    };
-    if let Err(err) = write_build_cache(&root, &entry_rel, &hash, &program, backend) {
-        eprintln!("{}", err);
-        return 1;
-    }
-    emit_command_backend_report("build", &entry, &root, backend);
-    println!("build ok");
-    0
+    project_entrypoints::build_command(args)
 }
 
-fn compile_program_prefer_selfhost(
+pub(crate) fn compile_program_prefer_selfhost(
     entry: &Path,
 ) -> Result<(Program, bootstrap::SelfhostRunBackend), String> {
-    match bootstrap::try_compile_selfhost_program(entry) {
-        Ok(Some(compiled)) => Ok((compiled.program, compiled.backend)),
-        Ok(None) | Err(_) => compile_program_with_rust_backend(entry),
-    }
+    runtime_exec::compile_program_prefer_selfhost(entry)
 }
 
-fn compile_program_with_rust_backend(
-    entry: &Path,
-) -> Result<(Program, bootstrap::SelfhostRunBackend), String> {
-    let package = load_package(entry).map_err(|err| err.to_string())?;
-    TypeChecker::check_package(&package).map_err(type_error_message)?;
-    let program = compile_package(&package).map_err(compile_error_message)?;
-    Ok((program, bootstrap::SelfhostRunBackend::Rust))
-}
-
-fn type_error_message(err: TypeError) -> String {
+pub(crate) fn type_error_message(err: TypeError) -> String {
     if let Some(diagnostic) = err.diagnostic() {
         diagnostic.to_string()
     } else {
@@ -1014,7 +359,7 @@ fn type_error_message(err: TypeError) -> String {
     }
 }
 
-fn compile_error_message(err: CompileError) -> String {
+pub(crate) fn compile_error_message(err: CompileError) -> String {
     if let Some(diagnostic) = err.diagnostic() {
         diagnostic.to_string()
     } else if let Some(span) = &err.span {
@@ -1035,11 +380,18 @@ fn train_command(args: &[String]) -> i32 {
             return 1;
         }
     };
-    let result = if strict_contracts {
-        train::train(&path)
-    } else {
-        train::train_with_contract_mode(&path, false)
+    let manifest = match train::build_train_command_manifest(
+        train::TrainManifestCommand::Train,
+        &path,
+        strict_contracts,
+    ) {
+        Ok(manifest) => manifest,
+        Err(err) => {
+            eprintln!("Train error: {}", err);
+            return 1;
+        }
     };
+    let result = train_runtime::execute_train_command_manifest(&manifest);
     match result {
         Ok(_) => 0,
         Err(err) => {
@@ -1057,11 +409,18 @@ fn pretrain_command(args: &[String]) -> i32 {
             return 1;
         }
     };
-    let result = if strict_contracts {
-        train::pretrain(&path)
-    } else {
-        train::pretrain_with_contract_mode(&path, false)
+    let manifest = match train::build_train_command_manifest(
+        train::TrainManifestCommand::Pretrain,
+        &path,
+        strict_contracts,
+    ) {
+        Ok(manifest) => manifest,
+        Err(err) => {
+            eprintln!("Pretrain error: {}", err);
+            return 1;
+        }
     };
+    let result = train_runtime::execute_train_command_manifest(&manifest);
     match result {
         Ok(_) => 0,
         Err(err) => {
@@ -1079,11 +438,18 @@ fn eval_command(args: &[String]) -> i32 {
             return 1;
         }
     };
-    let result = if strict_contracts {
-        train::eval(&path)
-    } else {
-        train::eval_with_contract_mode(&path, false)
+    let manifest = match train::build_train_command_manifest(
+        train::TrainManifestCommand::Eval,
+        &path,
+        strict_contracts,
+    ) {
+        Ok(manifest) => manifest,
+        Err(err) => {
+            eprintln!("Eval error: {}", err);
+            return 1;
+        }
     };
+    let result = train_runtime::execute_train_command_manifest(&manifest);
     match result {
         Ok(_) => 0,
         Err(err) => {
@@ -1091,6 +457,148 @@ fn eval_command(args: &[String]) -> i32 {
             1
         }
     }
+}
+
+fn train_manifest_command(args: &[String]) -> i32 {
+    let Some(mode) = args.first().map(|value| value.as_str()) else {
+        eprintln!("enkai train-manifest: missing mode (train|pretrain|eval)");
+        return 1;
+    };
+    let command = match mode {
+        "train" => train::TrainManifestCommand::Train,
+        "pretrain" => train::TrainManifestCommand::Pretrain,
+        "eval" => train::TrainManifestCommand::Eval,
+        other => {
+            eprintln!(
+                "enkai train-manifest: unknown mode '{}'; expected train|pretrain|eval",
+                other
+            );
+            return 1;
+        }
+    };
+    let (sub_args, manifest_output) = match parse_train_manifest_args(&args[1..]) {
+        Ok(value) => value,
+        Err(err) => {
+            eprintln!("enkai train-manifest: {}", err);
+            return 1;
+        }
+    };
+    let (path, strict_contracts) = match parse_train_eval_args(mode, &sub_args) {
+        Ok(v) => v,
+        Err(err) => {
+            eprintln!("{}", err);
+            return 1;
+        }
+    };
+    let manifest = match train::build_train_command_manifest(command, &path, strict_contracts) {
+        Ok(manifest) => manifest,
+        Err(err) => {
+            eprintln!("enkai train-manifest: {}", err);
+            return 1;
+        }
+    };
+    emit_train_manifest(&manifest, manifest_output.as_deref())
+}
+
+fn train_exec_command(args: &[String]) -> i32 {
+    let manifest_path = match parse_train_exec_manifest_flag(args) {
+        Ok(path) => path,
+        Err(err) => {
+            eprintln!("enkai train-exec: {}", err);
+            return 1;
+        }
+    };
+    let manifest = match train_runtime::load_train_command_manifest(&manifest_path) {
+        Ok(manifest) => manifest,
+        Err(err) => {
+            eprintln!("enkai train-exec: {}", err);
+            return 1;
+        }
+    };
+    match train_runtime::execute_train_command_manifest(&manifest) {
+        Ok(()) => 0,
+        Err(err) => {
+            eprintln!("Train exec error: {}", err);
+            1
+        }
+    }
+}
+
+fn parse_train_manifest_args(args: &[String]) -> Result<(Vec<String>, Option<PathBuf>), String> {
+    let mut sub_args = Vec::new();
+    let mut manifest_output = None;
+    let mut idx = 0usize;
+    while idx < args.len() {
+        match args[idx].as_str() {
+            "--manifest-output" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err("--manifest-output requires a value".to_string());
+                }
+                manifest_output = Some(PathBuf::from(&args[idx]));
+            }
+            other => sub_args.push(other.to_string()),
+        }
+        idx += 1;
+    }
+    Ok((sub_args, manifest_output))
+}
+
+fn emit_train_manifest(manifest: &train::TrainCommandManifest, output: Option<&Path>) -> i32 {
+    let text = match serde_json::to_string_pretty(manifest) {
+        Ok(text) => text,
+        Err(err) => {
+            eprintln!(
+                "enkai train-manifest: failed to serialize manifest: {}",
+                err
+            );
+            return 1;
+        }
+    };
+    if let Some(path) = output {
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                if let Err(err) = fs::create_dir_all(parent) {
+                    eprintln!(
+                        "enkai train-manifest: failed to create output directory {}: {}",
+                        parent.display(),
+                        err
+                    );
+                    return 1;
+                }
+            }
+        }
+        if let Err(err) = fs::write(path, text.as_bytes()) {
+            eprintln!(
+                "enkai train-manifest: failed to write manifest {}: {}",
+                path.display(),
+                err
+            );
+            return 1;
+        }
+    } else {
+        println!("{}", text);
+    }
+    0
+}
+
+fn parse_train_exec_manifest_flag(args: &[String]) -> Result<PathBuf, String> {
+    let mut manifest_path = None;
+    let mut idx = 0usize;
+    while idx < args.len() {
+        match args[idx].as_str() {
+            "--manifest" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err("--manifest requires a value".to_string());
+                }
+                manifest_path = Some(PathBuf::from(&args[idx]));
+            }
+            other => return Err(format!("unknown option '{}'", other)),
+        }
+        idx += 1;
+    }
+    manifest_path.ok_or_else(|| "--manifest is required".to_string())
 }
 
 fn parse_train_eval_args(command: &str, args: &[String]) -> Result<(PathBuf, bool), String> {
@@ -1146,81 +654,16 @@ fn allow_legacy_contracts_from_env() -> bool {
     }
 }
 
-fn resolve_entry(target: &Path) -> Result<(PathBuf, PathBuf), String> {
-    let metadata = fs::metadata(target)
-        .map_err(|err| format!("Failed to read {}: {}", target.display(), err))?;
-    if metadata.is_dir() {
-        let root = target.to_path_buf();
-        let _manifest = find_manifest(&root)
-            .ok_or_else(|| format!("enkai.toml not found in {}", root.display()))?;
-        let entry = find_entry_file(&root)
-            .ok_or_else(|| "Entry file not found (main.enk/main.en/main.enkai)".to_string())?;
-        Ok((root, entry))
-    } else {
-        let file = target.to_path_buf();
-        let parent = file
-            .parent()
-            .ok_or_else(|| "Invalid file path".to_string())?;
-        let root = find_project_root(parent).unwrap_or_else(|| parent.to_path_buf());
-        Ok((root, file))
-    }
+pub(crate) fn resolve_entry(target: &Path) -> Result<(PathBuf, PathBuf), String> {
+    project_entrypoints::resolve_entry(target)
 }
 
-fn find_project_root(start: &Path) -> Option<PathBuf> {
-    let mut current = Some(start);
-    while let Some(dir) = current {
-        if find_manifest(dir).is_some() {
-            return Some(dir.to_path_buf());
-        }
-        current = dir.parent();
-    }
-    None
+pub(crate) fn find_project_root(start: &Path) -> Option<PathBuf> {
+    project_entrypoints::find_project_root(start)
 }
 
-fn collect_source_files(path: &Path) -> Result<Vec<PathBuf>, String> {
-    if path.is_file() {
-        if is_source_extension(path) {
-            return Ok(vec![path.to_path_buf()]);
-        }
-        return Err(format!("Not an .enk/.en file: {}", path.display()));
-    }
-    if !path.is_dir() {
-        return Err(format!("Path not found: {}", path.display()));
-    }
-    let scan_root = if find_manifest(path).is_some() {
-        let src = path.join("src");
-        if src.is_dir() {
-            src
-        } else {
-            path.to_path_buf()
-        }
-    } else {
-        path.to_path_buf()
-    };
-    let mut files = Vec::new();
-    collect_source_files_in_dir(&scan_root, &mut files)?;
-    if files.is_empty() {
-        return Err(format!(
-            "No .enk/.en files found in {}",
-            scan_root.display()
-        ));
-    }
-    Ok(files)
-}
-
-fn collect_source_files_in_dir(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
-    for entry in
-        fs::read_dir(dir).map_err(|err| format!("Failed to read {}: {}", dir.display(), err))?
-    {
-        let entry = entry.map_err(|err| err.to_string())?;
-        let path = entry.path();
-        if path.is_dir() {
-            collect_source_files_in_dir(&path, files)?;
-        } else if is_source_extension(&path) {
-            files.push(path);
-        }
-    }
-    Ok(())
+pub(crate) fn collect_source_files(path: &Path) -> Result<Vec<PathBuf>, String> {
+    project_entrypoints::collect_source_files(path)
 }
 
 fn normalize_line_endings(input: &str) -> String {
@@ -1247,6 +690,7 @@ fn print_usage() {
     grpc::print_grpc_usage();
     install_diag::print_install_diagnostics_usage();
     sim::print_sim_usage();
+    systems::print_systems_usage();
     validate::print_validate_usage();
     worker::print_worker_usage();
     bootstrap::print_usage();
@@ -1255,6 +699,8 @@ fn print_usage() {
     eprintln!("  enkai build [dir]");
     eprintln!("  enkai test [dir]");
     eprintln!("  enkai train <config.enk> [--strict-contracts|--lenient-contracts]");
+    eprintln!("  enkai train-manifest <train|pretrain|eval> <config.enk> [--strict-contracts|--lenient-contracts] [--manifest-output <file>]");
+    eprintln!("  enkai train-exec --manifest <file>");
     eprintln!("  enkai pretrain <config.enk> [--strict-contracts|--lenient-contracts]");
     eprintln!("  enkai eval <config.enk> [--strict-contracts|--lenient-contracts]");
     migrate::print_usage();
@@ -1276,369 +722,8 @@ fn format_version_string() -> String {
     format!("Enkai v{} (cli {})", language_version(), cli_version())
 }
 
-const BUILD_CACHE_VERSION: u32 = 1;
-const LOCK_VERSION: i64 = 1;
-
-fn cache_dir(root: &Path) -> PathBuf {
-    root.join("target").join("enkai")
-}
-
-fn cache_meta_path(root: &Path) -> PathBuf {
-    cache_dir(root).join("build.json")
-}
-
-fn cache_program_path(root: &Path, meta: &BuildCacheMeta) -> PathBuf {
-    cache_dir(root).join(&meta.program)
-}
-
-fn load_build_cache(root: &Path) -> Result<Option<BuildCacheMeta>, String> {
-    let path = cache_meta_path(root);
-    if !path.is_file() {
-        return Ok(None);
-    }
-    let text = fs::read_to_string(&path)
-        .map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
-    let meta: BuildCacheMeta =
-        serde_json::from_str(&text).map_err(|err| format!("Invalid cache: {}", err))?;
-    Ok(Some(meta))
-}
-
-fn is_cache_valid(meta: &BuildCacheMeta, entry: &str, hash: &str) -> bool {
-    meta.cache_version == BUILD_CACHE_VERSION
-        && meta.lang_version == language_version()
-        && meta.entry == entry
-        && meta.hash == hash
-}
-
-fn write_build_cache(
-    root: &Path,
-    entry: &str,
-    hash: &str,
-    program: &Program,
-    backend: bootstrap::SelfhostRunBackend,
-) -> Result<(), String> {
-    let dir = cache_dir(root);
-    fs::create_dir_all(&dir)
-        .map_err(|err| format!("Failed to create {}: {}", dir.display(), err))?;
-    let program_path = dir.join("program.bin");
-    let encoded =
-        bincode::serialize(program).map_err(|err| format!("Cache serialize failed: {}", err))?;
-    fs::write(&program_path, encoded)
-        .map_err(|err| format!("Failed to write {}: {}", program_path.display(), err))?;
-    let meta = BuildCacheMeta {
-        cache_version: BUILD_CACHE_VERSION,
-        lang_version: language_version().to_string(),
-        entry: entry.to_string(),
-        hash: hash.to_string(),
-        program: "program.bin".to_string(),
-        compiler_backend: Some(backend.as_str().to_string()),
-    };
-    let meta_text =
-        serde_json::to_string_pretty(&meta).map_err(|err| format!("Cache meta error: {}", err))?;
-    let meta_path = cache_meta_path(root);
-    fs::write(&meta_path, meta_text)
-        .map_err(|err| format!("Failed to write {}: {}", meta_path.display(), err))?;
-    Ok(())
-}
-
-fn load_cached_program(root: &Path, entry: &Path) -> Result<Option<Program>, String> {
-    let Some(meta) = load_build_cache(root)? else {
-        return Ok(None);
-    };
-    let lock_path = root.join("enkai.lock");
-    if !lock_path.is_file() {
-        return Ok(None);
-    }
-    let entry_rel = entry
-        .strip_prefix(root)
-        .unwrap_or(entry)
-        .to_string_lossy()
-        .to_string();
-    if !is_cache_valid(&meta, &entry_rel, &meta.hash) {
-        return Ok(None);
-    }
-    let deps = read_lock_dependencies(root)?;
-    let hash = compute_build_hash(root, &deps)?;
-    if meta.hash != hash {
-        return Ok(None);
-    }
-    let program_path = cache_program_path(root, &meta);
-    if !program_path.is_file() {
-        return Ok(None);
-    }
-    let bytes = fs::read(&program_path)
-        .map_err(|err| format!("Failed to read {}: {}", program_path.display(), err))?;
-    let program: Program =
-        bincode::deserialize(&bytes).map_err(|err| format!("Cache decode failed: {}", err))?;
-    Ok(Some(program))
-}
-
-fn read_manifest_info(root: &Path) -> Result<ManifestInfo, String> {
-    let path = root.join("enkai.toml");
-    let source = fs::read_to_string(&path)
-        .map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
-    let value = source
-        .parse::<TomlValue>()
-        .map_err(|err| format!("Failed to parse {}: {}", path.display(), err))?;
-    let mut dependencies = Vec::new();
-    if let Some(table) = value.get("dependencies").and_then(|val| val.as_table()) {
-        for (name, entry) in table {
-            let (path, version_req) = if let Some(path) = entry.as_str() {
-                (PathBuf::from(path), None)
-            } else if let Some(dep_table) = entry.as_table() {
-                let path = dep_table
-                    .get("path")
-                    .and_then(|val| val.as_str())
-                    .ok_or_else(|| format!("Dependency {} missing path", name))?;
-                let version_req = dep_table
-                    .get("version")
-                    .and_then(|val| val.as_str())
-                    .map(|s| s.to_string());
-                (PathBuf::from(path), version_req)
-            } else {
-                return Err(format!("Dependency {} must be path or table", name));
-            };
-            dependencies.push(DependencySpec {
-                name: name.to_string(),
-                path,
-                version_req,
-            });
-        }
-    }
-    Ok(ManifestInfo { dependencies })
-}
-
-fn read_package_info(root: &Path) -> Result<PackageInfo, String> {
-    let path = root.join("enkai.toml");
-    if !path.is_file() {
-        return Ok(PackageInfo::default());
-    }
-    let source = fs::read_to_string(&path)
-        .map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
-    let value = source
-        .parse::<TomlValue>()
-        .map_err(|err| format!("Failed to parse {}: {}", path.display(), err))?;
-    let mut info = PackageInfo::default();
-    if let Some(table) = value.get("package").and_then(|val| val.as_table()) {
-        info.name = table
-            .get("name")
-            .and_then(|val| val.as_str())
-            .map(|s| s.to_string());
-        info.version = table
-            .get("version")
-            .and_then(|val| val.as_str())
-            .map(|s| s.to_string());
-    }
-    Ok(info)
-}
-
-fn resolve_dependencies(
-    root: &Path,
-    manifest: &ManifestInfo,
-) -> Result<Vec<ResolvedDependency>, String> {
-    let mut resolved = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for dep in &manifest.dependencies {
-        if !seen.insert(dep.name.clone()) {
-            return Err(format!("Duplicate dependency name {}", dep.name));
-        }
-        let dep_root = root.join(&dep.path);
-        if !dep_root.is_dir() {
-            return Err(format!(
-                "Dependency {} path not found: {}",
-                dep.name,
-                dep_root.display()
-            ));
-        }
-        let info = read_package_info(&dep_root)?;
-        if let Some(req) = &dep.version_req {
-            match info.version.as_ref() {
-                Some(version) if version == req => {}
-                Some(version) => {
-                    return Err(format!(
-                        "Dependency {} version mismatch (expected {}, found {})",
-                        dep.name, req, version
-                    ))
-                }
-                None => {
-                    return Err(format!(
-                        "Dependency {} missing package.version (expected {})",
-                        dep.name, req
-                    ))
-                }
-            }
-        }
-        resolved.push(ResolvedDependency {
-            name: dep.name.clone(),
-            path: dep.path.clone(),
-            version: info.version,
-            package: info.name,
-        });
-    }
-    resolved.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(resolved)
-}
-
-fn write_lockfile(root: &Path, deps: &[ResolvedDependency]) -> Result<(), String> {
-    let mut out = String::new();
-    out.push_str("lock_version = 1\n");
-    for dep in deps {
-        out.push_str("\n[[dependency]]\n");
-        out.push_str(&format!("name = \"{}\"\n", toml_escape(&dep.name)));
-        out.push_str(&format!(
-            "path = \"{}\"\n",
-            toml_escape(&dep.path.to_string_lossy())
-        ));
-        if let Some(version) = &dep.version {
-            out.push_str(&format!("version = \"{}\"\n", toml_escape(version)));
-        }
-        if let Some(package) = &dep.package {
-            out.push_str(&format!("package = \"{}\"\n", toml_escape(package)));
-        }
-    }
-    let path = root.join("enkai.lock");
-    fs::write(&path, out).map_err(|err| format!("Failed to write {}: {}", path.display(), err))?;
-    Ok(())
-}
-
-fn read_lock_dependencies(root: &Path) -> Result<Vec<ResolvedDependency>, String> {
-    let path = root.join("enkai.lock");
-    let source = fs::read_to_string(&path)
-        .map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
-    let value = source
-        .parse::<TomlValue>()
-        .map_err(|err| format!("Failed to parse {}: {}", path.display(), err))?;
-    if let Some(lock_version) = value.get("lock_version").and_then(|v| v.as_integer()) {
-        if lock_version != LOCK_VERSION {
-            return Err(format!("Unsupported lock_version {}", lock_version));
-        }
-    }
-    let mut deps = Vec::new();
-    if let Some(entries) = value.get("dependency").and_then(|v| v.as_array()) {
-        for entry in entries {
-            let name = entry
-                .get("name")
-                .and_then(|val| val.as_str())
-                .ok_or_else(|| "Dependency entry missing name".to_string())?;
-            let path_value = entry
-                .get("path")
-                .and_then(|val| val.as_str())
-                .ok_or_else(|| format!("Dependency {} missing path", name))?;
-            let version = entry
-                .get("version")
-                .and_then(|val| val.as_str())
-                .map(|s| s.to_string());
-            let package = entry
-                .get("package")
-                .and_then(|val| val.as_str())
-                .map(|s| s.to_string());
-            deps.push(ResolvedDependency {
-                name: name.to_string(),
-                path: PathBuf::from(path_value),
-                version,
-                package,
-            });
-        }
-    }
-    deps.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(deps)
-}
-
-fn compute_build_hash(root: &Path, deps: &[ResolvedDependency]) -> Result<String, String> {
-    let mut files = collect_build_inputs(root, deps)?;
-    files.sort_by(|a, b| a.to_string_lossy().cmp(&b.to_string_lossy()));
-    files.dedup();
-    let mut hasher = Sha256::new();
-    for path in files {
-        let name = path.to_string_lossy();
-        hasher.update(name.as_bytes());
-        hasher.update([0u8]);
-        let data =
-            fs::read(&path).map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
-        hasher.update(&data);
-    }
-    let digest = hasher.finalize();
-    Ok(format!("{:x}", digest))
-}
-
-fn collect_build_inputs(root: &Path, deps: &[ResolvedDependency]) -> Result<Vec<PathBuf>, String> {
-    let mut files = Vec::new();
-    let src_dir = if root.join("src").is_dir() {
-        root.join("src")
-    } else {
-        root.to_path_buf()
-    };
-    collect_source_files_in_dir(&src_dir, &mut files)?;
-    let manifest = root.join("enkai.toml");
-    if manifest.is_file() {
-        files.push(manifest);
-    }
-    let lock = root.join("enkai.lock");
-    if lock.is_file() {
-        files.push(lock);
-    }
-    for dep in deps {
-        let dep_root = if dep.path.is_absolute() {
-            dep.path.clone()
-        } else {
-            root.join(&dep.path)
-        };
-        let dep_src = if dep_root.join("src").is_dir() {
-            dep_root.join("src")
-        } else {
-            dep_root.clone()
-        };
-        if dep_src.is_dir() {
-            collect_source_files_in_dir(&dep_src, &mut files)?;
-        }
-        let dep_manifest = dep_root.join("enkai.toml");
-        if dep_manifest.is_file() {
-            files.push(dep_manifest);
-        }
-    }
-    Ok(files)
-}
-
-fn toml_escape(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('\"', "\\\"")
-}
-
-fn is_source_extension(path: &Path) -> bool {
-    let ext = path.extension().and_then(|ext| ext.to_str());
-    matches!(ext, Some("enk") | Some("en") | Some("enkai"))
-}
-
-fn find_manifest(root: &Path) -> Option<PathBuf> {
-    let enkai = root.join("enkai.toml");
-    if enkai.is_file() {
-        return Some(enkai);
-    }
-    let legacy = root.join("enkai.toml");
-    if legacy.is_file() {
-        return Some(legacy);
-    }
-    None
-}
-
-fn find_entry_file(root: &Path) -> Option<PathBuf> {
-    let candidates = if root.join("src").is_dir() {
-        root.join("src")
-    } else {
-        root.to_path_buf()
-    };
-    let enk = candidates.join("main.enk");
-    if enk.is_file() {
-        return Some(enk);
-    }
-    let en = candidates.join("main.en");
-    if en.is_file() {
-        return Some(en);
-    }
-    let legacy = candidates.join("main.enkai");
-    if legacy.is_file() {
-        return Some(legacy);
-    }
-    None
+pub(crate) fn load_cached_program(root: &Path, entry: &Path) -> Result<Option<Program>, String> {
+    project_entrypoints::load_cached_program(root, entry)
 }
 
 #[cfg(all(test, not(windows)))]

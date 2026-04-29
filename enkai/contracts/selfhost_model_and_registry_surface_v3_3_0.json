@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.3.0",
+  "profile": "model_and_registry_surface",
+  "generated_purpose": "Prove the v3.3.0 model and registry surface is complete by requiring the manifest-backed registry/train slice to remain green and accelerated native execution to terminate inside train_runtime with deterministic runtime-owned behavior.",
+  "required_slice_report": "artifacts/readiness/strict_selfhost_model_registry_ops_slice.json",
+  "required_checks": [
+    "register",
+    "load",
+    "loaded",
+    "train",
+    "train-native"
+  ],
+  "required_native_behavior": {
+    "exec_returncode": 0,
+    "manifest_returncode": 0,
+    "native_manifest_ok": true,
+    "native_exec_ok": true,
+    "fallback_note_ok": true
+  }
+}

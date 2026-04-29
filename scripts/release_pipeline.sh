@@ -87,7 +87,7 @@ if [ "$skip_package" = "0" ]; then
     --skip-release-evidence
 
   echo "[release] Collecting strict release evidence bundle..."
-  python3 scripts/collect_release_evidence.py --strict
+  python3 scripts/collect_release_evidence.py --contract enkai/contracts/selfhost_release_evidence_collection_v3_3_0.json --strict
 
   echo "[release] Verifying release blocker matrix against archived evidence..."
   cargo run -p enkai -- readiness verify-blockers \
@@ -106,7 +106,7 @@ if [ "$skip_package" = "0" ]; then
     --output artifacts/readiness/strict_selfhost_blockers.json
 
   echo "[release] Refreshing strict release evidence bundle with final blocker report..."
-  python3 scripts/collect_release_evidence.py --strict
+  python3 scripts/collect_release_evidence.py --contract enkai/contracts/selfhost_release_evidence_collection_v3_3_0.json --strict
 
   echo "[release] Generating strict capability report..."
   python3 scripts/generate_capability_report.py --strict
@@ -133,7 +133,7 @@ else
     --skip-release-evidence
 
   echo "[release] Collecting reduced release evidence bundle (package checks skipped)..."
-  python3 scripts/collect_release_evidence.py
+  python3 scripts/collect_release_evidence.py --contract enkai/contracts/selfhost_release_evidence_collection_v3_3_0.json
 
   echo "[release] Generating reduced capability report (package checks skipped)..."
   python3 scripts/generate_capability_report.py

@@ -32,8 +32,6 @@ def main() -> int:
         if surface.get("status") not in {"contract_driven", "complete"}:
             next_peelable_surface = surface.get("id")
             break
-    if next_peelable_surface is None and surfaces:
-        next_peelable_surface = surfaces[0].get("id")
     report = {
         "schema_version": 1,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),

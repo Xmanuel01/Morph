@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.3.0",
+  "profile": "runtime_core",
+  "generated_purpose": "Prove the strict-selfhost runtime core is complete by requiring the audited bytecode surface, shipped example parity, scheduler/tasks proof, runtime determinism, runtime error taxonomy, and shipped run/test runtime backend ownership to stay green.",
+  "required_reports": [
+    "artifacts/selfhost/runtime_coverage_examples/litec_runtime_coverage_report.json",
+    "artifacts/selfhost/runtime_audit_examples/litec_runtime_audit_report.json",
+    "artifacts/selfhost/runtime_audit_tasks_channels/litec_runtime_audit_report.json",
+    "artifacts/readiness/selfhost_runtime_determinism_verify.json",
+    "artifacts/selfhost/runtime_error_taxonomy/litec_runtime_error_audit_report.json",
+    "artifacts/readiness/strict_selfhost_project_entrypoints_slice.json",
+    "artifacts/selfhost/run_backend_hello.json"
+  ],
+  "required_status_fields": {
+    "artifacts/selfhost/runtime_coverage_examples/litec_runtime_coverage_report.json:status": "ok",
+    "artifacts/selfhost/runtime_coverage_examples/litec_runtime_coverage_report.json:full_instruction_surface_supported": true,
+    "artifacts/selfhost/runtime_coverage_examples/litec_runtime_coverage_report.json:runtime_gap_files": 0,
+    "artifacts/selfhost/runtime_coverage_examples/litec_runtime_coverage_report.json:stage1_stage2_fixed_point": true,
+    "artifacts/selfhost/runtime_audit_examples/litec_runtime_audit_report.json:status": "ok",
+    "artifacts/selfhost/runtime_audit_examples/litec_runtime_audit_report.json:full_support_ready": true,
+    "artifacts/selfhost/runtime_audit_examples/litec_runtime_audit_report.json:runtime_gap_files": 0,
+    "artifacts/selfhost/runtime_audit_tasks_channels/litec_runtime_audit_report.json:status": "ok",
+    "artifacts/selfhost/runtime_audit_tasks_channels/litec_runtime_audit_report.json:full_support_ready": true,
+    "artifacts/selfhost/runtime_audit_tasks_channels/litec_runtime_audit_report.json:runtime_gap_files": 0,
+    "artifacts/readiness/selfhost_runtime_determinism_verify.json:all_passed": true,
+    "artifacts/selfhost/runtime_error_taxonomy/litec_runtime_error_audit_report.json:status": "ok",
+    "artifacts/selfhost/runtime_error_taxonomy/litec_runtime_error_audit_report.json:taxonomy_gap_cases": 0,
+    "artifacts/selfhost/runtime_error_taxonomy/litec_runtime_error_audit_report.json:full_support_ready": true,
+    "artifacts/readiness/strict_selfhost_project_entrypoints_slice.json:all_passed": true,
+    "artifacts/readiness/strict_selfhost_project_entrypoints_slice.json:run.backend": "selfhost",
+    "artifacts/readiness/strict_selfhost_project_entrypoints_slice.json:test.entries.0.runtime_backend": "selfhost",
+    "artifacts/selfhost/run_backend_hello.json:backend": "selfhost"
+  }
+}

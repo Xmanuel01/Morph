@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.3.0",
+  "profile": "install_flow_proof",
+  "generated_purpose": "Select the OS-specific install-flow contract for the v3.3.0 installable toolchain tranche.",
+  "os_contracts": {
+    "windows": "enkai/contracts/install_flow_v3_3_0_windows.json",
+    "linux": "enkai/contracts/install_flow_v3_3_0_linux.json"
+  }
+}

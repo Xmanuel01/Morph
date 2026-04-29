@@ -21,7 +21,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", required=True, help="Output JSON report path")
     parser.add_argument(
         "--contract",
-        default="enkai/contracts/install_flow_v3_2_1.json",
+        default="enkai/contracts/install_flow_v3_3_0.json",
         help="Path to the install flow contract",
     )
     parser.add_argument(
@@ -197,7 +197,7 @@ def invoke_installer(
         if uninstall:
             command.append("-Uninstall")
         else:
-            command.extend(["-BundlePath", str(bundle_path), "-Version", "v3.2.1"])
+            command.extend(["-BundlePath", str(bundle_path), "-Version", "v3.3.0"])
     else:
         command = [
             "bash",
@@ -209,7 +209,7 @@ def invoke_installer(
         if uninstall:
             command.append("--uninstall")
         else:
-            command.extend(["--bundle-path", str(bundle_path), "--version", "v3.2.1"])
+            command.extend(["--bundle-path", str(bundle_path), "--version", "v3.3.0"])
     env = os.environ.copy()
     return run_checked(command, root, env)
 
@@ -427,7 +427,7 @@ def main() -> int:
         package_release.verify_required_layout(stage, exe_name)
 
         archive_path = temp_root / (
-            "enkai-v3.2.1-windows-x86_64.zip" if target_os == "windows" else "enkai-v3.2.1-host.tar.gz"
+            "enkai-v3.3.0-windows-x86_64.zip" if target_os == "windows" else "enkai-v3.3.0-host.tar.gz"
         )
         if target_os == "windows":
             first_bytes = package_release.build_zip_bytes(stage, exe_name)

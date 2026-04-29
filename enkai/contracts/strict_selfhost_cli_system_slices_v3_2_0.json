@@ -6,7 +6,7 @@
   "surfaces": [
     {
       "id": "project_entrypoints",
-      "status": "partial",
+      "status": "done",
       "rust_owner": "enkai",
       "current_scope": [
         "run",
@@ -17,50 +17,95 @@
       "selfhost_progress": [
         "selfhost-first compiler path",
         "selfhost-first runtime path for supported run/test programs",
-        "backend provenance in build cache"
+        "backend provenance in build cache",
+        "manifest resolution, package loading policy, and cache orchestration now route through the dedicated project_entrypoints module",
+        "project entrypoint proof contract covers run/check/build/test plus lockfile and build-cache backend evidence"
       ],
-      "next_slice": "Lift manifest resolution, package loading policy, and cache orchestration out of Rust command handlers.",
+      "next_slice": "complete",
       "priority": 1
     },
     {
       "id": "readiness_and_validation",
-      "status": "blocked",
+      "status": "done",
       "rust_owner": "enkai",
       "current_scope": [
         "readiness",
         "validate",
         "release evidence orchestration"
       ],
-      "selfhost_progress": [],
-      "next_slice": "Define an Enkai-owned manifest/report runner for readiness contracts and validation suites before replacing CLI wrappers.",
+      "selfhost_progress": [
+        "contract-driven readiness profile execution",
+        "contract-driven release blocker verification",
+        "manifest-backed validation suite dispatch via validate suite-manifest/suite-exec",
+        "contract-driven release evidence collection via collect_release_evidence.py --contract",
+        "release evidence bundle proof contract for archived required files",
+        "surface completion proof requires all child readiness/validation slices to remain contract-driven and the full strict_selfhost readiness/blocker artifacts to stay green"
+      ],
+      "next_slice": "complete",
       "priority": 2
     },
     {
       "id": "serve_and_transports",
-      "status": "blocked",
+      "status": "done",
       "rust_owner": "enkai",
       "current_scope": [
         "serve",
         "grpc"
       ],
-      "selfhost_progress": [],
-      "next_slice": "Peel off request/response configuration and service manifest loading before replacing HTTP/WS/gRPC transport implementations.",
+      "selfhost_progress": [
+        "contract-driven serve manifest loading",
+        "self-host-owned transport env projection",
+        "service-manifest proof command",
+        "manifest-backed serve execution entrypoint",
+        "explicit HTTP and gRPC runtime manifests",
+        "serve-exec runtime execution no longer re-enters Rust CLI parsing",
+        "gRPC launch config no longer depends on env-owned startup",
+        "serve runtime env is now scoped/restored under a systems-layer guard",
+        "serve-exec now prefers a systems-owned HTTP service runtime for backend-contract and generic serve targets instead of vm.rs http.serve",
+        "generic serve targets can now serve static assets from public/ and static/ without falling back to vm.rs",
+        "generic serve targets now resolve exact, dynamic, and method-specific route handlers with response overrides through the systems-owned runtime",
+        "serve and route execution now reuse the shared runtime_exec module instead of depending on main.rs runtime helpers",
+        "gRPC launch startup for serve manifests now routes through the dedicated grpc_runtime module",
+        "gRPC probe parsing and roundtrip execution now route through grpc_runtime instead of grpc.rs command-local helpers",
+        "route/program env projection now reuses shared scoped runtime execution instead of local env mutation in service_runtime",
+        "route resolution now supports any-method roots, nested dynamic handlers, and catchall handlers through the systems-owned runtime",
+        "route and query path matching now URL-decodes params before execution",
+        "unmatched /api/<version>/* requests now return systems-owned 404s instead of falling back to vm.rs-style generic invoke on directory targets",
+        "surface completion proof requires HTTP route/static/invoke coverage plus gRPC health/ready/chat/stream roundtrip validation to stay green"
+      ],
+      "next_slice": "complete",
       "priority": 3
     },
     {
       "id": "worker_runtime",
-      "status": "blocked",
+      "status": "done",
       "rust_owner": "enkai",
       "current_scope": [
         "worker"
       ],
-      "selfhost_progress": [],
-      "next_slice": "Isolate worker job manifest parsing, retry policy, and queue contract handling into Enkai-owned code before transport/runtime migration.",
+      "selfhost_progress": [
+        "contract-driven worker enqueue/run manifest loading",
+        "retry and handler contract capture",
+        "control-plane proof command",
+        "worker-exec now dispatches handlers in-process",
+        "worker handlers prefer the self-host runtime before Rust fallback",
+        "queue file locations are explicit in the worker manifest",
+        "queue persistence, retry, and drain scheduling now run through a dedicated worker queue backend",
+        "worker.rs now delegates data-plane execution into the queue_runtime module instead of owning handler/persistence flow directly",
+        "worker handler env/setup execution now lives in the dedicated worker_handler_runtime module",
+        "worker handler env overrides now reuse the shared scoped runtime execution path instead of bespoke env mutation logic",
+        "worker enqueue manifests now capture explicit retry policy objects instead of relying on loose scalar coupling",
+        "worker run manifests now capture explicit drain/run policy objects for once versus until-idle execution",
+        "queue_runtime now owns worker manifest parsing, output emission, and policy translation so worker.rs stays a manifest adapter",
+        "deeper queue persistence and scheduling semantics now live behind the dedicated queue_backend module with explicit pending/inflight/scheduled/dead-letter/state files",
+        "surface completion proof requires the control-plane slice to stay green and validates retry scheduling plus persisted queue state counters behind the queue backend"
+      ],
+      "next_slice": "complete",
       "priority": 4
     },
     {
       "id": "model_and_registry_ops",
-      "status": "blocked",
+      "status": "done",
       "rust_owner": "enkai",
       "current_scope": [
         "model",
@@ -68,20 +113,51 @@
         "pretrain",
         "eval"
       ],
-      "selfhost_progress": [],
-      "next_slice": "Separate registry metadata/state transitions and training config loading from Rust command orchestration before backend replacement.",
+      "selfhost_progress": [
+        "manifest-backed model registry dispatch via model manifest/exec",
+        "registry metadata and state-transition command shapes captured in ModelCommandManifest",
+        "manifest-backed train/pretrain/eval dispatch via train-manifest/train-exec",
+        "evaluated training config is embedded into TrainCommandManifest before execution",
+        "model/registry proof contract covers register, load, loaded, and train manifest execution",
+        "model manifest execution now routes through the dedicated model_runtime module",
+        "train/pretrain/eval manifest execution now routes through the dedicated train_runtime module with explicit backend selection and manifest loading",
+        "CPU train/eval execution now runs through a train_runtime-owned backend instead of the legacy train.rs execution path",
+        "native train manifests now resolve ENKAI_TENSOR_PATH inside train_runtime instead of depending on external shell setup",
+        "native manifest execution now falls back to the train_runtime CPU backend when the tensor backend is unavailable or built without torch",
+        "native manifest proofs now validate deterministic train_runtime-owned fallback diagnostics and successful checkpoint emission",
+        "surface completion proof requires the model/registry slice report to stay green and validates train-native execution remains owned by train_runtime with deterministic accelerated-backend fallback behavior"
+      ],
+      "next_slice": "complete",
       "priority": 5
     },
     {
       "id": "deploy_and_cluster_ops",
-      "status": "blocked",
+      "status": "done",
       "rust_owner": "enkai",
       "current_scope": [
         "deploy",
         "cluster"
       ],
-      "selfhost_progress": [],
-      "next_slice": "Extract deployment plan/config evaluation into Enkai-owned manifests before replacing Rust automation shells.",
+      "selfhost_progress": [
+        "contract-driven deploy validate manifest loading",
+        "project layout evaluation embedded in deploy manifests",
+        "cluster plan/config evaluation embedded in cluster manifests",
+        "control-plane proof command",
+        "deploy-exec is now manifest-backed",
+        "cluster-exec is now manifest-backed",
+        "deploy env contract validation now runs in-process",
+        "cluster simulation windows now execute in-process without routing through the sim CLI parser",
+        "deploy validation execution now routes through the deploy_runtime module",
+        "cluster simulation execution now routes through the cluster_runtime module",
+        "cluster validate/plan/run command execution now delegates through cluster_runtime",
+        "deploy project-layout evaluation now routes through deploy_runtime",
+        "deploy and cluster manifest dispatch now execute through dedicated runtime modules instead of command-local branching",
+        "deploy and cluster manifest argument translation now terminates in deploy_runtime/cluster_runtime instead of command-local helpers",
+        "cluster plan parsing, output emission, planner-only reporting, and retry fault policy now live in cluster_runtime instead of cluster.rs",
+        "cluster.rs tests now exercise cluster_runtime directly for plan parsing semantics instead of command-local helpers",
+        "surface completion proof requires the control-plane slice to stay green and validates deploy-exec, cluster plan/exec, and cluster simulation run/exec through the runtime modules"
+      ],
+      "next_slice": "complete",
       "priority": 6
     }
   ]

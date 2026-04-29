@@ -23,7 +23,7 @@ Notes:
 - The std/ folder must remain next to the enkai executable.
 - The installed bundle does not require cargo or rustc on the target machine.
 - If native modules are included, keep the enkai_native library in the same folder.
-- The v3.2.1 install proof writes:
+- The v3.3.0 install proof writes:
   - artifacts/install_bundle_smoke/install_bundle_manifest.json
   - artifacts/install_bundle_smoke/install_bundle_smoke.json
   - artifacts/install_bundle_smoke/zero_rust_closure.json

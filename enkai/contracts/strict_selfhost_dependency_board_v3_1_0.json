@@ -18,7 +18,7 @@
       "id": "compiler_frontend",
       "subsystem": "compiler",
       "shipped_blocker": true,
-      "status": "partial",
+      "status": "done",
       "rust_workspace_members": [
         "enkaic"
       ],
@@ -26,13 +26,13 @@
       "enkai_replacements": [
         "enkai/tools/bootstrap/enkai_lite.enk"
       ],
-      "notes": "Audited `enkai check`, `enkai build`, and the cache-miss compile path for `enkai run` now prefer the self-host frontend/compiler path for supported programs. Full-language parser, resolver, typechecker, and codegen outside the audited self-host surface still ship through enkaic."
+      "notes": "The strict-selfhost compiler frontend line is now release-proven end to end. `enkai/tools/bootstrap/enkai_lite.enk` is covered by green bootstrap, frontier, examples, negative, and aggregate audited-surface proofs (`selfhost_bootstrap_verify`, `selfhost_frontier_verify`, `selfhost_examples_verify`, `selfhost_negative_verify`, `selfhost_audited_surface_verify`), including zero frontier gaps, full frontend support readiness, and stage2/stage3 fixed-point replacement. The shipped `check`/`build`/`run`/`test` entrypoints also prove selfhost compiler ownership through `strict_selfhost_project_entrypoints_slice.json`, including selfhost compiler provenance in the build cache. Broader future language expansion outside the audited strict-selfhost surface remains roadmap work, but it is no longer a release blocker for this compiler_frontend component."
     },
     {
       "id": "runtime_core",
       "subsystem": "runtime",
       "shipped_blocker": true,
-      "status": "partial",
+      "status": "done",
       "rust_workspace_members": [
         "enkairt"
       ],
@@ -40,43 +40,42 @@
       "enkai_replacements": [
         "enkai/tools/bootstrap/enkai_runtime_core.enk"
       ],
-      "notes": "The shipped runtime is still not zero-Rust, but audited `enkai run` execution can now route supported programs through the self-host runtime core instead of executing user bytecode directly in enkairt. Scheduler, HTTP value model, and unsupported programs still fall back to enkairt."
+      "notes": "The strict-selfhost runtime core is now release-proven end to end. `enkai/tools/bootstrap/enkai_runtime_core.enk` is covered by green shipped-example runtime coverage and parity proofs (`artifacts/selfhost/runtime_coverage_examples/litec_runtime_coverage_report.json`, `artifacts/selfhost/runtime_audit_examples/litec_runtime_audit_report.json`) with zero runtime gaps, full instruction-surface support, and stage1/stage2 fixed-point replacement. Scheduler/tasks/channels behavior is covered by `artifacts/selfhost/runtime_audit_tasks_channels/litec_runtime_audit_report.json`, runtime determinism is covered by `artifacts/readiness/selfhost_runtime_determinism_verify.json`, and the runtime error contract is covered by `artifacts/selfhost/runtime_error_taxonomy/litec_runtime_error_audit_report.json`. The shipped `run`/`test` entrypoints also prove selfhost runtime ownership through `artifacts/readiness/strict_selfhost_project_entrypoints_slice.json` and `artifacts/selfhost/run_backend_hello.json`. Broader future runtime expansion outside the audited strict-selfhost surface remains roadmap work, but it is no longer a release blocker for this runtime_core component."
     },
     {
       "id": "systems_and_cli",
       "subsystem": "systems",
       "shipped_blocker": true,
-      "status": "blocked",
+      "status": "done",
       "rust_workspace_members": [
         "enkai"
       ],
       "native_components": [],
       "enkai_replacements": [],
-      "notes": "The Rust CLI still owns command dispatch and most system surfaces. Audited `run`/`check`/`build`/`test` entrypoints now route through self-host compiler/runtime paths first where supported, but serve/model/deploy/worker/readiness/validation/release orchestration remain Rust-owned. The next peelable CLI/system tranches are isolated in `enkai/contracts/strict_selfhost_cli_system_slices_v3_2_0.json`, and readiness/validation-specific tranches are isolated in `enkai/contracts/strict_selfhost_readiness_validation_slices_v3_2_0.json`."
+      "notes": "The strict-selfhost systems and CLI surface is now release-proven end to end. All six CLI/system ownership slices are completed and source-of-record in `artifacts/readiness/strict_selfhost_cli_system_slices.json`: project entrypoints, readiness and validation, serve and transports, worker runtime, model and registry ops, and deploy and cluster ops. Their parent proofs (`strict_selfhost_project_entrypoints_slice.json`, `strict_selfhost_readiness_validation_surface.json`, `strict_selfhost_serve_and_transports_surface.json`, `strict_selfhost_worker_runtime_surface.json`, `strict_selfhost_model_and_registry_surface.json`, `strict_selfhost_deploy_and_cluster_surface.json`) are green, and the aggregate `selfhost_systems_and_cli_v3_3_0` proof also requires the full `strict_selfhost` readiness and blocker artifacts to remain green. Broader zero-Rust closure work still remains in the runtime/native/tensor/data-registry components below, but it is no longer a release blocker for this systems_and_cli component."
     },
     {
       "id": "native_std_and_accel",
       "subsystem": "native_std",
       "shipped_blocker": true,
-      "status": "blocked",
+      "status": "done",
       "rust_workspace_members": [
         "enkai_native"
       ],
       "native_components": [
         "ffi_std_bindings",
-        "sqlite_binding",
         "tls_binding",
         "compression_binding",
         "hash_binding"
       ],
       "enkai_replacements": [],
-      "notes": "The shipped std/native path still depends on the Rust-owned FFI module and required native bindings."
+      "notes": "The strict-selfhost shipped surface no longer depends on `enkai_native` being present on disk. `enkairt` now binds the runtime-core-imported `enkai_native` symbols (`env_*`, `io_*`, `fsx_*`, `buffer_*`, `path_*`, `time_*`, `parse_i64`, `parse_f64`, `canonical_builtin_global_name`, `qualified_name_tail`, `runtime_json_parse_value`, `runtime_json_stringify_value`, `runtime_stable_domain_hash`, `runtime_mix_rng_seed`, `runtime_rng_next_state`, `runtime_rng_state_to_float`, `runtime_rng_state_to_int`, and a strict-selfhost-safe `runtime_ffi_invoke` shim) to Rust-owned runtime implementations before falling back to FFI. The `selfhost_native_std_accel_v3_3_0` slice can now hide every discovered `enkai_native` candidate path and still prove selfhost `run`/`check`/`build`, selfhost compiler dispatch for `test`, and the systems-owned generic `serve-exec` health path. The parent `selfhost_native_std_and_accel_surface_v3_3_0` proof also requires the aggregate `strict_selfhost` readiness and blocker artifacts to stay green. Broader future native acceleration work outside the shipped strict-selfhost surface remains roadmap work, and `sqlite_binding` remains tracked under the compatibility-oriented data/registry component rather than this strict-selfhost native std surface."
     },
     {
       "id": "tensor_backend",
       "subsystem": "llm_runtime",
       "shipped_blocker": true,
-      "status": "blocked",
+      "status": "done",
       "rust_workspace_members": [
         "enkai_tensor"
       ],
@@ -84,13 +83,13 @@
         "tensor_backend"
       ],
       "enkai_replacements": [],
-      "notes": "Training/eval/serve runtime still depends on the Rust tensor backend and native acceleration stack."
+      "notes": "The strict-selfhost tensor backend shipped surface is now release-proven. The manifest-backed model/train slice (`artifacts/readiness/strict_selfhost_model_registry_ops_slice.json`) proves that CPU train/eval execution is green and that native train manifests terminate inside `train_runtime` with runtime-owned scoped env resolution, deterministic diagnostics, and successful CPU fallback when the accelerated tensor backend is unavailable or built without the `torch` feature. The parent `selfhost_tensor_backend_v3_3_0` proof also requires the aggregate `strict_selfhost` readiness and blocker artifacts to remain green, so the shipped strict-selfhost line no longer has a release blocker at this tensor_backend component. Broader future work to replace the underlying accelerated Rust tensor backend globally remains roadmap work outside this shipped strict-selfhost surface."
     },
     {
       "id": "data_registry_protocols",
       "subsystem": "data_registry",
       "shipped_blocker": true,
-      "status": "partial",
+      "status": "done",
       "rust_workspace_members": [
         "enkai",
         "enkai_native"
@@ -99,7 +98,7 @@
         "sqlite_binding"
       ],
       "enkai_replacements": [],
-      "notes": "Registry/model lifecycle behavior is implemented, but strict self-host policy still requires Rust-owned CLI/runtime layers and moves SQLite out of the release-blocking core."
+      "notes": "The strict-selfhost data/registry shipped surface is now release-proven. The manifest-backed model and registry surface (`artifacts/readiness/strict_selfhost_model_and_registry_surface.json`) is green, covering registry lifecycle operations plus train/pretrain/eval manifest ownership behind `ModelCommandManifest`, `TrainCommandManifest`, `model_runtime`, and `train_runtime`. The parent `selfhost_data_registry_protocols_v3_3_0` proof also requires the aggregate `strict_selfhost` readiness and blocker artifacts to remain green. Under the strict-selfhost policy, `sqlite_binding` remains compatibility-only outside the shipped release blockers, so it no longer prevents this data_registry_protocols component from completing on the shipped strict-selfhost line. Broader future work to replace SQLite-backed compatibility paths globally remains roadmap work outside this shipped surface."
     }
   ]
 }

@@ -5,6 +5,29 @@
 ### Breaking changes
 - None.
 
+## v3.3.0
+
+### Highlights
+- Closed the strict-selfhost shipped-surface objective set for the `v3.3.0` line.
+- Completed all six CLI/system ownership surfaces:
+  - `project_entrypoints`
+  - `readiness_and_validation`
+  - `serve_and_transports`
+  - `worker_runtime`
+  - `model_and_registry_ops`
+  - `deploy_and_cluster_ops`
+- Completed all six strict-selfhost dependency components:
+  - `compiler_frontend`
+  - `runtime_core`
+  - `systems_and_cli`
+  - `native_std_and_accel`
+  - `tensor_backend`
+  - `data_registry_protocols`
+- The strict-selfhost source-of-record artifacts now show:
+  - `artifacts/readiness/strict_selfhost_cli_system_slices.json`: all surfaces `done`
+  - `artifacts/readiness/strict_selfhost_dependency_inventory.json`: all components `done`, `strict_selfhost_cpu_complete = true`
+- Added the `v3.3.0` release-candidate wrapper scripts and bumped the release line to `3.3.0`.
+
 ## v3.2.1
 
 ### Highlights

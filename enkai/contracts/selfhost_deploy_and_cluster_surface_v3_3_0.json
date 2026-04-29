@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.3.0",
+  "profile": "deploy_and_cluster_surface",
+  "generated_purpose": "Prove the v3.3.0 deploy and cluster surface is complete by requiring the manifest-backed control-plane slice to remain green and validating deploy/cluster execution stays behind deploy_runtime and cluster_runtime.",
+  "required_slice_report": "artifacts/readiness/strict_selfhost_systems_controlplane_slice.json",
+  "required_cases": [
+    "deploy_validate",
+    "deploy_exec",
+    "cluster_plan",
+    "cluster_exec",
+    "cluster_run_manifest",
+    "cluster_run_exec"
+  ],
+  "required_validations": {
+    "deploy_validate.evaluated_project.missing_required_paths": 0,
+    "cluster_plan.evaluated_plan.world_size": 2,
+    "cluster_plan.evaluated_plan.workload_kind": "train",
+    "cluster_run_manifest.evaluated_plan.workload_kind": "simulation"
+  },
+  "required_stdout_fragments": {
+    "deploy_exec_stdout": "[deploy-validate] ok profile=backend",
+    "cluster_exec_stdout": "cluster plan: workload=train",
+    "cluster_run_exec_stdout": "cluster run: workload=simulation mode=supervised all_passed=true"
+  }
+}

@@ -188,7 +188,7 @@
     },
     {
       "id": "install-flow-proof",
-      "description": "The host installer proves install, upgrade, and uninstall flows against the staged v3.2.1 bundle without requiring Rust on the target install path",
+      "description": "The host installer proves install, upgrade, and uninstall flows against the staged v3.3.0 bundle without requiring Rust on the target install path",
       "command": [
         "${PYTHON}",
         "scripts/verify_install_flows.py",

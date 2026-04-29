@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.3.0",
+  "profile": "compiler_frontend",
+  "generated_purpose": "Prove the strict-selfhost compiler frontend is complete by requiring the audited bootstrap, frontier, examples, negative, and aggregate selfhost frontend reports to stay green, and by requiring the shipped project entrypoints to use the selfhost compiler backend.",
+  "required_reports": [
+    "artifacts/readiness/selfhost_bootstrap_verify.json",
+    "artifacts/readiness/selfhost_frontier_verify.json",
+    "artifacts/readiness/selfhost_examples_verify.json",
+    "artifacts/readiness/selfhost_negative_verify.json",
+    "artifacts/readiness/selfhost_audited_surface_verify.json",
+    "artifacts/readiness/strict_selfhost_project_entrypoints_slice.json"
+  ],
+  "required_status_fields": {
+    "artifacts/readiness/selfhost_bootstrap_verify.json:status": "ok",
+    "artifacts/readiness/selfhost_frontier_verify.json:status": "ok",
+    "artifacts/readiness/selfhost_examples_verify.json:status": "ok",
+    "artifacts/readiness/selfhost_negative_verify.json:status": "ok",
+    "artifacts/readiness/selfhost_audited_surface_verify.json:status": "ok",
+    "artifacts/readiness/selfhost_audited_surface_verify.json:frontend_full_support_ready": true,
+    "artifacts/readiness/selfhost_audited_surface_verify.json:replace_check_stage2_stage3_fixed_point": true,
+    "artifacts/readiness/strict_selfhost_project_entrypoints_slice.json:all_passed": true,
+    "artifacts/readiness/strict_selfhost_project_entrypoints_slice.json:check.backend": "selfhost",
+    "artifacts/readiness/strict_selfhost_project_entrypoints_slice.json:build.backend": "selfhost",
+    "artifacts/readiness/strict_selfhost_project_entrypoints_slice.json:build_cache.compiler_backend": "selfhost",
+    "artifacts/readiness/strict_selfhost_project_entrypoints_slice.json:run.backend": "selfhost"
+  }
+}

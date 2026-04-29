@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "profile": "strict_selfhost",
+  "surface": "readiness_and_validation",
+  "required_child_status": "contract_driven",
+  "required_checks": [
+    "strict_selfhost",
+    "strict_selfhost_blockers",
+    "strict_selfhost_validation_suite_dispatch_slice",
+    "strict_selfhost_release_evidence_collection_slice"
+  ]
+}

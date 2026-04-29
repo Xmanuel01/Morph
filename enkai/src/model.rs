@@ -122,6 +122,111 @@ struct RegisterCommandArgs {
     lineage_manifest_path: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct ModelCommandManifest {
+    pub(crate) schema_version: u32,
+    pub(crate) profile: String,
+    pub(crate) command: ModelManifestCommand,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "subcommand", rename_all = "kebab-case")]
+pub(crate) enum ModelManifestCommand {
+    Register {
+        registry_dir: String,
+        name: String,
+        version: String,
+        artifact_path: String,
+        activate: bool,
+        artifact_kind: String,
+        artifact_manifest_path: Option<String>,
+        lineage_manifest_path: Option<String>,
+    },
+    List {
+        registry_dir: String,
+        name: Option<String>,
+        json: bool,
+    },
+    Load {
+        registry_dir: String,
+        name: String,
+        version: String,
+    },
+    Unload {
+        registry_dir: String,
+        name: String,
+        version: String,
+    },
+    Loaded {
+        registry_dir: String,
+        name: Option<String>,
+        json: bool,
+    },
+    Push {
+        local_registry: String,
+        remote_registry: String,
+        model: String,
+        version: String,
+        verify_signature: bool,
+        fallback_local: bool,
+        sign: bool,
+    },
+    Pull {
+        local_registry: String,
+        remote_registry: String,
+        model: String,
+        version: String,
+        verify_signature: bool,
+        fallback_local: bool,
+    },
+    VerifySignature {
+        local_registry: String,
+        remote_registry: String,
+        model: String,
+        version: String,
+        fallback_local: bool,
+    },
+    PromoteRemote {
+        local_registry: String,
+        remote_registry: String,
+        model: String,
+        version: String,
+        verify_signature: bool,
+        fallback_local: bool,
+    },
+    RetireRemote {
+        local_registry: String,
+        remote_registry: String,
+        model: String,
+        version: String,
+        verify_signature: bool,
+        fallback_local: bool,
+    },
+    RollbackRemote {
+        local_registry: String,
+        remote_registry: String,
+        model: String,
+        version: String,
+        verify_signature: bool,
+        fallback_local: bool,
+    },
+    Promote {
+        registry_dir: String,
+        name: String,
+        version: String,
+    },
+    Retire {
+        registry_dir: String,
+        name: String,
+        version: String,
+    },
+    Rollback {
+        registry_dir: String,
+        name: String,
+        version: String,
+    },
+}
+
 #[derive(Debug, Clone)]
 struct AuditAppend<'a> {
     operation: &'a str,
@@ -139,20 +244,22 @@ pub fn model_command(args: &[String]) -> i32 {
         return 1;
     }
     match args[0].as_str() {
-        "register" => model_register(&args[1..]),
-        "list" => model_list(&args[1..]),
-        "load" => model_load(&args[1..]),
-        "unload" => model_unload(&args[1..]),
-        "loaded" => model_loaded(&args[1..]),
-        "push" => model_push_remote(&args[1..]),
-        "pull" => model_pull_remote(&args[1..]),
-        "verify-signature" => model_verify_signature(&args[1..]),
-        "promote-remote" => model_sync_remote_state("promote", &args[1..]),
-        "retire-remote" => model_sync_remote_state("retire", &args[1..]),
-        "rollback-remote" => model_sync_remote_state("rollback", &args[1..]),
-        "promote" => model_promote_like("promote", &args[1..]),
-        "retire" => model_retire(&args[1..]),
-        "rollback" => model_promote_like("rollback", &args[1..]),
+        "manifest" => model_manifest_command(&args[1..]),
+        "exec" => model_exec_command(&args[1..]),
+        "register" => dispatch_model_subcommand("register", &args[1..]),
+        "list" => dispatch_model_subcommand("list", &args[1..]),
+        "load" => dispatch_model_subcommand("load", &args[1..]),
+        "unload" => dispatch_model_subcommand("unload", &args[1..]),
+        "loaded" => dispatch_model_subcommand("loaded", &args[1..]),
+        "push" => dispatch_model_subcommand("push", &args[1..]),
+        "pull" => dispatch_model_subcommand("pull", &args[1..]),
+        "verify-signature" => dispatch_model_subcommand("verify-signature", &args[1..]),
+        "promote-remote" => dispatch_model_subcommand("promote-remote", &args[1..]),
+        "retire-remote" => dispatch_model_subcommand("retire-remote", &args[1..]),
+        "rollback-remote" => dispatch_model_subcommand("rollback-remote", &args[1..]),
+        "promote" => dispatch_model_subcommand("promote", &args[1..]),
+        "retire" => dispatch_model_subcommand("retire", &args[1..]),
+        "rollback" => dispatch_model_subcommand("rollback", &args[1..]),
         _ => {
             eprintln!("enkai model: unknown subcommand '{}'", args[0]);
             print_model_usage();
@@ -162,6 +269,8 @@ pub fn model_command(args: &[String]) -> i32 {
 }
 
 pub fn print_model_usage() {
+    eprintln!("  enkai model manifest <subcommand> [subcommand args] [--manifest-output <file>]");
+    eprintln!("  enkai model exec --manifest <file>");
     eprintln!(
         "  enkai model register <registry_dir> <name> <version> <artifact_path> [--activate] [--artifact-kind <checkpoint|simulation|environment|native-extension>] [--artifact-manifest <file>] [--lineage-manifest <file>]"
     );
@@ -192,11 +301,554 @@ pub fn print_model_usage() {
     eprintln!("  enkai model rollback <registry_dir> <name> <version>");
 }
 
+fn dispatch_model_subcommand(subcommand: &str, args: &[String]) -> i32 {
+    let manifest = match build_model_command_manifest(subcommand, args) {
+        Ok(manifest) => manifest,
+        Err(err) => {
+            eprintln!("enkai model {}: {}", subcommand, err);
+            return 1;
+        }
+    };
+    crate::model_runtime::execute_model_command_manifest(&manifest)
+}
+
+fn model_manifest_command(args: &[String]) -> i32 {
+    let (subcommand, sub_args, manifest_output) = match parse_model_manifest_args(args) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            eprintln!("enkai model manifest: {}", err);
+            print_model_usage();
+            return 1;
+        }
+    };
+    let manifest = match build_model_command_manifest(&subcommand, &sub_args) {
+        Ok(manifest) => manifest,
+        Err(err) => {
+            eprintln!("enkai model manifest: {}", err);
+            return 1;
+        }
+    };
+    emit_model_manifest(&manifest, manifest_output.as_deref())
+}
+
+fn model_exec_command(args: &[String]) -> i32 {
+    let manifest_path = match parse_manifest_flag("exec", args) {
+        Ok(path) => path,
+        Err(err) => {
+            eprintln!("{}", err);
+            print_model_usage();
+            return 1;
+        }
+    };
+    let manifest = match load_json_manifest::<ModelCommandManifest>(&manifest_path) {
+        Ok(manifest) => manifest,
+        Err(err) => {
+            eprintln!("enkai model exec: {}", err);
+            return 1;
+        }
+    };
+    crate::model_runtime::execute_model_command_manifest(&manifest)
+}
+
+pub(crate) fn build_model_command_manifest(
+    subcommand: &str,
+    args: &[String],
+) -> Result<ModelCommandManifest, String> {
+    let command = match subcommand {
+        "register" => {
+            let parsed = parse_register_args(args)?;
+            ModelManifestCommand::Register {
+                registry_dir: parsed.registry_dir.display().to_string(),
+                name: parsed.name,
+                version: parsed.version,
+                artifact_path: parsed.artifact_path.display().to_string(),
+                activate: parsed.activate,
+                artifact_kind: parsed.artifact_kind,
+                artifact_manifest_path: parsed
+                    .artifact_manifest_path
+                    .map(|path| path.display().to_string()),
+                lineage_manifest_path: parsed
+                    .lineage_manifest_path
+                    .map(|path| path.display().to_string()),
+            }
+        }
+        "list" => build_model_list_manifest(args)?,
+        "load" => {
+            let (registry_dir, name, version) = parse_model_triplet_args("load", args)?;
+            ModelManifestCommand::Load {
+                registry_dir,
+                name,
+                version,
+            }
+        }
+        "unload" => {
+            let (registry_dir, name, version) = parse_model_triplet_args("unload", args)?;
+            ModelManifestCommand::Unload {
+                registry_dir,
+                name,
+                version,
+            }
+        }
+        "loaded" => build_model_loaded_manifest(args)?,
+        "push" => remote_manifest_command("push", args, true)?,
+        "pull" => remote_manifest_command("pull", args, false)?,
+        "verify-signature" => remote_manifest_command("verify-signature", args, false)?,
+        "promote-remote" => remote_manifest_command("promote-remote", args, false)?,
+        "retire-remote" => remote_manifest_command("retire-remote", args, false)?,
+        "rollback-remote" => remote_manifest_command("rollback-remote", args, false)?,
+        "promote" => {
+            let (registry_dir, name, version) = parse_model_triplet_args("promote", args)?;
+            ModelManifestCommand::Promote {
+                registry_dir,
+                name,
+                version,
+            }
+        }
+        "retire" => {
+            let (registry_dir, name, version) = parse_model_triplet_args("retire", args)?;
+            ModelManifestCommand::Retire {
+                registry_dir,
+                name,
+                version,
+            }
+        }
+        "rollback" => {
+            let (registry_dir, name, version) = parse_model_triplet_args("rollback", args)?;
+            ModelManifestCommand::Rollback {
+                registry_dir,
+                name,
+                version,
+            }
+        }
+        other => return Err(format!("unknown subcommand '{}'", other)),
+    };
+    Ok(ModelCommandManifest {
+        schema_version: 1,
+        profile: "model_registry_dispatch".to_string(),
+        command,
+    })
+}
+
+pub(crate) fn model_manifest_args(manifest: &ModelCommandManifest) -> Vec<String> {
+    match &manifest.command {
+        ModelManifestCommand::Register {
+            registry_dir,
+            name,
+            version,
+            artifact_path,
+            activate,
+            artifact_kind,
+            artifact_manifest_path,
+            lineage_manifest_path,
+        } => {
+            let mut args = vec![
+                registry_dir.clone(),
+                name.clone(),
+                version.clone(),
+                artifact_path.clone(),
+            ];
+            if *activate {
+                args.push("--activate".to_string());
+            }
+            if artifact_kind != DEFAULT_ARTIFACT_KIND {
+                args.push("--artifact-kind".to_string());
+                args.push(artifact_kind.clone());
+            }
+            if let Some(path) = artifact_manifest_path {
+                args.push("--artifact-manifest".to_string());
+                args.push(path.clone());
+            }
+            if let Some(path) = lineage_manifest_path {
+                args.push("--lineage-manifest".to_string());
+                args.push(path.clone());
+            }
+            args
+        }
+        ModelManifestCommand::List {
+            registry_dir,
+            name,
+            json,
+        } => {
+            let mut args = vec![registry_dir.clone()];
+            if let Some(name) = name {
+                args.push(name.clone());
+            }
+            if *json {
+                args.push("--json".to_string());
+            }
+            args
+        }
+        ModelManifestCommand::Load {
+            registry_dir,
+            name,
+            version,
+        }
+        | ModelManifestCommand::Unload {
+            registry_dir,
+            name,
+            version,
+        }
+        | ModelManifestCommand::Promote {
+            registry_dir,
+            name,
+            version,
+        }
+        | ModelManifestCommand::Retire {
+            registry_dir,
+            name,
+            version,
+        }
+        | ModelManifestCommand::Rollback {
+            registry_dir,
+            name,
+            version,
+        } => vec![registry_dir.clone(), name.clone(), version.clone()],
+        ModelManifestCommand::Loaded {
+            registry_dir,
+            name,
+            json,
+        } => {
+            let mut args = vec![registry_dir.clone()];
+            if let Some(name) = name {
+                args.push(name.clone());
+            }
+            if *json {
+                args.push("--json".to_string());
+            }
+            args
+        }
+        ModelManifestCommand::Push {
+            local_registry,
+            remote_registry,
+            model,
+            version,
+            verify_signature,
+            fallback_local,
+            sign,
+        } => remote_manifest_args(
+            local_registry,
+            remote_registry,
+            model,
+            version,
+            *verify_signature,
+            *fallback_local,
+            *sign,
+        ),
+        ModelManifestCommand::Pull {
+            local_registry,
+            remote_registry,
+            model,
+            version,
+            verify_signature,
+            fallback_local,
+        }
+        | ModelManifestCommand::PromoteRemote {
+            local_registry,
+            remote_registry,
+            model,
+            version,
+            verify_signature,
+            fallback_local,
+        }
+        | ModelManifestCommand::RetireRemote {
+            local_registry,
+            remote_registry,
+            model,
+            version,
+            verify_signature,
+            fallback_local,
+        }
+        | ModelManifestCommand::RollbackRemote {
+            local_registry,
+            remote_registry,
+            model,
+            version,
+            verify_signature,
+            fallback_local,
+        } => remote_manifest_args(
+            local_registry,
+            remote_registry,
+            model,
+            version,
+            *verify_signature,
+            *fallback_local,
+            false,
+        ),
+        ModelManifestCommand::VerifySignature {
+            local_registry,
+            remote_registry,
+            model,
+            version,
+            fallback_local,
+        } => remote_manifest_args(
+            local_registry,
+            remote_registry,
+            model,
+            version,
+            true,
+            *fallback_local,
+            false,
+        ),
+    }
+}
+
+fn remote_manifest_args(
+    local_registry: &str,
+    remote_registry: &str,
+    model: &str,
+    version: &str,
+    verify_signature: bool,
+    fallback_local: bool,
+    sign: bool,
+) -> Vec<String> {
+    let mut args = vec![
+        local_registry.to_string(),
+        model.to_string(),
+        version.to_string(),
+        "--registry".to_string(),
+        remote_registry.to_string(),
+    ];
+    if verify_signature {
+        args.push("--verify-signature".to_string());
+    }
+    if fallback_local {
+        args.push("--fallback-local".to_string());
+    }
+    if sign {
+        args.push("--sign".to_string());
+    }
+    args
+}
+
+fn build_model_list_manifest(args: &[String]) -> Result<ModelManifestCommand, String> {
+    if args.is_empty() || args.len() > 3 {
+        return Err("Usage: enkai model list <registry_dir> [name] [--json]".to_string());
+    }
+    let registry_dir = args[0].clone();
+    let mut name = None;
+    let mut json = false;
+    for arg in &args[1..] {
+        if arg == "--json" {
+            json = true;
+        } else if name.is_none() {
+            name = Some(arg.clone());
+        } else {
+            return Err(format!("unexpected argument '{}'", arg));
+        }
+    }
+    Ok(ModelManifestCommand::List {
+        registry_dir,
+        name,
+        json,
+    })
+}
+
+fn build_model_loaded_manifest(args: &[String]) -> Result<ModelManifestCommand, String> {
+    if args.is_empty() || args.len() > 3 {
+        return Err("Usage: enkai model loaded <registry_dir> [name] [--json]".to_string());
+    }
+    let registry_dir = args[0].clone();
+    let mut name = None;
+    let mut json = false;
+    for arg in &args[1..] {
+        if arg == "--json" {
+            json = true;
+        } else if name.is_none() {
+            name = Some(arg.clone());
+        } else {
+            return Err(format!("unexpected argument '{}'", arg));
+        }
+    }
+    Ok(ModelManifestCommand::Loaded {
+        registry_dir,
+        name,
+        json,
+    })
+}
+
+fn parse_model_triplet_args(
+    command: &str,
+    args: &[String],
+) -> Result<(String, String, String), String> {
+    if args.len() != 3 {
+        return Err(format!(
+            "Usage: enkai model {} <registry_dir> <name> <version>",
+            command
+        ));
+    }
+    let registry_dir = args[0].clone();
+    let name = args[1].trim().to_string();
+    let version = args[2].trim().to_string();
+    if name.is_empty() || version.is_empty() {
+        return Err("name/version cannot be empty".to_string());
+    }
+    Ok((registry_dir, name, version))
+}
+
+fn remote_manifest_command(
+    operation: &str,
+    args: &[String],
+    allow_sign: bool,
+) -> Result<ModelManifestCommand, String> {
+    let parsed = parse_remote_args(operation, args, allow_sign)?;
+    Ok(match operation {
+        "push" => ModelManifestCommand::Push {
+            local_registry: parsed.local_registry.display().to_string(),
+            remote_registry: parsed.remote_registry.display().to_string(),
+            model: parsed.model,
+            version: parsed.version,
+            verify_signature: parsed.verify_signature,
+            fallback_local: parsed.fallback_local,
+            sign: parsed.sign,
+        },
+        "pull" => ModelManifestCommand::Pull {
+            local_registry: parsed.local_registry.display().to_string(),
+            remote_registry: parsed.remote_registry.display().to_string(),
+            model: parsed.model,
+            version: parsed.version,
+            verify_signature: parsed.verify_signature,
+            fallback_local: parsed.fallback_local,
+        },
+        "verify-signature" => ModelManifestCommand::VerifySignature {
+            local_registry: parsed.local_registry.display().to_string(),
+            remote_registry: parsed.remote_registry.display().to_string(),
+            model: parsed.model,
+            version: parsed.version,
+            fallback_local: parsed.fallback_local,
+        },
+        "promote-remote" => ModelManifestCommand::PromoteRemote {
+            local_registry: parsed.local_registry.display().to_string(),
+            remote_registry: parsed.remote_registry.display().to_string(),
+            model: parsed.model,
+            version: parsed.version,
+            verify_signature: parsed.verify_signature,
+            fallback_local: parsed.fallback_local,
+        },
+        "retire-remote" => ModelManifestCommand::RetireRemote {
+            local_registry: parsed.local_registry.display().to_string(),
+            remote_registry: parsed.remote_registry.display().to_string(),
+            model: parsed.model,
+            version: parsed.version,
+            verify_signature: parsed.verify_signature,
+            fallback_local: parsed.fallback_local,
+        },
+        "rollback-remote" => ModelManifestCommand::RollbackRemote {
+            local_registry: parsed.local_registry.display().to_string(),
+            remote_registry: parsed.remote_registry.display().to_string(),
+            model: parsed.model,
+            version: parsed.version,
+            verify_signature: parsed.verify_signature,
+            fallback_local: parsed.fallback_local,
+        },
+        other => return Err(format!("unsupported remote manifest operation '{}'", other)),
+    })
+}
+
+fn parse_model_manifest_args(
+    args: &[String],
+) -> Result<(String, Vec<String>, Option<PathBuf>), String> {
+    let Some(subcommand) = args.first().cloned() else {
+        return Err("missing model subcommand".to_string());
+    };
+    let mut sub_args = Vec::new();
+    let mut manifest_output = None;
+    let mut idx = 1usize;
+    while idx < args.len() {
+        match args[idx].as_str() {
+            "--manifest-output" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err("--manifest-output requires a value".to_string());
+                }
+                manifest_output = Some(PathBuf::from(&args[idx]));
+            }
+            other => sub_args.push(other.to_string()),
+        }
+        idx += 1;
+    }
+    Ok((subcommand, sub_args, manifest_output))
+}
+
+fn emit_model_manifest(manifest: &ModelCommandManifest, output: Option<&Path>) -> i32 {
+    let text = match serde_json::to_string_pretty(manifest) {
+        Ok(text) => text,
+        Err(err) => {
+            eprintln!(
+                "enkai model manifest: failed to serialize manifest: {}",
+                err
+            );
+            return 1;
+        }
+    };
+    if let Some(path) = output {
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                if let Err(err) = fs::create_dir_all(parent) {
+                    eprintln!(
+                        "enkai model manifest: failed to create output directory {}: {}",
+                        parent.display(),
+                        err
+                    );
+                    return 1;
+                }
+            }
+        }
+        if let Err(err) = fs::write(path, text.as_bytes()) {
+            eprintln!(
+                "enkai model manifest: failed to write manifest {}: {}",
+                path.display(),
+                err
+            );
+            return 1;
+        }
+    } else {
+        println!("{}", text);
+    }
+    0
+}
+
+fn parse_manifest_flag(command: &str, args: &[String]) -> Result<PathBuf, String> {
+    let mut manifest_path = None;
+    let mut idx = 0usize;
+    while idx < args.len() {
+        match args[idx].as_str() {
+            "--manifest" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err(format!(
+                        "enkai model {}: --manifest requires a value",
+                        command
+                    ));
+                }
+                manifest_path = Some(PathBuf::from(&args[idx]));
+            }
+            other => {
+                return Err(format!(
+                    "enkai model {}: unknown option '{}'",
+                    command, other
+                ));
+            }
+        }
+        idx += 1;
+    }
+    manifest_path.ok_or_else(|| format!("enkai model {}: --manifest is required", command))
+}
+
+fn load_json_manifest<T>(path: &Path) -> Result<T, String>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    let text = fs::read_to_string(path)
+        .map_err(|err| format!("failed to read manifest {}: {}", path.display(), err))?;
+    serde_json::from_str(&text)
+        .map_err(|err| format!("failed to parse manifest {}: {}", path.display(), err))
+}
+
 fn default_artifact_kind() -> String {
     DEFAULT_ARTIFACT_KIND.to_string()
 }
 
-fn model_register(args: &[String]) -> i32 {
+pub(crate) fn model_register(args: &[String]) -> i32 {
     let parsed = match parse_register_args(args) {
         Ok(parsed) => parsed,
         Err(err) => {
@@ -429,7 +1081,7 @@ fn parse_register_args(args: &[String]) -> Result<RegisterCommandArgs, String> {
     })
 }
 
-fn model_list(args: &[String]) -> i32 {
+pub(crate) fn model_list(args: &[String]) -> i32 {
     if args.is_empty() || args.len() > 3 {
         eprintln!("Usage: enkai model list <registry_dir> [name] [--json]");
         return 1;
@@ -522,7 +1174,7 @@ fn file_name_or<'a>(fallback: &'a str, path: &'a Path) -> &'a std::ffi::OsStr {
     path.file_name().unwrap_or_else(|| fallback.as_ref())
 }
 
-fn model_promote_like(kind: &str, args: &[String]) -> i32 {
+pub(crate) fn model_promote_like(kind: &str, args: &[String]) -> i32 {
     if args.len() != 3 {
         eprintln!(
             "Usage: enkai model {} <registry_dir> <name> <version>",
@@ -588,7 +1240,7 @@ fn model_promote_like(kind: &str, args: &[String]) -> i32 {
     0
 }
 
-fn model_load(args: &[String]) -> i32 {
+pub(crate) fn model_load(args: &[String]) -> i32 {
     if args.len() != 3 {
         eprintln!("Usage: enkai model load <registry_dir> <name> <version>");
         return 1;
@@ -670,7 +1322,7 @@ fn model_load(args: &[String]) -> i32 {
     0
 }
 
-fn model_unload(args: &[String]) -> i32 {
+pub(crate) fn model_unload(args: &[String]) -> i32 {
     if args.len() != 3 {
         eprintln!("Usage: enkai model unload <registry_dir> <name> <version>");
         return 1;
@@ -723,7 +1375,7 @@ fn model_unload(args: &[String]) -> i32 {
     0
 }
 
-fn model_loaded(args: &[String]) -> i32 {
+pub(crate) fn model_loaded(args: &[String]) -> i32 {
     if args.is_empty() || args.len() > 3 {
         eprintln!("Usage: enkai model loaded <registry_dir> [name] [--json]");
         return 1;
@@ -805,7 +1457,7 @@ fn model_loaded(args: &[String]) -> i32 {
     0
 }
 
-fn model_push_remote(args: &[String]) -> i32 {
+pub(crate) fn model_push_remote(args: &[String]) -> i32 {
     let parsed = match parse_remote_args("push", args, true) {
         Ok(parsed) => parsed,
         Err(err) => {
@@ -838,7 +1490,7 @@ fn model_push_remote(args: &[String]) -> i32 {
     }
 }
 
-fn model_pull_remote(args: &[String]) -> i32 {
+pub(crate) fn model_pull_remote(args: &[String]) -> i32 {
     let parsed = match parse_remote_args("pull", args, false) {
         Ok(parsed) => parsed,
         Err(err) => {
@@ -892,7 +1544,7 @@ fn model_pull_remote(args: &[String]) -> i32 {
     }
 }
 
-fn model_verify_signature(args: &[String]) -> i32 {
+pub(crate) fn model_verify_signature(args: &[String]) -> i32 {
     let parsed = match parse_remote_args("verify-signature", args, false) {
         Ok(parsed) => parsed,
         Err(err) => {
@@ -948,7 +1600,7 @@ fn model_verify_signature(args: &[String]) -> i32 {
     }
 }
 
-fn model_sync_remote_state(kind: &str, args: &[String]) -> i32 {
+pub(crate) fn model_sync_remote_state(kind: &str, args: &[String]) -> i32 {
     let parsed = match parse_remote_args(kind, args, false) {
         Ok(parsed) => parsed,
         Err(err) => {
@@ -1025,7 +1677,7 @@ fn model_sync_remote_state(kind: &str, args: &[String]) -> i32 {
     }
 }
 
-fn model_retire(args: &[String]) -> i32 {
+pub(crate) fn model_retire(args: &[String]) -> i32 {
     if args.len() != 3 {
         eprintln!("Usage: enkai model retire <registry_dir> <name> <version>");
         return 1;
@@ -2315,6 +2967,60 @@ mod tests {
             .get_or_init(|| Mutex::new(()))
             .lock()
             .unwrap_or_else(|err| err.into_inner())
+    }
+
+    #[test]
+    fn build_model_command_manifest_captures_register_shape() {
+        let manifest = build_model_command_manifest(
+            "register",
+            &[
+                "registry".to_string(),
+                "chat".to_string(),
+                "v1.0.0".to_string(),
+                "checkpoint".to_string(),
+                "--activate".to_string(),
+            ],
+        )
+        .expect("manifest");
+        assert_eq!(manifest.profile, "model_registry_dispatch");
+        match manifest.command {
+            ModelManifestCommand::Register {
+                registry_dir,
+                name,
+                version,
+                artifact_path,
+                activate,
+                ..
+            } => {
+                assert_eq!(registry_dir, "registry");
+                assert_eq!(name, "chat");
+                assert_eq!(version, "v1.0.0");
+                assert_eq!(artifact_path, "checkpoint");
+                assert!(activate);
+            }
+            other => panic!("unexpected manifest: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn model_manifest_args_round_trip_loaded_json() {
+        let manifest = ModelCommandManifest {
+            schema_version: 1,
+            profile: "model_registry_dispatch".to_string(),
+            command: ModelManifestCommand::Loaded {
+                registry_dir: "registry".to_string(),
+                name: Some("chat".to_string()),
+                json: true,
+            },
+        };
+        assert_eq!(
+            model_manifest_args(&manifest),
+            vec![
+                "registry".to_string(),
+                "chat".to_string(),
+                "--json".to_string()
+            ]
+        );
     }
 
     #[test]

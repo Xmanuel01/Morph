@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.3.0",
+  "profile": "data_registry_protocols",
+  "generated_purpose": "Prove the strict-selfhost data/registry shipped surface is complete by requiring the manifest-backed model and registry surface to remain green and by requiring the aggregate strict-selfhost readiness and blocker artifacts to remain green, while treating sqlite as compatibility-only outside the strict-selfhost release blockers.",
+  "required_reports": [
+    "artifacts/readiness/strict_selfhost_model_and_registry_surface.json",
+    "artifacts/readiness/strict_selfhost.json",
+    "artifacts/readiness/strict_selfhost_blockers.json"
+  ],
+  "required_status_fields": {
+    "artifacts/readiness/strict_selfhost_model_and_registry_surface.json:all_passed": true,
+    "artifacts/readiness/strict_selfhost.json:all_passed": true,
+    "artifacts/readiness/strict_selfhost_blockers.json:all_passed": true
+  }
+}

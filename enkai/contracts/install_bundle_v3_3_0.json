@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.3.0",
+  "profile": "install_bundle_smoke",
+  "generated_purpose": "Define the minimum installable bundle layout and command proof required for the v3.3.0 zero-Rust install tranche.",
+  "required_paths": [
+    "README.txt",
+    "bundle_manifest.json",
+    "std",
+    "examples/hello/main.enk"
+  ],
+  "required_entrypoints": [
+    "run",
+    "check",
+    "build",
+    "test"
+  ],
+  "required_diagnostics": {
+    "bundle_layout_ok": true,
+    "stdlib_file_count": 1,
+    "examples_file_count": 1
+  },
+  "require_bundle_manifest_diagnostics": true,
+  "required_runtime_backend": "selfhost",
+  "require_entrypoint_execution_proofs": true,
+  "required_reports": [
+    "install_bundle_manifest.json",
+    "install_bundle_smoke.json",
+    "zero_rust_closure.json"
+  ]
+}

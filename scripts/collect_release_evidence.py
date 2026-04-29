@@ -32,6 +32,10 @@ def parse_version(root: pathlib.Path) -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Collect and archive release evidence bundle.")
+    parser.add_argument(
+        "--contract",
+        help="Path to a release evidence collection contract JSON that supplies default arguments",
+    )
     parser.add_argument("--version", help="Release version (defaults to enkai/Cargo.toml)")
     parser.add_argument("--gpu-log-dir", default="artifacts/gpu", help="GPU evidence source directory")
     parser.add_argument("--dist-dir", default="dist", help="Built artifacts source directory")
@@ -91,6 +95,43 @@ def parse_args() -> argparse.Namespace:
         help="Fail if required non-GPU release evidence is missing",
     )
     return parser.parse_args()
+
+
+def load_contract(path: pathlib.Path) -> dict:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"release evidence contract must be a JSON object: {path}")
+    return payload
+
+
+def apply_contract_defaults(args: argparse.Namespace, contract: dict) -> argparse.Namespace:
+    collect_args = contract.get("collect_args", {})
+    if not isinstance(collect_args, dict):
+        raise RuntimeError("release evidence contract collect_args must be an object")
+    defaults = {
+        "version": None,
+        "gpu_log_dir": "artifacts/gpu",
+        "dist_dir": "dist",
+        "selfhost_dir": "artifacts/selfhost",
+        "contracts_dir": "enkai/contracts",
+        "readiness_dir": "artifacts/readiness",
+        "sim_dir": "artifacts/sim",
+        "registry_dir": "artifacts/registry",
+        "grpc_dir": "artifacts/grpc",
+        "validation_dir": "artifacts/validation",
+        "install_dir": "artifacts/install_bundle_smoke",
+        "out_dir": "artifacts/release",
+        "require_gpu": False,
+        "strict": False,
+    }
+    for key, value in collect_args.items():
+        if not hasattr(args, key):
+            continue
+        current = getattr(args, key)
+        default = defaults.get(key)
+        if current == default or current is None:
+            setattr(args, key, value)
+    return args
 
 
 def ensure_required_gpu_files(gpu_dir: pathlib.Path) -> list[pathlib.Path]:
@@ -186,6 +227,12 @@ def validate_dist_artifacts_for_version(dist_files: list[pathlib.Path], version:
 def main() -> int:
     args = parse_args()
     root = pathlib.Path(__file__).resolve().parents[1]
+    contract_path = None
+    contract = None
+    if args.contract:
+        contract_path = pathlib.Path(args.contract).resolve()
+        contract = load_contract(contract_path)
+        args = apply_contract_defaults(args, contract)
     version = args.version or parse_version(root)
 
     gpu_dir = (root / args.gpu_log_dir).resolve()
@@ -205,6 +252,7 @@ def main() -> int:
         "schema": "enkai-release-evidence-v2",
         "version": f"v{version}",
         "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "contract": str(contract_path.relative_to(root)) if contract_path else None,
         "gpu_required": args.require_gpu,
         "strict": args.strict,
         "files": [],

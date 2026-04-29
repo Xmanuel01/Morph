@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.3.0",
+  "profile": "systems_transport_slice",
+  "generated_purpose": "Prove the v3.3.0 self-host systems-layer transport slice: manifest-driven serve/gRPC execution with systems-owned HTTP handling for backend contracts and generic serve targets.",
+  "required_command": "enkai systems serve-manifest",
+  "required_execution_command": "enkai systems serve-exec",
+  "required_execution_mode": "systems_owned_http",
+  "required_backend_service_status": 200,
+  "required_backend_service_body_fragment": "\"api_version\":\"v1\"",
+  "required_static_service_status": 200,
+  "required_static_service_body_fragment": "<h1>hello static</h1>",
+  "required_generic_service_status": 200,
+  "required_generic_service_body_fragment": "\"result\":7",
+  "required_route_service_status": 200,
+  "required_route_service_body_fragment": "\"id\":\"42\"",
+  "required_any_route_service_status": 200,
+  "required_any_route_service_body_fragment": "\"route\":\"any_status\"",
+  "required_nested_route_service_status": 200,
+  "required_nested_route_service_body_fragment": "\"comment\":\"abc123\"",
+  "required_catchall_route_service_status": 200,
+  "required_catchall_route_service_body_fragment": "\"path\":\"folder 1/report.txt\"",
+  "required_post_route_service_status": 201,
+  "required_post_route_service_body_fragment": "\"echo\":\"hello body\"",
+  "required_post_route_service_header": "x-route-mode",
+  "required_grpc_health_status": "ok",
+  "required_grpc_ready_status": "ready",
+  "required_grpc_chat_reply_fragment": "hello from enkai backend",
+  "required_grpc_stream_event_count": 4,
+  "required_http_runtime_fields": [
+    "api_version",
+    "conversation_dir"
+  ],
+  "required_grpc_runtime_fields": [
+    "api_version",
+    "conversation_dir"
+  ],
+  "required_model_modes": [
+    "none",
+    "single",
+    "multi"
+  ],
+  "required_http_env_keys": [
+    "ENKAI_SERVE_HOST",
+    "ENKAI_SERVE_PORT"
+  ],
+  "required_grpc_env_keys": [
+    "ENKAI_GRPC_HOST",
+    "ENKAI_GRPC_PORT"
+  ],
+  "required_runtime_env_keys": [
+    "ENKAI_API_VERSION",
+    "ENKAI_CONVERSATION_DIR"
+  ],
+  "required_runtime_flags": [
+    "--trace-vm",
+    "--trace-net"
+  ],
+  "required_model_env_keys": {
+    "single": [
+      "ENKAI_SERVE_MODEL_PATH",
+      "ENKAI_SERVE_MODEL_NAME",
+      "ENKAI_SERVE_MODEL_VERSION",
+      "ENKAI_SERVE_MODEL_REGISTRY"
+    ],
+    "multi": [
+      "ENKAI_SERVE_MULTI_MODEL",
+      "ENKAI_REQUIRE_MODEL_VERSION_HEADER",
+      "ENKAI_SERVE_MODEL_REGISTRY"
+    ]
+  }
+}

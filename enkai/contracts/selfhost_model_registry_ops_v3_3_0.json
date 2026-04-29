@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "profile": "strict_selfhost",
+  "version_line": "v3.3.0-v4.0.0",
+  "generated_purpose": "Move model registry metadata/state transitions and train config loading behind manifest-backed executors before backend replacement.",
+  "required_model_checks": [
+    "register",
+    "load",
+    "loaded"
+  ],
+  "require_train_manifest": true,
+  "require_train_exec": true,
+  "require_native_train_manifest": true,
+  "require_native_train_exec": true,
+  "require_native_fallback_note": true
+}

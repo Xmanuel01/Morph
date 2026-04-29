@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "profile": "strict_selfhost",
+  "surface": "project_entrypoints",
+  "required_entrypoints": [
+    "run",
+    "check",
+    "build",
+    "test"
+  ],
+  "required_backend": "selfhost",
+  "require_build_cache_backend": "selfhost",
+  "require_lockfile": true
+}

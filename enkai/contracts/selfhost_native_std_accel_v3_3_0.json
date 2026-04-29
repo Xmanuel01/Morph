@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.3.0",
+  "profile": "native_std_accel_slice",
+  "generated_purpose": "Prove that the strict-selfhost CPU line remains operational for audited entrypoints when the Rust-owned native std/accel library is absent.",
+  "required_entrypoints": [
+    "run",
+    "check",
+    "build",
+    "test"
+  ],
+  "required_runtime_backend": "selfhost",
+  "require_test_compiler_backend_only": true,
+  "require_native_hidden": true,
+  "require_generic_serve_health": true
+}

@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "profile": "strict_selfhost",
+  "version_line": "v3.3.0-v4.0.0",
+  "generated_purpose": "Stabilize release evidence bundle collection behind a contract so the Python collector becomes a thin executor of declared bundle inputs and outputs.",
+  "collect_args": {
+    "out_dir": "artifacts/release",
+    "strict": false,
+    "require_gpu": false
+  },
+  "required_archived_files": [
+    "manifest.json",
+    "contracts/readiness_strict_selfhost_v3_1_0.json",
+    "contracts/strict_selfhost_release_blockers_v3_1_0.json",
+    "contracts/strict_selfhost_dependency_board_v3_1_0.json",
+    "readiness/strict_selfhost.json",
+    "readiness/strict_selfhost_blockers.json",
+    "readiness/strict_selfhost_dependency_inventory.json",
+    "validation/ffi_correctness.json",
+    "validation/determinism_event_queue.json",
+    "install/install_bundle_smoke.json",
+    "install/zero_rust_closure.json"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "profile": "strict_selfhost",
+  "surface": "serve_and_transports",
+  "required_checks": [
+    "strict_selfhost_systems_transport_slice",
+    "strict_selfhost"
+  ]
+}

@@ -89,9 +89,9 @@ enkai run hello.enk
 The installed bundle is intended to be operational on a machine that does not have Rust installed.
 Rust remains a repo-side build/bootstrap dependency only while the zero-Rust self-host line is still closing.
 `enkai install-diagnostics` reports whether the bundle layout is intact, whether the bundled stdlib/examples are present, and whether `cargo`/`rustc` are visible on the current PATH.
-The install proof for the `v3.2.1` tranche is contract-driven:
-- `enkai/contracts/install_bundle_v3_2_1.json`
-- `enkai/contracts/zero_rust_closure_v3_2_1.json`
+The install proof for the `v3.3.0` release line is contract-driven:
+- `enkai/contracts/install_bundle_v3_3_0.json`
+- `enkai/contracts/zero_rust_closure_v3_3_0.json`
 and emits:
 - `artifacts/install_bundle_smoke/install_bundle_manifest.json`
 - `artifacts/install_bundle_smoke/install_bundle_smoke.json`

@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "profile": "strict_selfhost",
+  "version_line": "v3.3.0-v4.0.0",
+  "generated_purpose": "Prove validation suite selection and artifact emission through a manifest-backed dispatch contract before replacing the Rust executor.",
+  "required_suite_dispatches": [
+    {
+      "subcommand": "ffi-correctness",
+      "result_output": "ffi_correctness_dispatch.json"
+    },
+    {
+      "subcommand": "determinism",
+      "suite": "event_queue",
+      "runs": 2,
+      "result_output": "determinism_event_queue_dispatch.json"
+    }
+  ]
+}

@@ -41,12 +41,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--bundle-contract",
-        default="enkai/contracts/install_bundle_v3_2_1.json",
+        default="enkai/contracts/install_bundle_v3_3_0.json",
         help="Path to the versioned install-bundle contract",
     )
     parser.add_argument(
         "--closure-contract",
-        default="enkai/contracts/zero_rust_closure_v3_2_1.json",
+        default="enkai/contracts/zero_rust_closure_v3_3_0.json",
         help="Path to the versioned zero-Rust closure contract",
     )
     return parser.parse_args()

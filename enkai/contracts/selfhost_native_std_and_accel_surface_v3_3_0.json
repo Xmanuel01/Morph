@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.3.0",
+  "profile": "native_std_and_accel",
+  "generated_purpose": "Prove the strict-selfhost native std/accel shipped surface is complete by requiring the hidden-native slice to stay green, including selfhost run/check/build/test and systems-owned serve health without any discovered enkai_native library on disk, and by requiring the aggregate strict-selfhost readiness and blocker artifacts to remain green.",
+  "required_reports": [
+    "artifacts/readiness/strict_selfhost_native_std_accel_slice.json",
+    "artifacts/readiness/strict_selfhost.json",
+    "artifacts/readiness/strict_selfhost_blockers.json"
+  ],
+  "required_status_fields": {
+    "artifacts/readiness/strict_selfhost_native_std_accel_slice.json:all_passed": true,
+    "artifacts/readiness/strict_selfhost_native_std_accel_slice.json:checks.0.passed": true,
+    "artifacts/readiness/strict_selfhost_native_std_accel_slice.json:checks.1.passed": true,
+    "artifacts/readiness/strict_selfhost_native_std_accel_slice.json:checks.2.passed": true,
+    "artifacts/readiness/strict_selfhost_native_std_accel_slice.json:checks.3.passed": true,
+    "artifacts/readiness/strict_selfhost_native_std_accel_slice.json:checks.4.passed": true,
+    "artifacts/readiness/strict_selfhost.json:all_passed": true,
+    "artifacts/readiness/strict_selfhost_blockers.json:all_passed": true
+  }
+}

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::collections::{hash_map::DefaultHasher, HashSet};
 use std::fs::{self, OpenOptions};
 use std::hash::{Hash, Hasher};
@@ -33,55 +35,73 @@ use enkai_runtime::{
 };
 
 #[derive(Debug, Clone)]
-struct TrainConfig {
-    config_version: u32,
-    backend: String,
-    vocab_size: usize,
-    hidden_size: usize,
-    seq_len: usize,
-    batch_size: usize,
-    lr: f32,
-    model: ModelConfig,
-    optim: OptimConfig,
-    amp: AmpConfig,
-    dataset_path: String,
-    eval_dataset_path: Option<String>,
-    tokenizer: TokenizerConfig,
-    checkpoint_dir: String,
-    max_steps: usize,
-    save_every: usize,
-    log_every: usize,
-    eval_steps: usize,
-    drop_remainder: bool,
-    add_eos: bool,
-    pad_id: u32,
-    keep_last: usize,
-    seed: Option<u64>,
-    shuffle: bool,
-    prefetch_batches: usize,
-    world_size: usize,
-    rank: usize,
-    dist: DistOrchestration,
-    grad_accum_steps: usize,
-    grad_clip_norm: Option<f32>,
-    ema_decay: f32,
-    divergence_factor: f32,
-    divergence_patience: usize,
-    divergence_warmup_steps: usize,
-    run_id: Option<String>,
-    parent_run_id: Option<String>,
-    run_name: Option<String>,
-    validate_checkpoint_on_save: bool,
-    validate_checkpoint_on_resume: bool,
-    retention_recent: usize,
-    retention_milestone_every: usize,
-    retention_milestone_keep: usize,
-    legacy_config: bool,
-    strict_contracts: bool,
+pub(crate) struct TrainConfig {
+    pub(crate) config_version: u32,
+    pub(crate) backend: String,
+    pub(crate) vocab_size: usize,
+    pub(crate) hidden_size: usize,
+    pub(crate) seq_len: usize,
+    pub(crate) batch_size: usize,
+    pub(crate) lr: f32,
+    pub(crate) model: ModelConfig,
+    pub(crate) optim: OptimConfig,
+    pub(crate) amp: AmpConfig,
+    pub(crate) dataset_path: String,
+    pub(crate) eval_dataset_path: Option<String>,
+    pub(crate) tokenizer: TokenizerConfig,
+    pub(crate) checkpoint_dir: String,
+    pub(crate) max_steps: usize,
+    pub(crate) save_every: usize,
+    pub(crate) log_every: usize,
+    pub(crate) eval_steps: usize,
+    pub(crate) drop_remainder: bool,
+    pub(crate) add_eos: bool,
+    pub(crate) pad_id: u32,
+    pub(crate) keep_last: usize,
+    pub(crate) seed: Option<u64>,
+    pub(crate) shuffle: bool,
+    pub(crate) prefetch_batches: usize,
+    pub(crate) world_size: usize,
+    pub(crate) rank: usize,
+    pub(crate) dist: DistOrchestration,
+    pub(crate) grad_accum_steps: usize,
+    pub(crate) grad_clip_norm: Option<f32>,
+    pub(crate) ema_decay: f32,
+    pub(crate) divergence_factor: f32,
+    pub(crate) divergence_patience: usize,
+    pub(crate) divergence_warmup_steps: usize,
+    pub(crate) run_id: Option<String>,
+    pub(crate) parent_run_id: Option<String>,
+    pub(crate) run_name: Option<String>,
+    pub(crate) validate_checkpoint_on_save: bool,
+    pub(crate) validate_checkpoint_on_resume: bool,
+    pub(crate) retention_recent: usize,
+    pub(crate) retention_milestone_every: usize,
+    pub(crate) retention_milestone_keep: usize,
+    pub(crate) legacy_config: bool,
+    pub(crate) strict_contracts: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct TrainCommandManifest {
+    pub(crate) schema_version: u32,
+    pub(crate) profile: String,
+    pub(crate) command: TrainManifestCommand,
+    pub(crate) config_path: String,
+    pub(crate) strict_contracts: bool,
+    pub(crate) evaluated_config: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum TrainManifestCommand {
+    Train,
+    Pretrain,
+    Eval,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-struct DistOrchestration {
+pub(crate) struct DistOrchestration {
     topology: String,
     rendezvous: String,
     retry_budget: usize,
@@ -104,37 +124,37 @@ impl DistOrchestration {
 }
 
 #[derive(Debug, Clone)]
-struct ModelConfig {
-    d_model: usize,
-    n_layers: usize,
-    n_heads: usize,
-    ff_mult: f32,
-    activation: String,
-    norm: String,
-    tie_embeddings: bool,
-    dropout: f32,
-    preset: String,
-    device: String,
-    dtype: String,
+pub(crate) struct ModelConfig {
+    pub(crate) d_model: usize,
+    pub(crate) n_layers: usize,
+    pub(crate) n_heads: usize,
+    pub(crate) ff_mult: f32,
+    pub(crate) activation: String,
+    pub(crate) norm: String,
+    pub(crate) tie_embeddings: bool,
+    pub(crate) dropout: f32,
+    pub(crate) preset: String,
+    pub(crate) device: String,
+    pub(crate) dtype: String,
 }
 
 #[derive(Debug, Clone)]
-struct OptimConfig {
-    lr: f64,
-    beta1: f64,
-    beta2: f64,
-    eps: f64,
-    weight_decay: f64,
+pub(crate) struct OptimConfig {
+    pub(crate) lr: f64,
+    pub(crate) beta1: f64,
+    pub(crate) beta2: f64,
+    pub(crate) eps: f64,
+    pub(crate) weight_decay: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-struct AmpConfig {
-    enabled: bool,
-    dtype: String,
-    init_scale: f64,
-    growth_factor: f64,
-    backoff_factor: f64,
-    growth_interval: i64,
+pub(crate) struct AmpConfig {
+    pub(crate) enabled: bool,
+    pub(crate) dtype: String,
+    pub(crate) init_scale: f64,
+    pub(crate) growth_factor: f64,
+    pub(crate) backoff_factor: f64,
+    pub(crate) growth_interval: i64,
 }
 
 impl Default for AmpConfig {
@@ -151,7 +171,7 @@ impl Default for AmpConfig {
 }
 
 #[derive(Debug, Clone)]
-enum TokenizerConfig {
+pub(crate) enum TokenizerConfig {
     Load(String),
     Train {
         path: String,
@@ -162,7 +182,7 @@ enum TokenizerConfig {
 
 #[derive(Debug)]
 struct AdamW {
-    lr: f32,
+    pub(crate) lr: f32,
     beta1: f32,
     beta2: f32,
     eps: f32,
@@ -211,13 +231,13 @@ impl AdamW {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct ParamGroup {
+pub(crate) struct ParamGroup {
     start: usize,
     len: usize,
 }
 
 #[derive(Debug)]
-struct AdamWMulti {
+pub(crate) struct AdamWMulti {
     groups: Vec<AdamW>,
 }
 
@@ -268,9 +288,9 @@ impl AdamWMulti {
 }
 
 #[derive(Debug)]
-struct TinyModel {
-    vocab_size: usize,
-    hidden_size: usize,
+pub(crate) struct TinyModel {
+    pub(crate) vocab_size: usize,
+    pub(crate) hidden_size: usize,
     params: Vec<f32>,
     embed_offset: usize,
     out_offset: usize,
@@ -430,34 +450,34 @@ impl TinyModel {
 }
 
 #[derive(Serialize)]
-struct LogEvent {
-    step: usize,
-    loss: f32,
-    tokens: u64,
-    lr: f32,
-    elapsed_ms: u128,
-    event: String,
-    tokens_per_sec: Option<f32>,
-    step_time_ms: Option<f32>,
-    packing_efficiency: Option<f32>,
-    gpu_util: Option<f32>,
-    grad_norm: Option<f32>,
-    forward_time_ms: Option<f32>,
-    backward_time_ms: Option<f32>,
-    optim_time_ms: Option<f32>,
-    found_inf: Option<bool>,
-    ema_loss: Option<f32>,
-    divergence_streak: Option<usize>,
+pub(crate) struct LogEvent {
+    pub(crate) step: usize,
+    pub(crate) loss: f32,
+    pub(crate) tokens: u64,
+    pub(crate) lr: f32,
+    pub(crate) elapsed_ms: u128,
+    pub(crate) event: String,
+    pub(crate) tokens_per_sec: Option<f32>,
+    pub(crate) step_time_ms: Option<f32>,
+    pub(crate) packing_efficiency: Option<f32>,
+    pub(crate) gpu_util: Option<f32>,
+    pub(crate) grad_norm: Option<f32>,
+    pub(crate) forward_time_ms: Option<f32>,
+    pub(crate) backward_time_ms: Option<f32>,
+    pub(crate) optim_time_ms: Option<f32>,
+    pub(crate) found_inf: Option<bool>,
+    pub(crate) ema_loss: Option<f32>,
+    pub(crate) divergence_streak: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TrainMode {
+pub(crate) enum TrainMode {
     Train,
     Pretrain,
 }
 
 impl TrainMode {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             TrainMode::Train => "train",
             TrainMode::Pretrain => "pretrain",
@@ -466,49 +486,49 @@ impl TrainMode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct RunState {
+pub(crate) struct RunState {
     schema_version: u32,
     mode: String,
     run_id: String,
-    parent_run_id: Option<String>,
-    run_name: Option<String>,
+    pub(crate) parent_run_id: Option<String>,
+    pub(crate) run_name: Option<String>,
     status: String,
     started_at_ms: u64,
     updated_at_ms: u64,
-    step: usize,
-    tokens: u64,
+    pub(crate) step: usize,
+    pub(crate) tokens: u64,
     checkpoint_path: Option<String>,
     config_hash: String,
     code_hash: String,
     dataset_hash: String,
-    seed: Option<u64>,
-    backend: String,
-    dtype: String,
-    device: String,
-    world_size: usize,
-    rank: usize,
+    pub(crate) seed: Option<u64>,
+    pub(crate) backend: String,
+    pub(crate) dtype: String,
+    pub(crate) device: String,
+    pub(crate) world_size: usize,
+    pub(crate) rank: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
 struct RunIndexEvent {
     schema_version: u32,
-    event: String,
+    pub(crate) event: String,
     timestamp_ms: u64,
     mode: String,
     run_id: String,
-    parent_run_id: Option<String>,
-    run_name: Option<String>,
+    pub(crate) parent_run_id: Option<String>,
+    pub(crate) run_name: Option<String>,
     status: String,
-    step: usize,
-    tokens: u64,
+    pub(crate) step: usize,
+    pub(crate) tokens: u64,
     checkpoint_path: Option<String>,
     config_hash: String,
     code_hash: String,
     dataset_hash: String,
-    seed: Option<u64>,
-    backend: String,
-    dtype: String,
-    device: String,
+    pub(crate) seed: Option<u64>,
+    pub(crate) backend: String,
+    pub(crate) dtype: String,
+    pub(crate) device: String,
     device_map: String,
     note: Option<String>,
 }
@@ -517,26 +537,26 @@ struct RunIndexEvent {
 struct RunValidationArtifact {
     schema_version: u32,
     validated_at_ms: u64,
-    strict_contracts: bool,
+    pub(crate) strict_contracts: bool,
     passed: bool,
     issues: Vec<String>,
     mode: String,
     run_id: String,
-    parent_run_id: Option<String>,
-    run_name: Option<String>,
+    pub(crate) parent_run_id: Option<String>,
+    pub(crate) run_name: Option<String>,
     status: String,
-    step: usize,
-    tokens: u64,
+    pub(crate) step: usize,
+    pub(crate) tokens: u64,
     checkpoint_path: Option<String>,
     config_hash: String,
     code_hash: String,
     dataset_hash: String,
-    seed: Option<u64>,
-    backend: String,
-    dtype: String,
-    device: String,
-    world_size: usize,
-    rank: usize,
+    pub(crate) seed: Option<u64>,
+    pub(crate) backend: String,
+    pub(crate) dtype: String,
+    pub(crate) device: String,
+    pub(crate) world_size: usize,
+    pub(crate) rank: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -548,7 +568,7 @@ struct CheckpointLifecycleManifest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CheckpointLifecycleEntry {
     step: u64,
-    tokens: u64,
+    pub(crate) tokens: u64,
     loss: f64,
     checkpoint_path: String,
     tier: String,
@@ -557,7 +577,7 @@ struct CheckpointLifecycleEntry {
 }
 
 #[derive(Debug)]
-struct RunContext {
+pub(crate) struct RunContext {
     state: RunState,
     state_path: PathBuf,
     index_path: PathBuf,
@@ -574,7 +594,7 @@ struct ResumeValidationInput<'a> {
 }
 
 impl RunContext {
-    fn open(
+    pub(crate) fn open(
         config: &TrainConfig,
         config_path: &Path,
         mode: TrainMode,
@@ -721,7 +741,7 @@ impl RunContext {
         Ok(ctx)
     }
 
-    fn record_checkpoint(
+    pub(crate) fn record_checkpoint(
         &mut self,
         step: usize,
         tokens: u64,
@@ -737,14 +757,14 @@ impl RunContext {
         self.append_event("checkpoint", note, Some(checkpoint_path))
     }
 
-    fn update_progress(&mut self, step: usize, tokens: u64) -> Result<(), String> {
+    pub(crate) fn update_progress(&mut self, step: usize, tokens: u64) -> Result<(), String> {
         self.state.step = step;
         self.state.tokens = tokens;
         self.state.updated_at_ms = now_unix_ms();
         self.persist_state()
     }
 
-    fn mark_completed(&mut self, step: usize, tokens: u64) -> Result<(), String> {
+    pub(crate) fn mark_completed(&mut self, step: usize, tokens: u64) -> Result<(), String> {
         self.state.status = "completed".to_string();
         self.state.step = step;
         self.state.tokens = tokens;
@@ -757,7 +777,12 @@ impl RunContext {
         )
     }
 
-    fn mark_failed(&mut self, step: usize, tokens: u64, err: &str) -> Result<(), String> {
+    pub(crate) fn mark_failed(
+        &mut self,
+        step: usize,
+        tokens: u64,
+        err: &str,
+    ) -> Result<(), String> {
         self.state.status = "failed".to_string();
         self.state.step = step;
         self.state.tokens = tokens;
@@ -998,9 +1023,9 @@ fn write_run_validation_artifact(
 }
 
 #[derive(Debug, Clone)]
-struct DivergenceGuard {
-    ema_loss: Option<f32>,
-    streak: usize,
+pub(crate) struct DivergenceGuard {
+    pub(crate) ema_loss: Option<f32>,
+    pub(crate) streak: usize,
     decay: f32,
     factor: f32,
     patience: usize,
@@ -1008,7 +1033,7 @@ struct DivergenceGuard {
 }
 
 impl DivergenceGuard {
-    fn new(config: &TrainConfig) -> Self {
+    pub(crate) fn new(config: &TrainConfig) -> Self {
         Self {
             ema_loss: None,
             streak: 0,
@@ -1019,7 +1044,7 @@ impl DivergenceGuard {
         }
     }
 
-    fn observe(&mut self, step: usize, loss: f32) -> Result<(), String> {
+    pub(crate) fn observe(&mut self, step: usize, loss: f32) -> Result<(), String> {
         if !loss.is_finite() {
             return Err(format!("non-finite loss detected at step {}", step));
         }
@@ -1058,6 +1083,23 @@ pub fn train(config_path: &Path) -> Result<(), String> {
     train_with_contract_mode(config_path, true)
 }
 
+pub(crate) fn build_train_command_manifest(
+    command: TrainManifestCommand,
+    config_path: &Path,
+    strict_contracts: bool,
+) -> Result<TrainCommandManifest, String> {
+    let value = load_config_value(config_path)?;
+    let config = parse_train_config_with_mode(&value, strict_contracts)?;
+    Ok(TrainCommandManifest {
+        schema_version: 1,
+        profile: "train_command_manifest".to_string(),
+        command,
+        config_path: config_path.display().to_string(),
+        strict_contracts,
+        evaluated_config: train_config_to_json(&config),
+    })
+}
+
 pub fn train_with_contract_mode(config_path: &Path, strict_contracts: bool) -> Result<(), String> {
     train_with_contract_mode_for(config_path, strict_contracts, TrainMode::Train)
 }
@@ -1073,7 +1115,7 @@ pub fn pretrain_with_contract_mode(
     train_with_contract_mode_for(config_path, strict_contracts, TrainMode::Pretrain)
 }
 
-fn train_with_contract_mode_for(
+pub(crate) fn train_with_contract_mode_for(
     config_path: &Path,
     strict_contracts: bool,
     mode: TrainMode,
@@ -1592,7 +1634,7 @@ pub(crate) fn migrate_config_v1_json(path: &Path) -> Result<serde_json::Value, S
     Ok(train_config_to_json(&config))
 }
 
-fn build_tokenizer(config: &TrainConfig) -> Result<Tokenizer, String> {
+pub(crate) fn build_tokenizer(config: &TrainConfig) -> Result<Tokenizer, String> {
     match &config.tokenizer {
         TokenizerConfig::Load(path) => Tokenizer::load(Path::new(path)),
         TokenizerConfig::Train {
@@ -1614,7 +1656,7 @@ fn build_tokenizer(config: &TrainConfig) -> Result<Tokenizer, String> {
     }
 }
 
-fn load_config_value(path: &Path) -> Result<Value, String> {
+pub(crate) fn load_config_value(path: &Path) -> Result<Value, String> {
     let package = load_package(path).map_err(|err| err.to_string())?;
     if let Err(err) = TypeChecker::check_package(&package) {
         return Err(type_error_message(&err));
@@ -1636,7 +1678,7 @@ fn parse_train_config(value: &Value) -> Result<TrainConfig, String> {
     parse_train_config_with_mode(value, true)
 }
 
-fn parse_train_config_with_mode(
+pub(crate) fn parse_train_config_with_mode(
     value: &Value,
     strict_contracts: bool,
 ) -> Result<TrainConfig, String> {
@@ -2403,14 +2445,14 @@ fn parse_device_map_string(value: &str, world_size: usize) -> Result<Vec<usize>,
 }
 
 struct ModelPreset {
-    d_model: usize,
-    n_layers: usize,
-    n_heads: usize,
-    ff_mult: f32,
+    pub(crate) d_model: usize,
+    pub(crate) n_layers: usize,
+    pub(crate) n_heads: usize,
+    pub(crate) ff_mult: f32,
     activation: &'static str,
     norm: &'static str,
-    tie_embeddings: bool,
-    dropout: f32,
+    pub(crate) tie_embeddings: bool,
+    pub(crate) dropout: f32,
 }
 
 fn model_preset_defaults(preset: &str, hidden_size: usize) -> Result<ModelPreset, String> {
@@ -2570,7 +2612,7 @@ fn resolve_code_hash(_config_path: &Path) -> Result<String, String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-fn dataset_fingerprint(paths: &[PathBuf]) -> Result<String, String> {
+pub(crate) fn dataset_fingerprint(paths: &[PathBuf]) -> Result<String, String> {
     let mut normalized = Vec::with_capacity(paths.len());
     for path in paths {
         let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
@@ -2666,7 +2708,7 @@ fn checkpoint_tier(config: &TrainConfig, step: u64) -> &'static str {
     }
 }
 
-fn register_checkpoint_lifecycle(
+pub(crate) fn register_checkpoint_lifecycle(
     config: &TrainConfig,
     step: u64,
     tokens: u64,
@@ -2693,7 +2735,7 @@ fn register_checkpoint_lifecycle(
     save_checkpoint_lifecycle(root, &manifest)
 }
 
-fn apply_checkpoint_retention(config: &TrainConfig, root: &Path) -> Result<(), String> {
+pub(crate) fn apply_checkpoint_retention(config: &TrainConfig, root: &Path) -> Result<(), String> {
     let mut manifest = load_checkpoint_lifecycle(root)?;
     if manifest.entries.is_empty() {
         rotate_checkpoints(root, config.keep_last).map_err(|err| err.to_string())?;
@@ -2738,7 +2780,7 @@ fn apply_checkpoint_retention(config: &TrainConfig, root: &Path) -> Result<(), S
     save_checkpoint_lifecycle(root, &manifest)
 }
 
-fn validate_checkpoint_integrity(
+pub(crate) fn validate_checkpoint_integrity(
     config: &TrainConfig,
     step: u64,
     checkpoint_path: &Path,
@@ -2779,7 +2821,7 @@ fn validate_vm_saved_checkpoint(
     Ok(())
 }
 
-fn validate_native_saved_checkpoint(
+pub(crate) fn validate_native_saved_checkpoint(
     config: &TrainConfig,
     engine: &mut enkai_runtime::engine::Engine,
     expected_step: u64,
@@ -2853,15 +2895,15 @@ fn hash_config_legacy(config: &TrainConfig) -> u64 {
     hasher.finish()
 }
 
-fn hash_config_hex(config: &TrainConfig) -> String {
+pub(crate) fn hash_config_hex(config: &TrainConfig) -> String {
     format!("{:x}", hash_config(config))
 }
 
-fn config_seed(config: &TrainConfig) -> u64 {
+pub(crate) fn config_seed(config: &TrainConfig) -> u64 {
     config.seed.unwrap_or_else(|| hash_config(config))
 }
 
-fn data_seed(config: &TrainConfig) -> Option<u64> {
+pub(crate) fn data_seed(config: &TrainConfig) -> Option<u64> {
     config.seed.map(|seed| {
         if config.world_size > 1 {
             seed.wrapping_add(config.rank as u64)
@@ -2871,7 +2913,7 @@ fn data_seed(config: &TrainConfig) -> Option<u64> {
     })
 }
 
-fn checkpoint_amp_from(config: &AmpConfig) -> CheckpointAmp {
+pub(crate) fn checkpoint_amp_from(config: &AmpConfig) -> CheckpointAmp {
     CheckpointAmp {
         enabled: config.enabled,
         dtype: config.dtype.clone(),
@@ -2904,7 +2946,7 @@ fn clip_grad_norm(grads: &mut [f32], max_norm: f32) -> Option<f32> {
     Some(norm)
 }
 
-fn shard_paths(paths: Vec<PathBuf>, world_size: usize, rank: usize) -> Vec<PathBuf> {
+pub(crate) fn shard_paths(paths: Vec<PathBuf>, world_size: usize, rank: usize) -> Vec<PathBuf> {
     if world_size <= 1 || paths.is_empty() {
         return paths;
     }
@@ -2928,28 +2970,28 @@ fn shard_paths(paths: Vec<PathBuf>, world_size: usize, rank: usize) -> Vec<PathB
 }
 
 #[derive(Serialize, Deserialize)]
-struct NativeCheckpointMeta {
+pub(crate) struct NativeCheckpointMeta {
     #[serde(default)]
     format_version: u32,
-    step: u64,
-    tokens: u64,
-    loss: f32,
+    pub(crate) step: u64,
+    pub(crate) tokens: u64,
+    pub(crate) loss: f32,
     #[serde(default)]
     config_hash: String,
     #[serde(default)]
     model_sig: String,
     #[serde(default)]
-    dtype: String,
+    pub(crate) dtype: String,
     #[serde(default)]
-    device: String,
+    pub(crate) device: String,
     #[serde(default)]
-    world_size: usize,
+    pub(crate) world_size: usize,
     #[serde(default)]
-    rank: usize,
+    pub(crate) rank: usize,
     #[serde(default)]
-    grad_accum_steps: usize,
+    pub(crate) grad_accum_steps: usize,
     #[serde(default)]
-    grad_clip_norm: Option<f32>,
+    pub(crate) grad_clip_norm: Option<f32>,
     #[serde(default)]
     amp: Option<AmpConfig>,
 }
@@ -2986,7 +3028,7 @@ fn model_signature_matches(config: &TrainConfig, signature: &str) -> bool {
     signature == model_signature(config) || signature == model_signature_legacy(config)
 }
 
-fn native_checkpoint_meta(
+pub(crate) fn native_checkpoint_meta(
     config: &TrainConfig,
     step: u64,
     tokens: u64,
@@ -3010,7 +3052,10 @@ fn native_checkpoint_meta(
     serde_json::to_string(&meta).map_err(|err| err.to_string())
 }
 
-fn validate_vm_checkpoint_meta(meta: &CheckpointMeta, config: &TrainConfig) -> Result<(), String> {
+pub(crate) fn validate_vm_checkpoint_meta(
+    meta: &CheckpointMeta,
+    config: &TrainConfig,
+) -> Result<(), String> {
     if meta.format_version > 1 {
         return Err("unsupported checkpoint format version".to_string());
     }
@@ -3061,7 +3106,7 @@ fn require_meta_string(name: &str, value: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn rt_config_from(config: &TrainConfig) -> RtTrainConfig {
+pub(crate) fn rt_config_from(config: &TrainConfig) -> RtTrainConfig {
     RtTrainConfig {
         data: RtDataConfig {
             train_path: Path::new(&config.dataset_path).to_path_buf(),
@@ -3116,7 +3161,7 @@ fn rt_config_from(config: &TrainConfig) -> RtTrainConfig {
     }
 }
 
-fn try_load_native_checkpoint(
+pub(crate) fn try_load_native_checkpoint(
     engine: &mut enkai_runtime::engine::Engine,
     config: &TrainConfig,
     dir: &str,
@@ -3166,7 +3211,7 @@ fn try_load_native_checkpoint(
     Ok(Some(meta))
 }
 
-fn write_error_checkpoint(
+pub(crate) fn write_error_checkpoint(
     engine: &enkai_runtime::engine::Engine,
     config: &TrainConfig,
     step: usize,
@@ -3228,6 +3273,39 @@ mod tests {
         let escaped = escape_enkai_string(&text);
         let source = format!("fn main() ::\n    return json.parse(\"{}\")\n::\n", escaped);
         fs::write(path, source).map_err(|err| err.to_string())
+    }
+
+    #[test]
+    fn build_train_command_manifest_embeds_evaluated_config() {
+        let dir = tempdir().expect("tempdir");
+        let data = dir.path().join("data.txt");
+        fs::write(&data, "alpha beta gamma\ndelta epsilon").expect("data");
+        let ckpt = dir.path().join("ckpt");
+        let config_path = dir.path().join("config.enk");
+        let config = serde_json::json!({
+            "config_version": 1,
+            "backend": "cpu",
+            "vocab_size": 8,
+            "hidden_size": 4,
+            "seq_len": 4,
+            "batch_size": 2,
+            "lr": 0.1,
+            "dataset_path": data.to_string_lossy(),
+            "checkpoint_dir": ckpt.to_string_lossy(),
+            "max_steps": 1,
+            "save_every": 1,
+            "log_every": 1,
+            "drop_remainder": false,
+            "tokenizer_train": { "path": data.to_string_lossy(), "vocab_size": 8 }
+        });
+        write_config(&config_path, &config).expect("config");
+        let manifest =
+            build_train_command_manifest(TrainManifestCommand::Train, &config_path, true)
+                .expect("manifest");
+        assert_eq!(manifest.profile, "train_command_manifest");
+        assert_eq!(manifest.command, TrainManifestCommand::Train);
+        assert_eq!(manifest.evaluated_config["backend"], "cpu");
+        assert_eq!(manifest.evaluated_config["max_steps"], 1);
     }
 
     #[test]

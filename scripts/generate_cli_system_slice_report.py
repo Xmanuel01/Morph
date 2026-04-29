@@ -25,6 +25,14 @@ def main() -> int:
     surfaces = list(contract.get("surfaces", []))
     ordered = sorted(surfaces, key=lambda item: (item.get("priority", 9999), item.get("id", "")))
     status_counts = Counter(item.get("status", "unknown") for item in ordered)
+    next_peelable = next(
+        (
+            item["id"]
+            for item in ordered
+            if item.get("status") not in {"done", "complete", "contract_driven"}
+        ),
+        None,
+    )
     report = {
         "schema_version": 1,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -34,7 +42,7 @@ def main() -> int:
         "summary": {
             "surface_count": len(ordered),
             "status_counts": dict(status_counts),
-            "next_peelable_surface": ordered[0]["id"] if ordered else None,
+            "next_peelable_surface": next_peelable,
         },
         "surfaces": ordered,
     }

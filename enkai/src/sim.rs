@@ -15,17 +15,17 @@ use enkai_runtime::object::Obj;
 use enkai_runtime::{Value, VM};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct SimRunOptions {
-    target: PathBuf,
-    trace_vm: bool,
-    disasm: bool,
-    trace_task: bool,
-    trace_net: bool,
-    emit_json_stdout: bool,
-    output: Option<PathBuf>,
-    snapshot_output: Option<PathBuf>,
-    lineage_output: Option<PathBuf>,
-    snapshot_manifest_output: Option<PathBuf>,
+pub(crate) struct SimRunOptions {
+    pub(crate) target: PathBuf,
+    pub(crate) trace_vm: bool,
+    pub(crate) disasm: bool,
+    pub(crate) trace_task: bool,
+    pub(crate) trace_net: bool,
+    pub(crate) emit_json_stdout: bool,
+    pub(crate) output: Option<PathBuf>,
+    pub(crate) snapshot_output: Option<PathBuf>,
+    pub(crate) lineage_output: Option<PathBuf>,
+    pub(crate) snapshot_manifest_output: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,14 +36,14 @@ struct SimProfileOptions {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct SimReplayOptions {
-    snapshot: PathBuf,
-    steps: usize,
-    emit_json_stdout: bool,
-    output: Option<PathBuf>,
-    snapshot_output: Option<PathBuf>,
-    lineage_output: Option<PathBuf>,
-    snapshot_manifest_output: Option<PathBuf>,
+pub(crate) struct SimReplayOptions {
+    pub(crate) snapshot: PathBuf,
+    pub(crate) steps: usize,
+    pub(crate) emit_json_stdout: bool,
+    pub(crate) output: Option<PathBuf>,
+    pub(crate) snapshot_output: Option<PathBuf>,
+    pub(crate) lineage_output: Option<PathBuf>,
+    pub(crate) snapshot_manifest_output: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -146,36 +146,43 @@ fn sim_replay_command(args: &[String]) -> i32 {
             return 1;
         }
     };
+    match execute_sim_replay(&options) {
+        Ok(exit_code) => exit_code,
+        Err(err) => {
+            eprintln!("{}", err);
+            1
+        }
+    }
+}
+
+pub(crate) fn execute_sim_replay(options: &SimReplayOptions) -> Result<i32, String> {
     let snapshot_text = match fs::read_to_string(&options.snapshot) {
         Ok(text) => text,
         Err(err) => {
-            eprintln!(
+            return Err(format!(
                 "enkai sim replay: failed to read {}: {}",
                 options.snapshot.display(),
                 err
-            );
-            return 1;
+            ));
         }
     };
     let snapshot_minified = match serde_json::from_str::<serde_json::Value>(&snapshot_text) {
         Ok(value) => match serde_json::to_string(&value) {
             Ok(compact) => compact,
             Err(err) => {
-                eprintln!(
+                return Err(format!(
                     "enkai sim replay: failed to compact snapshot {}: {}",
                     options.snapshot.display(),
                     err
-                );
-                return 1;
+                ));
             }
         },
         Err(err) => {
-            eprintln!(
+            return Err(format!(
                 "enkai sim replay: snapshot {} is not valid JSON: {}",
                 options.snapshot.display(),
                 err
-            );
-            return 1;
+            ));
         }
     };
     let escaped_snapshot = snapshot_minified
@@ -197,10 +204,7 @@ fn sim_replay_command(args: &[String]) -> i32 {
             };
             (value, code)
         }
-        Err(err) => {
-            eprintln!("{}", err);
-            return 1;
-        }
+        Err(err) => return Err(err),
     };
     let payload = json!({
         "command": "sim.replay",
@@ -215,12 +219,10 @@ fn sim_replay_command(args: &[String]) -> i32 {
         options.emit_json_stdout,
         options.output.as_deref(),
     ) {
-        eprintln!("enkai sim replay: {}", err);
-        return 1;
+        return Err(format!("enkai sim replay: {}", err));
     }
     if let Err(err) = write_snapshot_output(options.snapshot_output.as_deref(), &payload) {
-        eprintln!("enkai sim replay: {}", err);
-        return 1;
+        return Err(format!("enkai sim replay: {}", err));
     }
     if let Err(err) = write_sim_manifests(SimManifestRequest {
         command: "sim.replay",
@@ -232,13 +234,12 @@ fn sim_replay_command(args: &[String]) -> i32 {
         lineage_output: options.lineage_output.as_deref(),
         snapshot_manifest_output: options.snapshot_manifest_output.as_deref(),
     }) {
-        eprintln!("enkai sim replay: {}", err);
-        return 1;
+        return Err(format!("enkai sim replay: {}", err));
     }
-    exit_code
+    Ok(exit_code)
 }
 
-fn execute_sim_run(
+pub(crate) fn execute_sim_run(
     options: &SimRunOptions,
     profile_output: Option<&Path>,
     case_id: Option<&str>,

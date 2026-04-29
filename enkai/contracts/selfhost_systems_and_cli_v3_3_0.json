@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.3.0",
+  "profile": "systems_and_cli",
+  "generated_purpose": "Prove the strict-selfhost systems and CLI surface is complete by requiring all six CLI/system ownership slices to be done and their parent proofs plus the full strict_selfhost readiness artifacts to remain green.",
+  "required_reports": [
+    "artifacts/readiness/strict_selfhost_cli_system_slices.json",
+    "artifacts/readiness/strict_selfhost_project_entrypoints_slice.json",
+    "artifacts/readiness/strict_selfhost_readiness_validation_surface.json",
+    "artifacts/readiness/strict_selfhost_serve_and_transports_surface.json",
+    "artifacts/readiness/strict_selfhost_worker_runtime_surface.json",
+    "artifacts/readiness/strict_selfhost_model_and_registry_surface.json",
+    "artifacts/readiness/strict_selfhost_deploy_and_cluster_surface.json",
+    "artifacts/readiness/strict_selfhost.json",
+    "artifacts/readiness/strict_selfhost_blockers.json"
+  ],
+  "required_status_fields": {
+    "artifacts/readiness/strict_selfhost_cli_system_slices.json:summary.status_counts.done": 6,
+    "artifacts/readiness/strict_selfhost_cli_system_slices.json:summary.next_peelable_surface": null,
+    "artifacts/readiness/strict_selfhost_project_entrypoints_slice.json:all_passed": true,
+    "artifacts/readiness/strict_selfhost_readiness_validation_surface.json:all_passed": true,
+    "artifacts/readiness/strict_selfhost_serve_and_transports_surface.json:all_passed": true,
+    "artifacts/readiness/strict_selfhost_worker_runtime_surface.json:all_passed": true,
+    "artifacts/readiness/strict_selfhost_model_and_registry_surface.json:all_passed": true,
+    "artifacts/readiness/strict_selfhost_deploy_and_cluster_surface.json:all_passed": true,
+    "artifacts/readiness/strict_selfhost.json:all_passed": true,
+    "artifacts/readiness/strict_selfhost_blockers.json:all_passed": true
+  }
+}

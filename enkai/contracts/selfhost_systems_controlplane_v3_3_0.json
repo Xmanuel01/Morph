@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.3.0",
+  "profile": "systems_controlplane_slice",
+  "generated_purpose": "Prove the v3.3.0 self-host systems-layer slice for worker queue contracts and deploy/cluster config evaluation.",
+  "required_commands": [
+    "enkai systems worker-manifest",
+    "enkai systems worker-exec",
+    "enkai systems deploy-manifest",
+    "enkai systems deploy-exec",
+    "enkai systems cluster-manifest",
+    "enkai systems cluster-exec"
+  ],
+  "worker": {
+    "required_modes": [
+      "enqueue",
+      "run"
+    ],
+    "required_enqueue_fields": [
+      "dir",
+      "queue",
+      "backend_kind",
+      "queue_root",
+      "pending_path",
+      "inflight_path",
+      "schedule_path",
+      "dead_letter_path",
+      "state_path",
+      "payload",
+      "max_attempts",
+      "retry_policy"
+    ],
+    "required_run_fields": [
+      "dir",
+      "queue",
+      "backend_kind",
+      "queue_root",
+      "pending_path",
+      "inflight_path",
+      "schedule_path",
+      "dead_letter_path",
+      "state_path",
+      "handler",
+      "once",
+      "run_policy"
+    ],
+    "required_execution_status": "acked",
+    "required_backend_kind": "selfhost_jsonl_queue_v2"
+  },
+  "deploy": {
+    "required_profile": "backend",
+    "required_evaluation_fields": [
+      "profile",
+      "project_dir",
+      "required_paths",
+      "missing_required_paths"
+    ],
+    "required_execution_success": true
+  },
+  "cluster": {
+    "required_subcommand": "plan",
+    "required_plan_fields": [
+      "topology",
+      "world_size",
+      "rank_plans"
+    ],
+    "required_execution_plan_topology": "multi-node",
+    "required_simulation_run_status": "ok",
+    "required_simulation_stdout_fragment": "in-process sim execution"
+  }
+}

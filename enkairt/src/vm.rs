@@ -614,6 +614,7 @@ pub struct VM {
     active_http_conn: Option<TcpStream>,
     policies: HashMap<String, Policy>,
     active_policy: Option<String>,
+    runtime_bridge_handles: HashMap<String, Value>,
     bench_profile: Option<VmBenchProfile>,
     sim_accel: SimAccelState,
 }
@@ -663,6 +664,7 @@ impl VM {
             active_http_conn: None,
             policies: HashMap::new(),
             active_policy: None,
+            runtime_bridge_handles: HashMap::new(),
             bench_profile,
             sim_accel: SimAccelState::Uninitialized,
         }
@@ -4556,6 +4558,11 @@ impl VM {
                         {
                             self.check_capability(&capability, context.as_ref())?;
                         }
+                        if let Some(value) = self.dispatch_builtin_native_std(&nf.name, &args)? {
+                            self.stack.truncate(callee_index);
+                            self.stack.push(value);
+                            return Ok(());
+                        }
                         if nf.name == "task.join" {
                             self.stack.truncate(callee_index);
                             if let Some(value) =
@@ -6875,6 +6882,484 @@ impl VM {
         self.pending_state = Some(TaskState::BlockedJoin);
         self.yield_now = true;
         Ok(None)
+    }
+
+    fn dispatch_builtin_native_std(
+        &mut self,
+        name: &str,
+        args: &[Value],
+    ) -> Result<Option<Value>, RuntimeError> {
+        const E_FFI_RETURN_NULL: &str = "E_FFI_RETURN_NULL";
+        match name {
+            "buffer_from_string" => {
+                let text = value_as_string(
+                    args.first()
+                        .ok_or_else(|| RuntimeError::new("buffer_from_string expects String"))?,
+                )?;
+                Ok(Some(buffer_value(text.into_bytes())))
+            }
+            "buffer_to_string" => {
+                let bytes = value_as_buffer(
+                    args.first()
+                        .ok_or_else(|| RuntimeError::new("buffer_to_string expects Buffer"))?,
+                )?;
+                match String::from_utf8(bytes) {
+                    Ok(text) => Ok(Some(string_value(&text))),
+                    Err(_) => Ok(Some(Value::Null)),
+                }
+            }
+            "fsx_read_bytes" | "fsx_mmap_read" => {
+                let path = value_as_string(
+                    args.first()
+                        .ok_or_else(|| RuntimeError::new("fsx_read_bytes expects path"))?,
+                )?;
+                let bytes = std::fs::read(&path).map_err(|_| {
+                    RuntimeError::with_code(E_FFI_RETURN_NULL, "FFI returned null pointer")
+                })?;
+                Ok(Some(buffer_value(bytes)))
+            }
+            "fsx_write_bytes" => {
+                let path = value_as_string(
+                    args.first()
+                        .ok_or_else(|| RuntimeError::new("fsx_write_bytes expects path"))?,
+                )?;
+                let bytes = value_as_buffer(
+                    args.get(1)
+                        .ok_or_else(|| RuntimeError::new("fsx_write_bytes expects Buffer"))?,
+                )?;
+                Ok(Some(Value::Bool(std::fs::write(&path, bytes).is_ok())))
+            }
+            "io_read_stdin" => {
+                let mut bytes = Vec::new();
+                std::io::stdin().read_to_end(&mut bytes).map_err(|_| {
+                    RuntimeError::with_code(E_FFI_RETURN_NULL, "FFI returned null pointer")
+                })?;
+                Ok(Some(buffer_value(bytes)))
+            }
+            "io_write_stdout" => {
+                let bytes = value_as_buffer(
+                    args.first()
+                        .ok_or_else(|| RuntimeError::new("io_write_stdout expects Buffer"))?,
+                )?;
+                let mut out = std::io::stdout();
+                let ok = out.write_all(&bytes).and_then(|_| out.flush()).is_ok();
+                Ok(Some(Value::Bool(ok)))
+            }
+            "io_write_stderr" => {
+                let bytes = value_as_buffer(
+                    args.first()
+                        .ok_or_else(|| RuntimeError::new("io_write_stderr expects Buffer"))?,
+                )?;
+                let mut out = std::io::stderr();
+                let ok = out.write_all(&bytes).and_then(|_| out.flush()).is_ok();
+                Ok(Some(Value::Bool(ok)))
+            }
+            "env_get" => {
+                let key = value_as_string(
+                    args.first()
+                        .ok_or_else(|| RuntimeError::new("env_get expects key"))?,
+                )?;
+                Ok(Some(
+                    std::env::var(&key)
+                        .ok()
+                        .map_or(Value::Null, |value| string_value(&value)),
+                ))
+            }
+            "env_set" => {
+                let key = value_as_string(
+                    args.first()
+                        .ok_or_else(|| RuntimeError::new("env_set expects key"))?,
+                )?;
+                let value = value_as_string(
+                    args.get(1)
+                        .ok_or_else(|| RuntimeError::new("env_set expects value"))?,
+                )?;
+                std::env::set_var(key, value);
+                Ok(Some(Value::Bool(true)))
+            }
+            "env_remove" => {
+                let key = value_as_string(
+                    args.first()
+                        .ok_or_else(|| RuntimeError::new("env_remove expects key"))?,
+                )?;
+                std::env::remove_var(key);
+                Ok(Some(Value::Bool(true)))
+            }
+            "env_cwd" => Ok(Some(
+                std::env::current_dir().ok().map_or(Value::Null, |path| {
+                    string_value(path.to_string_lossy().as_ref())
+                }),
+            )),
+            "env_set_cwd" => {
+                let path = value_as_string(
+                    args.first()
+                        .ok_or_else(|| RuntimeError::new("env_set_cwd expects path"))?,
+                )?;
+                Ok(Some(Value::Bool(std::env::set_current_dir(path).is_ok())))
+            }
+            "parse_i64" => {
+                let text = value_as_string(
+                    args.first()
+                        .ok_or_else(|| RuntimeError::new("parse_i64 expects String"))?,
+                )?;
+                Ok(Some(Value::Int(text.trim().parse::<i64>().unwrap_or(0))))
+            }
+            "parse_f64" => {
+                let text = value_as_string(
+                    args.first()
+                        .ok_or_else(|| RuntimeError::new("parse_f64 expects String"))?,
+                )?;
+                Ok(Some(Value::Float(
+                    text.trim().parse::<f64>().unwrap_or(f64::NAN),
+                )))
+            }
+            "canonical_builtin_global_name" => {
+                let text = value_as_string(
+                    args.first().ok_or_else(|| {
+                        RuntimeError::new("canonical_builtin_global_name expects String")
+                    })?,
+                )?;
+                let candidate = text.rsplit("::").next().unwrap_or(text.as_str());
+                let canonical = match candidate {
+                    "print" | "policy" | "json" | "sparse" | "event" | "pool" | "task"
+                    | "chan" | "sim" | "spatial" | "snn" | "agent" => candidate,
+                    _ => "",
+                };
+                Ok(Some(string_value(canonical)))
+            }
+            "qualified_name_tail" => {
+                let text = value_as_string(
+                    args.first()
+                        .ok_or_else(|| RuntimeError::new("qualified_name_tail expects String"))?,
+                )?;
+                Ok(Some(string_value(
+                    text.rsplit("::").next().unwrap_or(text.as_str()),
+                )))
+            }
+            "runtime_json_parse_value" => {
+                let text = value_as_string(args.first().ok_or_else(|| {
+                    RuntimeError::new("runtime_json_parse_value expects String")
+                })?)?;
+                let response = match serde_json::from_str::<serde_json::Value>(&text) {
+                    Ok(value) => {
+                        serde_json::json!({ "ok": true, "value": raw_json_to_runtime_json(&value) })
+                    }
+                    Err(err) => serde_json::json!({
+                        "ok": false,
+                        "error": format!("json.parse failed: {err}")
+                    }),
+                };
+                Ok(Some(string_value(&response.to_string())))
+            }
+            "runtime_json_stringify_value" => {
+                let text = value_as_string(args.first().ok_or_else(|| {
+                    RuntimeError::new("runtime_json_stringify_value expects String")
+                })?)?;
+                let response = match serde_json::from_str::<serde_json::Value>(&text) {
+                    Ok(value) => match runtime_json_to_raw_json(&value)
+                        .and_then(|raw| serde_json::to_string(&raw).map_err(|err| err.to_string()))
+                    {
+                        Ok(encoded) => serde_json::json!({ "ok": true, "value": encoded }),
+                        Err(err) => serde_json::json!({ "ok": false, "error": err }),
+                    },
+                    Err(err) => serde_json::json!({
+                        "ok": false,
+                        "error": format!("runtime value payload is not valid JSON: {err}")
+                    }),
+                };
+                Ok(Some(string_value(&response.to_string())))
+            }
+            "runtime_stable_domain_hash" => {
+                let text = value_as_string(args.first().ok_or_else(|| {
+                    RuntimeError::new("runtime_stable_domain_hash expects String")
+                })?)?;
+                Ok(Some(Value::Int(stable_domain_hash(&text))))
+            }
+            "runtime_mix_rng_seed" => {
+                let world_seed = value_as_int(
+                    args.first()
+                        .ok_or_else(|| RuntimeError::new("runtime_mix_rng_seed expects world seed"))?,
+                )?;
+                let stream_id = value_as_int(
+                    args.get(1)
+                        .ok_or_else(|| RuntimeError::new("runtime_mix_rng_seed expects stream id"))?,
+                )?;
+                let domain_id = value_as_int(
+                    args.get(2)
+                        .ok_or_else(|| RuntimeError::new("runtime_mix_rng_seed expects domain id"))?,
+                )?;
+                Ok(Some(Value::Int(
+                    mix_rng_seed(world_seed, stream_id, domain_id) as i64,
+                )))
+            }
+            "runtime_rng_next_state" => {
+                let state = value_as_int(
+                    args.first()
+                        .ok_or_else(|| RuntimeError::new("runtime_rng_next_state expects state"))?,
+                )?;
+                let mut state = state as u64;
+                state = state.wrapping_add(0x9e3779b97f4a7c15);
+                Ok(Some(Value::Int(state as i64)))
+            }
+            "runtime_rng_state_to_float" => {
+                let state = value_as_int(args.first().ok_or_else(|| {
+                    RuntimeError::new("runtime_rng_state_to_float expects state")
+                })?)?;
+                let mut z = state as u64;
+                z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+                z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
+                let mixed = z ^ (z >> 31);
+                let raw = mixed >> 11;
+                Ok(Some(Value::Float(
+                    (raw as f64) * (1.0 / ((1u64 << 53) as f64)),
+                )))
+            }
+            "runtime_rng_state_to_int" => {
+                let state = value_as_int(args.first().ok_or_else(|| {
+                    RuntimeError::new("runtime_rng_state_to_int expects state")
+                })?)?;
+                let upper = value_as_int(args.get(1).ok_or_else(|| {
+                    RuntimeError::new("runtime_rng_state_to_int expects upper")
+                })?)?;
+                if upper <= 0 {
+                    return Ok(Some(Value::Int(0)));
+                }
+                let mut z = state as u64;
+                z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+                z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
+                Ok(Some(Value::Int(((z ^ (z >> 31)) % upper as u64) as i64)))
+            }
+            "runtime_ffi_invoke" => {
+                let payload = value_as_string(args.first().ok_or_else(|| {
+                    RuntimeError::new("runtime_ffi_invoke expects String")
+                })?)?;
+                let response = self.runtime_bridge_invoke(&payload)?;
+                Ok(Some(string_value(&response.to_string())))
+            }
+            "path_join" => {
+                let a = value_as_string(
+                    args.first()
+                        .ok_or_else(|| RuntimeError::new("path_join expects first path"))?,
+                )?;
+                let b = value_as_string(
+                    args.get(1)
+                        .ok_or_else(|| RuntimeError::new("path_join expects second path"))?,
+                )?;
+                Ok(Some(string_value(
+                    Path::new(&a).join(b).to_string_lossy().as_ref(),
+                )))
+            }
+            "path_dirname" => {
+                let path = value_as_string(
+                    args.first()
+                        .ok_or_else(|| RuntimeError::new("path_dirname expects path"))?,
+                )?;
+                Ok(Some(
+                    Path::new(&path).parent().map_or(Value::Null, |parent| {
+                        string_value(parent.to_string_lossy().as_ref())
+                    }),
+                ))
+            }
+            "path_basename" => {
+                let path = value_as_string(
+                    args.first()
+                        .ok_or_else(|| RuntimeError::new("path_basename expects path"))?,
+                )?;
+                Ok(Some(
+                    Path::new(&path)
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .map_or(Value::Null, string_value),
+                ))
+            }
+            "path_extname" => {
+                let path = value_as_string(
+                    args.first()
+                        .ok_or_else(|| RuntimeError::new("path_extname expects path"))?,
+                )?;
+                Ok(Some(
+                    Path::new(&path)
+                        .extension()
+                        .and_then(|name| name.to_str())
+                        .map_or(Value::Null, string_value),
+                ))
+            }
+            "path_normalize" => {
+                let path = value_as_string(
+                    args.first()
+                        .ok_or_else(|| RuntimeError::new("path_normalize expects path"))?,
+                )?;
+                Ok(Some(string_value(&normalize_path(&path))))
+            }
+            "time_now_ms" => {
+                let value = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|delta| delta.as_millis().min(i64::MAX as u128) as i64)
+                    .unwrap_or(0);
+                Ok(Some(Value::Int(value)))
+            }
+            "time_sleep_ms" => {
+                let ms = value_as_int(
+                    args.first()
+                        .ok_or_else(|| RuntimeError::new("time_sleep_ms expects Int"))?,
+                )?;
+                std::thread::sleep(Duration::from_millis(ms.max(0) as u64));
+                Ok(Some(Value::Null))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    fn runtime_bridge_invoke(
+        &mut self,
+        payload_text: &str,
+    ) -> Result<serde_json::Value, RuntimeError> {
+        let payload: serde_json::Value = serde_json::from_str(payload_text).map_err(|err| {
+            RuntimeError::new(&format!("runtime FFI payload is not valid JSON: {err}"))
+        })?;
+        let library = payload
+            .get("library")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| RuntimeError::new("runtime FFI payload missing library"))?;
+        let name = payload
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| RuntimeError::new("runtime FFI payload missing name"))?;
+        let signature_json = payload
+            .get("signature")
+            .ok_or_else(|| RuntimeError::new("runtime FFI payload missing signature"))?;
+        let args_json = runtime_bridge_args_from_list(
+            payload.get("args").unwrap_or(&serde_json::Value::Null),
+        )?;
+        let args = args_json
+            .iter()
+            .map(|arg| self.runtime_bridge_decode_value(arg))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let decl = NativeFunctionDecl {
+            library: library.to_string(),
+            name: name.to_string(),
+            signature: runtime_bridge_signature_from_json(signature_json)?,
+        };
+
+        let value = if let Some(native) = builtin_native_std_function(&decl) {
+            match native.kind {
+                NativeImpl::Rust(func) => func(self, &args)?,
+                NativeImpl::Ffi(_) => {
+                    return Err(RuntimeError::new(
+                        "builtin native std binding unexpectedly resolved to FFI",
+                    ))
+                }
+            }
+        } else {
+            let ffi = self.ffi_loader.bind(&decl)?;
+            ffi.call(&args)?
+        };
+        Ok(serde_json::json!({
+            "ok": true,
+            "value": self.runtime_bridge_encode_value(value)?
+        }))
+    }
+
+    fn runtime_bridge_decode_value(
+        &self,
+        value: &serde_json::Value,
+    ) -> Result<Value, RuntimeError> {
+        let kind = value
+            .get("kind")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| RuntimeError::new("runtime FFI value missing kind"))?;
+        match kind {
+            "Null" => Ok(Value::Null),
+            "Bool" => value
+                .get("value")
+                .and_then(serde_json::Value::as_bool)
+                .map(Value::Bool)
+                .ok_or_else(|| RuntimeError::new("runtime FFI Bool arg missing value")),
+            "Int" => value
+                .get("value")
+                .and_then(serde_json::Value::as_i64)
+                .map(Value::Int)
+                .ok_or_else(|| RuntimeError::new("runtime FFI Int arg missing value")),
+            "Float" => match value.get("value").and_then(serde_json::Value::as_f64) {
+                Some(inner) => Ok(Value::Float(inner)),
+                None => value
+                    .get("value")
+                    .and_then(serde_json::Value::as_i64)
+                    .map(|inner| Value::Float(inner as f64))
+                    .ok_or_else(|| RuntimeError::new("runtime FFI Float arg missing value")),
+            },
+            "String" => value
+                .get("value")
+                .and_then(serde_json::Value::as_str)
+                .map(string_value)
+                .ok_or_else(|| RuntimeError::new("runtime FFI String arg missing value")),
+            "Buffer" => {
+                let encoding = value
+                    .get("encoding")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("base64");
+                if encoding != "base64" {
+                    return Err(RuntimeError::new(&format!(
+                        "runtime FFI Buffer arg uses unsupported encoding {encoding}"
+                    )));
+                }
+                let text = value
+                    .get("value")
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| RuntimeError::new("runtime FFI Buffer arg missing value"))?;
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(text)
+                    .map_err(|err| {
+                        RuntimeError::new(&format!(
+                            "runtime FFI Buffer arg is not valid base64: {err}"
+                        ))
+                    })?;
+                Ok(buffer_value(bytes))
+            }
+            "Handle" => {
+                let key = value
+                    .get("value")
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| RuntimeError::new("runtime FFI Handle arg missing value"))?;
+                self.runtime_bridge_handles
+                    .get(key)
+                    .cloned()
+                    .ok_or_else(|| RuntimeError::new("runtime FFI Handle arg is not registered"))
+            }
+            other => Err(RuntimeError::new(&format!(
+                "runtime FFI arg kind {other} is unsupported"
+            ))),
+        }
+    }
+
+    fn runtime_bridge_encode_value(
+        &mut self,
+        value: Value,
+    ) -> Result<serde_json::Value, RuntimeError> {
+        match value {
+            Value::Null => Ok(serde_json::json!({ "kind": "Null", "value": serde_json::Value::Null })),
+            Value::Bool(flag) => Ok(serde_json::json!({ "kind": "Bool", "value": flag })),
+            Value::Int(inner) => Ok(serde_json::json!({ "kind": "Int", "value": inner })),
+            Value::Float(inner) => Ok(serde_json::json!({ "kind": "Float", "value": inner })),
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::String(text) => Ok(serde_json::json!({ "kind": "String", "value": text })),
+                Obj::Buffer(bytes) => Ok(serde_json::json!({
+                    "kind": "Buffer",
+                    "encoding": "base64",
+                    "value": base64::engine::general_purpose::STANDARD.encode(bytes),
+                    "len": bytes.len()
+                })),
+                Obj::NativeHandle(handle) => {
+                    let key = format!("{:x}", handle.ptr as usize);
+                    self.runtime_bridge_handles.insert(key.clone(), Value::Obj(obj.clone()));
+                    Ok(serde_json::json!({ "kind": "Handle", "value": key }))
+                }
+                _ => Err(RuntimeError::new(
+                    "runtime FFI return kind is unsupported for strict-selfhost bridge",
+                )),
+            },
+        }
     }
 
     fn task_sleep(&mut self, value: Value) -> Result<(), RuntimeError> {
@@ -12021,6 +12506,11 @@ impl VM {
             Constant::String(s) => string_value(s),
             Constant::Function(idx) => function_value(*idx, program),
             Constant::NativeFunction(decl) => {
+                if let Some(native_function) = builtin_native_std_function(decl) {
+                    return Ok(Value::Obj(ObjRef::new(Obj::NativeFunction(
+                        native_function,
+                    ))));
+                }
                 let ffi = self.ffi_loader.bind(decl)?;
                 Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
                     name: decl.name.clone(),
@@ -12057,6 +12547,61 @@ impl VM {
             SimAccelState::Disabled | SimAccelState::Uninitialized => None,
         }
     }
+}
+
+fn builtin_native_std_function(decl: &NativeFunctionDecl) -> Option<NativeFunction> {
+    if decl.library != "enkai_native" {
+        return None;
+    }
+    let supported = matches!(
+        decl.name.as_str(),
+        "buffer_from_string"
+            | "buffer_to_string"
+            | "fsx_read_bytes"
+            | "fsx_write_bytes"
+            | "fsx_mmap_read"
+            | "io_read_stdin"
+            | "io_write_stdout"
+            | "io_write_stderr"
+            | "env_get"
+            | "env_set"
+            | "env_remove"
+            | "env_cwd"
+            | "env_set_cwd"
+            | "parse_i64"
+            | "parse_f64"
+            | "canonical_builtin_global_name"
+            | "qualified_name_tail"
+            | "runtime_json_parse_value"
+            | "runtime_json_stringify_value"
+            | "runtime_stable_domain_hash"
+            | "runtime_mix_rng_seed"
+            | "runtime_rng_next_state"
+            | "runtime_rng_state_to_float"
+            | "runtime_rng_state_to_int"
+            | "runtime_ffi_invoke"
+            | "path_join"
+            | "path_dirname"
+            | "path_basename"
+            | "path_extname"
+            | "path_normalize"
+            | "time_now_ms"
+            | "time_sleep_ms"
+    );
+    if !supported {
+        return None;
+    }
+    let name = decl.name.clone();
+    Some(NativeFunction {
+        name: name.clone(),
+        arity: decl.signature.params.len() as u16,
+        kind: NativeImpl::Rust(std::rc::Rc::new(move |vm, args| {
+            vm.dispatch_builtin_native_std(&name, args)?.ok_or_else(|| {
+                RuntimeError::new("builtin native std dispatch unexpectedly returned no value")
+            })
+        })),
+        bound: None,
+    })
 }
 
 fn encode_f64_buffer(values: &[f64]) -> Value {
@@ -12183,6 +12728,185 @@ fn mix_rng_seed(world_seed: i64, stream_id: i64, domain: i64) -> u64 {
         state = 0xA076_1D64_78BD_642F;
     }
     state
+}
+
+fn runtime_json_list_node(value: serde_json::Value, next: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({ "value": value, "next": next })
+}
+
+fn runtime_json_field_node(
+    name: &str,
+    value: serde_json::Value,
+    next: serde_json::Value,
+) -> serde_json::Value {
+    serde_json::json!({ "name": name, "value": value, "next": next })
+}
+
+fn raw_json_to_runtime_json(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Null => {
+            serde_json::json!({ "kind": "Null", "value": serde_json::Value::Null })
+        }
+        serde_json::Value::Bool(flag) => serde_json::json!({ "kind": "Bool", "value": flag }),
+        serde_json::Value::Number(number) => {
+            if let Some(value) = number.as_i64() {
+                serde_json::json!({ "kind": "Int", "value": value })
+            } else if let Some(value) = number.as_u64() {
+                if value <= i64::MAX as u64 {
+                    serde_json::json!({ "kind": "Int", "value": value as i64 })
+                } else {
+                    serde_json::json!({ "kind": "Float", "value": value as f64 })
+                }
+            } else {
+                serde_json::json!({ "kind": "Float", "value": number.as_f64().unwrap_or(0.0) })
+            }
+        }
+        serde_json::Value::String(text) => serde_json::json!({ "kind": "String", "value": text }),
+        serde_json::Value::Array(items) => {
+            let mut head = serde_json::Value::Null;
+            for item in items.iter().rev() {
+                head = runtime_json_list_node(raw_json_to_runtime_json(item), head);
+            }
+            serde_json::json!({ "kind": "List", "items": head })
+        }
+        serde_json::Value::Object(fields) => {
+            let mut head = serde_json::Value::Null;
+            for (name, value) in fields.iter().rev() {
+                head = runtime_json_field_node(name, raw_json_to_runtime_json(value), head);
+            }
+            serde_json::json!({ "kind": "Record", "fields": head })
+        }
+    }
+}
+
+fn runtime_json_list_to_raw_json(node: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let mut cursor = node;
+    let mut out = Vec::new();
+    while !cursor.is_null() {
+        let value = cursor
+            .get("value")
+            .ok_or_else(|| "runtime list node is missing value".to_string())?;
+        out.push(runtime_json_to_raw_json(value)?);
+        cursor = cursor.get("next").unwrap_or(&serde_json::Value::Null);
+    }
+    Ok(serde_json::Value::Array(out))
+}
+
+fn runtime_json_record_to_raw_json(
+    node: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let mut cursor = node;
+    let mut out = serde_json::Map::new();
+    while !cursor.is_null() {
+        let name = cursor
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| "runtime record field is missing name".to_string())?;
+        let value = cursor
+            .get("value")
+            .ok_or_else(|| "runtime record field is missing value".to_string())?;
+        out.insert(name.to_string(), runtime_json_to_raw_json(value)?);
+        cursor = cursor.get("next").unwrap_or(&serde_json::Value::Null);
+    }
+    Ok(serde_json::Value::Object(out))
+}
+
+fn runtime_json_to_raw_json(value: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let kind = value
+        .get("kind")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "runtime value is missing kind".to_string())?;
+    match kind {
+        "Null" => Ok(serde_json::Value::Null),
+        "Bool" => value
+            .get("value")
+            .and_then(serde_json::Value::as_bool)
+            .map(serde_json::Value::Bool)
+            .ok_or_else(|| "runtime Bool is missing bool value".to_string()),
+        "Int" => value
+            .get("value")
+            .and_then(serde_json::Value::as_i64)
+            .map(|inner| serde_json::json!(inner))
+            .ok_or_else(|| "runtime Int is missing integer value".to_string()),
+        "Float" => value
+            .get("value")
+            .and_then(serde_json::Value::as_f64)
+            .map(|inner| serde_json::json!(inner))
+            .ok_or_else(|| "runtime Float is missing float value".to_string()),
+        "String" => value
+            .get("value")
+            .and_then(serde_json::Value::as_str)
+            .map(|inner| serde_json::Value::String(inner.to_string()))
+            .ok_or_else(|| "runtime String is missing string value".to_string()),
+        "List" => runtime_json_list_to_raw_json(
+            value.get("items").unwrap_or(&serde_json::Value::Null),
+        ),
+        "Record" => runtime_json_record_to_raw_json(
+            value.get("fields").unwrap_or(&serde_json::Value::Null),
+        ),
+        other => Err(format!("cannot stringify runtime value kind {other} as JSON")),
+    }
+}
+
+fn runtime_bridge_args_from_list(
+    node: &serde_json::Value,
+) -> Result<Vec<serde_json::Value>, RuntimeError> {
+    let mut cursor = node;
+    let mut out = Vec::new();
+    while !cursor.is_null() {
+        let value = cursor
+            .get("value")
+            .cloned()
+            .ok_or_else(|| RuntimeError::new("runtime FFI args missing value"))?;
+        out.push(value);
+        cursor = cursor.get("next").unwrap_or(&serde_json::Value::Null);
+    }
+    Ok(out)
+}
+
+fn runtime_bridge_type_from_json(value: &serde_json::Value) -> Result<FfiType, RuntimeError> {
+    let kind = value
+        .get("kind")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| RuntimeError::new("runtime FFI signature kind missing"))?;
+    match kind {
+        "Int" => Ok(FfiType::Int),
+        "Float" => Ok(FfiType::Float),
+        "Bool" => Ok(FfiType::Bool),
+        "String" => Ok(FfiType::String),
+        "Buffer" => Ok(FfiType::Buffer),
+        "Handle" => Ok(FfiType::Handle),
+        "Void" => Ok(FfiType::Void),
+        "Optional" => {
+            let inner = value
+                .get("inner")
+                .ok_or_else(|| RuntimeError::new("runtime FFI Optional type missing inner"))?;
+            Ok(FfiType::Optional(Box::new(runtime_bridge_type_from_json(
+                inner,
+            )?)))
+        }
+        other => Err(RuntimeError::new(&format!(
+            "runtime FFI signature kind {other} is unsupported"
+        ))),
+    }
+}
+
+fn runtime_bridge_signature_from_json(
+    value: &serde_json::Value,
+) -> Result<FfiSignature, RuntimeError> {
+    let params = value
+        .get("params")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| RuntimeError::new("runtime FFI signature missing params"))?
+        .iter()
+        .map(runtime_bridge_type_from_json)
+        .collect::<Result<Vec<_>, _>>()?;
+    let ret = runtime_bridge_type_from_json(
+        value
+            .get("ret")
+            .ok_or_else(|| RuntimeError::new("runtime FFI signature missing ret"))?,
+    )?;
+    Ok(FfiSignature { params, ret })
 }
 
 fn splitmix64_next(state: &mut u64) -> u64 {
@@ -14026,7 +14750,7 @@ fn describe_ffi_type_value(ty: &FfiType) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use enkaic::bytecode::{ByteFunction, Chunk};
+    use enkaic::bytecode::{ByteFunction, Chunk, NativeFunctionDecl};
 
     fn record_field(value: &Value, key: &str) -> Value {
         match value {
@@ -14056,6 +14780,40 @@ mod tests {
             },
             other => panic!("expected object, got {}", other.type_name()),
         }
+    }
+
+    fn native_decl(name: &str, params: Vec<FfiType>, ret: FfiType) -> NativeFunctionDecl {
+        NativeFunctionDecl {
+            library: "enkai_native".to_string(),
+            name: name.to_string(),
+            signature: FfiSignature { params, ret },
+        }
+    }
+
+    #[test]
+    fn builtin_native_std_function_maps_env_get_without_ffi_loader() {
+        let decl = native_decl(
+            "env_get",
+            vec![FfiType::String],
+            FfiType::Optional(Box::new(FfiType::String)),
+        );
+        let native = builtin_native_std_function(&decl).expect("env_get should bind to builtin");
+        assert_eq!(native.name, "env_get");
+        assert_eq!(native.arity, 1);
+        match native.kind {
+            NativeImpl::Rust(_) => {}
+            NativeImpl::Ffi(_) => panic!("expected Rust-backed builtin binding"),
+        }
+    }
+
+    #[test]
+    fn builtin_native_std_function_does_not_map_tls_fetch_server_info() {
+        let decl = native_decl(
+            "tls_fetch_server_info",
+            vec![FfiType::String, FfiType::Int],
+            FfiType::Optional(Box::new(FfiType::String)),
+        );
+        assert!(builtin_native_std_function(&decl).is_none());
     }
 
     #[test]

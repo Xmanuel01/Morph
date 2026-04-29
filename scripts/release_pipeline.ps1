@@ -178,7 +178,7 @@ if (-not $SkipPackageCheck) {
 
     Write-Host "[release] Collecting strict release evidence bundle..."
     Invoke-Gate -Name "collect-release-evidence" -Command {
-        Invoke-Python scripts/collect_release_evidence.py --strict
+        Invoke-Python scripts/collect_release_evidence.py --contract enkai/contracts/selfhost_release_evidence_collection_v3_3_0.json --strict
     }
 
     Write-Host "[release] Verifying release blocker matrix against archived evidence..."
@@ -211,7 +211,7 @@ if (-not $SkipPackageCheck) {
 
     Write-Host "[release] Refreshing strict release evidence bundle with final blocker report..."
     Invoke-Gate -Name "refresh-release-evidence" -Command {
-        Invoke-Python scripts/collect_release_evidence.py --strict
+        Invoke-Python scripts/collect_release_evidence.py --contract enkai/contracts/selfhost_release_evidence_collection_v3_3_0.json --strict
     }
 
     Write-Host "[release] Generating strict capability report..."
@@ -257,7 +257,7 @@ else {
 
     Write-Host "[release] Collecting reduced release evidence bundle (package checks skipped)..."
     Invoke-Gate -Name "collect-release-evidence" -Command {
-        Invoke-Python scripts/collect_release_evidence.py
+        Invoke-Python scripts/collect_release_evidence.py --contract enkai/contracts/selfhost_release_evidence_collection_v3_3_0.json
     }
 
     Write-Host "[release] Generating reduced capability report (package checks skipped)..."

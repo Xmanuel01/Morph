@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
@@ -97,6 +97,26 @@ struct Adam0Args {
     scenario: String,
     json: bool,
     output: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct ValidationSuiteDispatchManifest {
+    pub(crate) schema_version: u32,
+    pub(crate) profile: String,
+    pub(crate) emit_json: bool,
+    pub(crate) result_output: Option<String>,
+    pub(crate) command: ValidationSuiteDispatchCommand,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "subcommand", rename_all = "kebab-case")]
+pub(crate) enum ValidationSuiteDispatchCommand {
+    FfiCorrectness,
+    FfiSafety,
+    Determinism { suite: String, runs: usize },
+    PerfBaseline { suite: String },
+    PoolSafety,
+    Adam0Cpu { scenario: String },
 }
 
 #[derive(Debug)]
@@ -219,12 +239,14 @@ pub fn validate_command(args: &[String]) -> i32 {
         return 1;
     }
     match args[0].as_str() {
-        "ffi-correctness" => ffi_correctness_command(&args[1..]),
-        "ffi-safety" => ffi_safety_command(&args[1..]),
-        "determinism" => determinism_command(&args[1..]),
-        "perf-baseline" => perf_baseline_command(&args[1..]),
-        "pool-safety" => pool_safety_command(&args[1..]),
-        "adam0-cpu" => adam0_cpu_command(&args[1..]),
+        "suite-manifest" => suite_manifest_command(&args[1..]),
+        "suite-exec" => suite_exec_command(&args[1..]),
+        "ffi-correctness" => dispatch_validation_subcommand("ffi-correctness", &args[1..]),
+        "ffi-safety" => dispatch_validation_subcommand("ffi-safety", &args[1..]),
+        "determinism" => dispatch_validation_subcommand("determinism", &args[1..]),
+        "perf-baseline" => dispatch_validation_subcommand("perf-baseline", &args[1..]),
+        "pool-safety" => dispatch_validation_subcommand("pool-safety", &args[1..]),
+        "adam0-cpu" => dispatch_validation_subcommand("adam0-cpu", &args[1..]),
         _ => {
             eprintln!("enkai validate: unknown subcommand '{}'", args[0]);
             print_validate_usage();
@@ -234,6 +256,10 @@ pub fn validate_command(args: &[String]) -> i32 {
 }
 
 pub fn print_validate_usage() {
+    eprintln!(
+        "  enkai validate suite-manifest <ffi-correctness|ffi-safety|determinism|perf-baseline|pool-safety|adam0-cpu> [suite args] [--manifest-output <file>]"
+    );
+    eprintln!("  enkai validate suite-exec --manifest <file>");
     eprintln!("  enkai validate ffi-correctness [--json] [--output <file>]");
     eprintln!("  enkai validate ffi-safety [--json] [--output <file>]");
     eprintln!(
@@ -246,6 +272,240 @@ pub fn print_validate_usage() {
     eprintln!(
         "  enkai validate adam0-cpu --scenario <fake10|ref100|stress1000|target10000> [--json] [--output <file>]"
     );
+}
+
+fn dispatch_validation_subcommand(subcommand: &str, args: &[String]) -> i32 {
+    let manifest = match build_validation_suite_manifest(subcommand, args) {
+        Ok(manifest) => manifest,
+        Err(err) => {
+            eprintln!("enkai validate {}: {}", subcommand, err);
+            return 1;
+        }
+    };
+    execute_validation_suite_manifest(&manifest)
+}
+
+fn suite_manifest_command(args: &[String]) -> i32 {
+    let (subcommand, suite_args, manifest_output) = match parse_suite_manifest_args(args) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            eprintln!("enkai validate suite-manifest: {}", err);
+            print_validate_usage();
+            return 1;
+        }
+    };
+    let manifest = match build_validation_suite_manifest(&subcommand, &suite_args) {
+        Ok(manifest) => manifest,
+        Err(err) => {
+            eprintln!("enkai validate suite-manifest: {}", err);
+            return 1;
+        }
+    };
+    emit_suite_manifest(&manifest, manifest_output.as_deref())
+}
+
+fn suite_exec_command(args: &[String]) -> i32 {
+    let manifest_path = match parse_manifest_flag("suite-exec", args) {
+        Ok(path) => path,
+        Err(err) => {
+            eprintln!("{}", err);
+            print_validate_usage();
+            return 1;
+        }
+    };
+    let manifest = match load_json_manifest::<ValidationSuiteDispatchManifest>(&manifest_path) {
+        Ok(manifest) => manifest,
+        Err(err) => {
+            eprintln!("enkai validate suite-exec: {}", err);
+            return 1;
+        }
+    };
+    execute_validation_suite_manifest(&manifest)
+}
+
+fn build_validation_suite_manifest(
+    subcommand: &str,
+    args: &[String],
+) -> Result<ValidationSuiteDispatchManifest, String> {
+    match subcommand {
+        "ffi-correctness" => {
+            let parsed = parse_json_output_args(args)?;
+            Ok(ValidationSuiteDispatchManifest {
+                schema_version: 1,
+                profile: "validation_suite_dispatch".to_string(),
+                emit_json: parsed.json,
+                result_output: parsed.output.map(|value| value.display().to_string()),
+                command: ValidationSuiteDispatchCommand::FfiCorrectness,
+            })
+        }
+        "ffi-safety" => {
+            let parsed = parse_json_output_args(args)?;
+            Ok(ValidationSuiteDispatchManifest {
+                schema_version: 1,
+                profile: "validation_suite_dispatch".to_string(),
+                emit_json: parsed.json,
+                result_output: parsed.output.map(|value| value.display().to_string()),
+                command: ValidationSuiteDispatchCommand::FfiSafety,
+            })
+        }
+        "determinism" => {
+            let parsed = parse_determinism_args(args)?;
+            Ok(ValidationSuiteDispatchManifest {
+                schema_version: 1,
+                profile: "validation_suite_dispatch".to_string(),
+                emit_json: parsed.json,
+                result_output: parsed.output.map(|value| value.display().to_string()),
+                command: ValidationSuiteDispatchCommand::Determinism {
+                    suite: parsed.suite,
+                    runs: parsed.runs,
+                },
+            })
+        }
+        "perf-baseline" => {
+            let parsed = parse_perf_baseline_args(args)?;
+            Ok(ValidationSuiteDispatchManifest {
+                schema_version: 1,
+                profile: "validation_suite_dispatch".to_string(),
+                emit_json: parsed.json,
+                result_output: parsed.output.map(|value| value.display().to_string()),
+                command: ValidationSuiteDispatchCommand::PerfBaseline {
+                    suite: parsed.suite,
+                },
+            })
+        }
+        "pool-safety" => {
+            let parsed = parse_json_output_args(args)?;
+            Ok(ValidationSuiteDispatchManifest {
+                schema_version: 1,
+                profile: "validation_suite_dispatch".to_string(),
+                emit_json: parsed.json,
+                result_output: parsed.output.map(|value| value.display().to_string()),
+                command: ValidationSuiteDispatchCommand::PoolSafety,
+            })
+        }
+        "adam0-cpu" => {
+            let parsed = parse_adam0_args(args)?;
+            Ok(ValidationSuiteDispatchManifest {
+                schema_version: 1,
+                profile: "validation_suite_dispatch".to_string(),
+                emit_json: parsed.json,
+                result_output: parsed.output.map(|value| value.display().to_string()),
+                command: ValidationSuiteDispatchCommand::Adam0Cpu {
+                    scenario: parsed.scenario,
+                },
+            })
+        }
+        other => Err(format!(
+            "unknown suite '{}'; expected ffi-correctness|ffi-safety|determinism|perf-baseline|pool-safety|adam0-cpu",
+            other
+        )),
+    }
+}
+
+pub(crate) fn execute_validation_suite_manifest(manifest: &ValidationSuiteDispatchManifest) -> i32 {
+    let args = validation_manifest_args(manifest);
+    match &manifest.command {
+        ValidationSuiteDispatchCommand::FfiCorrectness => ffi_correctness_command(&args),
+        ValidationSuiteDispatchCommand::FfiSafety => ffi_safety_command(&args),
+        ValidationSuiteDispatchCommand::Determinism { .. } => determinism_command(&args),
+        ValidationSuiteDispatchCommand::PerfBaseline { .. } => perf_baseline_command(&args),
+        ValidationSuiteDispatchCommand::PoolSafety => pool_safety_command(&args),
+        ValidationSuiteDispatchCommand::Adam0Cpu { .. } => adam0_cpu_command(&args),
+    }
+}
+
+fn validation_manifest_args(manifest: &ValidationSuiteDispatchManifest) -> Vec<String> {
+    let mut args = Vec::new();
+    match &manifest.command {
+        ValidationSuiteDispatchCommand::FfiCorrectness => {}
+        ValidationSuiteDispatchCommand::FfiSafety => {}
+        ValidationSuiteDispatchCommand::Determinism { suite, runs } => {
+            args.push("--suite".to_string());
+            args.push(suite.clone());
+            args.push("--runs".to_string());
+            args.push(runs.to_string());
+        }
+        ValidationSuiteDispatchCommand::PerfBaseline { suite } => {
+            args.push("--suite".to_string());
+            args.push(suite.clone());
+        }
+        ValidationSuiteDispatchCommand::PoolSafety => {}
+        ValidationSuiteDispatchCommand::Adam0Cpu { scenario } => {
+            args.push("--scenario".to_string());
+            args.push(scenario.clone());
+        }
+    }
+    if manifest.emit_json {
+        args.push("--json".to_string());
+    }
+    if let Some(output) = &manifest.result_output {
+        args.push("--output".to_string());
+        args.push(output.clone());
+    }
+    args
+}
+
+fn parse_suite_manifest_args(
+    args: &[String],
+) -> Result<(String, Vec<String>, Option<PathBuf>), String> {
+    let Some(subcommand) = args.first().cloned() else {
+        return Err("missing suite name".to_string());
+    };
+    let mut suite_args = Vec::new();
+    let mut manifest_output = None;
+    let mut idx = 1usize;
+    while idx < args.len() {
+        match args[idx].as_str() {
+            "--manifest-output" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err("--manifest-output requires a value".to_string());
+                }
+                manifest_output = Some(PathBuf::from(&args[idx]));
+            }
+            other => suite_args.push(other.to_string()),
+        }
+        idx += 1;
+    }
+    Ok((subcommand, suite_args, manifest_output))
+}
+
+fn emit_suite_manifest(manifest: &ValidationSuiteDispatchManifest, output: Option<&Path>) -> i32 {
+    let text = match serde_json::to_string_pretty(manifest) {
+        Ok(text) => text,
+        Err(err) => {
+            eprintln!(
+                "enkai validate suite-manifest: failed to serialize manifest: {}",
+                err
+            );
+            return 1;
+        }
+    };
+    if let Some(path) = output {
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                if let Err(err) = fs::create_dir_all(parent) {
+                    eprintln!(
+                        "enkai validate suite-manifest: failed to create output directory {}: {}",
+                        parent.display(),
+                        err
+                    );
+                    return 1;
+                }
+            }
+        }
+        if let Err(err) = fs::write(path, text.as_bytes()) {
+            eprintln!(
+                "enkai validate suite-manifest: failed to write manifest {}: {}",
+                path.display(),
+                err
+            );
+            return 1;
+        }
+    } else {
+        println!("{}", text);
+    }
+    0
 }
 
 fn ffi_correctness_command(args: &[String]) -> i32 {
@@ -1275,6 +1535,43 @@ fn parse_adam0_args(args: &[String]) -> Result<Adam0Args, String> {
     })
 }
 
+fn parse_manifest_flag(command_name: &str, args: &[String]) -> Result<PathBuf, String> {
+    let mut manifest_path = None;
+    let mut idx = 0usize;
+    while idx < args.len() {
+        match args[idx].as_str() {
+            "--manifest" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err(format!(
+                        "enkai validate {}: --manifest requires a value",
+                        command_name
+                    ));
+                }
+                manifest_path = Some(PathBuf::from(&args[idx]));
+            }
+            other => {
+                return Err(format!(
+                    "enkai validate {}: unknown option '{}'",
+                    command_name, other
+                ));
+            }
+        }
+        idx += 1;
+    }
+    manifest_path.ok_or_else(|| format!("enkai validate {}: --manifest is required", command_name))
+}
+
+fn load_json_manifest<T>(path: &Path) -> Result<T, String>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    let text = fs::read_to_string(path)
+        .map_err(|err| format!("failed to read manifest {}: {}", path.display(), err))?;
+    serde_json::from_str(&text)
+        .map_err(|err| format!("failed to parse manifest {}: {}", path.display(), err))
+}
+
 fn load_validation_manifest() -> Result<ValidationManifest, String> {
     let manifest: ValidationManifest =
         serde_json::from_str(include_str!("../contracts/validation_cpu_v3_0_0.json"))
@@ -1733,6 +2030,85 @@ mod tests {
     #[test]
     fn parse_adam0_args_requires_scenario() {
         assert!(parse_adam0_args(&[]).is_err());
+    }
+
+    #[test]
+    fn build_validation_suite_manifest_captures_determinism_dispatch() {
+        let manifest = build_validation_suite_manifest(
+            "determinism",
+            &[
+                "--suite".to_string(),
+                "event_queue".to_string(),
+                "--runs".to_string(),
+                "3".to_string(),
+                "--json".to_string(),
+                "--output".to_string(),
+                "artifacts/validation/determinism_event_queue.json".to_string(),
+            ],
+        )
+        .expect("manifest");
+        assert_eq!(manifest.profile, "validation_suite_dispatch");
+        assert!(manifest.emit_json);
+        assert_eq!(
+            manifest.result_output.as_deref(),
+            Some("artifacts/validation/determinism_event_queue.json")
+        );
+        assert_eq!(
+            manifest.command,
+            ValidationSuiteDispatchCommand::Determinism {
+                suite: "event_queue".to_string(),
+                runs: 3,
+            }
+        );
+    }
+
+    #[test]
+    fn validation_manifest_args_round_trip_perf_suite() {
+        let manifest = ValidationSuiteDispatchManifest {
+            schema_version: 1,
+            profile: "validation_suite_dispatch".to_string(),
+            emit_json: true,
+            result_output: Some("artifacts/validation/perf_ffi_noop.json".to_string()),
+            command: ValidationSuiteDispatchCommand::PerfBaseline {
+                suite: "ffi_noop".to_string(),
+            },
+        };
+        assert_eq!(
+            validation_manifest_args(&manifest),
+            vec![
+                "--suite".to_string(),
+                "ffi_noop".to_string(),
+                "--json".to_string(),
+                "--output".to_string(),
+                "artifacts/validation/perf_ffi_noop.json".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_suite_manifest_args_separates_manifest_output() {
+        let (subcommand, suite_args, manifest_output) = parse_suite_manifest_args(&[
+            "ffi-correctness".to_string(),
+            "--json".to_string(),
+            "--output".to_string(),
+            "artifacts/validation/ffi_correctness.json".to_string(),
+            "--manifest-output".to_string(),
+            "artifacts/validation/ffi_manifest.json".to_string(),
+        ])
+        .expect("parsed");
+        assert_eq!(subcommand, "ffi-correctness");
+        assert_eq!(
+            suite_args,
+            vec![
+                "--json".to_string(),
+                "--output".to_string(),
+                "artifacts/validation/ffi_correctness.json".to_string(),
+            ]
+        );
+        assert_eq!(
+            manifest_output,
+            Some(PathBuf::from("artifacts/validation/ffi_manifest.json"))
+        );
     }
 
     #[test]

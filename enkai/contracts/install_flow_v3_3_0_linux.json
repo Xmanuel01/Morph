@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.3.0",
+  "profile": "install_flow_proof",
+  "target_os": "linux",
+  "generated_purpose": "Define the required Linux install, upgrade, and uninstall proof steps for the v3.3.0 installable toolchain tranche.",
+  "required_phases": [
+    "install",
+    "upgrade",
+    "uninstall"
+  ],
+  "required_entrypoints": [
+    "run",
+    "check",
+    "build",
+    "test"
+  ],
+  "required_runtime_backend": "selfhost",
+  "require_entrypoint_execution_proofs": true,
+  "require_deterministic_archive": true,
+  "require_bundle_manifest_diagnostics": true,
+  "require_rust_toolchain_hidden_in_runtime_proof": true,
+  "require_install_manifest": true,
+  "require_install_diagnostics_manifest_ok": true,
+  "required_post_install_paths": [
+    "enkai",
+    "libenkai_native.so",
+    "README.txt",
+    "bundle_manifest.json",
+    "std",
+    "examples/hello/main.enk",
+    "install_manifest.json"
+  ],
+  "required_uninstall_absent_paths": [
+    "enkai",
+    "libenkai_native.so",
+    "README.txt",
+    "bundle_manifest.json",
+    "std",
+    "examples",
+    "install_manifest.json"
+  ]
+}
