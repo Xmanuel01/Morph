@@ -2,9 +2,9 @@
 
 ## Versioning policy
 
-- Current release line: `v3.4.0` (`strict-selfhost closure complete; post-closure baseline scopes closed`).
-- `docs/Enkai.spec` is the normative language reference for `v3.4.0`.
-- Known limits and partial features are tracked inside `docs/Enkai.spec` under `Known Limits in v3.4.0`.
+- Current development line: `v3.5.0` (`v3.4.0` post-closure baseline release is closed; next-scope work is now open).
+- `docs/Enkai.spec` is the normative language reference for `v3.5.0`.
+- Known limits and partial features are tracked inside `docs/Enkai.spec` under `Known Limits in v3.5.0`.
 - `docs/40_registry_convergence.md` defines the registry convergence contract for checkpoint, simulation, environment, and native-extension artifacts.
 - `docs/41_scale_reliability.md` defines the `v3.0.0` scale/reliability contract for supervised simulation clusters and degraded registry fallback.
 - `VALIDATION.md` defines the strict CPU/GPU validation matrix for release claims.

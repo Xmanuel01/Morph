@@ -4,7 +4,7 @@ ENKAI PROGRAMMING LANGUAGE
 Overview
 Enkai is a programming language with block structure defined by :: tokens, a clean
 assignment operator (:=), and an AI-native roadmap (tools, agents, memory, policy).
-This repository contains the v3.4.0 release line in Rust.
+This repository contains the v3.5.0 development line in Rust.
 
 Strict self-host transition:
 - the `v3.1.0 -> v4.0.0` zero-Rust program is frozen in:
@@ -18,8 +18,8 @@ Strict self-host transition:
   - `enkai/contracts/selfhost_audited_surface_v3_1_1.json`
   - `docs/50_strict_selfhost_contract.md`
 
-Status (v3.4.0)
-- Release line: `v3.4.0`
+Status (v3.5.0)
+- Development line: `v3.5.0`
 - Release state: CPU-complete / GPU operator sign-off pending
 - Bytecode VM + globals + type-checking
 - Module system with public/private exports

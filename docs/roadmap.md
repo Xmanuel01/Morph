@@ -2,11 +2,17 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current development line is v3.4.0.
+- Current development line is v3.5.0.
 - `v3.3.0` closed the strict-selfhost shipped-surface objective set.
 - Next major program line remains `v3.1.0 -> v4.0.0` zero-Rust strict self-hosting, with post-closure scope now moving past the shipped-surface completion proof.
 - v2.6.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v3.5.0 (in progress)
+- Start-line baseline:
+  - opened after the closed `v3.4.0` post-closure baseline release line
+  - `v3.4.0` remains the completed source-of-record baseline for the first post-closure zero-Rust follow-on program
+  - next concrete `v3.5.0` implementation tranche is not yet defined
 
 v3.4.0 (done)
 - Post-closure release-line normalization baseline (done):
