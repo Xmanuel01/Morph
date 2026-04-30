@@ -1,0 +1,27 @@
+﻿{
+  "schema_version": 1,
+  "contract_version": "v3.4.0",
+  "scope": "non_shipped_compatibility_closure_baseline",
+  "generated_purpose": "Prove the next concrete zero-Rust post-closure implementation tranche by making the broader non-shipped compatibility-path closure boundary explicit and machine-verifiable.",
+  "required_files": [
+    "artifacts/readiness/v3_4_0_zero_rust_next_step_baseline.json",
+    "artifacts/readiness/v3_4_0_install_host_matrix_baseline.json",
+    "artifacts/readiness/v3_4_0_compatibility_storage_data_baseline.json",
+    "artifacts/readiness/v3_4_0_accelerated_native_tensor_baseline.json",
+    "artifacts/readiness/strict_selfhost_dependency_inventory.json",
+    "artifacts/readiness/strict_selfhost.json",
+    "artifacts/readiness/strict_selfhost_blockers.json"
+  ],
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "Historical non-shipped compatibility-path closure baseline (done):",
+      "broader historical compatibility paths outside the shipped release gate are explicitly tracked as future roadmap work toward `v4.0.0`",
+      "those paths no longer exist as an implicit unresolved category inside `v3.4.0`"
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "## Historical Non-Shipped Compatibility Closure Baseline (`v3.4.0`)",
+      "broader historical compatibility paths outside the shipped release gate are",
+      "these paths no longer exist as an implicit unresolved category inside the"
+    ]
+  }
+}

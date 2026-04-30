@@ -15,14 +15,25 @@ The dashboard summarizes:
 - GPU/operator evidence status
 - proof-group pass/fail status for correctness, determinism, runtime safety, and Adam-0 CPU validation
 - the pinned hardware envelope used for local and reference CPU hosts
-- required operator-run GPU steps for final v3.0.0 sign-off
+- required operator-run GPU steps for the archived release line being evaluated
+- the distinction between:
+  - the archived release line under evaluation
+  - the active development line
+  - the strict-selfhost shipped-surface closure completed in `v3.3.0`
+  - the historical hardware sign-off program origin in `v3.0.0`
 
 The dashboard is derived from archived proof artifacts, not from code-path presence.
-If a proof group fails, the dashboard marks the release as CPU-incomplete.
-If GPU/operator evidence is missing, the dashboard marks final sign-off as pending and lists the required operator steps.
+If a proof group fails, the dashboard marks the archived release as CPU-incomplete.
+If GPU/operator evidence is missing, the dashboard marks final hardware sign-off as pending and lists the required operator steps for that archived release line.
 
 GPU/operator evidence remains the final blocker for hardware sign-off until these artifacts exist:
 
 - `artifacts/gpu/single_gpu_evidence.json`
 - `artifacts/gpu/multi_gpu_evidence.json`
 - `artifacts/gpu/soak_4gpu_evidence.json`
+
+For current repo state:
+
+- `v3.3.0` closed the strict-selfhost shipped surface and is the latest archived line with full closure proof.
+- `v3.4.0` is the active development line.
+- The dashboard's GPU/operator section remains historical release-sign-off reporting, not a reopened strict-selfhost blocker for `v3.4.0`.

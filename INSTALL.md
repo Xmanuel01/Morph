@@ -100,6 +100,10 @@ and emits:
 Release archives also embed `bundle_manifest.json`, and `scripts/verify_release_artifact.py`
 checks that manifest against the archive checksum, target OS, architecture, and version.
 
+Current post-closure host-matrix baseline:
+- Windows-host install/upgrade/uninstall proof is executed and green via `artifacts/install_bundle_smoke/install_flow_proof.json`.
+- Linux-host install/upgrade/uninstall proof is executed and archived via `artifacts/install_bundle_smoke/install_flow_proof_linux.json`.
+
 ## 5) Building from source (developers)
 
 ```

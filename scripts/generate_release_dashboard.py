@@ -18,6 +18,11 @@ def parse_version(root: pathlib.Path) -> str:
     raise RuntimeError("failed to parse version from enkai/Cargo.toml")
 
 
+def version_to_rc_script(version: str) -> str:
+    stem = version.replace(".", "_")
+    return f"scripts/v{stem}_rc_pipeline.ps1"
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate a release dashboard from archived proof artifacts."
@@ -55,6 +60,7 @@ def read_json(path: pathlib.Path) -> dict:
 def to_markdown(dashboard: dict[str, object]) -> str:
     summary = dashboard["summary"]
     hardware = dashboard["hardware_envelope"]
+    release_track = dashboard["release_track"]
     rows = [
         "| Group | Status | Details |",
         "| --- | --- | --- |",
@@ -68,6 +74,10 @@ def to_markdown(dashboard: dict[str, object]) -> str:
         f"# Release Dashboard ({dashboard['version']})",
         "",
         f"- Generated: `{dashboard['generated_at_utc']}`",
+        f"- Archived release line: `{release_track['archived_release_line']}`",
+        f"- Active development line: `{release_track['active_development_line']}`",
+        f"- Strict-selfhost shipped-surface closure: `{release_track['strict_selfhost_shipped_surface_closed_in']}`",
+        f"- Hardware sign-off program origin: `{release_track['hardware_signoff_program_origin']}`",
         f"- CPU complete: `{summary['cpu_complete']}`",
         f"- Strict self-host CPU complete: `{summary['strict_selfhost_cpu_complete']}`",
         f"- Strict self-host GPU pending: `{summary['strict_selfhost_gpu_pending']}`",
@@ -120,7 +130,8 @@ def to_markdown(dashboard: dict[str, object]) -> str:
 def main() -> int:
     args = parse_args()
     root = pathlib.Path(__file__).resolve().parents[1]
-    version = args.version or parse_version(root)
+    current_line = parse_version(root)
+    version = args.version or current_line
 
     capability_path = (
         pathlib.Path(args.capability_report).resolve()
@@ -253,6 +264,12 @@ def main() -> int:
             "inventory": str(strict_selfhost_inventory_path.relative_to(root)),
             "remaining_rust_dependencies": remaining_rust_dependencies,
         },
+        "release_track": {
+            "archived_release_line": f"v{version}",
+            "active_development_line": f"v{current_line}",
+            "strict_selfhost_shipped_surface_closed_in": "v3.3.0",
+            "hardware_signoff_program_origin": "v3.0.0",
+        },
         "hardware_envelope": {
             "local_cpu_profiles": [
                 "bench/machines/windows_local.json",
@@ -272,7 +289,7 @@ def main() -> int:
             "powershell -ExecutionPolicy Bypass -File scripts/multi_gpu_harness.ps1",
             "powershell -ExecutionPolicy Bypass -File scripts/soak_4gpu.ps1",
             "powershell -ExecutionPolicy Bypass -File scripts/verify_gpu_gates.ps1 -LogDir artifacts/gpu",
-            "powershell -ExecutionPolicy Bypass -File scripts/v3_0_0_rc_pipeline.ps1",
+            f"powershell -ExecutionPolicy Bypass -File {version_to_rc_script(version)}",
         ],
     }
 

@@ -1,0 +1,36 @@
+﻿{
+  "schema_version": 1,
+  "contract_version": "v3.4.0",
+  "scope": "v3_4_0_closure",
+  "generated_purpose": "Prove that all defined v3.4.0 post-closure baseline tranches are complete and that the version line can be closed.",
+  "required_files": [
+    "artifacts/readiness/v3_4_0_release_line_baseline.json",
+    "artifacts/readiness/v3_4_0_capability_reporting_baseline.json",
+    "artifacts/readiness/v3_4_0_release_evidence_dashboard_historical_consistency.json",
+    "artifacts/readiness/v3_4_0_zero_rust_next_step_baseline.json",
+    "artifacts/readiness/v3_4_0_install_host_matrix_baseline.json",
+    "artifacts/readiness/v3_4_0_compatibility_storage_data_baseline.json",
+    "artifacts/readiness/v3_4_0_accelerated_native_tensor_baseline.json",
+    "artifacts/readiness/v3_4_0_non_shipped_compatibility_closure_baseline.json",
+    "artifacts/readiness/strict_selfhost.json",
+    "artifacts/readiness/strict_selfhost_blockers.json"
+  ],
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "v3.4.0 (done)",
+      "all defined `v3.4.0` tranches are closed and machine-verifiable",
+      "`v3.4.0` is complete as a post-closure baseline release line"
+    ],
+    "README.md": [
+      "This repository contains the v3.4.0 release line in Rust.",
+      "Release line: `v3.4.0`"
+    ],
+    "docs/README.md": [
+      "Current release line: `v3.4.0`"
+    ],
+    "CHANGELOG.md": [
+      "## v3.4.0",
+      "Closed the `v3.4.0` post-closure baseline line"
+    ]
+  }
+}

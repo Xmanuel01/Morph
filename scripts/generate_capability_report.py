@@ -61,6 +61,19 @@ def first_match(paths: list[str], predicate) -> str | None:
     return None
 
 
+def first_versioned_match(
+    paths: list[str],
+    anchor: str,
+    tail: str,
+) -> str | None:
+    anchor = normalize(anchor)
+    tail = normalize(tail)
+    return first_match(
+        paths,
+        lambda path: anchor in path and path.endswith(tail),
+    )
+
+
 def has_exact(paths: list[str], suffix: str) -> bool:
     needle = normalize(suffix)
     for path in paths:
@@ -1026,14 +1039,22 @@ def build_checks(
                 details=name if present else f"missing cluster_scale/{name}",
             )
         )
+    registry_remote_manifest = first_versioned_match(
+        copied_paths,
+        "/registry/remote/adam0-sim/",
+        "/remote.manifest.json",
+    )
+    registry_remote_sig = first_versioned_match(
+        copied_paths,
+        "/registry/remote/adam0-sim/",
+        "/remote.manifest.sig",
+    )
     for name in (
         "sim_lineage.json",
         "sim_snapshot.manifest.json",
         "local/registry.json",
         "remote/registry.json",
         "cache/registry.json",
-        f"remote/adam0-sim/v{version}/remote.manifest.json",
-        f"remote/adam0-sim/v{version}/remote.manifest.sig",
     ):
         present = has_exact(copied_paths, f"/registry/{name}")
         checks.append(
@@ -1045,11 +1066,37 @@ def build_checks(
                 details=name if present else f"missing registry/{name}",
             )
         )
+    checks.append(
+        CheckResult(
+            id="registry_remote_adam0_sim_remote_manifest_json",
+            description="Registry convergence evidence `remote/adam0-sim/<artifact-version>/remote.manifest.json` is present",
+            required=True,
+            passed=registry_remote_manifest is not None,
+            details=registry_remote_manifest or "missing registry/remote/adam0-sim/<artifact-version>/remote.manifest.json",
+        )
+    )
+    checks.append(
+        CheckResult(
+            id="registry_remote_adam0_sim_remote_manifest_sig",
+            description="Registry convergence evidence `remote/adam0-sim/<artifact-version>/remote.manifest.sig` is present",
+            required=True,
+            passed=registry_remote_sig is not None,
+            details=registry_remote_sig or "missing registry/remote/adam0-sim/<artifact-version>/remote.manifest.sig",
+        )
+    )
+    registry_degraded_remote_manifest = first_versioned_match(
+        copied_paths,
+        "/registry_degraded/remote_offline/adam0-degraded/",
+        "/remote.manifest.json",
+    )
+    registry_degraded_remote_sig = first_versioned_match(
+        copied_paths,
+        "/registry_degraded/remote_offline/adam0-degraded/",
+        "/remote.manifest.sig",
+    )
     for name in (
         "cache/registry.json",
         "cache/audit.log.jsonl",
-        f"remote_offline/adam0-degraded/v{version}/remote.manifest.json",
-        f"remote_offline/adam0-degraded/v{version}/remote.manifest.sig",
     ):
         present = has_exact(copied_paths, f"/registry_degraded/{name}")
         checks.append(
@@ -1061,6 +1108,24 @@ def build_checks(
                 details=name if present else f"missing registry_degraded/{name}",
             )
         )
+    checks.append(
+        CheckResult(
+            id="registry_degraded_remote_offline_adam0_degraded_remote_manifest_json",
+            description="Registry degraded evidence `remote_offline/adam0-degraded/<artifact-version>/remote.manifest.json` is present",
+            required=True,
+            passed=registry_degraded_remote_manifest is not None,
+            details=registry_degraded_remote_manifest or "missing registry_degraded/remote_offline/adam0-degraded/<artifact-version>/remote.manifest.json",
+        )
+    )
+    checks.append(
+        CheckResult(
+            id="registry_degraded_remote_offline_adam0_degraded_remote_manifest_sig",
+            description="Registry degraded evidence `remote_offline/adam0-degraded/<artifact-version>/remote.manifest.sig` is present",
+            required=True,
+            passed=registry_degraded_remote_sig is not None,
+            details=registry_degraded_remote_sig or "missing registry_degraded/remote_offline/adam0-degraded/<artifact-version>/remote.manifest.sig",
+        )
+    )
 
     for name in (
         "sdk_api.snapshot.json",
@@ -1169,6 +1234,7 @@ def build_checks(
 
 
 def to_markdown(report: dict[str, object]) -> str:
+    release_track = report["release_track"]
     rows = [
         "| Check | Required | Status | Details |",
         "| --- | --- | --- | --- |",
@@ -1186,6 +1252,10 @@ def to_markdown(report: dict[str, object]) -> str:
         "",
         f"- Generated: `{report['generated_at_utc']}`",
         f"- Manifest: `{report['manifest']}`",
+        f"- Archived release line: `{release_track['archived_release_line']}`",
+        f"- Active development line: `{release_track['active_development_line']}`",
+        f"- Strict-selfhost shipped-surface closure: `{release_track['strict_selfhost_shipped_surface_closed_in']}`",
+        f"- Hardware sign-off program origin: `{release_track['hardware_signoff_program_origin']}`",
         f"- Strict mode: `{report['strict']}`",
         f"- GPU required: `{report['require_gpu']}`",
         f"- Required checks passed: `{summary['passed_required']}/{summary['required_checks']}`",
@@ -1202,7 +1272,8 @@ def to_markdown(report: dict[str, object]) -> str:
 def main() -> int:
     args = parse_args()
     root = pathlib.Path(__file__).resolve().parents[1]
-    version = args.version or parse_version(root)
+    current_line = parse_version(root)
+    version = args.version or current_line
 
     manifest_path = pathlib.Path(args.manifest).resolve() if args.manifest else (
         root / "artifacts" / "release" / f"v{version}" / "manifest.json"
@@ -1233,6 +1304,12 @@ def main() -> int:
         "version": f"v{version}",
         "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "manifest": str(manifest_path.relative_to(root)),
+        "release_track": {
+            "archived_release_line": f"v{version}",
+            "active_development_line": f"v{current_line}",
+            "strict_selfhost_shipped_surface_closed_in": "v3.3.0",
+            "hardware_signoff_program_origin": "v3.0.0",
+        },
         "strict": args.strict,
         "require_gpu": args.require_gpu,
         "summary": {

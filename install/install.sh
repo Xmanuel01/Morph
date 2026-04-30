@@ -44,22 +44,28 @@ write_install_manifest() {
   local version="$1"
   local source_type="$2"
   local source_value="$3"
-  cat >"$INSTALL_DIR/install_manifest.json" <<EOF
-{
-  "schema_version": 1,
-  "installed_version": ${version@Q},
-  "source_type": ${source_type@Q},
-  "source_value": ${source_value@Q},
-  "managed_entries": [
-    "enkai",
-    "README.txt",
-    "bundle_manifest.json",
-    "std",
-    "examples",
-    "install_manifest.json"
-  ]
+  python3 - "$INSTALL_DIR/install_manifest.json" "$version" "$source_type" "$source_value" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+payload = {
+    "schema_version": 1,
+    "installed_version": sys.argv[2],
+    "source_type": sys.argv[3],
+    "source_value": sys.argv[4],
+    "managed_entries": [
+        "enkai",
+        "README.txt",
+        "bundle_manifest.json",
+        "std",
+        "examples",
+        "install_manifest.json",
+    ],
 }
-EOF
+path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+PY
 }
 
 get_installed_version() {

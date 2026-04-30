@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.4.0",
+  "scope": "zero_rust_next_step_baseline",
+  "generated_purpose": "Prove the fourth explicit v3.4.0 scope is closed by recording the first post-v3.3.0 broader zero-Rust next-step categories in roadmap and strict-selfhost contract docs while anchoring them to the already complete shipped strict-selfhost surface.",
+  "required_files": [
+    "artifacts/readiness/strict_selfhost_dependency_inventory.json",
+    "artifacts/readiness/strict_selfhost.json",
+    "artifacts/readiness/strict_selfhost_blockers.json",
+    "artifacts/readiness/v3_4_0_release_line_baseline.json",
+    "artifacts/readiness/v3_4_0_capability_reporting_baseline.json",
+    "artifacts/readiness/v3_4_0_release_evidence_dashboard_historical_consistency.json"
+  ],
+  "required_json_fields": {
+    "artifacts/readiness/strict_selfhost_dependency_inventory.json:summary.done_components": 6,
+    "artifacts/readiness/strict_selfhost_dependency_inventory.json:summary.partial_components": 0,
+    "artifacts/readiness/strict_selfhost_dependency_inventory.json:summary.blocked_components": 0,
+    "artifacts/readiness/strict_selfhost_dependency_inventory.json:summary.strict_selfhost_cpu_complete": true,
+    "artifacts/readiness/strict_selfhost.json:all_passed": true,
+    "artifacts/readiness/strict_selfhost_blockers.json:all_passed": true,
+    "artifacts/readiness/v3_4_0_release_line_baseline.json:all_passed": true,
+    "artifacts/readiness/v3_4_0_capability_reporting_baseline.json:all_passed": true,
+    "artifacts/readiness/v3_4_0_release_evidence_dashboard_historical_consistency.json:all_passed": true
+  },
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "Post-closure zero-Rust next-step baseline (done):",
+      "cross-host install proof expansion beyond the current Windows-host execution evidence",
+      "replacement of compatibility-only storage/data paths still tolerated outside the shipped strict-selfhost blockers",
+      "replacement of globally accelerated native/tensor backends beyond the current runtime-owned fallback boundary",
+      "broader zero-Rust closure of historical non-shipped compatibility paths before the eventual `v4.0.0` target",
+      "`enkai/contracts/v3_4_0_zero_rust_next_step_baseline.json`"
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "## Post-Closure Next-Step Baseline (`v3.4.0`)",
+      "cross-host install-flow proof beyond the current Windows-host execution evidence",
+      "compatibility-only storage/data paths that remain tolerated outside shipped",
+      "globally accelerated native/tensor backend replacement beyond the current",
+      "reopen the already closed `v3.3.0` strict-selfhost shipped surface."
+    ]
+  }
+}

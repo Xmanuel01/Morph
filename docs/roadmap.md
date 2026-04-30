@@ -2,10 +2,106 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current release line is v3.0.0 (CPU-complete / GPU operator sign-off pending).
-- Next major program line is `v3.1.0 -> v4.0.0` zero-Rust strict self-hosting.
+- Current development line is v3.4.0.
+- `v3.3.0` closed the strict-selfhost shipped-surface objective set.
+- Next major program line remains `v3.1.0 -> v4.0.0` zero-Rust strict self-hosting, with post-closure scope now moving past the shipped-surface completion proof.
 - v2.6.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v3.4.0 (done)
+- Post-closure release-line normalization baseline (done):
+  - establishes `v3.4.0` as the active development line after the `v3.3.0` strict-selfhost shipped-surface closure
+  - makes archived release dashboard/reporting explicitly distinguish:
+    - archived release line
+    - active development line
+    - strict-selfhost shipped-surface closure line
+    - historical hardware sign-off program origin
+  - updates the strict self-host contract text so shipped-surface closure is recorded as complete rather than still described as blocked
+  - emits:
+    - `enkai/contracts/v3_4_0_release_line_baseline.json`
+    - `artifacts/readiness/v3_4_0_release_line_baseline.json`
+  - exit state for this tranche:
+    - the repository has one explicit machine-verifiable `v3.4.0` implementation scope closed instead of only a version-bump start line
+- Post-closure zero-Rust next-step baseline (done):
+  - establishes the first explicit broader-than-shipped-surface follow-on scope after the `v3.3.0` closure
+  - records the next zero-Rust work as:
+    - cross-host install proof expansion beyond the current Windows-host execution evidence
+    - replacement of compatibility-only storage/data paths still tolerated outside the shipped strict-selfhost blockers
+    - replacement of globally accelerated native/tensor backends beyond the current runtime-owned fallback boundary
+    - broader zero-Rust closure of historical non-shipped compatibility paths before the eventual `v4.0.0` target
+  - emits:
+    - `enkai/contracts/v3_4_0_zero_rust_next_step_baseline.json`
+    - `artifacts/readiness/v3_4_0_zero_rust_next_step_baseline.json`
+  - exit state for this tranche:
+    - post-closure zero-Rust work is no longer implicit; it is recorded as an explicit machine-verifiable `v3.4.0` scope with concrete next-step categories
+- Cross-host install proof matrix baseline (done):
+  - turns the first zero-Rust next-step category into an explicit implementation tranche
+  - records the current install-proof matrix as:
+    - Windows-host install/upgrade/uninstall lifecycle proof is executed and green
+    - Linux-host install/upgrade/uninstall lifecycle proof is now executed and archived
+  - anchors the matrix to:
+    - `enkai/contracts/install_flow_v3_3_0.json`
+    - `enkai/contracts/install_flow_v3_3_0_windows.json`
+    - `enkai/contracts/install_flow_v3_3_0_linux.json`
+    - `artifacts/install_bundle_smoke/install_flow_proof.json`
+    - `artifacts/install_bundle_smoke/install_flow_proof_linux.json`
+  - emits:
+    - `enkai/contracts/v3_4_0_install_host_matrix_baseline.json`
+    - `artifacts/readiness/v3_4_0_install_host_matrix_baseline.json`
+  - exit state for this tranche:
+    - cross-host install proof is no longer implied by one Windows artifact; the repo now records an explicit host-matrix baseline with executed Windows-host and Linux-host lifecycle evidence
+- Compatibility-only storage/data path baseline (done):
+  - turns the next zero-Rust post-closure category into an explicit implementation tranche
+  - records the current compatibility-only storage/data state as:
+    - the shipped strict-selfhost surface remains complete
+    - `sqlite_binding` is the explicitly tracked compatibility-only storage/data path outside shipped strict-selfhost release blockers
+    - the broader global replacement of SQLite-backed compatibility paths remains future roadmap work rather than an implicit gap
+  - anchors the baseline to:
+    - `artifacts/readiness/strict_selfhost_dependency_inventory.json`
+    - `artifacts/readiness/strict_selfhost_data_registry_protocols_surface.json`
+    - `artifacts/readiness/strict_selfhost.json`
+    - `artifacts/readiness/strict_selfhost_blockers.json`
+  - emits:
+    - `enkai/contracts/v3_4_0_compatibility_storage_data_baseline.json`
+    - `artifacts/readiness/v3_4_0_compatibility_storage_data_baseline.json`
+  - exit state for this tranche:
+    - compatibility-only storage/data work is no longer implicit; the repo now records the exact tolerated path and the proof boundary for future global replacement
+- Accelerated native/tensor backend baseline (done):
+  - turns the globally accelerated native/tensor follow-on category into an explicit implementation tranche
+  - records the current accelerated backend boundary as:
+    - the shipped strict-selfhost surface remains complete
+    - runtime-owned fallback and proof boundaries are closed for the shipped line
+    - broader global replacement of accelerated Rust/native tensor backends remains future roadmap work rather than an implicit blocker in `v3.4.0`
+  - anchors the baseline to:
+    - `artifacts/readiness/strict_selfhost_tensor_backend_surface.json`
+    - `artifacts/readiness/strict_selfhost_native_std_and_accel_surface.json`
+    - `artifacts/readiness/strict_selfhost_dependency_inventory.json`
+    - `artifacts/readiness/strict_selfhost.json`
+    - `artifacts/readiness/strict_selfhost_blockers.json`
+  - emits:
+    - `enkai/contracts/v3_4_0_accelerated_native_tensor_baseline.json`
+    - `artifacts/readiness/v3_4_0_accelerated_native_tensor_baseline.json`
+  - exit state for this tranche:
+    - accelerated native/tensor follow-on work is no longer implicit; the repo now records the exact shipped proof boundary and the remaining broader replacement scope
+- Historical non-shipped compatibility-path closure baseline (done):
+  - turns the final broader post-closure category into an explicit implementation tranche
+  - records the current non-shipped compatibility closure boundary as:
+    - the shipped strict-selfhost surface remains complete
+    - broader historical compatibility paths outside the shipped release gate are explicitly tracked as future roadmap work toward `v4.0.0`
+    - those paths no longer exist as an implicit unresolved category inside `v3.4.0`
+  - anchors the baseline to:
+    - `artifacts/readiness/v3_4_0_zero_rust_next_step_baseline.json`
+    - `artifacts/readiness/v3_4_0_install_host_matrix_baseline.json`
+    - `artifacts/readiness/v3_4_0_compatibility_storage_data_baseline.json`
+    - `artifacts/readiness/v3_4_0_accelerated_native_tensor_baseline.json`
+  - emits:
+    - `enkai/contracts/v3_4_0_non_shipped_compatibility_closure_baseline.json`
+    - `artifacts/readiness/v3_4_0_non_shipped_compatibility_closure_baseline.json`
+  - exit state for this tranche:
+    - the broader non-shipped compatibility-path closure category is no longer implicit; it is recorded as an explicit roadmap boundary with machine-verifiable baseline evidence
+  - version closure state:
+    - all defined `v3.4.0` tranches are closed and machine-verifiable
+    - `v3.4.0` is complete as a post-closure baseline release line
 
 v3.1.0 (in progress)
 - Strict self-host contract freeze:

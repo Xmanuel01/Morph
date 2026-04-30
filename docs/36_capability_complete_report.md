@@ -1,12 +1,18 @@
-# 36. Capability-Complete Report (v3.0.0)
+# 36. Capability-Complete Report
 
-This document defines the objective release evidence contract for the `v3.0.0`
-stability cut.
+This document defines the objective archived release-evidence contract for the
+current release program.
+
+For current repo state:
+
+- `v3.3.0` is the latest archived line with full strict-selfhost shipped-surface closure proof.
+- `v3.4.0` is the active development line.
+- GPU/operator evidence remains part of the historical hardware sign-off program that originated in `v3.0.0`.
 
 ## Goal
 
-Produce a reproducible evidence bundle and a machine-parseable capability report
-for release sign-off, instead of narrative-only claims.
+Produce a reproducible archived evidence bundle and a machine-parseable capability
+report for release sign-off, instead of narrative-only claims.
 
 ## Evidence Bundle
 
@@ -150,11 +156,11 @@ In strict mode the archived blocker report must also be present and must show:
 
 ## RC Pipeline Contract
 
-- Dry-run (CPU/CI): generates non-strict capability report.
-- Full RC (release sign-off): requires GPU evidence and strict capability checks.
+- Dry-run (CPU/CI): generates a non-strict capability report for the archived release line.
+- Full RC (release sign-off): requires GPU evidence and strict capability checks for the archived release line.
 
 The RC wrappers for the current line are:
 
-- `scripts/v2_9_6_rc_pipeline.ps1`
-- `scripts/v2_9_6_rc_pipeline.sh`
+- `scripts/v3_4_0_rc_pipeline.ps1`
+- `scripts/v3_4_0_rc_pipeline.sh`
 

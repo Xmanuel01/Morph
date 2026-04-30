@@ -1,0 +1,26 @@
+﻿{
+  "schema_version": 1,
+  "contract_version": "v3.4.0",
+  "scope": "accelerated_native_tensor_baseline",
+  "generated_purpose": "Prove the next concrete zero-Rust post-closure implementation tranche by making the shipped accelerated native/tensor proof boundary explicit and machine-verifiable.",
+  "required_files": [
+    "artifacts/readiness/strict_selfhost_tensor_backend_surface.json",
+    "artifacts/readiness/strict_selfhost_native_std_and_accel_surface.json",
+    "artifacts/readiness/strict_selfhost_dependency_inventory.json",
+    "artifacts/readiness/strict_selfhost.json",
+    "artifacts/readiness/strict_selfhost_blockers.json",
+    "artifacts/readiness/v3_4_0_zero_rust_next_step_baseline.json"
+  ],
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "Accelerated native/tensor backend baseline (done):",
+      "runtime-owned fallback and proof boundaries are closed for the shipped line",
+      "broader global replacement of accelerated Rust/native tensor backends remains future roadmap work"
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "## Accelerated Native/Tensor Backend Baseline (`v3.4.0`)",
+      "the shipped strict-selfhost tensor and native std/accel surfaces remain complete",
+      "broader global replacement of accelerated Rust/native tensor backends remains"
+    ]
+  }
+}

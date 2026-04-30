@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.4.0",
+  "scope": "release_evidence_dashboard_historical_consistency",
+  "generated_purpose": "Prove the third explicit v3.4.0 scope is closed by requiring archived v3.3.0 release-evidence reporting and supporting docs to describe historical sign-off consistently, including artifact-versioned registry evidence and the split between archived release lines and the active development line.",
+  "required_files": [
+    "artifacts/release/v3.3.0/release_dashboard.json",
+    "artifacts/release/v3.3.0/release_dashboard.md",
+    "artifacts/release/v3.3.0/capability_complete.json",
+    "artifacts/release/v3.3.0/capability_complete.md",
+    "artifacts/readiness/v3_4_0_release_line_baseline.json",
+    "artifacts/readiness/v3_4_0_capability_reporting_baseline.json"
+  ],
+  "required_json_fields": {
+    "artifacts/release/v3.3.0/release_dashboard.json:release_track.archived_release_line": "v3.3.0",
+    "artifacts/release/v3.3.0/release_dashboard.json:release_track.active_development_line": "v3.4.0",
+    "artifacts/release/v3.3.0/release_dashboard.json:summary.cpu_complete": true,
+    "artifacts/release/v3.3.0/release_dashboard.json:summary.strict_selfhost_cpu_complete": true,
+    "artifacts/release/v3.3.0/capability_complete.json:summary.status": "pass",
+    "artifacts/release/v3.3.0/capability_complete.json:summary.required_checks": 117,
+    "artifacts/release/v3.3.0/capability_complete.json:summary.passed_required": 117,
+    "artifacts/readiness/v3_4_0_release_line_baseline.json:all_passed": true,
+    "artifacts/readiness/v3_4_0_capability_reporting_baseline.json:all_passed": true
+  },
+  "required_text_snippets": {
+    "artifacts/release/v3.3.0/release_dashboard.md": [
+      "- Archived release line: `v3.3.0`",
+      "- Active development line: `v3.4.0`",
+      "- Strict-selfhost shipped-surface closure: `v3.3.0`",
+      "- Hardware sign-off program origin: `v3.0.0`",
+      "- `powershell -ExecutionPolicy Bypass -File scripts/v3_3_0_rc_pipeline.ps1`"
+    ],
+    "artifacts/release/v3.3.0/capability_complete.md": [
+      "- Archived release line: `v3.3.0`",
+      "- Active development line: `v3.4.0`",
+      "- Strict-selfhost shipped-surface closure: `v3.3.0`",
+      "- Status: `pass`"
+    ],
+    "docs/48_release_dashboard.md": [
+      "the archived release line under evaluation",
+      "the active development line",
+      "The dashboard's GPU/operator section remains historical release-sign-off reporting"
+    ],
+    "docs/36_capability_complete_report.md": [
+      "`v3.3.0` is the latest archived line with full strict-selfhost shipped-surface closure proof.",
+      "`v3.4.0` is the active development line.",
+      "GPU/operator evidence remains part of the historical hardware sign-off program that originated in `v3.0.0`."
+    ],
+    "docs/RELEASE_CHECKLIST.md": [
+      "`artifacts/registry/remote/adam0-sim/v<artifact-version>/remote.manifest.json`",
+      "`artifacts/registry/remote/adam0-sim/v<artifact-version>/remote.manifest.sig`",
+      "`python3 scripts/generate_release_dashboard.py [--strict]`"
+    ]
+  }
+}

@@ -5,6 +5,20 @@
 ### Breaking changes
 - None.
 
+## v3.4.0
+
+### Highlights
+- Closed the `v3.4.0` post-closure baseline line after the `v3.3.0` strict-selfhost shipped-surface release.
+- Completed the defined `v3.4.0` machine-verifiable scopes:
+  - release-line normalization baseline
+  - capability-reporting normalization baseline
+  - release-evidence/dashboard historical consistency surface
+  - zero-Rust next-step baseline
+  - cross-host install proof matrix baseline
+  - compatibility-only storage/data path baseline
+  - accelerated native/tensor backend baseline
+  - historical non-shipped compatibility-path closure baseline
+
 ## v3.3.0
 
 ### Highlights

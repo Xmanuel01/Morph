@@ -1,0 +1,25 @@
+﻿{
+  "schema_version": 1,
+  "contract_version": "v3.4.0",
+  "scope": "compatibility_storage_data_baseline",
+  "generated_purpose": "Prove the next concrete zero-Rust post-closure implementation tranche by making the currently tolerated compatibility-only storage/data path explicit and machine-verifiable.",
+  "required_files": [
+    "artifacts/readiness/strict_selfhost_dependency_inventory.json",
+    "artifacts/readiness/strict_selfhost_data_registry_protocols_surface.json",
+    "artifacts/readiness/strict_selfhost.json",
+    "artifacts/readiness/strict_selfhost_blockers.json",
+    "artifacts/readiness/v3_4_0_zero_rust_next_step_baseline.json"
+  ],
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "Compatibility-only storage/data path baseline (done):",
+      "`sqlite_binding` is the explicitly tracked compatibility-only storage/data path outside shipped strict-selfhost release blockers",
+      "the broader global replacement of SQLite-backed compatibility paths remains future roadmap work"
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "## Compatibility-Only Storage/Data Baseline (`v3.4.0`)",
+      "`sqlite_binding` is the compatibility-only storage/data path still tracked",
+      "broader future work to replace SQLite-backed compatibility paths globally"
+    ]
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.4.0",
+  "scope": "install_host_matrix_baseline",
+  "generated_purpose": "Prove the first concrete zero-Rust-next-step implementation tranche by recording the current cross-host install proof matrix with executed lifecycle evidence archived for both Windows and Linux hosts.",
+  "required_files": [
+    "enkai/contracts/install_flow_v3_3_0.json",
+    "enkai/contracts/install_flow_v3_3_0_windows.json",
+    "enkai/contracts/install_flow_v3_3_0_linux.json",
+    "artifacts/install_bundle_smoke/install_flow_proof.json",
+    "artifacts/install_bundle_smoke/install_flow_proof_linux.json",
+    "artifacts/install_bundle_smoke/release_artifact_proof_linux.json",
+    "artifacts/readiness/v3_4_0_zero_rust_next_step_baseline.json"
+  ],
+  "required_json_fields": {
+    "enkai/contracts/install_flow_v3_3_0.json:os_contracts.windows": "enkai/contracts/install_flow_v3_3_0_windows.json",
+    "enkai/contracts/install_flow_v3_3_0.json:os_contracts.linux": "enkai/contracts/install_flow_v3_3_0_linux.json",
+    "enkai/contracts/install_flow_v3_3_0_windows.json:target_os": "windows",
+    "enkai/contracts/install_flow_v3_3_0_linux.json:target_os": "linux",
+    "artifacts/install_bundle_smoke/install_flow_proof.json:all_passed": true,
+    "artifacts/install_bundle_smoke/install_flow_proof.json:contract": "enkai/contracts/install_flow_v3_3_0_windows.json",
+    "artifacts/install_bundle_smoke/install_flow_proof_linux.json:all_passed": true,
+    "artifacts/install_bundle_smoke/install_flow_proof_linux.json:contract": "enkai/contracts/install_flow_v3_3_0_linux.json",
+    "artifacts/install_bundle_smoke/release_artifact_proof_linux.json:all_passed": true,
+    "artifacts/readiness/v3_4_0_zero_rust_next_step_baseline.json:all_passed": true
+  },
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "Cross-host install proof matrix baseline (done):",
+      "Windows-host install/upgrade/uninstall lifecycle proof is executed and green",
+      "Linux-host install/upgrade/uninstall lifecycle proof is now executed and archived"
+    ],
+    "INSTALL.md": [
+      "Current post-closure host-matrix baseline:",
+      "Windows-host install/upgrade/uninstall proof is executed and green",
+      "Linux-host install/upgrade/uninstall proof is executed and archived via `artifacts/install_bundle_smoke/install_flow_proof_linux.json`"
+    ]
+  }
+}
