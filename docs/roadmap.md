@@ -2,17 +2,42 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current development line is v3.5.0.
+- Current release line is v3.5.0.
 - `v3.3.0` closed the strict-selfhost shipped-surface objective set.
 - Next major program line remains `v3.1.0 -> v4.0.0` zero-Rust strict self-hosting, with post-closure scope now moving past the shipped-surface completion proof.
 - v2.6.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
 
-v3.5.0 (in progress)
-- Start-line baseline:
+v3.5.0 (done)
+- Release-line start baseline (done):
   - opened after the closed `v3.4.0` post-closure baseline release line
-  - `v3.4.0` remains the completed source-of-record baseline for the first post-closure zero-Rust follow-on program
-  - next concrete `v3.5.0` implementation tranche is not yet defined
+  - established `v3.5.0` as the next explicit post-closure program line
+  - preserved `v3.4.0` as the completed source-of-record baseline for the first post-closure zero-Rust follow-on program
+  - emits:
+    - `enkai/contracts/v3_5_0_release_line_start_baseline.json`
+    - `artifacts/readiness/v3_5_0_release_line_start_baseline.json`
+- Objective-set freeze baseline (done):
+  - turns `v3.5.0` from an empty start-line into an explicit bounded objective set
+  - records the current `v3.5.0` objectives as:
+    - accelerated native/tensor global replacement program boundary
+    - compatibility-only storage/data global replacement program boundary
+    - broader non-shipped compatibility-path closure program boundary
+  - emits:
+    - `enkai/contracts/v3_5_0_objective_set_freeze.json`
+    - `artifacts/readiness/v3_5_0_objective_set_freeze.json`
+- Evidence continuity baseline (done):
+  - proves the completed shipped strict-selfhost line and the completed `v3.4.0` post-closure baselines remain green while `v3.5.0` records the next program boundary
+  - anchors the line to:
+    - `artifacts/readiness/strict_selfhost.json`
+    - `artifacts/readiness/strict_selfhost_blockers.json`
+    - `artifacts/readiness/strict_selfhost_dependency_inventory.json`
+    - `artifacts/readiness/v3_4_0_closure.json`
+  - emits:
+    - `enkai/contracts/v3_5_0_evidence_continuity_baseline.json`
+    - `artifacts/readiness/v3_5_0_evidence_continuity_baseline.json`
+- Version closure state:
+  - all defined `v3.5.0` tranches are closed and machine-verifiable
+  - `v3.5.0` is complete as a bounded post-closure objective-definition release line
 
 v3.4.0 (done)
 - Post-closure release-line normalization baseline (done):

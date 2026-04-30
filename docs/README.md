@@ -2,7 +2,7 @@
 
 ## Versioning policy
 
-- Current development line: `v3.5.0` (`v3.4.0` post-closure baseline release is closed; next-scope work is now open).
+- Current release line: `v3.5.0` (`v3.4.0` post-closure baseline release is closed; bounded v3.5.0 objective-definition scopes are closed`).
 - `docs/Enkai.spec` is the normative language reference for `v3.5.0`.
 - Known limits and partial features are tracked inside `docs/Enkai.spec` under `Known Limits in v3.5.0`.
 - `docs/40_registry_convergence.md` defines the registry convergence contract for checkpoint, simulation, environment, and native-extension artifacts.

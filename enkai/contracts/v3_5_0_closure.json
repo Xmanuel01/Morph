@@ -1,0 +1,29 @@
+﻿{
+  "schema_version": 1,
+  "contract_version": "v3.5.0",
+  "scope": "v3_5_0_closure",
+  "generated_purpose": "Prove that all defined v3.5.0 bounded post-closure objective-definition tranches are complete and that the version line can be considered closed.",
+  "required_files": [
+    "artifacts/readiness/v3_5_0_release_line_start_baseline.json",
+    "artifacts/readiness/v3_5_0_objective_set_freeze.json",
+    "artifacts/readiness/v3_5_0_evidence_continuity_baseline.json"
+  ],
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "v3.5.0 (done)",
+      "all defined `v3.5.0` tranches are closed and machine-verifiable",
+      "`v3.5.0` is complete as a bounded post-closure objective-definition release line"
+    ],
+    "README.md": [
+      "This repository contains the v3.5.0 release line in Rust.",
+      "Release line: `v3.5.0`"
+    ],
+    "docs/README.md": [
+      "Current release line: `v3.5.0`"
+    ],
+    "CHANGELOG.md": [
+      "## v3.5.0",
+      "Closed the `v3.5.0` bounded post-closure objective-definition line."
+    ]
+  }
+}

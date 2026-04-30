@@ -140,3 +140,20 @@ The source-of-record proof boundary for this tranche is:
 - `artifacts/readiness/v3_4_0_compatibility_storage_data_baseline.json`
 - `artifacts/readiness/v3_4_0_accelerated_native_tensor_baseline.json`
 - `artifacts/readiness/v3_4_0_non_shipped_compatibility_closure_baseline.json`
+
+## Objective-Definition Closure Baseline (`v3.5.0`)
+
+The `v3.5.0` line does not claim to replace those broader global paths yet.
+Instead, it closes a bounded objective-definition release line:
+
+- the shipped strict-selfhost surface remains closed
+- the completed `v3.4.0` post-closure baselines remain the source-of-record
+- the broader global replacement categories are explicitly frozen as the next
+  program boundary rather than left implicit
+
+The source-of-record proof boundary for this tranche is:
+
+- `artifacts/readiness/v3_5_0_release_line_start_baseline.json`
+- `artifacts/readiness/v3_5_0_objective_set_freeze.json`
+- `artifacts/readiness/v3_5_0_evidence_continuity_baseline.json`
+- `artifacts/readiness/v3_5_0_closure.json`

@@ -1,0 +1,14 @@
+﻿{
+  "schema_version": 1,
+  "contract_version": "v3.5.0",
+  "scope": "evidence_continuity_baseline",
+  "generated_purpose": "Prove that the completed strict-selfhost and v3.4.0 closure evidence remain green while v3.5.0 defines the next bounded program line.",
+  "required_files": [
+    "artifacts/readiness/strict_selfhost.json",
+    "artifacts/readiness/strict_selfhost_blockers.json",
+    "artifacts/readiness/strict_selfhost_dependency_inventory.json",
+    "artifacts/readiness/v3_4_0_closure.json",
+    "artifacts/readiness/v3_4_0_accelerated_native_tensor_baseline.json",
+    "artifacts/readiness/v3_4_0_non_shipped_compatibility_closure_baseline.json"
+  ]
+}

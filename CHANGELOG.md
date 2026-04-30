@@ -8,8 +8,11 @@
 ## v3.5.0
 
 ### Highlights
-- Opened the `v3.5.0` development line after the closed `v3.4.0` post-closure baseline release line.
-- No concrete `v3.5.0` implementation tranche is closed yet.
+- Closed the `v3.5.0` bounded post-closure objective-definition line.
+- Completed the defined `v3.5.0` machine-verifiable scopes:
+  - release-line start baseline
+  - objective-set freeze baseline
+  - evidence continuity baseline
 
 ## v3.4.0
 
