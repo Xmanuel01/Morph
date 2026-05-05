@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "verified_contract_version": "v3.7.0",
+  "all_passed": true,
+  "runs": {
+    "run_a": {
+      "all_passed": true,
+      "enkai_elapsed_ms": 507,
+      "worker_count": 3,
+      "train_report_hash": "2bc2e81acc6cce9e6b0dc28a7e39c6b4ec3d464023c0371c0ca72847448acadc",
+      "checkpoint_hash": "bda387a193a51d30194860db8eb54155db14261d1fa74bc85e22e62b9b7c0c09"
+    },
+    "run_b": {
+      "all_passed": true,
+      "enkai_elapsed_ms": 470,
+      "worker_count": 3,
+      "train_report_hash": "2bc2e81acc6cce9e6b0dc28a7e39c6b4ec3d464023c0371c0ca72847448acadc",
+      "checkpoint_hash": "bda387a193a51d30194860db8eb54155db14261d1fa74bc85e22e62b9b7c0c09"
+    }
+  },
+  "threading": {
+    "cpu_count": 8,
+    "threaded_expected": true,
+    "threaded_path_engaged": true,
+    "worker_count_match": true,
+    "worker_count": 3,
+    "kernel_match": true,
+    "kernel": "enkai_accel_v1"
+  },
+  "determinism": {
+    "loss_match": true,
+    "python_loss_match": true,
+    "cpu_loss_match": true,
+    "train_report_hash_match": true,
+    "checkpoint_hash_match": true,
+    "checkpoint_bytes_match": false
+  },
+  "artifacts": {
+    "run_a_report": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\readiness\\v3_7_0_ai_runtime_foundation_run_a.json",
+    "run_b_report": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\readiness\\v3_7_0_ai_runtime_foundation_run_b.json"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "verified_contract_version": "v3.7.0",
+  "all_passed": true,
+  "execution_mode": "rank-sharded-preview",
+  "topology": "single-node",
+  "world_size": 2,
+  "synchronized_gradients": false,
+  "rank_reports": [
+    {
+      "rank": 0,
+      "passed": true,
+      "train_exit_code": 0,
+      "eval_exit_code": 0,
+      "train_tokens": 1152,
+      "train_worker_count": 3,
+      "eval_loss": 4.5346723,
+      "world_size": 2,
+      "executed_backend": "enkai_accel",
+      "checkpoint_dir": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_distributed_runtime_exec\\rank0_ckpt",
+      "train_stderr_tail": "",
+      "eval_stderr_tail": ""
+    },
+    {
+      "rank": 1,
+      "passed": true,
+      "train_exit_code": 0,
+      "eval_exit_code": 0,
+      "train_tokens": 1152,
+      "train_worker_count": 3,
+      "eval_loss": 4.5346723,
+      "world_size": 2,
+      "executed_backend": "enkai_accel",
+      "checkpoint_dir": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_distributed_runtime_exec\\rank1_ckpt",
+      "train_stderr_tail": "",
+      "eval_stderr_tail": ""
+    }
+  ],
+  "artifacts": {
+    "workspace": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_distributed_runtime_exec",
+    "dataset_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_distributed_runtime_exec\\data.txt"
+  }
+}

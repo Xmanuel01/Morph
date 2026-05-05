@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "verified_contract_version": "v3.7.0",
+  "all_passed": true,
+  "base_train_passed": true,
+  "cases": {
+    "malformed_json": {
+      "passed": true,
+      "stderr_tail": "Train error: Runtime error: key must be a string at line 1 column 2\n  at main (C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_ai_runtime_adversarial_inputs\\malformed_json.enk:2)\n  at <config_main> (line 0)\n\n",
+      "exit_code": 1,
+      "expected_snippets": [
+        "Train error:",
+        "parse"
+      ]
+    },
+    "env_multinode": {
+      "passed": true,
+      "stderr_tail": "Train error: dist.rendezvous cannot be env:// for multi-node topology; set tcp://<host>:<port>\n",
+      "exit_code": 1,
+      "expected_snippets": [
+        "dist.rendezvous cannot be env:// for multi-node topology"
+      ]
+    },
+    "bad_rendezvous": {
+      "passed": true,
+      "stderr_tail": "Train error: E_DIST_RENDEZVOUS_URI: invalid tcp rendezvous port\n",
+      "exit_code": 1,
+      "expected_snippets": [
+        "tcp://",
+        "invalid digit",
+        "E_DIST_RENDEZVOUS_URI"
+      ]
+    },
+    "bad_preview": {
+      "passed": true,
+      "stderr_tail": "Train error: dist.preview_mode must be \"none\", \"rank-sharded-preview\", \"synchronized-grad-preview\", or \"networked-sync-preview\" (found chaos-preview)\n",
+      "exit_code": 1,
+      "expected_snippets": [
+        "dist.preview_mode must be",
+        "chaos-preview"
+      ]
+    },
+    "corrupted_weights": {
+      "passed": true,
+      "stderr_tail": "Eval error: E_CHECKPOINT_CORRUPT: Invalid checkpoint data size in C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_ai_runtime_adversarial_inputs\\base_ckpt\\step_00000012\\weights.bin\n",
+      "exit_code": 1,
+      "expected_snippets": [
+        "E_CHECKPOINT_CORRUPT",
+        "unexpected weights",
+        "Checkpoint weights length"
+      ]
+    }
+  },
+  "artifacts": {
+    "workspace": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_ai_runtime_adversarial_inputs",
+    "dataset_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_ai_runtime_adversarial_inputs\\data.txt"
+  }
+}

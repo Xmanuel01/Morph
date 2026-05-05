@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.7.0",
+  "scope": "v3_7_0_distributed_runtime_long_context_sync",
+  "generated_purpose": "Prove longer-context synchronized distributed workloads before widening the networked execution envelope further.",
+  "suite": "bench/suites/v3_7_0_ai_runtime_foundation.json",
+  "output_report": "artifacts/readiness/v3_7_0_distributed_runtime_long_context_sync.json",
+  "world_size": 3,
+  "min_seq_len": 32,
+  "required_cases": [
+    "sync_long_context_incident_timeline",
+    "sync_long_context_policy_retrieval"
+  ],
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "Longer-context synchronized distributed workloads (done)"
+    ],
+    "README.md": [
+      "longer-context synchronized distributed workload proof archived under `artifacts/readiness/v3_7_0_distributed_runtime_long_context_sync.json`"
+    ],
+    "CHANGELOG.md": [
+      "Added longer-context synchronized distributed workload coverage for `v3.7.0`."
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "Longer-Context Synchronized Distributed Workloads (v3.7.0)"
+    ]
+  }
+}

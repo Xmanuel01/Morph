@@ -1,0 +1,26 @@
+﻿{
+  "schema_version": 1,
+  "contract_version": "v3.7.0",
+  "scope": "v3_7_0_distributed_runtime_throughput",
+  "generated_purpose": "Verify explicit distributed throughput gates for the synchronized-gradient enkai_accel preview.",
+  "required_report": "artifacts/readiness/v3_7_0_distributed_runtime_sync.json",
+  "required_status_fields": {
+    "all_passed": true,
+    "distributed_throughput.all_gates_passed": true,
+    "shape_envelope.all_shapes_passed": true
+  },
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "Synchronized distributed shape envelope and throughput gates (done)"
+    ],
+    "README.md": [
+      "distributed throughput proof archived under `artifacts/readiness/v3_7_0_distributed_runtime_throughput.json`"
+    ],
+    "CHANGELOG.md": [
+      "Added the seventh `v3.7.0` tranche for synchronized distributed shape-envelope expansion and throughput gates."
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "Synchronized Distributed Shape Envelope and Throughput Gates (v3.7.0)"
+    ]
+  }
+}

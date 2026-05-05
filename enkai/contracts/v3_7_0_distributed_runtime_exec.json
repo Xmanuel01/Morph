@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.7.0",
+  "scope": "v3_7_0_distributed_runtime_exec",
+  "generated_purpose": "Execute the first bounded distributed-runtime preview for enkai_accel without claiming synchronized gradient training.",
+  "suite": "bench/suites/v3_7_0_ai_runtime_foundation.json",
+  "output_report": "artifacts/readiness/v3_7_0_distributed_runtime_exec.json",
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "Executable distributed-runtime rank-sharded preview (done)"
+    ],
+    "README.md": [
+      "distributed-runtime execution proof archived under `artifacts/readiness/v3_7_0_distributed_runtime_exec.json`"
+    ],
+    "CHANGELOG.md": [
+      "Added the first executable distributed-runtime tranche for `v3.7.0` as a rank-sharded `enkai_accel` preview."
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "Executable Distributed Runtime Preview (v3.7.0)"
+    ]
+  }
+}

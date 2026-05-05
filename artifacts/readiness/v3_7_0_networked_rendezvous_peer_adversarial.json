@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "verified_contract_version": "v3.7.0",
+  "all_passed": true,
+  "surface": "networked_rendezvous_peer_behavior",
+  "cases": [
+    {
+      "name": "malformed_peer_json",
+      "passed": true,
+      "exit_code": 1,
+      "expected_error": "E_DIST_RENDEZVOUS_CORRUPT",
+      "observed_expected_error": true,
+      "computed_group_id": "115966df3047722b04dd574c5568cebc0e24231fee897746966a8c8126ff4107",
+      "stderr_tail": "Train error: E_DIST_RENDEZVOUS_CORRUPT: expected ident at line 1 column 2\n",
+      "peer_output_tail": ""
+    },
+    {
+      "name": "metadata_mismatch",
+      "passed": true,
+      "exit_code": 1,
+      "expected_error": "E_DIST_RENDEZVOUS_MISMATCH",
+      "observed_expected_error": true,
+      "computed_group_id": "06bda894e09ee66287c78b2524ca526b6f6dfb014f9ff56f9b6c0d7ff93a7627",
+      "stderr_tail": "Train error: E_DIST_RENDEZVOUS_MISMATCH: barrier payload metadata mismatch\n",
+      "peer_output_tail": ""
+    },
+    {
+      "name": "out_of_range_peer_rank",
+      "passed": true,
+      "exit_code": 1,
+      "expected_error": "barrier peer rank out of range",
+      "observed_expected_error": true,
+      "computed_group_id": "5011bd52ce44eff07632f177c226a5e53931106661a47369c9bd6765587d541d",
+      "stderr_tail": "Train error: E_DIST_RENDEZVOUS_MISMATCH: barrier peer rank out of range\n",
+      "peer_output_tail": ""
+    },
+    {
+      "name": "duplicate_peer_rank",
+      "passed": true,
+      "exit_code": 1,
+      "expected_error": "duplicate barrier peer rank",
+      "observed_expected_error": true,
+      "computed_group_id": "61c8643d0fdf69c642e2f1b51a1fca3ed11ce02fa5a2aca85c487661aec1bc9d",
+      "stderr_tail": "Train error: E_DIST_RENDEZVOUS_MISMATCH: duplicate barrier peer rank\n",
+      "peer_output_tail": "\n"
+    }
+  ],
+  "artifacts": {
+    "workspace": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_networked_rendezvous_peer_adversarial",
+    "dataset_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_networked_rendezvous_peer_adversarial\\data.txt"
+  }
+}

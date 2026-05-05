@@ -1,0 +1,41 @@
+﻿{
+  "schema_version": 1,
+  "contract_version": "v3.6.0",
+  "scope": "release_line_start_baseline",
+  "generated_purpose": "Prove that v3.6.0 is established as the next bounded post-closure release line with consistent version metadata and wrappers.",
+  "required_files": [
+    "enkai/Cargo.toml",
+    "enkaic/Cargo.toml",
+    "enkairt/Cargo.toml",
+    "enkai_native/Cargo.toml",
+    "enkai_tensor/Cargo.toml",
+    "enkai.toml",
+    "README.md",
+    "docs/README.md",
+    "docs/Enkai.spec",
+    "docs/roadmap.md",
+    "CHANGELOG.md",
+    "scripts/v3_6_0_rc_pipeline.ps1",
+    "scripts/v3_6_0_rc_pipeline.sh"
+  ],
+  "required_text_snippets": {
+    "README.md": [
+      "This repository contains the v3.6.0 release line in Rust.",
+      "Status (v3.6.0)",
+      "Release line: `v3.6.0`"
+    ],
+    "docs/README.md": [
+      "Current release line: `v3.6.0`",
+      "`docs/Enkai.spec` is the normative language reference for `v3.6.0`.",
+      "Known Limits in v3.6.0"
+    ],
+    "docs/Enkai.spec": [
+      "# Enkai Language Specification (v0.1 -> v3.6.0)",
+      "Known Limits in v3.6.0"
+    ],
+    "CHANGELOG.md": [
+      "## v3.6.0",
+      "Closed the `v3.6.0` bounded post-closure objective-definition line."
+    ]
+  }
+}

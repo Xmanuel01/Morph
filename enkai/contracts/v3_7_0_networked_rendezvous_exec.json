@@ -1,0 +1,23 @@
+﻿{
+  "schema_version": 1,
+  "contract_version": "v3.7.0",
+  "scope": "v3_7_0_networked_rendezvous_exec",
+  "generated_purpose": "Execute the first networked multi-process rendezvous preview on the frozen tcp:// surface and verify bounded barrier/retry fault injection.",
+  "suite": "bench/suites/v3_7_0_ai_runtime_foundation.json",
+  "output_report": "artifacts/readiness/v3_7_0_networked_rendezvous_exec.json",
+  "min_retry_count": 1,
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "Executable networked multi-process rendezvous preview with barrier/retry fault injection (done)"
+    ],
+    "README.md": [
+      "networked rendezvous execution proof archived under `artifacts/readiness/v3_7_0_networked_rendezvous_exec.json`"
+    ],
+    "CHANGELOG.md": [
+      "Added the executable networked rendezvous tranche for `v3.7.0` with bounded barrier/retry fault injection."
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "Executable Networked Rendezvous and Barrier/Retry Fault Injection (v3.7.0)"
+    ]
+  }
+}

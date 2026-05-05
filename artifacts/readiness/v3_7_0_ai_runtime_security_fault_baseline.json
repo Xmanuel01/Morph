@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "contract": "C:\\Users\\USER\\Desktop\\Morph\\enkai\\contracts\\v3_7_0_ai_runtime_security_fault_baseline.json",
+  "generated_at_utc": "2026-05-05T14:04:12.355284+00:00",
+  "all_passed": true,
+  "security_summary": {
+    "memory_safety_checks": {
+      "allocator_behavior_measured": true,
+      "peak_memory_accounted": true,
+      "invalid_backend": true,
+      "oom_budget": true,
+      "corrupted_checkpoint": true,
+      "invalid_runtime_state": true
+    },
+    "compliance_checks": {
+      "deterministic_validation_outputs": true,
+      "backend_selection_archived": true,
+      "fallback_behavior_archived": true,
+      "no_hidden_rust_requirement": true
+    },
+    "unsafe_escape_hatches": "none added in v3.7.0 ai runtime foundation tranche",
+    "networked_retry_count": 1,
+    "networked_fault_observed": true,
+    "networked_checkpoint_semantics": true,
+    "adversarial_inputs_green": true,
+    "networked_peer_adversarial_green": true,
+    "networked_gradient_adversarial_green": true,
+    "rust_free_shipped_path": true
+  },
+  "failures": []
+}

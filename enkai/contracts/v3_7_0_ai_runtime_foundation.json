@@ -1,0 +1,46 @@
+﻿{
+  "schema_version": 1,
+  "contract_version": "v3.7.0",
+  "scope": "v3_7_0_ai_runtime_foundation",
+  "generated_purpose": "Prove the first global self-host AI runtime foundation tranche: bounded Enkai-owned accelerated training/eval runtime with benchmark, memory, safety, and provenance evidence.",
+  "required_report": "artifacts/readiness/v3_7_0_ai_runtime_foundation.json",
+  "required_status_fields": {
+    "all_passed": true,
+    "functional.train_success": true,
+    "functional.pretrain_success": true,
+    "functional.eval_success": true,
+    "functional.checkpoint_resume_save_load": true,
+    "benchmark.policy.compare_python_baseline": true,
+    "benchmark.policy.compare_native_backend": true,
+    "benchmark.policy.release_gate_global_targets": false,
+    "memory_safety.invalid_backend.passed": true,
+    "memory_safety.oom_budget.passed": true,
+    "memory_safety.corrupted_checkpoint.passed": true,
+    "memory_safety.invalid_runtime_state.passed": true,
+    "security_compliance.no_hidden_rust_requirement": true,
+    "security_compliance.backend_selection_archived": true,
+    "security_compliance.fallback_behavior_archived": true
+  },
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "Current release line is v3.7.0.",
+      "v3.7.0 (in progress)",
+      "Global self-host AI runtime foundation (done)"
+    ],
+    "README.md": [
+      "This repository contains the v3.7.0 release line in Rust.",
+      "Status (v3.7.0)",
+      "Global self-host AI runtime foundation"
+    ],
+    "docs/README.md": [
+      "Current release line: `v3.7.0`"
+    ],
+    "CHANGELOG.md": [
+      "## v3.7.0",
+      "Started the global self-host AI runtime foundation line."
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "Global Self-Host AI Runtime Foundation (v3.7.0)"
+    ]
+  }
+}

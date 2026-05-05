@@ -1,0 +1,22 @@
+﻿{
+  "schema_version": 1,
+  "contract_version": "v3.7.0",
+  "scope": "v3_7_0_distributed_runtime_design",
+  "generated_purpose": "Freeze the first distributed-runtime design tranche without widening execution beyond the bounded single-node frontier.",
+  "required_foundation_report": "artifacts/readiness/v3_7_0_ai_runtime_foundation.json",
+  "output_report": "artifacts/readiness/v3_7_0_distributed_runtime_design.json",
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "Distributed runtime design freeze (done)"
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "Distributed Runtime Design Freeze (v3.7.0)"
+    ],
+    "README.md": [
+      "distributed-runtime design proof archived under `artifacts/readiness/v3_7_0_distributed_runtime_design.json`"
+    ],
+    "CHANGELOG.md": [
+      "Added the first distributed-runtime design tranche for `v3.7.0` without widening execution scope."
+    ]
+  }
+}

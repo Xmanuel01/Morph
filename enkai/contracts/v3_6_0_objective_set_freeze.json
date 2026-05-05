@@ -1,0 +1,24 @@
+﻿{
+  "schema_version": 1,
+  "contract_version": "v3.6.0",
+  "scope": "objective_set_freeze",
+  "generated_purpose": "Prove that v3.6.0 has an explicit bounded objective set instead of only a version bump.",
+  "required_files": [
+    "docs/roadmap.md",
+    "docs/50_strict_selfhost_contract.md",
+    "artifacts/readiness/v3_5_0_closure.json"
+  ],
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "Objective-set freeze baseline (done):",
+      "global accelerated native/tensor replacement program boundary",
+      "global compatibility-only storage/data replacement program boundary",
+      "global non-shipped compatibility-path closure program boundary"
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "## Objective-Definition Closure Baseline (`v3.6.0`)",
+      "the broader global replacement categories remain explicitly frozen as the next",
+      "program boundary rather than left implicit"
+    ]
+  }
+}

@@ -1,0 +1,436 @@
+﻿{
+  "schema_version": 1,
+  "suite": "v3_7_0_ai_runtime_foundation",
+  "description": "Bounded single-node AI training/eval suite for the first global self-host runtime tranche.",
+  "machine_profile": "bench/machines/windows_ref.json",
+  "bounded_frontier": {
+    "single_node_only": true,
+    "deterministic_eval": true,
+    "checkpoint_save_load": true,
+    "data_ingest": true,
+    "distributed_training": false
+  },
+  "benchmark_policy": {
+    "compare_python_baseline": true,
+    "compare_native_backend": true,
+    "compare_cpu_scalar_baseline": true,
+    "release_gate_global_targets": false,
+    "regression_limits": {
+      "peak_memory_vs_cpu_factor": 1.5,
+      "checkpoint_overhead_vs_cpu_factor": 2.0
+    },
+    "program_goals": {
+      "speed_vs_python_pct": 50,
+      "memory_vs_rust_pct": 50,
+      "training_time_reduction_pct": 35
+    }
+  },
+  "base_config": {
+    "config_version": 1,
+    "backend": "enkai_accel",
+    "vocab_size": 96,
+    "hidden_size": 48,
+    "seq_len": 16,
+    "batch_size": 6,
+    "lr": 0.005,
+    "max_steps": 12,
+    "save_every": 2,
+    "log_every": 1,
+    "eval_steps": 6,
+    "drop_remainder": false,
+    "seed": 1337,
+    "shuffle": true,
+    "prefetch_batches": 1,
+    "tokenizer_train": {
+      "vocab_size": 96
+    },
+    "model": {
+      "vocab_size": 96,
+      "hidden_size": 48,
+      "device": "cpu"
+    },
+    "suite_id": "v3_7_0_ai_runtime_foundation",
+    "oom_budget_bytes": 16777216
+  },
+  "dataset_lines": [
+    "alpha beta gamma delta epsilon zeta eta theta",
+    "theta eta zeta epsilon delta gamma beta alpha",
+    "safety determinism memory speed runtime checkpoint tokenizer dataset",
+    "enkai runtime training eval optimizer gradient clipping batching tokens",
+    "global self host accelerated backend bounded suite deterministic validation",
+    "python baseline native backend comparison regression memory checkpoint",
+    "secure cloud defense ai agi llm inference training dataset throughput",
+    "single node only distributed training remains out of scope in this tranche",
+    "benchmark provenance archived report fallback backend selection deterministic",
+    "token streams repeat over structured corpus for throughput measurement",
+    "checkpoint save load resume path must remain deterministic and auditable",
+    "allocator behavior and peak memory accounting are release evidence inputs",
+    "native fallback remains migration comparison not the success criterion",
+    "enkai accel path should own execution and safety reporting boundaries",
+    "bounded workloads are pinned to machine profile and frozen config",
+    "cloud security defense institutions require deterministic operational proofs"
+  ],
+  "dataset_repeat": 8,
+  "latency_gates": {
+    "resume_vs_train_factor": 0.2,
+    "eval_vs_train_factor": 0.25
+  },
+  "throughput_gates": {
+    "min_resume_checkpoint_bytes_per_sec": 50000000,
+    "min_eval_tokens_per_sec": 14000
+  },
+  "shape_frontier": [
+    {
+      "name": "residual_stack_relu",
+      "model": {
+        "preset": "residual_stack_relu",
+        "n_layers": 2,
+        "n_heads": 2,
+        "ff_mult": 1.5,
+        "activation": "relu",
+        "norm": "rmsnorm",
+        "tie_embeddings": false,
+        "device": "cpu"
+      }
+    },
+    {
+      "name": "deep_stack_tanh",
+      "model": {
+        "preset": "deep_stack_tanh",
+        "n_layers": 4,
+        "n_heads": 4,
+        "ff_mult": 2.0,
+        "activation": "tanh",
+        "norm": "layernorm",
+        "tie_embeddings": true,
+        "device": "cpu"
+      }
+    },
+    {
+      "name": "gated_silu_tied",
+      "model": {
+        "preset": "gated_silu_tied",
+        "n_layers": 6,
+        "n_heads": 6,
+        "ff_mult": 2.5,
+        "activation": "silu",
+        "norm": "rmsnorm",
+        "tie_embeddings": true,
+        "device": "cpu"
+      }
+    },
+    {
+      "name": "wider_residual_silu",
+      "config_overrides": {
+        "hidden_size": 64,
+        "batch_size": 5,
+        "oom_budget_bytes": 25165824
+      },
+      "model": {
+        "vocab_size": 96,
+        "hidden_size": 64,
+        "preset": "wider_residual_silu",
+        "n_layers": 8,
+        "n_heads": 8,
+        "ff_mult": 2.75,
+        "activation": "silu",
+        "norm": "rmsnorm",
+        "tie_embeddings": false,
+        "device": "cpu"
+      }
+    },
+    {
+      "name": "deep_tied_tanh_wide",
+      "config_overrides": {
+        "hidden_size": 80,
+        "batch_size": 4,
+        "oom_budget_bytes": 33554432
+      },
+      "model": {
+        "vocab_size": 96,
+        "hidden_size": 80,
+        "preset": "deep_tied_tanh_wide",
+        "n_layers": 10,
+        "n_heads": 8,
+        "ff_mult": 3.0,
+        "activation": "tanh",
+        "norm": "layernorm",
+        "tie_embeddings": true,
+        "device": "cpu"
+      }
+    }
+  ],
+  "distributed_preview": {
+    "execution_mode": "rank-sharded-preview",
+    "topology": "single-node",
+    "world_size": 2,
+    "require_dist_opt_in": true,
+    "min_rank_tokens": 200
+  },
+  "distributed_sync_preview": {
+    "execution_mode": "synchronized-grad-preview",
+    "topology": "single-node",
+    "world_size": 3,
+    "require_dist_opt_in": true,
+    "min_rank_tokens": 200,
+    "throughput_gates": {
+      "min_combined_train_tokens_per_sec": 700,
+      "min_combined_eval_tokens_per_sec": 11500,
+      "min_checkpoint_merge_bytes_per_sec": 15000000
+    }
+  },
+  "networked_rendezvous_exec": {
+    "execution_mode": "networked-sync-preview",
+    "topology": "multi-node",
+    "world_size": 2,
+    "rendezvous": "tcp://127.0.0.1:43117",
+    "retry_budget": 3,
+    "require_dist_opt_in": true,
+    "min_rank_tokens": 200
+  },
+  "networked_rendezvous_fault_injection": {
+    "fault_mode": "listener-delay-once",
+    "target_rank": 0,
+    "target_step": 1,
+    "target_phase": "pre-sync",
+    "delay_ms": 300,
+    "expected_min_retry_count": 1
+  },
+  "distributed_sync_shape_frontier": [
+    {
+      "name": "sync_wider_residual_silu",
+      "config_overrides": {
+        "hidden_size": 64,
+        "batch_size": 5,
+        "oom_budget_bytes": 25165824
+      },
+      "model": {
+        "vocab_size": 96,
+        "hidden_size": 64,
+        "preset": "sync_wider_residual_silu",
+        "n_layers": 8,
+        "n_heads": 8,
+        "ff_mult": 2.75,
+        "activation": "silu",
+        "norm": "rmsnorm",
+        "tie_embeddings": false,
+        "device": "cpu"
+      }
+    },
+    {
+      "name": "sync_deep_tied_tanh_wide",
+      "config_overrides": {
+        "hidden_size": 80,
+        "batch_size": 4,
+        "oom_budget_bytes": 33554432
+      },
+      "model": {
+        "vocab_size": 96,
+        "hidden_size": 80,
+        "preset": "sync_deep_tied_tanh_wide",
+        "n_layers": 10,
+        "n_heads": 8,
+        "ff_mult": 3.0,
+        "activation": "tanh",
+        "norm": "layernorm",
+        "tie_embeddings": true,
+        "device": "cpu"
+      }
+    }
+  ],
+  "networked_rendezvous_design": {
+    "execution_frozen": true,
+    "process_model": "multi-process",
+    "topology": "multi-node",
+    "world_size": 2,
+    "rendezvous": "tcp://127.0.0.1:43117",
+    "coordination_scope": [
+      "rank-registration",
+      "bounded-barrier",
+      "synchronized-gradient-preview"
+    ]
+  },
+  "networked_rendezvous_scale_design": {
+    "execution_frozen": true,
+    "process_model": "multi-process",
+    "topology": "multi-node",
+    "world_size": 4,
+    "rendezvous": "tcp://127.0.0.1:43127",
+    "retry_budget": 3,
+    "min_rank_tokens": 64,
+    "throughput_gates": {
+      "min_combined_train_tokens_per_sec": 60,
+      "min_combined_eval_tokens_per_sec": 1000,
+      "min_checkpoint_merge_bytes_per_sec": 5000000,
+      "min_networked_gradient_bytes": 1
+    },
+    "coordination_scope": [
+      "rank-registration",
+      "bounded-barrier",
+      "tcp-gradient-exchange",
+      "synchronized-gradient-preview",
+      "retry-fault-observation"
+    ],
+    "preconditions": [
+      "networked_exec_green",
+      "bounded_contract_before_execution_widening"
+    ]
+  },
+  "networked_long_context_exec": {
+    "execution_mode": "networked-sync-preview",
+    "topology": "multi-node",
+    "world_size": 4,
+    "rendezvous": "tcp://127.0.0.1:43167",
+    "retry_budget": 3,
+    "min_rank_tokens": 128,
+    "config_overrides": {
+      "seq_len": 32,
+      "batch_size": 2,
+      "hidden_size": 48,
+      "max_steps": 4,
+      "save_every": 1,
+      "eval_steps": 2,
+      "oom_budget_bytes": 33554432,
+      "dataset_repeat": 3
+    },
+    "model": {
+      "vocab_size": 96,
+      "hidden_size": 48,
+      "preset": "networked_long_context_residual",
+      "n_layers": 4,
+      "n_heads": 4,
+      "ff_mult": 2.0,
+      "activation": "silu",
+      "norm": "rmsnorm",
+      "tie_embeddings": false,
+      "device": "cpu"
+    },
+    "throughput_gates": {
+      "min_combined_train_tokens_per_sec": 40,
+      "min_combined_eval_tokens_per_sec": 1000,
+      "min_checkpoint_merge_bytes_per_sec": 5000000,
+      "min_networked_gradient_bytes": 1
+    }
+  },
+  "networked_peer_adversarial": {
+    "rendezvous_base_port": 43201,
+    "require_dist_opt_in": true,
+    "cases": [
+      {
+        "name": "malformed_peer_json",
+        "world_size": 2,
+        "peer_payloads": [
+          "not-json"
+        ],
+        "expected_error": "E_DIST_RENDEZVOUS_CORRUPT"
+      },
+      {
+        "name": "metadata_mismatch",
+        "world_size": 2,
+        "peer_payloads": [
+          {
+            "rank": 1,
+            "world_size": 2,
+            "group_id": "wrong-group"
+          }
+        ],
+        "expected_error": "E_DIST_RENDEZVOUS_MISMATCH"
+      },
+      {
+        "name": "out_of_range_peer_rank",
+        "world_size": 2,
+        "peer_payloads": [
+          {
+            "rank": 2,
+            "world_size": 2,
+            "group_id": "$computed"
+          }
+        ],
+        "expected_error": "barrier peer rank out of range"
+      },
+      {
+        "name": "duplicate_peer_rank",
+        "world_size": 3,
+        "peer_payloads": [
+          {
+            "rank": 1,
+            "world_size": 3,
+            "group_id": "$computed"
+          },
+          {
+            "rank": 1,
+            "world_size": 3,
+            "group_id": "$computed"
+          }
+        ],
+        "expected_error": "duplicate barrier peer rank"
+      }
+    ]
+  },
+  "distributed_sync_long_context_preview": {
+    "execution_mode": "synchronized-grad-preview",
+    "topology": "single-node",
+    "world_size": 3,
+    "require_dist_opt_in": true,
+    "min_rank_tokens": 180,
+    "throughput_gates": {
+      "min_combined_train_tokens_per_sec": 250,
+      "min_combined_eval_tokens_per_sec": 3000,
+      "min_checkpoint_merge_bytes_per_sec": 8000000
+    }
+  },
+  "distributed_sync_long_context_frontier": [
+    {
+      "name": "sync_long_context_incident_timeline",
+      "config_overrides": {
+        "seq_len": 32,
+        "batch_size": 3,
+        "max_steps": 8,
+        "eval_steps": 4,
+        "hidden_size": 64,
+        "oom_budget_bytes": 33554432
+      },
+      "model": {
+        "vocab_size": 96,
+        "hidden_size": 64,
+        "preset": "sync_long_context_incident_timeline",
+        "n_layers": 8,
+        "n_heads": 8,
+        "ff_mult": 2.75,
+        "activation": "silu",
+        "norm": "rmsnorm",
+        "tie_embeddings": false,
+        "device": "cpu"
+      }
+    },
+    {
+      "name": "sync_long_context_policy_retrieval",
+      "config_overrides": {
+        "seq_len": 40,
+        "batch_size": 2,
+        "max_steps": 8,
+        "eval_steps": 4,
+        "hidden_size": 80,
+        "oom_budget_bytes": 50331648
+      },
+      "model": {
+        "vocab_size": 96,
+        "hidden_size": 80,
+        "preset": "sync_long_context_policy_retrieval",
+        "n_layers": 10,
+        "n_heads": 8,
+        "ff_mult": 3.0,
+        "activation": "tanh",
+        "norm": "layernorm",
+        "tie_embeddings": true,
+        "device": "cpu"
+      }
+    }
+  ],
+  "safety_checks": [
+    "invalid_backend",
+    "oom_budget",
+    "corrupted_checkpoint",
+    "invalid_runtime_state"
+  ]
+}

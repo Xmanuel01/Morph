@@ -1,0 +1,229 @@
+{
+  "schema_version": 1,
+  "suite": "v3_7_0_ai_runtime_realistic_workloads",
+  "description": "Pinned broader AI workload benchmark matrix for bounded enkai_accel QA and throughput evidence.",
+  "machine_profile": "bench/machines/windows_ref.json",
+  "base_config": {
+    "config_version": 1,
+    "backend": "enkai_accel",
+    "vocab_size": 128,
+    "hidden_size": 64,
+    "seq_len": 20,
+    "batch_size": 6,
+    "lr": 0.004,
+    "max_steps": 14,
+    "save_every": 2,
+    "log_every": 1,
+    "eval_steps": 6,
+    "drop_remainder": false,
+    "seed": 2026,
+    "shuffle": true,
+    "prefetch_batches": 1,
+    "tokenizer_train": {
+      "vocab_size": 128
+    },
+    "model": {
+      "vocab_size": 128,
+      "hidden_size": 64,
+      "device": "cpu"
+    },
+    "suite_id": "v3_7_0_ai_runtime_realistic_workloads",
+    "oom_budget_bytes": 33554432
+  },
+  "benchmark_policy": {
+    "compare_python_baseline": true,
+    "compare_native_backend": true,
+    "compare_cpu_scalar_baseline": true,
+    "realistic_workload_matrix": true,
+    "regression_limits": {
+      "min_speedup_vs_python": 1.1,
+      "min_speedup_vs_cpu": 1.05,
+      "max_peak_memory_vs_cpu_factor": 1.6,
+      "max_checkpoint_overhead_vs_cpu_factor": 2.2,
+      "min_eval_tokens_per_sec": 7500
+    }
+  },
+  "workloads": [
+    {
+      "name": "instruction_sft_chat",
+      "category": "instruction_sft",
+      "dataset_repeat": 8,
+      "dataset_lines": [
+        "system classify the request and produce a safe concise answer for the operator",
+        "user summarize the network alert and list two concrete mitigations",
+        "assistant summary unauthorized lateral movement detected mitigations isolate host rotate credentials",
+        "user explain how to reduce memory pressure during training without changing the checkpoint format",
+        "assistant reduce batch size lower sequence length and keep deterministic checkpoint cadence",
+        "user produce a short cloud deployment checklist for a distributed ai service",
+        "assistant checklist pin runtime image archive proof artifacts validate rollback and monitor latency"
+      ],
+      "config_overrides": {
+        "hidden_size": 64,
+        "seq_len": 20,
+        "batch_size": 6,
+        "max_steps": 14,
+        "eval_steps": 6,
+        "oom_budget_bytes": 33554432
+      },
+      "regression_overrides": {
+        "min_eval_tokens_per_sec": 5500
+      },
+      "model": {
+        "vocab_size": 128,
+        "hidden_size": 64,
+        "preset": "instruction_sft_chat",
+        "n_layers": 8,
+        "n_heads": 8,
+        "ff_mult": 2.75,
+        "activation": "silu",
+        "norm": "rmsnorm",
+        "tie_embeddings": false,
+        "device": "cpu"
+      }
+    },
+    {
+      "name": "retrieval_qa_context",
+      "category": "retrieval_qa",
+      "dataset_repeat": 8,
+      "dataset_lines": [
+        "context region us east one service object store latency p95 fourteen milliseconds",
+        "question what region has the lower latency answer us east one",
+        "context model checkpoint archive uses sha256 manifest and immutable object storage",
+        "question what digest is used for the checkpoint archive answer sha256",
+        "context defense tenant isolation requires dedicated queues strong auth and audit trails",
+        "question what is required for tenant isolation answer dedicated queues strong auth audit trails",
+        "context memory regression gate fails when peak bytes exceed cpu baseline factor threshold"
+      ],
+      "config_overrides": {
+        "hidden_size": 72,
+        "seq_len": 22,
+        "batch_size": 5,
+        "max_steps": 14,
+        "eval_steps": 6,
+        "oom_budget_bytes": 37748736
+      },
+      "regression_overrides": {
+        "min_eval_tokens_per_sec": 6000
+      },
+      "model": {
+        "vocab_size": 128,
+        "hidden_size": 72,
+        "preset": "retrieval_qa_context",
+        "n_layers": 9,
+        "n_heads": 8,
+        "ff_mult": 3.0,
+        "activation": "silu",
+        "norm": "rmsnorm",
+        "tie_embeddings": true,
+        "device": "cpu"
+      }
+    },
+    {
+      "name": "code_completion_ops",
+      "category": "code_completion",
+      "dataset_repeat": 8,
+      "dataset_lines": [
+        "fn validate config open brace if world_size less than one return error end",
+        "fn checkpoint manifest open brace write json line flush stream close brace",
+        "fn retry connect open brace for attempt in range sleep backoff connect socket end",
+        "fn aggregate gradients open brace read rank files sum grads divide world size end",
+        "fn verify report open brace assert all_passed and emit deterministic summary end",
+        "fn secure deploy open brace pin image digest archive logs verify rollback end",
+        "fn eval workload open brace load checkpoint compute loss print metrics end"
+      ],
+      "config_overrides": {
+        "hidden_size": 80,
+        "seq_len": 24,
+        "batch_size": 4,
+        "max_steps": 16,
+        "eval_steps": 6,
+        "oom_budget_bytes": 41943040
+      },
+      "regression_overrides": {
+        "min_eval_tokens_per_sec": 4300
+      },
+      "model": {
+        "vocab_size": 128,
+        "hidden_size": 80,
+        "preset": "code_completion_ops",
+        "n_layers": 10,
+        "n_heads": 8,
+        "ff_mult": 3.0,
+        "activation": "tanh",
+        "norm": "layernorm",
+        "tie_embeddings": true,
+        "device": "cpu"
+      }
+    },
+    {
+      "name": "long_context_incident_timeline",
+      "category": "long_context_incident",
+      "dataset_repeat": 10,
+      "dataset_lines": [
+        "timeline hour zero sensor reports anomalous lateral movement from finance subnet to privileged backup node evidence kerberos spray and unexpected smb writes preserved in audit trail",
+        "timeline hour one operators isolate two hosts rotate backup credentials suspend stale service principals and snapshot disk artifacts for deterministic replay and forensic validation",
+        "timeline hour two cloud team pins runtime image digests freezes deployment queue and compares checkpoint manifests against immutable archive policy before resuming training traffic",
+        "timeline hour three security lead documents blast radius host inventory memory pressure signals and rollback readiness while the model service continues bounded eval on approved datasets",
+        "timeline hour four defense tenant requests concise briefing covering root cause mitigation sequence residual risk and whether distributed rendezvous retry paths preserved checkpoint semantics"
+      ],
+      "config_overrides": {
+        "hidden_size": 88,
+        "seq_len": 32,
+        "batch_size": 4,
+        "max_steps": 14,
+        "eval_steps": 6,
+        "oom_budget_bytes": 50331648
+      },
+      "regression_overrides": {
+        "min_eval_tokens_per_sec": 6000
+      },
+      "model": {
+        "vocab_size": 128,
+        "hidden_size": 88,
+        "preset": "long_context_incident_timeline",
+        "n_layers": 10,
+        "n_heads": 8,
+        "ff_mult": 3.0,
+        "activation": "silu",
+        "norm": "rmsnorm",
+        "tie_embeddings": false,
+        "device": "cpu"
+      }
+    },
+    {
+      "name": "long_context_policy_retrieval_chain",
+      "category": "long_context_retrieval",
+      "dataset_repeat": 10,
+      "dataset_lines": [
+        "policy section one all distributed training jobs must publish checkpoint manifests with sha256 digests immutable object references and rollback pointers before promotion to shared clusters",
+        "policy section two every networked rendezvous deployment must document topology world size retry budget barrier behavior and deterministic failure handling for malformed peer or timeout conditions",
+        "policy section three ai services for cloud security and defense operators must preserve bounded memory accounting deterministic validation outputs and explicit fallback provenance on every release candidate",
+        "policy section four retrieval requests may span compliance controls deployment history threat notes and operator runbooks therefore the runtime must handle longer context windows without dropping checkpoint auditability",
+        "policy section five evaluators ask multi step questions over the full chain of policy text and expect compact answers about retry semantics tenant isolation artifact integrity and escalation readiness"
+      ],
+      "config_overrides": {
+        "hidden_size": 96,
+        "seq_len": 40,
+        "batch_size": 3,
+        "max_steps": 14,
+        "eval_steps": 6,
+        "oom_budget_bytes": 58720256
+      },
+      "regression_overrides": {
+        "min_eval_tokens_per_sec": 4000
+      },
+      "model": {
+        "vocab_size": 128,
+        "hidden_size": 96,
+        "preset": "long_context_policy_retrieval_chain",
+        "n_layers": 12,
+        "n_heads": 8,
+        "ff_mult": 3.25,
+        "activation": "silu",
+        "norm": "layernorm",
+        "tie_embeddings": true,
+        "device": "cpu"
+      }
+    }
+  ]
+}

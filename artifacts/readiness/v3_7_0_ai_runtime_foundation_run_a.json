@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "verified_contract_version": "v3.7.0",
+  "suite": "v3_7_0_ai_runtime_foundation",
+  "all_passed": true,
+  "bounded_frontier": {
+    "single_node_only": true,
+    "deterministic_eval": true,
+    "checkpoint_save_load": true,
+    "data_ingest": true,
+    "distributed_training": false
+  },
+  "functional": {
+    "train_success": true,
+    "pretrain_success": true,
+    "eval_success": true,
+    "checkpoint_resume_save_load": true,
+    "data_ingest_success": true
+  },
+  "benchmark": {
+    "machine_profile": "bench/machines/windows_ref.json",
+    "policy": {
+      "compare_python_baseline": true,
+      "compare_native_backend": true,
+      "compare_cpu_scalar_baseline": true,
+      "release_gate_global_targets": false,
+      "regression_limits": {
+        "peak_memory_vs_cpu_factor": 1.5,
+        "checkpoint_overhead_vs_cpu_factor": 2.0
+      },
+      "program_goals": {
+        "speed_vs_python_pct": 50,
+        "memory_vs_rust_pct": 50,
+        "training_time_reduction_pct": 35
+      }
+    },
+    "enkai_accel": {
+      "elapsed_ms": 507,
+      "tokens": 1152,
+      "tokens_per_sec": 2272.1892,
+      "peak_memory_bytes_est": 151680,
+      "loss": 4.5380383,
+      "kernel": "enkai_accel_v1",
+      "worker_count": 3,
+      "checkpoint_bytes": 689868
+    },
+    "cpu_scalar_baseline": {
+      "elapsed_ms": 1248,
+      "tokens": 1152,
+      "tokens_per_sec": 923.0769,
+      "peak_memory_bytes_est": 151680,
+      "loss": 4.4761076,
+      "kernel": "cpu_scalar_v1",
+      "worker_count": 1,
+      "checkpoint_bytes": 676396
+    },
+    "python_baseline": {
+      "elapsed_ms": 1353,
+      "tokens": 1152,
+      "tokens_per_sec": 851.4412416851442,
+      "loss": 4.700659707505064,
+      "peak_memory_bytes_est": 128808
+    },
+    "native_comparison": {
+      "elapsed_ms": 554,
+      "requested_backend": "native",
+      "executed_backend": "enkai_accel",
+      "fallback_reason": "Failed to load enkai_tensor (libtorch backend)\n. train_runtime searched for enkai_tensor via ENKAI_TENSOR_PATH and common target/install bundle locations",
+      "peak_memory_bytes_est": 151680,
+      "kernel": "enkai_accel_v1",
+      "worker_count": 3,
+      "checkpoint_bytes": 688847
+    },
+    "comparisons": {
+      "enkai_vs_python_speedup": 2.668639,
+      "enkai_vs_cpu_speedup": 2.461538,
+      "enkai_vs_native_ratio": 1.092702,
+      "training_time_reduction_vs_python_pct": 62.527716
+    },
+    "regression_gates": {
+      "peak_memory_regression_passed": true,
+      "checkpoint_overhead_regression_passed": true
+    }
+  },
+  "memory_safety": {
+    "allocator_behavior_measured": true,
+    "peak_memory_accounted": true,
+    "invalid_backend": {
+      "passed": true,
+      "expected_code": "E_BACKEND_INVALID",
+      "stderr_tail": "Train error: E_BACKEND_INVALID: Unsupported backend not_real (expected \"cpu\", \"native\", or \"enkai_accel\")\n",
+      "exit_code": 1
+    },
+    "oom_budget": {
+      "passed": true,
+      "expected_code": "E_TRAIN_OOM_BUDGET",
+      "stderr_tail": "Train error: E_TRAIN_OOM_BUDGET: estimated peak memory 151680 bytes exceeds configured budget 16 bytes\n",
+      "exit_code": 1
+    },
+    "corrupted_checkpoint": {
+      "passed": true,
+      "expected_code": "E_CHECKPOINT_CORRUPT",
+      "stderr_tail": "Eval error: E_CHECKPOINT_CORRUPT: key must be a string at line 1 column 2\n",
+      "exit_code": 1
+    },
+    "invalid_runtime_state": {
+      "passed": true,
+      "expected_code": "E_TRAIN_INVALID_STATE|E_CONFIG_INVALID",
+      "stderr_tail": "Train error: Config hidden_size must be Int > 0\n",
+      "exit_code": 1
+    }
+  },
+  "security_compliance": {
+    "deterministic_validation_outputs": true,
+    "backend_selection_archived": true,
+    "fallback_behavior_archived": true,
+    "no_hidden_rust_requirement": true,
+    "unsafe_escape_hatches": "none added in v3.7.0 ai runtime foundation tranche",
+    "provenance": {
+      "config_hash": "d5572dc31571b6a09ea99d9a175a620bfea29774223557955ee6ddaf1b18529b",
+      "suite_id": "v3_7_0_ai_runtime_foundation"
+    }
+  },
+  "artifacts": {
+    "workspace": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_ai_runtime_foundation",
+    "train_report": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_ai_runtime_foundation\\enkai_accel_ckpt\\ai_runtime_report.json",
+    "pretrain_report": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_ai_runtime_foundation\\enkai_accel_pretrain_ckpt\\ai_runtime_report.json",
+    "eval_report": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_ai_runtime_foundation\\enkai_accel_ckpt\\ai_runtime_report.json",
+    "cpu_report": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_ai_runtime_foundation\\cpu_ckpt\\ai_runtime_report.json",
+    "native_report": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_ai_runtime_foundation\\native_ckpt\\ai_runtime_report.json",
+    "suite_path": "C:\\Users\\USER\\Desktop\\Morph\\bench\\suites\\v3_7_0_ai_runtime_foundation.json"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.7.0",
+  "scope": "v3_7_0_ai_runtime_throughput_regressions",
+  "generated_purpose": "Verify explicit checkpoint-resume and eval-only throughput gates for the bounded v3.7.0 enkai_accel suite.",
+  "required_report": "artifacts/readiness/v3_7_0_ai_runtime_shape_frontier.json",
+  "required_status_fields": {
+    "all_passed": true,
+    "throughput_baselines.resume_checkpoint_throughput_gate_passed": true,
+    "throughput_baselines.eval_throughput_gate_passed": true
+  },
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "Checkpoint/eval throughput regression gates (done)"
+    ],
+    "README.md": [
+      "checkpoint/eval throughput proof archived under `artifacts/readiness/v3_7_0_ai_runtime_throughput_regressions.json`"
+    ],
+    "CHANGELOG.md": [
+      "Added the fifth `v3.7.0` tranche for explicit checkpoint/eval throughput regression gates."
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "Checkpoint/Eval Throughput Regression Gates (v3.7.0)"
+    ]
+  }
+}

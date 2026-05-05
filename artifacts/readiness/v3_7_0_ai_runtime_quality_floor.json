@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "contract": "C:\\Users\\USER\\Desktop\\Morph\\enkai\\contracts\\v3_7_0_ai_runtime_quality_floor.json",
+  "generated_at_utc": "2026-05-05T14:04:12.381922+00:00",
+  "all_passed": true,
+  "score": 10.25,
+  "score_threshold": 9.0,
+  "component_scores": {
+    "realistic_workloads": {
+      "passed": true,
+      "score": 1.0,
+      "artifact": "artifacts/readiness/v3_7_0_ai_runtime_realistic_workloads_verify.json"
+    },
+    "security_fault_baseline": {
+      "passed": true,
+      "score": 1.25,
+      "artifact": "artifacts/readiness/v3_7_0_ai_runtime_security_fault_baseline.json"
+    },
+    "threaded_determinism": {
+      "passed": true,
+      "score": 1.0,
+      "artifact": "artifacts/readiness/v3_7_0_ai_runtime_threaded_determinism_verify.json"
+    },
+    "shape_frontier": {
+      "passed": true,
+      "score": 0.75,
+      "artifact": "artifacts/readiness/v3_7_0_ai_runtime_shape_frontier_verify.json"
+    },
+    "distributed_sync": {
+      "passed": true,
+      "score": 1.0,
+      "artifact": "artifacts/readiness/v3_7_0_distributed_runtime_sync_verify.json"
+    },
+    "distributed_throughput": {
+      "passed": true,
+      "score": 0.75,
+      "artifact": "artifacts/readiness/v3_7_0_distributed_runtime_throughput.json"
+    },
+    "networked_exec": {
+      "passed": true,
+      "score": 0.75,
+      "artifact": "artifacts/readiness/v3_7_0_networked_rendezvous_exec_verify.json"
+    },
+    "networked_scale_exec": {
+      "passed": true,
+      "score": 0.75,
+      "artifact": "artifacts/readiness/v3_7_0_networked_rendezvous_scale_exec_verify.json"
+    },
+    "networked_peer_adversarial": {
+      "passed": true,
+      "score": 0.5,
+      "artifact": "artifacts/readiness/v3_7_0_networked_rendezvous_peer_adversarial_verify.json"
+    },
+    "networked_gradient_adversarial": {
+      "passed": true,
+      "score": 0.25,
+      "artifact": "artifacts/readiness/v3_7_0_networked_gradient_adversarial_verify.json"
+    },
+    "long_context_sync": {
+      "passed": true,
+      "score": 0.75,
+      "artifact": "artifacts/readiness/v3_7_0_distributed_runtime_long_context_sync_verify.json"
+    },
+    "networked_long_context": {
+      "passed": true,
+      "score": 0.5,
+      "artifact": "artifacts/readiness/v3_7_0_networked_long_context_exec_verify.json"
+    },
+    "networked_throughput": {
+      "passed": true,
+      "score": 0.5,
+      "artifact": "artifacts/readiness/v3_7_0_networked_throughput_regressions.json"
+    },
+    "doc_evidence": {
+      "passed": true,
+      "score": 0.5
+    }
+  },
+  "failures": []
+}

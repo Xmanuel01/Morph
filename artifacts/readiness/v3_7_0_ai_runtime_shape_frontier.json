@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "verified_contract_version": "v3.7.0",
+  "all_passed": true,
+  "model_frontier": {
+    "all_shapes_passed": true,
+    "shapes": [
+      {
+        "name": "residual_stack_relu",
+        "passed": true,
+        "hidden_size": 48,
+        "model": {
+          "vocab_size": 96,
+          "hidden_size": 48,
+          "device": "cpu",
+          "preset": "residual_stack_relu",
+          "n_layers": 2,
+          "n_heads": 2,
+          "ff_mult": 1.5,
+          "activation": "relu",
+          "norm": "rmsnorm",
+          "tie_embeddings": false
+        },
+        "kernel": "enkai_accel_v1",
+        "worker_count": 3,
+        "loss": 4.5349,
+        "train_stderr_tail": "",
+        "eval_stderr_tail": ""
+      },
+      {
+        "name": "deep_stack_tanh",
+        "passed": true,
+        "hidden_size": 48,
+        "model": {
+          "vocab_size": 96,
+          "hidden_size": 48,
+          "device": "cpu",
+          "preset": "deep_stack_tanh",
+          "n_layers": 4,
+          "n_heads": 4,
+          "ff_mult": 2.0,
+          "activation": "tanh",
+          "norm": "layernorm",
+          "tie_embeddings": true
+        },
+        "kernel": "enkai_accel_v1",
+        "worker_count": 3,
+        "loss": 4.534206,
+        "train_stderr_tail": "",
+        "eval_stderr_tail": ""
+      },
+      {
+        "name": "gated_silu_tied",
+        "passed": true,
+        "hidden_size": 48,
+        "model": {
+          "vocab_size": 96,
+          "hidden_size": 48,
+          "device": "cpu",
+          "preset": "gated_silu_tied",
+          "n_layers": 6,
+          "n_heads": 6,
+          "ff_mult": 2.5,
+          "activation": "silu",
+          "norm": "rmsnorm",
+          "tie_embeddings": true
+        },
+        "kernel": "enkai_accel_v1",
+        "worker_count": 3,
+        "loss": 4.5342436,
+        "train_stderr_tail": "",
+        "eval_stderr_tail": ""
+      },
+      {
+        "name": "wider_residual_silu",
+        "passed": true,
+        "hidden_size": 64,
+        "model": {
+          "vocab_size": 96,
+          "hidden_size": 64,
+          "device": "cpu",
+          "preset": "wider_residual_silu",
+          "n_layers": 8,
+          "n_heads": 8,
+          "ff_mult": 2.75,
+          "activation": "silu",
+          "norm": "rmsnorm",
+          "tie_embeddings": false
+        },
+        "kernel": "enkai_accel_v1",
+        "worker_count": 2,
+        "loss": 4.5368485,
+        "train_stderr_tail": "",
+        "eval_stderr_tail": ""
+      },
+      {
+        "name": "deep_tied_tanh_wide",
+        "passed": true,
+        "hidden_size": 80,
+        "model": {
+          "vocab_size": 96,
+          "hidden_size": 80,
+          "device": "cpu",
+          "preset": "deep_tied_tanh_wide",
+          "n_layers": 10,
+          "n_heads": 8,
+          "ff_mult": 3.0,
+          "activation": "tanh",
+          "norm": "layernorm",
+          "tie_embeddings": true
+        },
+        "kernel": "enkai_accel_v1",
+        "worker_count": 2,
+        "loss": 4.5384583,
+        "train_stderr_tail": "",
+        "eval_stderr_tail": ""
+      }
+    ]
+  },
+  "latency_baselines": {
+    "train_elapsed_ms": 434,
+    "resume_elapsed_ms": 1,
+    "eval_elapsed_ms": 16,
+    "resume_vs_train_factor": 0.002304,
+    "eval_vs_train_factor": 0.036866,
+    "resume_latency_gate_passed": true,
+    "eval_latency_gate_passed": true,
+    "resume_worker_count": 3,
+    "eval_worker_count": 3
+  },
+  "throughput_baselines": {
+    "checkpoint_bytes": 690282,
+    "resume_checkpoint_bytes_per_sec": 690282000.0,
+    "eval_tokens": 576,
+    "eval_tokens_per_sec": 36000.0,
+    "resume_checkpoint_throughput_gate_passed": true,
+    "eval_throughput_gate_passed": true
+  },
+  "artifacts": {
+    "workspace": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_ai_runtime_shape_frontier",
+    "base_train_config": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_ai_runtime_shape_frontier\\base_train.enk",
+    "base_train_report": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_ai_runtime_shape_frontier\\base_ckpt\\ai_runtime_report.json"
+  }
+}

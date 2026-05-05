@@ -1,0 +1,23 @@
+﻿{
+  "schema_version": 1,
+  "contract_version": "v3.7.0",
+  "scope": "v3_7_0_networked_rendezvous_design",
+  "generated_purpose": "Freeze the first networked multi-process rendezvous surface before widening distributed execution beyond the bounded single-host synchronized preview.",
+  "suite": "bench/suites/v3_7_0_ai_runtime_foundation.json",
+  "required_sync_report": "artifacts/readiness/v3_7_0_distributed_runtime_sync.json",
+  "output_report": "artifacts/readiness/v3_7_0_networked_rendezvous_design.json",
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "Networked multi-process rendezvous design freeze (done)"
+    ],
+    "README.md": [
+      "networked rendezvous design proof archived under `artifacts/readiness/v3_7_0_networked_rendezvous_design.json`"
+    ],
+    "CHANGELOG.md": [
+      "Added the networked multi-process rendezvous design-freeze tranche for `v3.7.0`."
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "Networked Multi-Process Rendezvous Design Freeze (v3.7.0)"
+    ]
+  }
+}

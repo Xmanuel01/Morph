@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.7.0",
+  "scope": "v3_7_0_ai_runtime_security_fault_baseline",
+  "required_reports": {
+    "foundation": "artifacts/readiness/v3_7_0_ai_runtime_foundation.json",
+    "networked_exec": "artifacts/readiness/v3_7_0_networked_rendezvous_exec.json",
+    "adversarial_inputs": "artifacts/readiness/v3_7_0_ai_runtime_adversarial_inputs_verify.json",
+    "networked_peer_adversarial": "artifacts/readiness/v3_7_0_networked_rendezvous_peer_adversarial_verify.json",
+    "networked_gradient_adversarial": "artifacts/readiness/v3_7_0_networked_gradient_adversarial_verify.json",
+    "strict_selfhost_inventory": "artifacts/readiness/strict_selfhost_dependency_inventory.json"
+  },
+  "output_report": "artifacts/readiness/v3_7_0_ai_runtime_security_fault_baseline.json",
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "AI runtime security and fault baseline (done)"
+    ],
+    "README.md": [
+      "AI runtime security/fault baseline proof archived under `artifacts/readiness/v3_7_0_ai_runtime_security_fault_baseline.json`"
+    ],
+    "CHANGELOG.md": [
+      "Added the AI runtime security and fault baseline tranche for `v3.7.0`."
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "AI Runtime Security and Fault Baseline (v3.7.0)"
+    ]
+  }
+}

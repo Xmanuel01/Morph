@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "contract": "C:\\Users\\USER\\Desktop\\Morph\\enkai\\contracts\\v3_7_0_ai_runtime_perf_deltas.json",
+  "report": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\readiness\\v3_7_0_ai_runtime_foundation.json",
+  "generated_at_utc": "2026-04-30T12:05:32.242766+00:00",
+  "all_passed": true,
+  "failures": [],
+  "summary": {
+    "enkai_vs_python_speedup": 2.751361,
+    "enkai_vs_cpu_speedup": 2.286751,
+    "enkai_vs_native_ratio": 0.901996,
+    "training_time_reduction_vs_python_pct": 63.654354,
+    "peak_memory_regression_passed": true,
+    "checkpoint_overhead_regression_passed": true,
+    "native_requested_backend": "native",
+    "native_executed_backend": "enkai_accel"
+  }
+}

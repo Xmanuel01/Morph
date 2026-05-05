@@ -1,4 +1,4 @@
-# Enkai Language Specification (v0.1 -> v3.5.0)
+# Enkai Language Specification (v0.1 -> v3.7.0)
 
 Status: stable.
 Grammar and CLI contracts are frozen at the v0.9.3 baseline for the v1.x/v2.x line.
@@ -846,7 +846,7 @@ Checkpoint format:
     with machine-readable output via `--json`.
 
 -------------------------------------------------------------------------------
-12. Known Limits in v3.5.0
+12. Known Limits in v3.7.0
 -------------------------------------------------------------------------------
 
 The following are intentionally not fully implemented yet:
@@ -883,6 +883,10 @@ The following are intentionally not fully implemented yet:
 - Runtime training-forward integration supports configurable decoder-only transformer blocks
   via model-spec metadata with TinyLM-compatible fallback behavior for older tensor builds.
   Full-scale pretraining/serving envelopes still depend on operator hardware validation gates.
+- The `enkai_accel` backend is currently a bounded global-self-host migration frontier:
+  - single-node train/pretrain/eval only
+  - deterministic checkpoint/report flow is part of the contract
+  - distributed training is intentionally out of scope for this tranche
 - Engine-level checkpoint helpers exist, but full train-loop orchestration and multi-rank resume policy are constrained to currently integrated paths.
 - Training metrics include best-effort GPU memory/utilization sampling via `nvidia-smi` for CUDA devices.
   On hosts without `nvidia-smi` or compatible drivers these fields remain `null`.
@@ -1000,20 +1004,3 @@ For any language/runtime surface change after v3.0.0:
 2) Update this specification to match the shipped behavior.
 3) Update changelog and targeted docs (`docs/xx_*.md`, `docs/tensor_api.md`, etc.).
 4) If compatibility/deprecation behavior changes, update `docs/29_compatibility_policy.md`.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

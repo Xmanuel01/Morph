@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.7.0",
+  "scope": "v3_7_0_networked_throughput_regressions",
+  "generated_purpose": "Require explicit train/eval/checkpoint/gradient throughput gates for networked v3.7.0 execution.",
+  "required_reports": {
+    "world_size_4": "artifacts/readiness/v3_7_0_networked_rendezvous_scale_exec.json",
+    "long_context": "artifacts/readiness/v3_7_0_networked_long_context_exec.json"
+  },
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "Networked throughput regression gates (done)"
+    ],
+    "README.md": [
+      "networked throughput regression proof archived under `artifacts/readiness/v3_7_0_networked_throughput_regressions.json`"
+    ],
+    "CHANGELOG.md": [
+      "Added networked throughput regression gates for `v3.7.0`."
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "Networked Throughput Regression Gates (v3.7.0)"
+    ]
+  }
+}

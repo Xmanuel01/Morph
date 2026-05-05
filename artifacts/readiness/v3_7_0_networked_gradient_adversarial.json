@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "verified_contract_version": "v3.7.0",
+  "all_passed": true,
+  "surface": "networked_gradient_exchange_adversarial",
+  "cases": [
+    {
+      "name": "peer_disconnect",
+      "passed": true,
+      "fault_mode": "peer-disconnect",
+      "expected_errors": [
+        "E_DIST_SYNC_PEER_DISCONNECT",
+        "E_DIST_RENDEZVOUS_CORRUPT"
+      ],
+      "observed_expected_error": true,
+      "rank_reports": [
+        {
+          "rank": 0,
+          "exit_code": 1,
+          "stderr_tail": "Train error: E_DIST_RENDEZVOUS_CORRUPT: EOF while parsing a value at line 1 column 0\n"
+        },
+        {
+          "rank": 1,
+          "exit_code": 1,
+          "stderr_tail": "Train error: E_DIST_SYNC_PEER_DISCONNECT: fault-injected peer disconnected during gradient exchange\n"
+        }
+      ]
+    },
+    {
+      "name": "stale_step_payload",
+      "passed": true,
+      "fault_mode": "stale-step",
+      "expected_errors": [
+        "E_DIST_SYNC_MISMATCH"
+      ],
+      "observed_expected_error": true,
+      "rank_reports": [
+        {
+          "rank": 0,
+          "exit_code": 1,
+          "stderr_tail": "Train error: E_DIST_SYNC_MISMATCH: gradient payload metadata mismatch\n"
+        },
+        {
+          "rank": 1,
+          "exit_code": 1,
+          "stderr_tail": "Train error: E_DIST_RENDEZVOUS_CORRUPT: EOF while parsing a value at line 1 column 0\n"
+        }
+      ]
+    },
+    {
+      "name": "wrong_tensor_length",
+      "passed": true,
+      "fault_mode": "wrong-tensor-length",
+      "expected_errors": [
+        "E_DIST_SYNC_SHAPE"
+      ],
+      "observed_expected_error": true,
+      "rank_reports": [
+        {
+          "rank": 0,
+          "exit_code": 1,
+          "stderr_tail": "Train error: E_DIST_SYNC_SHAPE: gradient vector length mismatch\n"
+        },
+        {
+          "rank": 1,
+          "exit_code": 1,
+          "stderr_tail": "Train error: E_DIST_RENDEZVOUS_CORRUPT: EOF while parsing a value at line 1 column 0\n"
+        }
+      ]
+    },
+    {
+      "name": "duplicate_rank_payload",
+      "passed": true,
+      "fault_mode": "duplicate-rank",
+      "expected_errors": [
+        "duplicate gradient peer rank"
+      ],
+      "observed_expected_error": true,
+      "rank_reports": [
+        {
+          "rank": 0,
+          "exit_code": 1,
+          "stderr_tail": "Train error: E_DIST_SYNC_MISMATCH: duplicate gradient peer rank\n"
+        },
+        {
+          "rank": 1,
+          "exit_code": 1,
+          "stderr_tail": "Train error: E_DIST_RENDEZVOUS_CORRUPT: EOF while parsing a value at line 1 column 0\n"
+        },
+        {
+          "rank": 2,
+          "exit_code": 1,
+          "stderr_tail": "Train error: E_DIST_RENDEZVOUS_CORRUPT: EOF while parsing a value at line 1 column 0\n"
+        }
+      ]
+    },
+    {
+      "name": "aggregation_timeout",
+      "passed": true,
+      "fault_mode": "timeout",
+      "expected_errors": [
+        "E_DIST_SYNC_TIMEOUT"
+      ],
+      "observed_expected_error": true,
+      "rank_reports": [
+        {
+          "rank": 0,
+          "exit_code": 1,
+          "stderr_tail": "Train error: E_DIST_SYNC_TIMEOUT: gradient aggregation timed out waiting for peers after 750 ms\n"
+        },
+        {
+          "rank": 1,
+          "exit_code": 1,
+          "stderr_tail": "Train error: E_DIST_SYNC_TIMEOUT: fault-injected peer skipped gradient exchange\n"
+        }
+      ]
+    }
+  ],
+  "artifacts": {
+    "workspace": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_networked_gradient_adversarial",
+    "dataset_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_networked_gradient_adversarial\\data.txt"
+  }
+}

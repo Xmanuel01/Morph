@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "contract": "C:\\Users\\USER\\Desktop\\Morph\\enkai\\contracts\\v3_7_0_networked_throughput_regressions.json",
+  "generated_at_utc": "2026-05-05T14:04:01.661397+00:00",
+  "all_passed": true,
+  "cases": [
+    {
+      "name": "world_size_4.baseline",
+      "passed": true,
+      "combined_train_tokens_per_sec": 76.479,
+      "combined_eval_tokens_per_sec": 38400.0,
+      "checkpoint_merge_bytes_per_sec": 9859778.9,
+      "networked_gradient_bytes": 3550149
+    },
+    {
+      "name": "world_size_4.fault_injection",
+      "passed": true,
+      "combined_train_tokens_per_sec": 76.418,
+      "combined_eval_tokens_per_sec": 24000.0,
+      "checkpoint_merge_bytes_per_sec": 15487716.315,
+      "networked_gradient_bytes": 3550149
+    },
+    {
+      "name": "long_context.baseline",
+      "passed": true,
+      "combined_train_tokens_per_sec": 204.923,
+      "combined_eval_tokens_per_sec": 36571.429,
+      "checkpoint_merge_bytes_per_sec": 5510239.72,
+      "networked_gradient_bytes": 6138228
+    },
+    {
+      "name": "long_context.fault_injection",
+      "passed": true,
+      "combined_train_tokens_per_sec": 170.553,
+      "combined_eval_tokens_per_sec": 28444.444,
+      "checkpoint_merge_bytes_per_sec": 17538119.519,
+      "networked_gradient_bytes": 6138228
+    }
+  ],
+  "failures": []
+}

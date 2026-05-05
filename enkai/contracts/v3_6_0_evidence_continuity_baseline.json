@@ -1,0 +1,13 @@
+﻿{
+  "schema_version": 1,
+  "contract_version": "v3.6.0",
+  "scope": "evidence_continuity_baseline",
+  "generated_purpose": "Prove that the completed strict-selfhost line and the completed v3.4.0 and v3.5.0 closure baselines remain green while v3.6.0 records the next bounded program boundary.",
+  "required_files": [
+    "artifacts/readiness/strict_selfhost.json",
+    "artifacts/readiness/strict_selfhost_blockers.json",
+    "artifacts/readiness/strict_selfhost_dependency_inventory.json",
+    "artifacts/readiness/v3_4_0_closure.json",
+    "artifacts/readiness/v3_5_0_closure.json"
+  ]
+}

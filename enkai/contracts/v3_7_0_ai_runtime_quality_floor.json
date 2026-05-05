@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.7.0",
+  "scope": "v3_7_0_ai_runtime_quality_floor",
+  "required_artifacts": {
+    "realistic_workloads": "artifacts/readiness/v3_7_0_ai_runtime_realistic_workloads_verify.json",
+    "security_fault_baseline": "artifacts/readiness/v3_7_0_ai_runtime_security_fault_baseline.json",
+    "threaded_determinism": "artifacts/readiness/v3_7_0_ai_runtime_threaded_determinism_verify.json",
+    "shape_frontier": "artifacts/readiness/v3_7_0_ai_runtime_shape_frontier_verify.json",
+    "distributed_sync": "artifacts/readiness/v3_7_0_distributed_runtime_sync_verify.json",
+    "distributed_throughput": "artifacts/readiness/v3_7_0_distributed_runtime_throughput.json",
+    "networked_exec": "artifacts/readiness/v3_7_0_networked_rendezvous_exec_verify.json",
+    "networked_scale_exec": "artifacts/readiness/v3_7_0_networked_rendezvous_scale_exec_verify.json",
+    "networked_peer_adversarial": "artifacts/readiness/v3_7_0_networked_rendezvous_peer_adversarial_verify.json",
+    "networked_gradient_adversarial": "artifacts/readiness/v3_7_0_networked_gradient_adversarial_verify.json",
+    "long_context_sync": "artifacts/readiness/v3_7_0_distributed_runtime_long_context_sync_verify.json",
+    "networked_long_context": "artifacts/readiness/v3_7_0_networked_long_context_exec_verify.json",
+    "networked_throughput": "artifacts/readiness/v3_7_0_networked_throughput_regressions.json"
+  },
+  "score_threshold": 9.0,
+  "weights": {
+    "realistic_workloads": 1.0,
+    "security_fault_baseline": 1.25,
+    "threaded_determinism": 1.0,
+    "shape_frontier": 0.75,
+    "distributed_sync": 1.0,
+    "distributed_throughput": 0.75,
+    "networked_exec": 0.75,
+    "networked_scale_exec": 0.75,
+    "networked_peer_adversarial": 0.5,
+    "networked_gradient_adversarial": 0.25,
+    "long_context_sync": 0.75,
+    "networked_long_context": 0.5,
+    "networked_throughput": 0.5,
+    "doc_evidence": 0.5
+  },
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "Bounded AI runtime QA floor (done)"
+    ],
+    "README.md": [
+      "bounded AI runtime QA floor proof archived under `artifacts/readiness/v3_7_0_ai_runtime_quality_floor.json`"
+    ],
+    "CHANGELOG.md": [
+      "Added the bounded AI runtime QA floor tranche for `v3.7.0`."
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "Bounded AI Runtime QA Floor (v3.7.0)"
+    ]
+  }
+}

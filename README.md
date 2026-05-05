@@ -4,7 +4,7 @@ ENKAI PROGRAMMING LANGUAGE
 Overview
 Enkai is a programming language with block structure defined by :: tokens, a clean
 assignment operator (:=), and an AI-native roadmap (tools, agents, memory, policy).
-This repository contains the v3.5.0 release line in Rust.
+This repository contains the v3.7.0 release line in Rust.
 
 Strict self-host transition:
 - the `v3.1.0 -> v4.0.0` zero-Rust program is frozen in:
@@ -18,9 +18,36 @@ Strict self-host transition:
   - `enkai/contracts/selfhost_audited_surface_v3_1_1.json`
   - `docs/50_strict_selfhost_contract.md`
 
-Status (v3.5.0)
-- Release line: `v3.5.0`
-- Release state: CPU-complete / GPU operator sign-off pending
+Status (v3.7.0)
+- Release line: `v3.7.0`
+- Release state: closed
+- Global self-host AI runtime foundation:
+  - bounded `enkai_accel` single-node train/pretrain/eval suite
+  - deterministic checkpoint/report emission under `ai_runtime_report.json`
+  - pinned benchmark comparison against Python and the current `native` backend
+  - bounded memory/safety/security proof archived under `artifacts/readiness/v3_7_0_ai_runtime_foundation*.json`
+  - performance-delta proof archived under `artifacts/readiness/v3_7_0_ai_runtime_perf_deltas.json`
+  - threaded acceleration determinism proof archived under `artifacts/readiness/v3_7_0_ai_runtime_threaded_determinism.json`
+  - model-frontier and latency proof archived under `artifacts/readiness/v3_7_0_ai_runtime_shape_frontier.json`
+  - checkpoint/eval throughput proof archived under `artifacts/readiness/v3_7_0_ai_runtime_throughput_regressions.json`
+  - distributed-runtime design proof archived under `artifacts/readiness/v3_7_0_distributed_runtime_design.json`
+  - distributed-runtime execution proof archived under `artifacts/readiness/v3_7_0_distributed_runtime_exec.json`
+  - distributed synchronized-gradient proof archived under `artifacts/readiness/v3_7_0_distributed_runtime_sync.json`
+  - distributed throughput proof archived under `artifacts/readiness/v3_7_0_distributed_runtime_throughput.json`
+  - networked rendezvous design proof archived under `artifacts/readiness/v3_7_0_networked_rendezvous_design.json`
+  - networked rendezvous execution proof archived under `artifacts/readiness/v3_7_0_networked_rendezvous_exec.json`
+  - realistic AI workload benchmark proof archived under `artifacts/readiness/v3_7_0_ai_runtime_realistic_workloads.json`
+  - adversarial input/corruption proof archived under `artifacts/readiness/v3_7_0_ai_runtime_adversarial_inputs.json`
+  - AI runtime security/fault baseline proof archived under `artifacts/readiness/v3_7_0_ai_runtime_security_fault_baseline.json`
+  - bounded AI runtime QA floor proof archived under `artifacts/readiness/v3_7_0_ai_runtime_quality_floor.json`
+  - larger-world-size networked rendezvous design proof archived under `artifacts/readiness/v3_7_0_networked_rendezvous_scale_design.json`
+  - world-size 4 networked rendezvous execution proof archived under `artifacts/readiness/v3_7_0_networked_rendezvous_scale_exec.json`
+  - networked gradient exchange adversarial proof archived under `artifacts/readiness/v3_7_0_networked_gradient_adversarial.json`
+  - networked rendezvous adversarial peer-behavior proof archived under `artifacts/readiness/v3_7_0_networked_rendezvous_peer_adversarial.json`
+  - longer-context synchronized distributed workload proof archived under `artifacts/readiness/v3_7_0_distributed_runtime_long_context_sync.json`
+  - networked long-context execution proof archived under `artifacts/readiness/v3_7_0_networked_long_context_exec.json`
+  - networked throughput regression proof archived under `artifacts/readiness/v3_7_0_networked_throughput_regressions.json`
+  - v3.7.0 closure proof archived under `artifacts/readiness/v3_7_0_closure.json`
 - Bytecode VM + globals + type-checking
 - Module system with public/private exports
 - CLI: run/bench/readiness/deploy/model/serve/new/sdk/check/fmt/fmt-lite/lint-lite/tokenizer-lite/dataset-lite/litec/build/test/train/pretrain/eval/migrate/doctor
@@ -279,11 +306,3 @@ Apache 2.0
 
 Created by
 Emmanuel Odhiambo Onyango
-
-
-
-
-
-
-
-

@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.7.0",
+  "scope": "v3_7_0_closure",
+  "version": "3.7.0",
+  "generated_purpose": "Close the v3.7.0 global self-host AI runtime foundation line with required proof artifacts and version metadata.",
+  "version_files": [
+    "enkai/Cargo.toml",
+    "enkai_native/Cargo.toml",
+    "enkai_tensor/Cargo.toml",
+    "enkaic/Cargo.toml",
+    "enkairt/Cargo.toml",
+    "enkai.toml",
+    "README.md",
+    "CHANGELOG.md",
+    "docs/Enkai.spec",
+    "docs/README.md",
+    "docs/roadmap.md"
+  ],
+  "required_artifacts": {
+    "foundation": "artifacts/readiness/v3_7_0_ai_runtime_foundation_verify.json",
+    "perf_deltas": "artifacts/readiness/v3_7_0_ai_runtime_perf_deltas.json",
+    "threaded_determinism": "artifacts/readiness/v3_7_0_ai_runtime_threaded_determinism_verify.json",
+    "shape_frontier": "artifacts/readiness/v3_7_0_ai_runtime_shape_frontier_verify.json",
+    "throughput_regressions": "artifacts/readiness/v3_7_0_ai_runtime_throughput_regressions.json",
+    "distributed_design": "artifacts/readiness/v3_7_0_distributed_runtime_design.json",
+    "distributed_exec": "artifacts/readiness/v3_7_0_distributed_runtime_exec_verify.json",
+    "distributed_sync": "artifacts/readiness/v3_7_0_distributed_runtime_sync_verify.json",
+    "distributed_throughput": "artifacts/readiness/v3_7_0_distributed_runtime_throughput.json",
+    "realistic_workloads": "artifacts/readiness/v3_7_0_ai_runtime_realistic_workloads_verify.json",
+    "adversarial_inputs": "artifacts/readiness/v3_7_0_ai_runtime_adversarial_inputs_verify.json",
+    "security_fault_baseline": "artifacts/readiness/v3_7_0_ai_runtime_security_fault_baseline.json",
+    "quality_floor": "artifacts/readiness/v3_7_0_ai_runtime_quality_floor.json",
+    "networked_design": "artifacts/readiness/v3_7_0_networked_rendezvous_design.json",
+    "networked_exec": "artifacts/readiness/v3_7_0_networked_rendezvous_exec_verify.json",
+    "networked_scale_design": "artifacts/readiness/v3_7_0_networked_rendezvous_scale_design.json",
+    "networked_scale_exec": "artifacts/readiness/v3_7_0_networked_rendezvous_scale_exec_verify.json",
+    "networked_peer_adversarial": "artifacts/readiness/v3_7_0_networked_rendezvous_peer_adversarial_verify.json",
+    "networked_gradient_adversarial": "artifacts/readiness/v3_7_0_networked_gradient_adversarial_verify.json",
+    "long_context_sync": "artifacts/readiness/v3_7_0_distributed_runtime_long_context_sync_verify.json",
+    "networked_long_context": "artifacts/readiness/v3_7_0_networked_long_context_exec_verify.json",
+    "networked_throughput": "artifacts/readiness/v3_7_0_networked_throughput_regressions.json"
+  },
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "v3.7.0 (done)",
+      "Full v3.7.0 closure verifier (done)"
+    ],
+    "README.md": [
+      "Release state: closed",
+      "v3.7.0 closure proof archived under `artifacts/readiness/v3_7_0_closure.json`"
+    ],
+    "CHANGELOG.md": [
+      "Added the full `v3.7.0` closure verifier."
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "Full v3.7.0 Closure"
+    ]
+  }
+}

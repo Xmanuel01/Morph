@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.7.0",
+  "scope": "v3_7_0_networked_rendezvous_scale_exec",
+  "generated_purpose": "Execute the frozen world_size=4 tcp:// networked rendezvous tranche before widening the networked execution envelope further.",
+  "suite": "bench/suites/v3_7_0_ai_runtime_foundation.json",
+  "output_report": "artifacts/readiness/v3_7_0_networked_rendezvous_scale_exec.json",
+  "world_size": 4,
+  "min_retry_count": 1,
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "World-size 4 networked rendezvous execution proof (done)"
+    ],
+    "README.md": [
+      "world-size 4 networked rendezvous execution proof archived under `artifacts/readiness/v3_7_0_networked_rendezvous_scale_exec.json`"
+    ],
+    "CHANGELOG.md": [
+      "Added the world-size 4 networked rendezvous execution tranche for `v3.7.0`."
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "World-Size 4 Networked Rendezvous Execution (v3.7.0)"
+    ]
+  }
+}

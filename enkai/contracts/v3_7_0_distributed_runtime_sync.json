@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.7.0",
+  "scope": "v3_7_0_distributed_runtime_sync",
+  "generated_purpose": "Execute the first bounded synchronized-gradient distributed-runtime tranche and prove merged checkpoint replay.",
+  "suite": "bench/suites/v3_7_0_ai_runtime_foundation.json",
+  "output_report": "artifacts/readiness/v3_7_0_distributed_runtime_sync.json",
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "Synchronized-gradient distributed preview with checkpoint merge/replay proof (done)"
+    ],
+    "README.md": [
+      "distributed synchronized-gradient proof archived under `artifacts/readiness/v3_7_0_distributed_runtime_sync.json`"
+    ],
+    "CHANGELOG.md": [
+      "Added the sixth `v3.7.0` tranche for synchronized-gradient distributed preview and checkpoint merge/replay proof."
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "Synchronized Distributed Preview and Checkpoint Merge/Replay (v3.7.0)"
+    ]
+  }
+}

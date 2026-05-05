@@ -2,11 +2,290 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current release line is v3.5.0.
+- Current release line is v3.7.0 closed.
 - `v3.3.0` closed the strict-selfhost shipped-surface objective set.
 - Next major program line remains `v3.1.0 -> v4.0.0` zero-Rust strict self-hosting, with post-closure scope now moving past the shipped-surface completion proof.
 - v2.6.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v3.7.0 (done)
+- Global self-host AI runtime foundation (done):
+  - starts the first implementation tranche of the broader global self-host program instead of another shipped-surface closure line
+  - freezes the bounded frontier as:
+    - single-node training
+    - single-node pretraining
+    - deterministic eval
+    - checkpoint save/load and resume
+    - dataset ingest for the frozen suite
+    - no distributed training in this tranche
+  - adds the explicit `enkai_accel` backend class for `enkai train`, `enkai pretrain`, and `enkai eval`
+  - keeps the current Rust/native tensor path available only as migration-time comparison/fallback, not as the success criterion
+  - archives bounded benchmark evidence against:
+    - Python reference execution on the pinned suite
+    - the current `native` backend for regression tracking
+  - archives bounded memory/safety/security evidence for:
+    - OOM-budget enforcement
+    - invalid backend selection
+    - invalid runtime state
+    - corrupted checkpoint handling
+    - deterministic backend-selection and fallback reporting
+  - emits:
+    - `bench/suites/v3_7_0_ai_runtime_foundation.json`
+    - `enkai/contracts/v3_7_0_ai_runtime_foundation.json`
+    - `artifacts/readiness/v3_7_0_ai_runtime_foundation.json`
+    - `artifacts/readiness/v3_7_0_ai_runtime_foundation_verify.json`
+  - exit state for this tranche:
+    - the repository has an explicit machine-verifiable AI runtime foundation baseline for the global self-host program instead of only a version bump
+- Performance delta gates (done):
+  - replaces the original tiny benchmark with a stronger pinned benchmark suite
+  - archives explicit deltas for:
+    - Enkai `enkai_accel` vs Python
+    - Enkai `enkai_accel` vs current CPU scalar path
+    - Enkai `enkai_accel` vs current `native` comparison/fallback path
+  - adds regression gates for:
+    - peak memory versus the CPU scalar baseline
+    - checkpoint overhead versus the CPU scalar baseline
+  - emits:
+    - `enkai/contracts/v3_7_0_ai_runtime_perf_deltas.json`
+    - `artifacts/readiness/v3_7_0_ai_runtime_perf_deltas.json`
+  - exit state for this tranche:
+    - performance evidence is frozen as explicit machine-verifiable deltas instead of informal expectations
+- Threaded acceleration determinism gates (done):
+  - upgrades `enkai_accel` to a deterministic multithreaded execution path for the bounded suite
+  - requires repeated bounded-suite runs to keep:
+    - worker-count selection stable
+    - train-report hashes stable
+    - checkpoint hashes stable
+    - loss values stable
+  - emits:
+    - `enkai/contracts/v3_7_0_ai_runtime_threaded_determinism.json`
+    - `artifacts/readiness/v3_7_0_ai_runtime_threaded_determinism.json`
+  - exit state for this tranche:
+    - multithreaded acceleration is no longer only a performance change; it is explicitly locked behind determinism proof
+- Broader model-shape frontier and latency baselines (done):
+  - pushes `enkai_accel` beyond the original TinyLM-style bounded kernel by proving additional bounded residual-stack model shapes
+  - adds explicit baselines for:
+    - checkpoint resume latency
+    - eval-only latency
+  - emits:
+    - `enkai/contracts/v3_7_0_ai_runtime_shape_frontier.json`
+    - `artifacts/readiness/v3_7_0_ai_runtime_shape_frontier.json`
+  - exit state for this tranche:
+    - broader bounded model-shape coverage and latency baselines are machine-verifiable instead of implied
+- Distributed runtime design freeze (done):
+  - starts the first distributed-runtime design tranche without widening execution beyond the bounded single-node frontier
+  - keeps `distributed_training = false` in the proof boundary while freezing the design surface in machine-verifiable form
+  - emits:
+    - `enkai/contracts/v3_7_0_distributed_runtime_design.json`
+    - `artifacts/readiness/v3_7_0_distributed_runtime_design.json`
+  - exit state for this tranche:
+    - distributed-runtime work is explicitly contract-frozen before execution scope is widened
+- Checkpoint/eval throughput regression gates (done):
+  - adds explicit bounded throughput gates for:
+    - checkpoint resume throughput
+    - eval-only throughput
+  - emits:
+    - `enkai/contracts/v3_7_0_ai_runtime_throughput_regressions.json`
+    - `artifacts/readiness/v3_7_0_ai_runtime_throughput_regressions.json`
+  - exit state for this tranche:
+    - checkpoint/eval throughput is contract-frozen instead of only implied by latency ratios
+- Executable distributed-runtime rank-sharded preview (done):
+  - widens the earlier design freeze into the first executable distributed-runtime tranche
+  - keeps the scope bounded to:
+    - `enkai_accel`
+    - single-host rank-sharded preview
+    - no synchronized gradient exchange
+  - emits:
+    - `enkai/contracts/v3_7_0_distributed_runtime_exec.json`
+    - `artifacts/readiness/v3_7_0_distributed_runtime_exec.json`
+    - `artifacts/readiness/v3_7_0_distributed_runtime_exec_verify.json`
+  - exit state for this tranche:
+    - distributed-runtime execution exists as a bounded preview without overstating it as full distributed training
+- Synchronized-gradient distributed preview with checkpoint merge/replay proof (done):
+  - widens the executable preview into the first bounded synchronized-gradient distributed-runtime tranche
+  - keeps the scope bounded to:
+    - `enkai_accel`
+    - single-host synchronized-gradient preview
+    - deterministic merged checkpoint replay proof
+    - no broader multi-rank training claim beyond the frozen proof surface
+  - emits:
+    - `enkai/contracts/v3_7_0_distributed_runtime_sync.json`
+    - `artifacts/readiness/v3_7_0_distributed_runtime_sync.json`
+    - `artifacts/readiness/v3_7_0_distributed_runtime_sync_verify.json`
+  - exit state for this tranche:
+    - synchronized gradient aggregation and distributed checkpoint merge/replay are machine-verifiable before any broader multi-rank training claim
+- Synchronized distributed shape envelope and throughput gates (done):
+  - widens the synchronized preview into a larger hidden-size/layer envelope while keeping determinism frozen
+  - adds explicit distributed throughput gates for:
+    - combined train throughput
+    - combined eval throughput
+    - checkpoint merge throughput
+  - emits:
+    - `enkai/contracts/v3_7_0_distributed_runtime_throughput.json`
+    - `artifacts/readiness/v3_7_0_distributed_runtime_sync.json`
+    - `artifacts/readiness/v3_7_0_distributed_runtime_throughput.json`
+  - exit state for this tranche:
+    - wider synchronized-preview model coverage and distributed throughput expectations are machine-verifiable
+- Networked multi-process rendezvous design freeze (done):
+  - starts the first networked distributed-runtime tranche only as a frozen contract surface
+  - keeps execution out of scope while freezing:
+    - multi-process topology
+    - multi-node rendezvous
+    - bounded synchronization scope for the next execution tranche
+  - emits:
+    - `enkai/contracts/v3_7_0_networked_rendezvous_design.json`
+    - `artifacts/readiness/v3_7_0_networked_rendezvous_design.json`
+  - exit state for this tranche:
+    - networked rendezvous work is explicitly contract-frozen before execution scope is widened
+- Executable networked multi-process rendezvous preview with barrier/retry fault injection (done):
+  - executes the first bounded networked rendezvous preview on the frozen `tcp://` surface
+  - keeps the scope bounded to:
+    - `enkai_accel`
+    - `multi-node` topology on loopback
+    - bounded barrier/retry fault injection
+    - no claim of broader distributed training beyond the frozen preview
+  - emits:
+    - `enkai/contracts/v3_7_0_networked_rendezvous_exec.json`
+    - `artifacts/readiness/v3_7_0_networked_rendezvous_exec.json`
+    - `artifacts/readiness/v3_7_0_networked_rendezvous_exec_verify.json`
+  - exit state for this tranche:
+    - executable TCP rendezvous and bounded retry-path evidence are machine-verifiable before any wider distributed execution claim
+- Realistic AI workload benchmark matrix (done):
+  - widens performance evidence from a single pinned bounded suite into a small realistic workload matrix
+  - freezes representative benchmark categories for:
+    - instruction-style supervised fine-tuning
+    - retrieval-style QA/context training
+    - code-completion style operator snippets
+    - longer-context incident/timeline summarization
+    - longer-context policy/retrieval chaining
+  - requires each workload to archive:
+    - Enkai `enkai_accel` train/eval evidence
+    - CPU scalar comparison
+    - Python comparison
+    - native comparison/fallback evidence
+    - memory/checkpoint regression gates
+  - emits:
+    - `bench/suites/v3_7_0_ai_runtime_realistic_workloads.json`
+    - `enkai/contracts/v3_7_0_ai_runtime_realistic_workloads.json`
+    - `artifacts/readiness/v3_7_0_ai_runtime_realistic_workloads.json`
+    - `artifacts/readiness/v3_7_0_ai_runtime_realistic_workloads_verify.json`
+  - exit state for this tranche:
+    - broader workload realism is machine-verifiable instead of being inferred from a single benchmark
+- Adversarial input corruption coverage (done):
+  - adds explicit bounded corruption/fuzz-style evidence for the AI runtime surface
+  - requires deterministic failure coverage for:
+    - malformed config payloads
+    - invalid multi-node rendezvous settings
+    - malformed preview modes
+    - corrupted checkpoint payloads
+  - emits:
+    - `enkai/contracts/v3_7_0_ai_runtime_adversarial_inputs.json`
+    - `artifacts/readiness/v3_7_0_ai_runtime_adversarial_inputs.json`
+    - `artifacts/readiness/v3_7_0_ai_runtime_adversarial_inputs_verify.json`
+  - exit state for this tranche:
+    - bounded adversarial/corruption handling is proof-backed instead of only implied by nominal-path tests
+- Bounded AI runtime QA floor (done):
+  - computes a contract-defined QA floor for the bounded `v3.7.0` AI runtime surface
+  - requires green evidence for:
+    - realistic workload matrix
+    - AI runtime security/fault baseline
+    - threaded determinism
+    - shape frontier
+    - synchronized distributed proof
+    - distributed throughput proof
+    - networked rendezvous execution proof
+  - emits:
+    - `enkai/contracts/v3_7_0_ai_runtime_quality_floor.json`
+    - `artifacts/readiness/v3_7_0_ai_runtime_quality_floor.json`
+  - exit state for this tranche:
+    - the bounded AI runtime surface carries an explicit QA floor instead of an informal score claim
+- AI runtime security and fault baseline (done):
+  - freezes a bounded security/fault proof surface for the `v3.7.0` AI runtime line
+  - requires green evidence for:
+    - memory safety failure taxonomy
+    - adversarial input/corruption coverage
+    - deterministic backend/fallback reporting
+    - no hidden Rust requirement on the shipped strict-selfhost path
+    - networked rendezvous retry/fault injection preserving checkpoint semantics
+  - emits:
+    - `enkai/contracts/v3_7_0_ai_runtime_security_fault_baseline.json`
+    - `artifacts/readiness/v3_7_0_ai_runtime_security_fault_baseline.json`
+  - exit state for this tranche:
+    - bounded runtime security/fault posture is backed by proof instead of only narrative claims
+- Larger-world-size networked rendezvous design freeze (done):
+  - freezes the first wider-than-two-rank networked rendezvous surface before execution widening
+  - keeps execution out of scope while freezing:
+    - `multi-node` `tcp://` rendezvous
+    - `world_size >= 3`
+    - multi-process preview topology
+    - explicit precondition that the 2-rank executable proof stays green first
+  - emits:
+    - `enkai/contracts/v3_7_0_networked_rendezvous_scale_design.json`
+    - `artifacts/readiness/v3_7_0_networked_rendezvous_scale_design.json`
+  - exit state for this tranche:
+    - larger-world-size networked widening is contract-frozen before execution expands
+- World-size 4 networked rendezvous execution proof (done):
+  - executes the frozen `world_size = 4` `tcp://` rendezvous surface
+  - requires baseline and retry fault-injection runs to preserve identical checkpoint semantics across all ranks
+  - requires `tcp://` gradient payload exchange, merged checkpoint replay, and train/eval/checkpoint throughput gates
+  - emits:
+    - `enkai/contracts/v3_7_0_networked_rendezvous_scale_exec.json`
+    - `artifacts/readiness/v3_7_0_networked_rendezvous_scale_exec.json`
+    - `artifacts/readiness/v3_7_0_networked_rendezvous_scale_exec_verify.json`
+  - exit state for this tranche:
+    - wider networked execution is proof-backed before the envelope expands again
+- Networked gradient exchange and adversarial transport proof (done):
+  - moves gradient aggregation for `networked-sync-preview` onto the `tcp://` networked surface
+  - proves ranks exchange gradient payloads over the rendezvous transport instead of using the local/shared coordination path
+  - covers deterministic failure cases for peer disconnect, stale step payload, wrong tensor length, duplicate rank payload, and aggregation timeout
+  - emits:
+    - `enkai/contracts/v3_7_0_networked_gradient_adversarial.json`
+    - `artifacts/readiness/v3_7_0_networked_gradient_adversarial.json`
+    - `artifacts/readiness/v3_7_0_networked_gradient_adversarial_verify.json`
+  - exit state for this tranche:
+    - networked gradient aggregation has transport-level proof before networked execution is widened again
+- Networked rendezvous adversarial peer-behavior proof (done):
+  - proves deterministic rejection of malformed peer JSON, metadata mismatch, out-of-range rank, and duplicate peer rank behavior
+  - emits:
+    - `enkai/contracts/v3_7_0_networked_rendezvous_peer_adversarial.json`
+    - `artifacts/readiness/v3_7_0_networked_rendezvous_peer_adversarial.json`
+    - `artifacts/readiness/v3_7_0_networked_rendezvous_peer_adversarial_verify.json`
+  - exit state for this tranche:
+    - networked rendezvous fault coverage includes hostile peer behavior, not only delayed listener retry
+- Longer-context synchronized distributed workloads (done):
+  - adds synchronized distributed workloads with longer sequence lengths before widening networked execution further
+  - keeps the proof bounded to single-host synchronized preview and checkpoint merge/replay semantics
+  - emits:
+    - `enkai/contracts/v3_7_0_distributed_runtime_long_context_sync.json`
+    - `artifacts/readiness/v3_7_0_distributed_runtime_long_context_sync.json`
+    - `artifacts/readiness/v3_7_0_distributed_runtime_long_context_sync_verify.json`
+  - exit state for this tranche:
+    - synchronized distributed evidence is less short-context-biased before broader networked execution claims
+- Networked long-context execution proof (done):
+  - executes longer-context `world_size = 4` networked `tcp://` gradient exchange
+  - requires merged checkpoint replay and throughput gates under baseline and retry fault-injection runs
+  - emits:
+    - `enkai/contracts/v3_7_0_networked_long_context_exec.json`
+    - `artifacts/readiness/v3_7_0_networked_long_context_exec.json`
+    - `artifacts/readiness/v3_7_0_networked_long_context_exec_verify.json`
+  - exit state for this tranche:
+    - networked execution evidence is no longer only short-context biased
+- Networked throughput regression gates (done):
+  - freezes explicit networked train/eval/checkpoint/gradient throughput gates
+  - requires the `world_size = 4` and networked long-context execution artifacts to stay green
+  - emits:
+    - `enkai/contracts/v3_7_0_networked_throughput_regressions.json`
+    - `artifacts/readiness/v3_7_0_networked_throughput_regressions.json`
+  - exit state for this tranche:
+    - networked throughput evidence is a parent gate, not only embedded in execution reports
+- Full v3.7.0 closure verifier (done):
+  - closes the version line against all bounded AI runtime, distributed, networked, security, QA, and throughput artifacts
+  - verifies version metadata is aligned to `3.7.0`
+  - emits:
+    - `enkai/contracts/v3_7_0_closure.json`
+    - `artifacts/readiness/v3_7_0_closure.json`
+  - exit state for this tranche:
+    - `v3.7.0` is closed with machine-verifiable release evidence
 
 v3.5.0 (done)
 - Release-line start baseline (done):
@@ -918,9 +1197,3 @@ v0.3 (done)
 - Local path dependencies in Enkai.toml
 - Expand stdlib: strings + fs (policy-gated)
 - Keep AI primitives as stubs unless testable
-
-
-
-
-
-

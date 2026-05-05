@@ -61,6 +61,8 @@ pub(crate) struct TrainConfig {
     pub(crate) seed: Option<u64>,
     pub(crate) shuffle: bool,
     pub(crate) prefetch_batches: usize,
+    pub(crate) oom_budget_bytes: Option<u64>,
+    pub(crate) suite_id: Option<String>,
     pub(crate) world_size: usize,
     pub(crate) rank: usize,
     pub(crate) dist: DistOrchestration,
@@ -106,6 +108,7 @@ pub(crate) struct DistOrchestration {
     rendezvous: String,
     retry_budget: usize,
     device_map: Vec<usize>,
+    preview_mode: String,
 }
 
 impl DistOrchestration {
@@ -119,6 +122,7 @@ impl DistOrchestration {
             rendezvous: "env://".to_string(),
             retry_budget: 3,
             device_map: (0..world_size.max(1)).collect(),
+            preview_mode: "none".to_string(),
         }
     }
 }
@@ -1722,7 +1726,29 @@ fn parse_train_config_inner(
     let vocab_size = record_usize(model_ref, "vocab_size")?;
     let hidden_size = record_usize(model_ref, "hidden_size")?;
     let preset = record_string_default(model_ref, "preset", "tinylm");
-    let preset_defaults = model_preset_defaults(&preset, hidden_size)?;
+    let preset_defaults = match model_preset_defaults(&preset, hidden_size) {
+        Ok(defaults) => defaults,
+        Err(err)
+            if model_ref.contains_key("n_layers")
+                && model_ref.contains_key("n_heads")
+                && model_ref.contains_key("ff_mult")
+                && model_ref.contains_key("activation")
+                && model_ref.contains_key("norm")
+                && model_ref.contains_key("tie_embeddings") =>
+        {
+            ModelPreset {
+                d_model: hidden_size,
+                n_layers: 1,
+                n_heads: 1,
+                ff_mult: 1.0,
+                activation: "gelu",
+                norm: "layernorm",
+                tie_embeddings: false,
+                dropout: 0.0,
+            }
+        }
+        Err(err) => return Err(err),
+    };
     let d_model = record_usize_default(model_ref, "d_model", preset_defaults.d_model);
     let n_layers = record_usize_default(model_ref, "n_layers", preset_defaults.n_layers);
     let n_heads = record_usize_default(model_ref, "n_heads", preset_defaults.n_heads);
@@ -1776,6 +1802,12 @@ fn parse_train_config_inner(
         return Err("shuffle requires seed".to_string());
     }
     let prefetch_batches = record_usize_default(map, "prefetch_batches", 0);
+    let oom_budget_bytes = match map.get("oom_budget_bytes") {
+        Some(Value::Int(i)) if *i >= 0 => Some(*i as u64),
+        Some(_) => return Err("oom_budget_bytes must be Int >= 0".to_string()),
+        None => None,
+    };
+    let suite_id = map.get("suite_id").and_then(|v| as_string(v).ok());
     let world_size = record_usize_default(map, "world_size", 1);
     let rank = record_usize_default(map, "rank", 0);
     if world_size == 0 {
@@ -1789,10 +1821,28 @@ fn parse_train_config_inner(
             "world_size > 1 requires ENKAI_ENABLE_DIST=1 (explicit distributed opt-in)".to_string(),
         );
     }
-    if backend == "cpu" && world_size > 1 {
-        return Err("world_size > 1 requires backend = \"native\"".to_string());
-    }
     let dist = parse_dist_orchestration(map, world_size, rank)?;
+    if world_size > 1 {
+        match backend.as_str() {
+            "native" => {}
+            "enkai_accel"
+                if dist.preview_mode == "rank-sharded-preview"
+                    && dist.topology == "single-node" => {}
+            "enkai_accel"
+                if dist.preview_mode == "synchronized-grad-preview"
+                    && dist.topology == "single-node" => {}
+            "enkai_accel"
+                if dist.preview_mode == "networked-sync-preview"
+                    && dist.topology == "multi-node" => {}
+            "enkai_accel" => {
+                return Err(
+                    "world_size > 1 with backend = \"enkai_accel\" requires dist.preview_mode = \"rank-sharded-preview\" or \"synchronized-grad-preview\" with dist.topology = \"single-node\", or dist.preview_mode = \"networked-sync-preview\" with dist.topology = \"multi-node\""
+                        .to_string(),
+                )
+            }
+            _ => return Err("world_size > 1 requires backend = \"native\"".to_string()),
+        }
+    }
     if backend == "native" && world_size > 1 && device.starts_with("cuda") {
         device = format!("cuda:{}", dist.device_map[rank]);
     }
@@ -1896,6 +1946,8 @@ fn parse_train_config_inner(
         seed,
         shuffle,
         prefetch_batches,
+        oom_budget_bytes,
+        suite_id,
         world_size,
         rank,
         dist,
@@ -1966,6 +2018,15 @@ fn train_config_to_json(config: &TrainConfig) -> serde_json::Value {
         "prefetch_batches".to_string(),
         serde_json::json!(config.prefetch_batches),
     );
+    if let Some(oom_budget_bytes) = config.oom_budget_bytes {
+        map.insert(
+            "oom_budget_bytes".to_string(),
+            serde_json::json!(oom_budget_bytes),
+        );
+    }
+    if let Some(suite_id) = &config.suite_id {
+        map.insert("suite_id".to_string(), serde_json::json!(suite_id));
+    }
     map.insert(
         "world_size".to_string(),
         serde_json::json!(config.world_size),
@@ -1978,6 +2039,7 @@ fn train_config_to_json(config: &TrainConfig) -> serde_json::Value {
             "rendezvous": config.dist.rendezvous,
             "retry_budget": config.dist.retry_budget,
             "device_map": config.dist.device_map,
+            "preview_mode": config.dist.preview_mode,
         }),
     );
     map.insert(
@@ -2344,6 +2406,8 @@ fn parse_dist_orchestration(
         dist.topology = record_string_default(&dmap, "topology", &dist.topology).to_lowercase();
         dist.rendezvous = record_string_default(&dmap, "rendezvous", &dist.rendezvous);
         dist.retry_budget = record_usize_default(&dmap, "retry_budget", dist.retry_budget);
+        dist.preview_mode =
+            record_string_default(&dmap, "preview_mode", &dist.preview_mode).to_lowercase();
         if let Some(device_map_value) = dmap.get("device_map") {
             dist.device_map = parse_device_map(device_map_value, world_size)?;
         }
@@ -2352,6 +2416,7 @@ fn parse_dist_orchestration(
     if world_size <= 1 {
         dist.topology = "standalone".to_string();
         dist.device_map = vec![0];
+        dist.preview_mode = "none".to_string();
         return Ok(dist);
     }
 
@@ -2369,6 +2434,15 @@ fn parse_dist_orchestration(
             "dist.rendezvous cannot be env:// for multi-node topology; set tcp://<host>:<port>"
                 .to_string(),
         );
+    }
+    if !matches!(
+        dist.preview_mode.as_str(),
+        "none" | "rank-sharded-preview" | "synchronized-grad-preview" | "networked-sync-preview"
+    ) {
+        return Err(format!(
+            "dist.preview_mode must be \"none\", \"rank-sharded-preview\", \"synchronized-grad-preview\", or \"networked-sync-preview\" (found {})",
+            dist.preview_mode
+        ));
     }
     if dist.device_map.len() != world_size {
         return Err(format!(
@@ -2527,8 +2601,8 @@ fn validate_model_architecture(
         return Err("ff_mult must be finite and > 0".to_string());
     }
     let activation = activation.trim().to_ascii_lowercase();
-    if !matches!(activation.as_str(), "gelu" | "relu" | "silu") {
-        return Err("activation must be one of: gelu, relu, silu".to_string());
+    if !matches!(activation.as_str(), "gelu" | "relu" | "silu" | "tanh") {
+        return Err("activation must be one of: gelu, relu, silu, tanh".to_string());
     }
     let norm = norm.trim().to_ascii_lowercase();
     if !matches!(norm.as_str(), "layernorm" | "rmsnorm") {
@@ -2542,9 +2616,9 @@ fn validate_model_architecture(
 
 fn validate_backend(backend: &str) -> Result<(), String> {
     match backend {
-        "cpu" | "native" => Ok(()),
+        "cpu" | "native" | "enkai_accel" => Ok(()),
         _ => Err(format!(
-            "Unsupported backend {} (expected \"cpu\" or \"native\")",
+            "E_BACKEND_INVALID: Unsupported backend {} (expected \"cpu\", \"native\", or \"enkai_accel\")",
             backend
         )),
     }
@@ -2561,9 +2635,12 @@ fn validate_dtype(dtype: &str) -> Result<(), String> {
 }
 
 fn validate_device(device: &str, backend: &str) -> Result<(), String> {
-    if backend == "cpu" {
+    if matches!(backend, "cpu" | "enkai_accel") {
         if device != "cpu" {
-            return Err("device must be \"cpu\" when backend is \"cpu\"".to_string());
+            return Err(format!(
+                "E_DEVICE_INVALID: device must be \"cpu\" when backend is \"{}\"",
+                backend
+            ));
         }
         return Ok(());
     }
@@ -2575,7 +2652,7 @@ fn validate_device(device: &str, backend: &str) -> Result<(), String> {
             return Ok(());
         }
     }
-    Err("device must be \"cpu\", \"cuda\", or \"cuda:<index>\"".to_string())
+    Err("E_DEVICE_INVALID: device must be \"cpu\", \"cuda\", or \"cuda:<index>\"".to_string())
 }
 
 fn dist_env_enabled() -> bool {
@@ -3955,6 +4032,45 @@ mod tests {
     }
 
     #[test]
+    fn parse_custom_model_shape_preset_with_explicit_fields() {
+        let _env_guard = crate::env_guard();
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("custom_arch_config.enk");
+        let config = serde_json::json!({
+            "config_version": 1,
+            "backend": "enkai_accel",
+            "seq_len": 16,
+            "batch_size": 2,
+            "lr": 0.001,
+            "dataset_path": "data.txt",
+            "checkpoint_dir": "ckpt",
+            "max_steps": 2,
+            "tokenizer_train": {"path": "data.txt", "vocab_size": 96},
+            "model": {
+                "vocab_size": 96,
+                "hidden_size": 48,
+                "preset": "residual_stack_relu",
+                "n_layers": 2,
+                "n_heads": 2,
+                "ff_mult": 1.5,
+                "activation": "relu",
+                "norm": "rmsnorm",
+                "tie_embeddings": false
+            }
+        });
+        write_config(&config_path, &config).expect("write config");
+        let value = load_config_value(&config_path).expect("load config");
+        let parsed = parse_train_config(&value).expect("parse");
+        assert_eq!(parsed.model.preset, "residual_stack_relu");
+        assert_eq!(parsed.model.n_layers, 2);
+        assert_eq!(parsed.model.n_heads, 2);
+        assert!((parsed.model.ff_mult - 1.5).abs() < f32::EPSILON);
+        assert_eq!(parsed.model.activation, "relu");
+        assert_eq!(parsed.model.norm, "rmsnorm");
+        assert!(!parsed.model.tie_embeddings);
+    }
+
+    #[test]
     fn parse_model_architecture_rejects_invalid_activation() {
         let _env_guard = crate::env_guard();
         let dir = tempdir().expect("tempdir");
@@ -4022,6 +4138,71 @@ mod tests {
         assert_eq!(parsed.retention_recent, 5);
         assert_eq!(parsed.retention_milestone_every, 20);
         assert_eq!(parsed.retention_milestone_keep, 3);
+    }
+
+    #[test]
+    fn parse_enkai_accel_backend_with_oom_budget_and_suite_id() {
+        let _env_guard = crate::env_guard();
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("enkai_accel_config.enk");
+        let config = serde_json::json!({
+            "config_version": 1,
+            "backend": "enkai_accel",
+            "vocab_size": 128,
+            "hidden_size": 64,
+            "seq_len": 8,
+            "batch_size": 2,
+            "lr": 0.001,
+            "dataset_path": "data.txt",
+            "checkpoint_dir": "ckpt",
+            "max_steps": 2,
+            "oom_budget_bytes": 4096,
+            "suite_id": "v3_7_0_ai_runtime_foundation",
+            "tokenizer_train": {"path": "data.txt", "vocab_size": 128},
+            "model": {
+                "vocab_size": 128,
+                "hidden_size": 64,
+                "device": "cpu"
+            }
+        });
+        write_config(&config_path, &config).expect("write config");
+        let value = load_config_value(&config_path).expect("load config");
+        let parsed = parse_train_config(&value).expect("parse");
+        assert_eq!(parsed.backend, "enkai_accel");
+        assert_eq!(parsed.oom_budget_bytes, Some(4096));
+        assert_eq!(
+            parsed.suite_id.as_deref(),
+            Some("v3_7_0_ai_runtime_foundation")
+        );
+    }
+
+    #[test]
+    fn parse_enkai_accel_backend_rejects_non_cpu_device() {
+        let _env_guard = crate::env_guard();
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("enkai_accel_bad_device.enk");
+        let config = serde_json::json!({
+            "config_version": 1,
+            "backend": "enkai_accel",
+            "vocab_size": 128,
+            "hidden_size": 64,
+            "seq_len": 8,
+            "batch_size": 2,
+            "lr": 0.001,
+            "dataset_path": "data.txt",
+            "checkpoint_dir": "ckpt",
+            "max_steps": 2,
+            "tokenizer_train": {"path": "data.txt", "vocab_size": 128},
+            "model": {
+                "vocab_size": 128,
+                "hidden_size": 64,
+                "device": "cuda"
+            }
+        });
+        write_config(&config_path, &config).expect("write config");
+        let value = load_config_value(&config_path).expect("load config");
+        let err = parse_train_config(&value).expect_err("device validation must fail");
+        assert!(err.contains("E_DEVICE_INVALID"));
     }
 
     #[test]
@@ -4113,6 +4294,155 @@ mod tests {
         assert_eq!(parsed.dist.retry_budget, 5);
         assert_eq!(parsed.dist.device_map, vec![1, 0]);
         assert_eq!(parsed.model.device, "cuda:0");
+
+        if let Some(value) = prev {
+            std::env::set_var("ENKAI_ENABLE_DIST", value);
+        } else {
+            std::env::remove_var("ENKAI_ENABLE_DIST");
+        }
+    }
+
+    #[test]
+    fn distributed_parse_allows_enkai_accel_rank_sharded_preview() {
+        let _env_guard = crate::env_guard();
+        let prev = std::env::var("ENKAI_ENABLE_DIST").ok();
+        std::env::set_var("ENKAI_ENABLE_DIST", "1");
+
+        let dir = tempdir().expect("tempdir");
+        let data = dir.path().join("dist_accel_preview_data.txt");
+        fs::write(&data, "alpha beta gamma\ndelta epsilon").expect("write data");
+        let ckpt = dir.path().join("dist_accel_preview_ckpt");
+        let config_path = dir.path().join("dist_accel_preview_config.enk");
+        let config = serde_json::json!({
+            "config_version": 1,
+            "backend": "enkai_accel",
+            "vocab_size": 8,
+            "hidden_size": 4,
+            "seq_len": 4,
+            "batch_size": 2,
+            "lr": 0.1,
+            "dataset_path": data.to_string_lossy(),
+            "checkpoint_dir": ckpt.to_string_lossy(),
+            "max_steps": 1,
+            "save_every": 1,
+            "log_every": 1,
+            "world_size": 2,
+            "rank": 1,
+            "dist": {
+                "topology": "single-node",
+                "rendezvous": "env://",
+                "retry_budget": 1,
+                "device_map": "0,1",
+                "preview_mode": "rank-sharded-preview"
+            },
+            "tokenizer_train": { "path": data.to_string_lossy(), "vocab_size": 8 }
+        });
+        write_config(&config_path, &config).expect("write config");
+        let value = load_config_value(&config_path).expect("load config value");
+        let parsed = parse_train_config(&value).expect("dist parse");
+        assert_eq!(parsed.world_size, 2);
+        assert_eq!(parsed.rank, 1);
+        assert_eq!(parsed.dist.preview_mode, "rank-sharded-preview");
+
+        if let Some(value) = prev {
+            std::env::set_var("ENKAI_ENABLE_DIST", value);
+        } else {
+            std::env::remove_var("ENKAI_ENABLE_DIST");
+        }
+    }
+
+    #[test]
+    fn distributed_parse_allows_enkai_accel_synchronized_grad_preview() {
+        let _env_guard = crate::env_guard();
+        let prev = std::env::var("ENKAI_ENABLE_DIST").ok();
+        std::env::set_var("ENKAI_ENABLE_DIST", "1");
+
+        let dir = tempdir().expect("tempdir");
+        let data = dir.path().join("dist_accel_sync_data.txt");
+        fs::write(&data, "alpha beta gamma\ndelta epsilon").expect("write data");
+        let ckpt = dir.path().join("dist_accel_sync_ckpt");
+        let config_path = dir.path().join("dist_accel_sync_config.enk");
+        let config = serde_json::json!({
+            "config_version": 1,
+            "backend": "enkai_accel",
+            "vocab_size": 8,
+            "hidden_size": 4,
+            "seq_len": 4,
+            "batch_size": 2,
+            "lr": 0.1,
+            "dataset_path": data.to_string_lossy(),
+            "checkpoint_dir": ckpt.to_string_lossy(),
+            "max_steps": 1,
+            "save_every": 1,
+            "log_every": 1,
+            "world_size": 2,
+            "rank": 0,
+            "dist": {
+                "topology": "single-node",
+                "rendezvous": "env://",
+                "retry_budget": 1,
+                "device_map": "0,1",
+                "preview_mode": "synchronized-grad-preview"
+            },
+            "tokenizer_train": { "path": data.to_string_lossy(), "vocab_size": 8 }
+        });
+        write_config(&config_path, &config).expect("write config");
+        let value = load_config_value(&config_path).expect("load config value");
+        let parsed = parse_train_config(&value).expect("dist parse");
+        assert_eq!(parsed.world_size, 2);
+        assert_eq!(parsed.rank, 0);
+        assert_eq!(parsed.dist.preview_mode, "synchronized-grad-preview");
+
+        if let Some(value) = prev {
+            std::env::set_var("ENKAI_ENABLE_DIST", value);
+        } else {
+            std::env::remove_var("ENKAI_ENABLE_DIST");
+        }
+    }
+
+    #[test]
+    fn distributed_parse_allows_enkai_accel_networked_sync_preview() {
+        let _env_guard = crate::env_guard();
+        let prev = std::env::var("ENKAI_ENABLE_DIST").ok();
+        std::env::set_var("ENKAI_ENABLE_DIST", "1");
+
+        let dir = tempdir().expect("tempdir");
+        let data = dir.path().join("dist_accel_network_data.txt");
+        fs::write(&data, "alpha beta gamma\ndelta epsilon").expect("write data");
+        let ckpt = dir.path().join("dist_accel_network_ckpt");
+        let config_path = dir.path().join("dist_accel_network_config.enk");
+        let config = serde_json::json!({
+            "config_version": 1,
+            "backend": "enkai_accel",
+            "vocab_size": 8,
+            "hidden_size": 4,
+            "seq_len": 4,
+            "batch_size": 2,
+            "lr": 0.1,
+            "dataset_path": data.to_string_lossy(),
+            "checkpoint_dir": ckpt.to_string_lossy(),
+            "max_steps": 1,
+            "save_every": 1,
+            "log_every": 1,
+            "world_size": 2,
+            "rank": 1,
+            "dist": {
+                "topology": "multi-node",
+                "rendezvous": "tcp://127.0.0.1:43117",
+                "retry_budget": 2,
+                "device_map": "0,1",
+                "preview_mode": "networked-sync-preview"
+            },
+            "tokenizer_train": { "path": data.to_string_lossy(), "vocab_size": 8 }
+        });
+        write_config(&config_path, &config).expect("write config");
+        let value = load_config_value(&config_path).expect("load config value");
+        let parsed = parse_train_config(&value).expect("dist parse");
+        assert_eq!(parsed.world_size, 2);
+        assert_eq!(parsed.rank, 1);
+        assert_eq!(parsed.dist.topology, "multi-node");
+        assert_eq!(parsed.dist.rendezvous, "tcp://127.0.0.1:43117");
+        assert_eq!(parsed.dist.preview_mode, "networked-sync-preview");
 
         if let Some(value) = prev {
             std::env::set_var("ENKAI_ENABLE_DIST", value);

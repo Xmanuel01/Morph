@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "verified_contract_version": "v3.7.0",
+  "all_passed": true,
+  "execution_mode": "networked-sync-preview",
+  "topology": "multi-node",
+  "world_size": 2,
+  "baseline": {
+    "name": "baseline",
+    "passed": true,
+    "fault_enabled": false,
+    "total_retry_count": 0,
+    "fault_injection_observed": false,
+    "identical_checkpoint_semantics": true,
+    "merged_replay": {
+      "passed": true,
+      "merged_checkpoint_dir": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_networked_rendezvous_exec\\baseline\\merged_ckpt",
+      "merge_manifest": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_networked_rendezvous_exec\\baseline\\merged_ckpt\\merge_manifest.json",
+      "merged_checkpoint_hash": "7552b5a4b6400396777faa3925e7842456a60bb6dd3abcfecbe5a519dba4be84",
+      "eval_loss": 4.5346723,
+      "stderr_tail": ""
+    },
+    "throughput": {
+      "combined_train_tokens_per_sec": 312.576,
+      "combined_eval_tokens_per_sec": 41142.857,
+      "checkpoint_merge_bytes_per_sec": 19296411.19,
+      "networked_gradient_bytes": 7599779,
+      "combined_train_gate_passed": true,
+      "combined_eval_gate_passed": true,
+      "checkpoint_merge_gate_passed": true,
+      "networked_gradient_bytes_gate_passed": true
+    },
+    "rank_reports": [
+      {
+        "rank": 0,
+        "passed": true,
+        "train_exit_code": 0,
+        "eval_exit_code": 0,
+        "train_tokens": 1152,
+        "train_elapsed_ms": 7368,
+        "dist_retry_count": 0,
+        "fault_injection_observed": false,
+        "networked_gradient_exchange": true,
+        "networked_gradient_bytes": 4559889,
+        "checkpoint_bytes": 686515,
+        "eval_loss": 4.5346723,
+        "eval_elapsed_ms": 27,
+        "eval_batches": 6,
+        "train_stderr_tail": "",
+        "eval_stderr_tail": ""
+      },
+      {
+        "rank": 1,
+        "passed": true,
+        "train_exit_code": 0,
+        "eval_exit_code": 0,
+        "train_tokens": 1152,
+        "train_elapsed_ms": 7371,
+        "dist_retry_count": 0,
+        "fault_injection_observed": false,
+        "networked_gradient_exchange": true,
+        "networked_gradient_bytes": 3039890,
+        "checkpoint_bytes": 686515,
+        "eval_loss": 4.5346723,
+        "eval_elapsed_ms": 28,
+        "eval_batches": 6,
+        "train_stderr_tail": "",
+        "eval_stderr_tail": ""
+      }
+    ]
+  },
+  "fault_injection": {
+    "name": "fault_injected",
+    "passed": true,
+    "fault_enabled": true,
+    "total_retry_count": 1,
+    "fault_injection_observed": true,
+    "identical_checkpoint_semantics": true,
+    "merged_replay": {
+      "passed": true,
+      "merged_checkpoint_dir": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_networked_rendezvous_exec\\fault_injected\\merged_ckpt",
+      "merge_manifest": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_networked_rendezvous_exec\\fault_injected\\merged_ckpt\\merge_manifest.json",
+      "merged_checkpoint_hash": "ff6e6ee3c8919ae2b15106d41701fdbe3ee6842caacf8af0488481371aa8e250",
+      "eval_loss": 4.5346723,
+      "stderr_tail": ""
+    },
+    "throughput": {
+      "combined_train_tokens_per_sec": 263.918,
+      "combined_eval_tokens_per_sec": 39724.138,
+      "checkpoint_merge_bytes_per_sec": 20256705.338,
+      "networked_gradient_bytes": 7599779,
+      "combined_train_gate_passed": true,
+      "combined_eval_gate_passed": true,
+      "checkpoint_merge_gate_passed": true,
+      "networked_gradient_bytes_gate_passed": true
+    },
+    "rank_reports": [
+      {
+        "rank": 0,
+        "passed": true,
+        "train_exit_code": 0,
+        "eval_exit_code": 0,
+        "train_tokens": 1152,
+        "train_elapsed_ms": 8728,
+        "dist_retry_count": 0,
+        "fault_injection_observed": true,
+        "networked_gradient_exchange": true,
+        "networked_gradient_bytes": 4559889,
+        "checkpoint_bytes": 686515,
+        "eval_loss": 4.5346723,
+        "eval_elapsed_ms": 29,
+        "eval_batches": 6,
+        "train_stderr_tail": "",
+        "eval_stderr_tail": ""
+      },
+      {
+        "rank": 1,
+        "passed": true,
+        "train_exit_code": 0,
+        "eval_exit_code": 0,
+        "train_tokens": 1152,
+        "train_elapsed_ms": 8730,
+        "dist_retry_count": 1,
+        "fault_injection_observed": false,
+        "networked_gradient_exchange": true,
+        "networked_gradient_bytes": 3039890,
+        "checkpoint_bytes": 686515,
+        "eval_loss": 4.5346723,
+        "eval_elapsed_ms": 29,
+        "eval_batches": 6,
+        "train_stderr_tail": "",
+        "eval_stderr_tail": ""
+      }
+    ]
+  },
+  "artifacts": {
+    "workspace": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_networked_rendezvous_exec",
+    "dataset_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_networked_rendezvous_exec\\data.txt"
+  }
+}

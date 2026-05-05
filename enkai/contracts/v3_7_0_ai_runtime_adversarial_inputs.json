@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.7.0",
+  "scope": "v3_7_0_ai_runtime_adversarial_inputs",
+  "required_report": "artifacts/readiness/v3_7_0_ai_runtime_adversarial_inputs.json",
+  "output_report": "artifacts/readiness/v3_7_0_ai_runtime_adversarial_inputs_verify.json",
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "Adversarial input corruption coverage (done)"
+    ],
+    "README.md": [
+      "adversarial input/corruption proof archived under `artifacts/readiness/v3_7_0_ai_runtime_adversarial_inputs.json`"
+    ],
+    "CHANGELOG.md": [
+      "Added the adversarial input corruption tranche for `v3.7.0`."
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "Adversarial Input Corruption Coverage (v3.7.0)"
+    ]
+  }
+}

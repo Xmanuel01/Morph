@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.7.0",
+  "scope": "v3_7_0_networked_gradient_adversarial",
+  "generated_purpose": "Prove deterministic fault handling for tcp:// networked gradient exchange.",
+  "suite": "bench/suites/v3_7_0_ai_runtime_foundation.json",
+  "output_report": "artifacts/readiness/v3_7_0_networked_gradient_adversarial.json",
+  "required_cases": [
+    "peer_disconnect",
+    "stale_step_payload",
+    "wrong_tensor_length",
+    "duplicate_rank_payload",
+    "aggregation_timeout"
+  ],
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "Networked gradient exchange and adversarial transport proof (done)"
+    ],
+    "README.md": [
+      "networked gradient exchange adversarial proof archived under `artifacts/readiness/v3_7_0_networked_gradient_adversarial.json`"
+    ],
+    "CHANGELOG.md": [
+      "Added tcp:// networked gradient exchange and adversarial transport coverage for `v3.7.0`."
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "Networked Gradient Exchange and Adversarial Transport (v3.7.0)"
+    ]
+  }
+}

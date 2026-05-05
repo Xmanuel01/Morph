@@ -1,6 +1,6 @@
 [package]
 name = "enkairt"
-version = "3.5.0"
+version = "3.7.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Enkai runtime/interpreter."
@@ -19,14 +19,3 @@ base64 = "0.22"
 
 [dev-dependencies]
 tempfile = "3.10"
-
-
-
-
-
-
-
-
-
-
-

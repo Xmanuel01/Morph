@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.7.0",
+  "scope": "v3_7_0_networked_rendezvous_scale_design",
+  "suite": "bench/suites/v3_7_0_ai_runtime_foundation.json",
+  "required_exec_report": "artifacts/readiness/v3_7_0_networked_rendezvous_exec.json",
+  "output_report": "artifacts/readiness/v3_7_0_networked_rendezvous_scale_design.json",
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "Larger-world-size networked rendezvous design freeze (done)"
+    ],
+    "README.md": [
+      "larger-world-size networked rendezvous design proof archived under `artifacts/readiness/v3_7_0_networked_rendezvous_scale_design.json`"
+    ],
+    "CHANGELOG.md": [
+      "Added the larger-world-size networked rendezvous design-freeze tranche for `v3.7.0`."
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "Larger-World-Size Networked Rendezvous Design Freeze (v3.7.0)"
+    ]
+  }
+}

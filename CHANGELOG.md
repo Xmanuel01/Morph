@@ -5,6 +5,48 @@
 ### Breaking changes
 - None.
 
+## v3.7.0
+
+### Highlights
+- Started the global self-host AI runtime foundation line.
+- Added the first concrete `v3.7.0` implementation tranche:
+  - global self-host AI runtime foundation
+- Added the second `v3.7.0` tranche for performance deltas.
+- Added the third `v3.7.0` tranche for threaded acceleration determinism.
+- Added the fourth `v3.7.0` tranche for broader model-shape coverage and explicit latency baselines.
+- Added the first distributed-runtime design tranche for `v3.7.0` without widening execution scope.
+- Added the fifth `v3.7.0` tranche for explicit checkpoint/eval throughput regression gates.
+- Added the first executable distributed-runtime tranche for `v3.7.0` as a rank-sharded `enkai_accel` preview.
+- Added the sixth `v3.7.0` tranche for synchronized-gradient distributed preview and checkpoint merge/replay proof.
+- Added the seventh `v3.7.0` tranche for synchronized distributed shape-envelope expansion and throughput gates.
+- Added the networked multi-process rendezvous design-freeze tranche for `v3.7.0`.
+- Added the executable networked rendezvous tranche for `v3.7.0` with bounded barrier/retry fault injection.
+- Added the realistic AI workload benchmark matrix tranche for `v3.7.0`.
+- Added the adversarial input corruption tranche for `v3.7.0`.
+- Added the AI runtime security and fault baseline tranche for `v3.7.0`.
+- Added the bounded AI runtime QA floor tranche for `v3.7.0`.
+- Added the larger-world-size networked rendezvous design-freeze tranche for `v3.7.0`.
+- Added the world-size 4 networked rendezvous execution tranche for `v3.7.0`.
+- Added tcp:// networked gradient exchange and adversarial transport coverage for `v3.7.0`.
+- Added adversarial peer-behavior coverage for the `v3.7.0` networked rendezvous surface.
+- Added longer-context synchronized distributed workload coverage for `v3.7.0`.
+- Added networked long-context execution proof for `v3.7.0`.
+- Added networked throughput regression gates for `v3.7.0`.
+- Added the full `v3.7.0` closure verifier.
+- Added the bounded `enkai_accel` backend class for:
+  - `enkai train`
+  - `enkai pretrain`
+  - `enkai eval`
+- Replaced the original tiny benchmark with a stronger pinned benchmark suite and archived explicit deltas against Python, the CPU scalar path, and the current `native` comparison path.
+- Promoted `enkai_accel` to a deterministic multithreaded execution path and archived repeated-run report/checkpoint hash stability proof.
+- Added bounded residual-stack model-shape coverage plus checkpoint-resume and eval-only latency baselines.
+- Added a broader bounded transformer-shape frontier with explicit `silu` activation coverage and throughput gates.
+- Added bounded proof artifacts for:
+  - functional train/pretrain/eval execution on the frozen suite
+  - deterministic checkpoint save/load and runtime reporting
+  - benchmark comparison against Python and the current `native` backend
+  - bounded memory/safety/security validation
+
 ## v3.5.0
 
 ### Highlights
@@ -1846,7 +1888,3 @@
 
 ### Breaking changes
 - IO and tool calls are now policy-gated; code that called `print` or tools without a policy will fail until a policy allows those capabilities.
-
-
-
-

@@ -1,0 +1,32 @@
+﻿{
+  "schema_version": 1,
+  "contract_version": "v3.7.0",
+  "scope": "v3_7_0_ai_runtime_threaded_determinism",
+  "generated_purpose": "Verify the third v3.7.0 tranche: deterministic multithreaded enkai_accel execution and stable checkpoint/report outputs across repeated bounded-suite runs.",
+  "required_report": "artifacts/readiness/v3_7_0_ai_runtime_threaded_determinism.json",
+  "required_status_fields": {
+    "all_passed": true,
+    "runs.run_a.all_passed": true,
+    "runs.run_b.all_passed": true,
+    "determinism.loss_match": true,
+    "determinism.python_loss_match": true,
+    "determinism.train_report_hash_match": true,
+    "determinism.checkpoint_hash_match": true,
+    "threading.worker_count_match": true,
+    "threading.threaded_path_engaged": true
+  },
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "Threaded acceleration determinism gates (done)"
+    ],
+    "README.md": [
+      "threaded acceleration determinism proof archived under `artifacts/readiness/v3_7_0_ai_runtime_threaded_determinism.json`"
+    ],
+    "CHANGELOG.md": [
+      "Added the third `v3.7.0` tranche for threaded acceleration determinism."
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "Threaded Acceleration Determinism (v3.7.0)"
+    ]
+  }
+}

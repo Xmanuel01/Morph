@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.7.0",
+  "scope": "v3_7_0_ai_runtime_realistic_workloads",
+  "required_report": "artifacts/readiness/v3_7_0_ai_runtime_realistic_workloads.json",
+  "output_report": "artifacts/readiness/v3_7_0_ai_runtime_realistic_workloads_verify.json",
+  "required_status_fields": {
+    "all_passed": true,
+    "rust_free_shipped_path": true,
+    "workload_count": 5,
+    "passed_workload_count": 5
+  },
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "Realistic AI workload benchmark matrix (done)"
+    ],
+    "README.md": [
+      "realistic AI workload benchmark proof archived under `artifacts/readiness/v3_7_0_ai_runtime_realistic_workloads.json`"
+    ],
+    "CHANGELOG.md": [
+      "Added the realistic AI workload benchmark matrix tranche for `v3.7.0`."
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "Realistic AI Workload Benchmark Matrix (v3.7.0)"
+    ]
+  },
+  "aggregate_gates": {
+    "min_speedup_vs_python": 1.1,
+    "min_speedup_vs_cpu": 1.05,
+    "min_eval_tokens_per_sec": 4000
+  }
+}

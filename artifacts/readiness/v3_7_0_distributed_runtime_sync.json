@@ -1,0 +1,243 @@
+{
+  "schema_version": 1,
+  "verified_contract_version": "v3.7.0",
+  "all_passed": true,
+  "execution_mode": "synchronized-grad-preview",
+  "topology": "single-node",
+  "world_size": 3,
+  "synchronized_gradients": true,
+  "shape_envelope": {
+    "all_shapes_passed": true,
+    "cases": [
+      {
+        "name": "sync_wider_residual_silu",
+        "passed": true,
+        "hidden_size": 64,
+        "layers": 8,
+        "heads": 8,
+        "identical_rank_checkpoints": true,
+        "rank_reports": [
+          {
+            "rank": 0,
+            "passed": true,
+            "train_exit_code": 0,
+            "eval_exit_code": 0,
+            "train_tokens": 960,
+            "train_elapsed_ms": 2050,
+            "train_worker_count": 2,
+            "eval_loss": 4.5368485,
+            "eval_elapsed_ms": 45,
+            "world_size": 3,
+            "executed_backend": "enkai_accel",
+            "distributed_preview_mode": "synchronized-grad-preview",
+            "checkpoint_hash": "f09395c2df8e138d2053f70e224ce08796821d98ac4c90331b188f40f1c5026f",
+            "weights_hash": "9da2d74c42ceffea91bd1b8e18099e2b284ba477ba812e1416042f35a0eb251f",
+            "optimizer_hash": "50fd2efa34834145bd46eaeb119401087b42d03536d2866207a17dccc4184139",
+            "semantic_meta_hash": "f21ef429b9eeb2c36989b7ce7f22765cf1f7acdeae6699e9237fc35809c31506",
+            "checkpoint_dir": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_distributed_runtime_sync\\sync_wider_residual_silu\\rank0_ckpt",
+            "train_stderr_tail": "",
+            "eval_stderr_tail": ""
+          },
+          {
+            "rank": 1,
+            "passed": true,
+            "train_exit_code": 0,
+            "eval_exit_code": 0,
+            "train_tokens": 960,
+            "train_elapsed_ms": 2048,
+            "train_worker_count": 2,
+            "eval_loss": 4.5368485,
+            "eval_elapsed_ms": 48,
+            "world_size": 3,
+            "executed_backend": "enkai_accel",
+            "distributed_preview_mode": "synchronized-grad-preview",
+            "checkpoint_hash": "1ab4b54b0ec090ea280733b9a3de0b215276129d1a8e5893b0fc043b8a316a22",
+            "weights_hash": "9da2d74c42ceffea91bd1b8e18099e2b284ba477ba812e1416042f35a0eb251f",
+            "optimizer_hash": "50fd2efa34834145bd46eaeb119401087b42d03536d2866207a17dccc4184139",
+            "semantic_meta_hash": "f21ef429b9eeb2c36989b7ce7f22765cf1f7acdeae6699e9237fc35809c31506",
+            "checkpoint_dir": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_distributed_runtime_sync\\sync_wider_residual_silu\\rank1_ckpt",
+            "train_stderr_tail": "",
+            "eval_stderr_tail": ""
+          },
+          {
+            "rank": 2,
+            "passed": true,
+            "train_exit_code": 0,
+            "eval_exit_code": 0,
+            "train_tokens": 960,
+            "train_elapsed_ms": 2043,
+            "train_worker_count": 2,
+            "eval_loss": 4.5368485,
+            "eval_elapsed_ms": 48,
+            "world_size": 3,
+            "executed_backend": "enkai_accel",
+            "distributed_preview_mode": "synchronized-grad-preview",
+            "checkpoint_hash": "37e84ba8e45054286997ee7e52810c1bbfff3497a8a49a7e79a1cdcc4fd0562e",
+            "weights_hash": "9da2d74c42ceffea91bd1b8e18099e2b284ba477ba812e1416042f35a0eb251f",
+            "optimizer_hash": "50fd2efa34834145bd46eaeb119401087b42d03536d2866207a17dccc4184139",
+            "semantic_meta_hash": "f21ef429b9eeb2c36989b7ce7f22765cf1f7acdeae6699e9237fc35809c31506",
+            "checkpoint_dir": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_distributed_runtime_sync\\sync_wider_residual_silu\\rank2_ckpt",
+            "train_stderr_tail": "",
+            "eval_stderr_tail": ""
+          }
+        ],
+        "merged_replay": {
+          "passed": true,
+          "merged_checkpoint_dir": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_distributed_runtime_sync\\sync_wider_residual_silu\\merged_ckpt",
+          "merge_manifest": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_distributed_runtime_sync\\sync_wider_residual_silu\\merged_ckpt\\merge_manifest.json",
+          "merged_checkpoint_hash": "f09395c2df8e138d2053f70e224ce08796821d98ac4c90331b188f40f1c5026f",
+          "eval_loss": 4.5368485,
+          "stderr_tail": ""
+        },
+        "throughput": {
+          "combined_train_tokens": 2880,
+          "combined_train_tokens_per_sec": 1404.878,
+          "combined_eval_tokens": 1440,
+          "combined_eval_tokens_per_sec": 30000.0,
+          "checkpoint_merge_bytes_per_sec": 28823361.214,
+          "combined_train_gate_passed": true,
+          "combined_eval_gate_passed": true,
+          "checkpoint_merge_gate_passed": true
+        },
+        "artifacts": {
+          "workspace": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_distributed_runtime_sync\\sync_wider_residual_silu",
+          "checkpoint_semantic_hashes": [
+            "f21ef429b9eeb2c36989b7ce7f22765cf1f7acdeae6699e9237fc35809c31506",
+            "f21ef429b9eeb2c36989b7ce7f22765cf1f7acdeae6699e9237fc35809c31506",
+            "f21ef429b9eeb2c36989b7ce7f22765cf1f7acdeae6699e9237fc35809c31506"
+          ]
+        }
+      },
+      {
+        "name": "sync_deep_tied_tanh_wide",
+        "passed": true,
+        "hidden_size": 80,
+        "layers": 10,
+        "heads": 8,
+        "identical_rank_checkpoints": true,
+        "rank_reports": [
+          {
+            "rank": 0,
+            "passed": true,
+            "train_exit_code": 0,
+            "eval_exit_code": 0,
+            "train_tokens": 768,
+            "train_elapsed_ms": 2321,
+            "train_worker_count": 2,
+            "eval_loss": 4.5384583,
+            "eval_elapsed_ms": 62,
+            "world_size": 3,
+            "executed_backend": "enkai_accel",
+            "distributed_preview_mode": "synchronized-grad-preview",
+            "checkpoint_hash": "4c030b492a24f34a40461f423f2a39b87c141f45b381cb4d8d56c3441d9d2622",
+            "weights_hash": "2bc694152a39d1b1a3eab6615827dcc2026a2d3808eaa758eb0a421f990558df",
+            "optimizer_hash": "4adbf09d0151a456adbb7f4a6e227ba6fa0423b74131429a123a938d11559c66",
+            "semantic_meta_hash": "04c01ad9e96cf73f17412468c550b40912b88fb4587ea13ca16b442304aefa75",
+            "checkpoint_dir": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_distributed_runtime_sync\\sync_deep_tied_tanh_wide\\rank0_ckpt",
+            "train_stderr_tail": "",
+            "eval_stderr_tail": ""
+          },
+          {
+            "rank": 1,
+            "passed": true,
+            "train_exit_code": 0,
+            "eval_exit_code": 0,
+            "train_tokens": 768,
+            "train_elapsed_ms": 2319,
+            "train_worker_count": 2,
+            "eval_loss": 4.5384583,
+            "eval_elapsed_ms": 63,
+            "world_size": 3,
+            "executed_backend": "enkai_accel",
+            "distributed_preview_mode": "synchronized-grad-preview",
+            "checkpoint_hash": "664c1c9537df9d6fda97dfa1d0da0740b52cccfba190158e53b264b631b1ad64",
+            "weights_hash": "2bc694152a39d1b1a3eab6615827dcc2026a2d3808eaa758eb0a421f990558df",
+            "optimizer_hash": "4adbf09d0151a456adbb7f4a6e227ba6fa0423b74131429a123a938d11559c66",
+            "semantic_meta_hash": "04c01ad9e96cf73f17412468c550b40912b88fb4587ea13ca16b442304aefa75",
+            "checkpoint_dir": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_distributed_runtime_sync\\sync_deep_tied_tanh_wide\\rank1_ckpt",
+            "train_stderr_tail": "",
+            "eval_stderr_tail": ""
+          },
+          {
+            "rank": 2,
+            "passed": true,
+            "train_exit_code": 0,
+            "eval_exit_code": 0,
+            "train_tokens": 768,
+            "train_elapsed_ms": 2301,
+            "train_worker_count": 2,
+            "eval_loss": 4.5384583,
+            "eval_elapsed_ms": 62,
+            "world_size": 3,
+            "executed_backend": "enkai_accel",
+            "distributed_preview_mode": "synchronized-grad-preview",
+            "checkpoint_hash": "893b5ddbe3ee029aa3bca4c7f187e9d5c0bc1bd05caa6a6b7f3a2e9ef86f55eb",
+            "weights_hash": "2bc694152a39d1b1a3eab6615827dcc2026a2d3808eaa758eb0a421f990558df",
+            "optimizer_hash": "4adbf09d0151a456adbb7f4a6e227ba6fa0423b74131429a123a938d11559c66",
+            "semantic_meta_hash": "04c01ad9e96cf73f17412468c550b40912b88fb4587ea13ca16b442304aefa75",
+            "checkpoint_dir": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_distributed_runtime_sync\\sync_deep_tied_tanh_wide\\rank2_ckpt",
+            "train_stderr_tail": "",
+            "eval_stderr_tail": ""
+          }
+        ],
+        "merged_replay": {
+          "passed": true,
+          "merged_checkpoint_dir": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_distributed_runtime_sync\\sync_deep_tied_tanh_wide\\merged_ckpt",
+          "merge_manifest": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_distributed_runtime_sync\\sync_deep_tied_tanh_wide\\merged_ckpt\\merge_manifest.json",
+          "merged_checkpoint_hash": "4c030b492a24f34a40461f423f2a39b87c141f45b381cb4d8d56c3441d9d2622",
+          "eval_loss": 4.5384583,
+          "stderr_tail": ""
+        },
+        "throughput": {
+          "combined_train_tokens": 2304,
+          "combined_train_tokens_per_sec": 992.676,
+          "combined_eval_tokens": 1152,
+          "combined_eval_tokens_per_sec": 18285.714,
+          "checkpoint_merge_bytes_per_sec": 44391479.53,
+          "combined_train_gate_passed": true,
+          "combined_eval_gate_passed": true,
+          "checkpoint_merge_gate_passed": true
+        },
+        "artifacts": {
+          "workspace": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_distributed_runtime_sync\\sync_deep_tied_tanh_wide",
+          "checkpoint_semantic_hashes": [
+            "04c01ad9e96cf73f17412468c550b40912b88fb4587ea13ca16b442304aefa75",
+            "04c01ad9e96cf73f17412468c550b40912b88fb4587ea13ca16b442304aefa75",
+            "04c01ad9e96cf73f17412468c550b40912b88fb4587ea13ca16b442304aefa75"
+          ]
+        }
+      }
+    ]
+  },
+  "distributed_throughput": {
+    "all_gates_passed": true,
+    "cases": [
+      {
+        "name": "sync_wider_residual_silu",
+        "combined_train_tokens": 2880,
+        "combined_train_tokens_per_sec": 1404.878,
+        "combined_eval_tokens": 1440,
+        "combined_eval_tokens_per_sec": 30000.0,
+        "checkpoint_merge_bytes_per_sec": 28823361.214,
+        "combined_train_gate_passed": true,
+        "combined_eval_gate_passed": true,
+        "checkpoint_merge_gate_passed": true
+      },
+      {
+        "name": "sync_deep_tied_tanh_wide",
+        "combined_train_tokens": 2304,
+        "combined_train_tokens_per_sec": 992.676,
+        "combined_eval_tokens": 1152,
+        "combined_eval_tokens_per_sec": 18285.714,
+        "checkpoint_merge_bytes_per_sec": 44391479.53,
+        "combined_train_gate_passed": true,
+        "combined_eval_gate_passed": true,
+        "checkpoint_merge_gate_passed": true
+      }
+    ]
+  },
+  "artifacts": {
+    "workspace": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_distributed_runtime_sync",
+    "dataset_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_7_0_distributed_runtime_sync\\data.txt"
+  }
+}

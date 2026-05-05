@@ -1,0 +1,29 @@
+﻿{
+  "schema_version": 1,
+  "contract_version": "v3.7.0",
+  "scope": "v3_7_0_ai_runtime_shape_frontier",
+  "generated_purpose": "Verify the broader bounded model-shape frontier and explicit checkpoint-resume/eval latency baselines for v3.7.0.",
+  "required_report": "artifacts/readiness/v3_7_0_ai_runtime_shape_frontier.json",
+  "required_status_fields": {
+    "all_passed": true,
+    "model_frontier.all_shapes_passed": true,
+    "latency_baselines.resume_latency_gate_passed": true,
+    "latency_baselines.eval_latency_gate_passed": true,
+    "throughput_baselines.resume_checkpoint_throughput_gate_passed": true,
+    "throughput_baselines.eval_throughput_gate_passed": true
+  },
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "Broader model-shape frontier and latency baselines (done)"
+    ],
+    "README.md": [
+      "model-frontier and latency proof archived under `artifacts/readiness/v3_7_0_ai_runtime_shape_frontier.json`"
+    ],
+    "CHANGELOG.md": [
+      "Added the fourth `v3.7.0` tranche for broader model-shape coverage and explicit latency baselines."
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "Model-Shape Frontier and Latency Baselines (v3.7.0)"
+    ]
+  }
+}

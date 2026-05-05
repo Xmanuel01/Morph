@@ -2,9 +2,13 @@
 
 ## Versioning policy
 
-- Current release line: `v3.5.0` (`v3.4.0` post-closure baseline release is closed; bounded v3.5.0 objective-definition scopes are closed`).
-- `docs/Enkai.spec` is the normative language reference for `v3.5.0`.
-- Known limits and partial features are tracked inside `docs/Enkai.spec` under `Known Limits in v3.5.0`.
+- Current release line: `v3.7.0`.
+- The first concrete `v3.7.0` implementation tranche is the global self-host AI runtime foundation:
+  - bounded `enkai_accel` train/pretrain/eval suite
+  - Python/native comparison evidence
+  - deterministic memory/safety/security proof
+- `docs/Enkai.spec` is the normative language reference for `v3.7.0`.
+- Known limits and partial features are tracked inside `docs/Enkai.spec` under `Known Limits in v3.7.0`.
 - `docs/40_registry_convergence.md` defines the registry convergence contract for checkpoint, simulation, environment, and native-extension artifacts.
 - `docs/41_scale_reliability.md` defines the `v3.0.0` scale/reliability contract for supervised simulation clusters and degraded registry fallback.
 - `VALIDATION.md` defines the strict CPU/GPU validation matrix for release claims.
@@ -28,10 +32,3 @@
 3. `docs/07_bytecode_vm.md`, `docs/09_modules.md`, `docs/13_ffi.md` (core implementation topics)
 4. `docs/18_http_server.md`, `docs/26_serve_cli.md`, `docs/27_frontend_stack.md`, `docs/bootstrap_subset.md`, `docs/bootstrap_core.md`, `docs/28_selfhost_workflow.md`, `docs/29_compatibility_policy.md`, `docs/tensor_api.md`, `docs/gpu_backend.md`, `docs/checkpoints_sharded.md` (serving + frontend + bootstrap + compatibility + tensor/training stack)
 5. `docs/33_benchmark_suite.md`, `docs/34_model_lifecycle.md`, `docs/35_data_algo_stack.md`, `docs/36_capability_complete_report.md`, `docs/37_readiness_matrix.md`, `docs/39_adam0_reference_stack.md`, `VALIDATION.md`, `docs/42_agi_runbook.md`, `docs/43_llm_runbook.md`, `docs/44_native_extension_abi_policy.md`, `docs/45_deployment_rollback_runbook.md`, `docs/46_benchmark_profiling_guide.md`, `docs/48_release_dashboard.md`, `docs/49_v3_0_0_quality_assurance.md`, `docs/50_strict_selfhost_contract.md`, `docs/51_full_frontend_frontier.md` (benchmark policy + model lifecycle + data/algo foundation + release evidence sign-off + production readiness gates + Adam-0 bounded reference suite + explicit validation matrix + v3.0.0 runbooks/policy guides + final QA findings + strict self-host boundary + full frontend frontier/negative audit coverage)
-
-
-
-
-
-
-

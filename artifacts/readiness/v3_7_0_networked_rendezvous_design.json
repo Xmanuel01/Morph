@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "contract": "C:\\Users\\USER\\Desktop\\Morph\\enkai\\contracts\\v3_7_0_networked_rendezvous_design.json",
+  "suite": "C:\\Users\\USER\\Desktop\\Morph\\bench\\suites\\v3_7_0_ai_runtime_foundation.json",
+  "generated_at_utc": "2026-05-05T14:04:44.764522+00:00",
+  "all_passed": true,
+  "execution_widened": false,
+  "design": {
+    "execution_frozen": true,
+    "process_model": "multi-process",
+    "topology": "multi-node",
+    "world_size": 2,
+    "rendezvous": "tcp://127.0.0.1:43117",
+    "coordination_scope": [
+      "rank-registration",
+      "bounded-barrier",
+      "synchronized-gradient-preview"
+    ]
+  },
+  "failures": []
+}

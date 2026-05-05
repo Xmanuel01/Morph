@@ -1,0 +1,31 @@
+﻿{
+  "schema_version": 1,
+  "contract_version": "v3.7.0",
+  "scope": "v3_7_0_ai_runtime_perf_deltas",
+  "generated_purpose": "Verify the second v3.7.0 tranche: stronger pinned benchmark suite and archived performance deltas for enkai_accel versus Python, cpu scalar, and native comparison/fallback paths.",
+  "required_report": "artifacts/readiness/v3_7_0_ai_runtime_foundation.json",
+  "output_report": "artifacts/readiness/v3_7_0_ai_runtime_perf_deltas.json",
+  "required_status_fields": {
+    "all_passed": true,
+    "benchmark.policy.compare_python_baseline": true,
+    "benchmark.policy.compare_native_backend": true,
+    "benchmark.policy.compare_cpu_scalar_baseline": true,
+    "benchmark.regression_gates.peak_memory_regression_passed": true,
+    "benchmark.regression_gates.checkpoint_overhead_regression_passed": true
+  },
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "Performance delta gates (done)",
+      "stronger pinned benchmark suite"
+    ],
+    "README.md": [
+      "performance-delta proof archived under `artifacts/readiness/v3_7_0_ai_runtime_perf_deltas.json`"
+    ],
+    "CHANGELOG.md": [
+      "Added the second `v3.7.0` tranche for performance deltas."
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "Performance Delta Gates (v3.7.0)"
+    ]
+  }
+}

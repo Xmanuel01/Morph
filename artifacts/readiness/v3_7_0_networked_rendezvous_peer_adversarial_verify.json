@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "contract": "C:\\Users\\USER\\Desktop\\Morph\\enkai\\contracts\\v3_7_0_networked_rendezvous_peer_adversarial.json",
+  "report": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\readiness\\v3_7_0_networked_rendezvous_peer_adversarial.json",
+  "generated_at_utc": "2026-05-05T08:53:01.796181+00:00",
+  "all_passed": true,
+  "failures": []
+}

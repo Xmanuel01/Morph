@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "contract": "C:\\Users\\USER\\Desktop\\Morph\\enkai\\contracts\\v3_7_0_ai_runtime_throughput_regressions.json",
+  "report": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\readiness\\v3_7_0_ai_runtime_shape_frontier.json",
+  "generated_at_utc": "2026-04-30T20:24:01.159968+00:00",
+  "all_passed": true,
+  "failures": []
+}

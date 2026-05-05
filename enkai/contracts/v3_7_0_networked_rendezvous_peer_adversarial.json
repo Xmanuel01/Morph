@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.7.0",
+  "scope": "v3_7_0_networked_rendezvous_peer_adversarial",
+  "generated_purpose": "Prove deterministic rejection of adversarial peer behavior on the tcp:// networked rendezvous surface.",
+  "suite": "bench/suites/v3_7_0_ai_runtime_foundation.json",
+  "output_report": "artifacts/readiness/v3_7_0_networked_rendezvous_peer_adversarial.json",
+  "required_cases": [
+    "malformed_peer_json",
+    "metadata_mismatch",
+    "out_of_range_peer_rank",
+    "duplicate_peer_rank"
+  ],
+  "required_text_snippets": {
+    "docs/roadmap.md": [
+      "Networked rendezvous adversarial peer-behavior proof (done)"
+    ],
+    "README.md": [
+      "networked rendezvous adversarial peer-behavior proof archived under `artifacts/readiness/v3_7_0_networked_rendezvous_peer_adversarial.json`"
+    ],
+    "CHANGELOG.md": [
+      "Added adversarial peer-behavior coverage for the `v3.7.0` networked rendezvous surface."
+    ],
+    "docs/50_strict_selfhost_contract.md": [
+      "Networked Rendezvous Adversarial Peer Behavior (v3.7.0)"
+    ]
+  }
+}

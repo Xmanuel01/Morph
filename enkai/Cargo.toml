@@ -1,6 +1,6 @@
 [package]
 name = "enkai"
-version = "3.5.0"
+version = "3.7.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Enkai CLI (run, fmt, test)."
@@ -31,14 +31,3 @@ tokio = { version = "1.48", features = ["macros", "rt-multi-thread"] }
 [build-dependencies]
 tonic-build = "0.12"
 protoc-bin-vendored = "3"
-
-
-
-
-
-
-
-
-
-
-
