@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "verified_contract_version": "v3.8.0",
+  "all_passed": true,
+  "suite": "v3_8_0_worker_checkpoint",
+  "world_size": 4,
+  "identical_checkpoint_semantics": true,
+  "shard_manifest": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_checkpoint_sharding\\shard_manifest.json",
+  "merge_manifest": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_checkpoint_sharding\\merged_checkpoint\\merge_manifest.json",
+  "merged_replay": {
+    "passed": true,
+    "exit_code": 0,
+    "stderr_tail": "",
+    "report": {
+      "schema_version": 1,
+      "suite_id": "v3_8_0_worker_checkpoint",
+      "command": "eval",
+      "requested_backend": "enkai_accel",
+      "executed_backend": "enkai_accel",
+      "fallback_reason": null,
+      "distributed_preview_mode": "networked-sync-preview",
+      "kernel": "enkai_accel_v1",
+      "worker_count": 2,
+      "success": true,
+      "step": 4,
+      "tokens": 256,
+      "eval_batches": 3,
+      "loss": 4.5544696,
+      "ppl": 95.05632,
+      "elapsed_ms": 15,
+      "tokens_per_sec": null,
+      "peak_memory_bytes_est": 141440,
+      "checkpoint_dir": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_checkpoint_sharding\\merged_checkpoint",
+      "world_size": 4,
+      "rank": 0,
+      "networked_rendezvous": true,
+      "networked_gradient_exchange": false,
+      "networked_gradient_bytes": 0,
+      "dist_retry_count": 0,
+      "fault_injection_observed": false,
+      "latest_checkpoint_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_checkpoint_sharding\\merged_checkpoint\\step_00000004",
+      "checkpoint_bytes": 117185,
+      "dataset_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_lifecycle\\data.txt",
+      "eval_dataset_path": null,
+      "config_hash": "220439b73d1b6ed1757558e5703f21c0c494a726f46850577fe54f7ceac2b5b4",
+      "error_code": null,
+      "error_message": null
+    }
+  },
+  "corruption_case": {
+    "passed": true,
+    "exit_code": 1,
+    "expected_errors": [
+      "E_CHECKPOINT_CORRUPT",
+      "E_CHECKPOINT_MISSING"
+    ],
+    "stderr_tail": "Eval error: E_CHECKPOINT_CORRUPT: Checkpoint weight size mismatch\n",
+    "stdout_tail": ""
+  },
+  "throughput_gates": {
+    "shard_copy_bytes_per_sec": 1876293.523,
+    "shard_copy_gate_passed": true,
+    "merged_replay_eval_batches": 3,
+    "merged_replay_eval_gate_passed": true
+  },
+  "artifacts": {
+    "workspace": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_checkpoint_sharding"
+  }
+}

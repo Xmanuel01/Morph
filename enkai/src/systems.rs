@@ -86,6 +86,8 @@ pub(crate) struct WorkerRetryPolicyManifest {
 pub(crate) struct WorkerRunPolicyManifest {
     pub(crate) drain_mode: String,
     pub(crate) max_messages: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) visibility_timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -981,6 +983,7 @@ fn build_worker_enqueue_manifest(args: &[String]) -> Result<WorkerQueueManifest,
     let mut tenant: Option<String> = None;
     let mut id: Option<String> = None;
     let mut max_attempts = 3u32;
+    let mut retry_delay_ms = 0u64;
     let mut json = false;
     let mut output: Option<PathBuf> = None;
     let mut idx = 0usize;
@@ -1039,6 +1042,14 @@ fn build_worker_enqueue_manifest(args: &[String]) -> Result<WorkerQueueManifest,
                     return Err("--max-attempts must be >= 1".to_string());
                 }
             }
+            "--retry-delay-ms" => {
+                idx += 1;
+                retry_delay_ms = args
+                    .get(idx)
+                    .ok_or_else(|| "--retry-delay-ms requires a value".to_string())?
+                    .parse::<u64>()
+                    .map_err(|_| "--retry-delay-ms must be an integer".to_string())?;
+            }
             "--json" => json = true,
             "--output" => {
                 idx += 1;
@@ -1076,7 +1087,7 @@ fn build_worker_enqueue_manifest(args: &[String]) -> Result<WorkerQueueManifest,
         max_attempts,
         retry_policy: WorkerRetryPolicyManifest {
             max_attempts,
-            delay_ms: 0,
+            delay_ms: retry_delay_ms,
         },
         json,
         output: output.map(|path| path.display().to_string()),
@@ -1088,6 +1099,7 @@ fn build_worker_run_manifest(args: &[String]) -> Result<WorkerQueueManifest, Str
     let mut queue: Option<String> = None;
     let mut handler: Option<PathBuf> = None;
     let mut once = false;
+    let mut visibility_timeout_ms: Option<u64> = None;
     let mut json = false;
     let mut output: Option<PathBuf> = None;
     let mut idx = 0usize;
@@ -1117,6 +1129,15 @@ fn build_worker_run_manifest(args: &[String]) -> Result<WorkerQueueManifest, Str
                 ));
             }
             "--once" => once = true,
+            "--visibility-timeout-ms" => {
+                idx += 1;
+                visibility_timeout_ms = Some(
+                    args.get(idx)
+                        .ok_or_else(|| "--visibility-timeout-ms requires a value".to_string())?
+                        .parse::<u64>()
+                        .map_err(|_| "--visibility-timeout-ms must be an integer".to_string())?,
+                );
+            }
             "--json" => json = true,
             "--output" => {
                 idx += 1;
@@ -1157,6 +1178,7 @@ fn build_worker_run_manifest(args: &[String]) -> Result<WorkerQueueManifest, Str
                 "until_idle".to_string()
             },
             max_messages: if once { Some(1) } else { None },
+            visibility_timeout_ms,
         },
         json,
         output: output.map(|path| path.display().to_string()),

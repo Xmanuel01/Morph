@@ -1,0 +1,322 @@
+{
+  "schema_version": 1,
+  "verified_contract_version": "v3.8.0",
+  "all_passed": true,
+  "suite": "v3_8_0_worker_checkpoint",
+  "queue_backend_kind": "selfhost_jsonl_queue_v2",
+  "delayed_retry": {
+    "passed": true,
+    "fail_report": {
+      "schema_version": 1,
+      "queue": "jobs",
+      "status": "requeued",
+      "processed": 1,
+      "acked": 0,
+      "requeued": 1,
+      "dead_lettered": 0,
+      "reclaimed_stale": 0,
+      "last_message_id": "retry-job",
+      "last_attempt": 1,
+      "pending_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\pending.jsonl",
+      "inflight_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\inflight.jsonl",
+      "schedule_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\scheduled.jsonl",
+      "dead_letter_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\dead_letter.jsonl",
+      "state_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\queue_state.json"
+    },
+    "immediate_idle_report": {
+      "schema_version": 1,
+      "queue": "jobs",
+      "status": "idle",
+      "processed": 0,
+      "acked": 0,
+      "requeued": 0,
+      "dead_lettered": 0,
+      "reclaimed_stale": 0,
+      "last_message_id": null,
+      "last_attempt": null,
+      "pending_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\pending.jsonl",
+      "inflight_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\inflight.jsonl",
+      "schedule_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\scheduled.jsonl",
+      "dead_letter_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\dead_letter.jsonl",
+      "state_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\queue_state.json"
+    },
+    "retry_replay_report": {
+      "schema_version": 1,
+      "queue": "jobs",
+      "status": "drained",
+      "processed": 1,
+      "acked": 1,
+      "requeued": 0,
+      "dead_lettered": 0,
+      "reclaimed_stale": 0,
+      "last_message_id": "retry-job",
+      "last_attempt": 2,
+      "pending_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\pending.jsonl",
+      "inflight_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\inflight.jsonl",
+      "schedule_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\scheduled.jsonl",
+      "dead_letter_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\dead_letter.jsonl",
+      "state_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\queue_state.json"
+    }
+  },
+  "stale_inflight_reclaim": {
+    "passed": true,
+    "reclaim_report": {
+      "schema_version": 1,
+      "queue": "jobs",
+      "status": "acked",
+      "processed": 1,
+      "acked": 1,
+      "requeued": 0,
+      "dead_lettered": 0,
+      "reclaimed_stale": 1,
+      "last_message_id": "stale-job",
+      "last_attempt": 2,
+      "pending_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\pending.jsonl",
+      "inflight_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\inflight.jsonl",
+      "schedule_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\scheduled.jsonl",
+      "dead_letter_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\dead_letter.jsonl",
+      "state_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\queue_state.json"
+    },
+    "queue_state": {
+      "schema_version": 1,
+      "queue": "jobs",
+      "enqueue_count": 2,
+      "lease_count": 3,
+      "acked_count": 2,
+      "retry_count": 1,
+      "dead_letter_count": 0,
+      "stale_reclaimed_count": 1,
+      "last_message_id": "stale-job",
+      "updated_ms": 1778171719841
+    }
+  },
+  "manifest_projection": {
+    "passed": true,
+    "enqueue_manifest": {
+      "mode": "enqueue",
+      "dir": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state",
+      "queue": "jobs",
+      "backend_kind": "selfhost_jsonl_queue_v2",
+      "queue_root": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs",
+      "pending_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\pending.jsonl",
+      "inflight_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\inflight.jsonl",
+      "schedule_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\scheduled.jsonl",
+      "dead_letter_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\dead_letter.jsonl",
+      "state_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\queue_state.json",
+      "payload": {
+        "kind": "manifest"
+      },
+      "tenant": null,
+      "id": null,
+      "max_attempts": 3,
+      "retry_policy": {
+        "max_attempts": 3,
+        "delay_ms": 333
+      },
+      "json": false,
+      "output": null
+    },
+    "run_manifest": {
+      "mode": "run",
+      "dir": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state",
+      "queue": "jobs",
+      "backend_kind": "selfhost_jsonl_queue_v2",
+      "queue_root": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs",
+      "pending_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\pending.jsonl",
+      "inflight_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\inflight.jsonl",
+      "schedule_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\scheduled.jsonl",
+      "dead_letter_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\dead_letter.jsonl",
+      "state_path": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state\\queues\\jobs\\queue_state.json",
+      "handler": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\ok.enk",
+      "once": false,
+      "run_policy": {
+        "drain_mode": "until_idle",
+        "max_messages": null,
+        "visibility_timeout_ms": 77
+      },
+      "json": false,
+      "output": null
+    }
+  },
+  "commands": {
+    "enqueue_retry": {
+      "args": [
+        "C:\\Users\\USER\\Desktop\\Morph\\target\\debug\\enkai.exe",
+        "worker",
+        "enqueue",
+        "--queue",
+        "jobs",
+        "--dir",
+        "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state",
+        "--payload",
+        "{\"kind\":\"retry\"}",
+        "--id",
+        "retry-job",
+        "--max-attempts",
+        "2",
+        "--retry-delay-ms",
+        "500",
+        "--json",
+        "--output",
+        "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\enqueue_retry.json"
+      ],
+      "exit_code": 0,
+      "stdout_tail": "{\n  \"backend_kind\": \"selfhost_jsonl_queue_v2\",\n  \"dead_letter_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\dead_letter.jsonl\",\n  \"id\": \"retry-job\",\n  \"inflight_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\inflight.jsonl\",\n  \"max_attempts\": 2,\n  \"pending_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\pending.jsonl\",\n  \"queue\": \"jobs\",\n  \"retry_policy\": {\n    \"delay_ms\": 500,\n    \"max_attempts\": 2\n  },\n  \"schedule_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\scheduled.jsonl\",\n  \"schema_version\": 1,\n  \"state_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\queue_state.json\",\n  \"status\": \"queued\"\n}\n",
+      "stderr_tail": ""
+    },
+    "fail_once": {
+      "args": [
+        "C:\\Users\\USER\\Desktop\\Morph\\target\\debug\\enkai.exe",
+        "worker",
+        "run",
+        "--queue",
+        "jobs",
+        "--dir",
+        "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state",
+        "--handler",
+        "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\fail.enk",
+        "--once",
+        "--json",
+        "--output",
+        "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\fail_once.json"
+      ],
+      "exit_code": 0,
+      "stdout_tail": "{\n  \"schema_version\": 1,\n  \"queue\": \"jobs\",\n  \"status\": \"requeued\",\n  \"processed\": 1,\n  \"acked\": 0,\n  \"requeued\": 1,\n  \"dead_lettered\": 0,\n  \"reclaimed_stale\": 0,\n  \"last_message_id\": \"retry-job\",\n  \"last_attempt\": 1,\n  \"pending_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\pending.jsonl\",\n  \"inflight_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\inflight.jsonl\",\n  \"schedule_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\scheduled.jsonl\",\n  \"dead_letter_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\dead_letter.jsonl\",\n  \"state_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\queue_state.json\"\n}\n",
+      "stderr_tail": ""
+    },
+    "immediate_idle": {
+      "args": [
+        "C:\\Users\\USER\\Desktop\\Morph\\target\\debug\\enkai.exe",
+        "worker",
+        "run",
+        "--queue",
+        "jobs",
+        "--dir",
+        "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state",
+        "--handler",
+        "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\ok.enk",
+        "--once",
+        "--json",
+        "--output",
+        "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\immediate_idle.json"
+      ],
+      "exit_code": 0,
+      "stdout_tail": "{\n  \"schema_version\": 1,\n  \"queue\": \"jobs\",\n  \"status\": \"idle\",\n  \"processed\": 0,\n  \"acked\": 0,\n  \"requeued\": 0,\n  \"dead_lettered\": 0,\n  \"reclaimed_stale\": 0,\n  \"last_message_id\": null,\n  \"last_attempt\": null,\n  \"pending_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\pending.jsonl\",\n  \"inflight_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\inflight.jsonl\",\n  \"schedule_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\scheduled.jsonl\",\n  \"dead_letter_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\dead_letter.jsonl\",\n  \"state_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\queue_state.json\"\n}\n",
+      "stderr_tail": ""
+    },
+    "retry_replay": {
+      "args": [
+        "C:\\Users\\USER\\Desktop\\Morph\\target\\debug\\enkai.exe",
+        "worker",
+        "run",
+        "--queue",
+        "jobs",
+        "--dir",
+        "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state",
+        "--handler",
+        "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\ok.enk",
+        "--json",
+        "--output",
+        "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\retry_replay.json"
+      ],
+      "exit_code": 0,
+      "stdout_tail": "{\n  \"schema_version\": 1,\n  \"queue\": \"jobs\",\n  \"status\": \"drained\",\n  \"processed\": 1,\n  \"acked\": 1,\n  \"requeued\": 0,\n  \"dead_lettered\": 0,\n  \"reclaimed_stale\": 0,\n  \"last_message_id\": \"retry-job\",\n  \"last_attempt\": 2,\n  \"pending_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\pending.jsonl\",\n  \"inflight_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\inflight.jsonl\",\n  \"schedule_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\scheduled.jsonl\",\n  \"dead_letter_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\dead_letter.jsonl\",\n  \"state_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\queue_state.json\"\n}\n",
+      "stderr_tail": ""
+    },
+    "enqueue_stale": {
+      "args": [
+        "C:\\Users\\USER\\Desktop\\Morph\\target\\debug\\enkai.exe",
+        "worker",
+        "enqueue",
+        "--queue",
+        "jobs",
+        "--dir",
+        "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state",
+        "--payload",
+        "{\"kind\":\"stale\"}",
+        "--id",
+        "stale-job",
+        "--max-attempts",
+        "2",
+        "--json",
+        "--output",
+        "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\enqueue_stale.json"
+      ],
+      "exit_code": 0,
+      "stdout_tail": "{\n  \"backend_kind\": \"selfhost_jsonl_queue_v2\",\n  \"dead_letter_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\dead_letter.jsonl\",\n  \"id\": \"stale-job\",\n  \"inflight_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\inflight.jsonl\",\n  \"max_attempts\": 2,\n  \"pending_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\pending.jsonl\",\n  \"queue\": \"jobs\",\n  \"retry_policy\": {\n    \"delay_ms\": 0,\n    \"max_attempts\": 2\n  },\n  \"schedule_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\scheduled.jsonl\",\n  \"schema_version\": 1,\n  \"state_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\queue_state.json\",\n  \"status\": \"queued\"\n}\n",
+      "stderr_tail": ""
+    },
+    "reclaim_run": {
+      "args": [
+        "C:\\Users\\USER\\Desktop\\Morph\\target\\debug\\enkai.exe",
+        "worker",
+        "run",
+        "--queue",
+        "jobs",
+        "--dir",
+        "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state",
+        "--handler",
+        "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\ok.enk",
+        "--once",
+        "--visibility-timeout-ms",
+        "1",
+        "--json",
+        "--output",
+        "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\reclaim_run.json"
+      ],
+      "exit_code": 0,
+      "stdout_tail": "{\n  \"schema_version\": 1,\n  \"queue\": \"jobs\",\n  \"status\": \"acked\",\n  \"processed\": 1,\n  \"acked\": 1,\n  \"requeued\": 0,\n  \"dead_lettered\": 0,\n  \"reclaimed_stale\": 1,\n  \"last_message_id\": \"stale-job\",\n  \"last_attempt\": 2,\n  \"pending_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\pending.jsonl\",\n  \"inflight_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\inflight.jsonl\",\n  \"schedule_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\scheduled.jsonl\",\n  \"dead_letter_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\dead_letter.jsonl\",\n  \"state_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\queue_state.json\"\n}\n",
+      "stderr_tail": ""
+    },
+    "manifest_enqueue": {
+      "args": [
+        "C:\\Users\\USER\\Desktop\\Morph\\target\\debug\\enkai.exe",
+        "systems",
+        "worker-manifest",
+        "enqueue",
+        "--queue",
+        "jobs",
+        "--dir",
+        "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state",
+        "--payload",
+        "{\"kind\":\"manifest\"}",
+        "--max-attempts",
+        "3",
+        "--retry-delay-ms",
+        "333",
+        "--json",
+        "--output",
+        "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\enqueue_manifest.json"
+      ],
+      "exit_code": 0,
+      "stdout_tail": "{\n  \"mode\": \"enqueue\",\n  \"dir\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\",\n  \"queue\": \"jobs\",\n  \"backend_kind\": \"selfhost_jsonl_queue_v2\",\n  \"queue_root\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\",\n  \"pending_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\pending.jsonl\",\n  \"inflight_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\inflight.jsonl\",\n  \"schedule_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\scheduled.jsonl\",\n  \"dead_letter_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\dead_letter.jsonl\",\n  \"state_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\queue_state.json\",\n  \"payload\": {\n    \"kind\": \"manifest\"\n  },\n  \"tenant\": null,\n  \"id\": null,\n  \"max_attempts\": 3,\n  \"retry_policy\": {\n    \"max_attempts\": 3,\n    \"delay_ms\": 333\n  },\n  \"json\": false,\n  \"output\": null\n}\n",
+      "stderr_tail": ""
+    },
+    "manifest_run": {
+      "args": [
+        "C:\\Users\\USER\\Desktop\\Morph\\target\\debug\\enkai.exe",
+        "systems",
+        "worker-manifest",
+        "run",
+        "--queue",
+        "jobs",
+        "--dir",
+        "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state",
+        "--handler",
+        "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\ok.enk",
+        "--visibility-timeout-ms",
+        "77",
+        "--json",
+        "--output",
+        "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\run_manifest.json"
+      ],
+      "exit_code": 0,
+      "stdout_tail": "{\n  \"mode\": \"run\",\n  \"dir\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\",\n  \"queue\": \"jobs\",\n  \"backend_kind\": \"selfhost_jsonl_queue_v2\",\n  \"queue_root\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\",\n  \"pending_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\pending.jsonl\",\n  \"inflight_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\inflight.jsonl\",\n  \"schedule_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\scheduled.jsonl\",\n  \"dead_letter_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\dead_letter.jsonl\",\n  \"state_path\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\state\\\\queues\\\\jobs\\\\queue_state.json\",\n  \"handler\": \"C:\\\\Users\\\\USER\\\\Desktop\\\\Morph\\\\artifacts\\\\v3_8_0_worker_persistence_scheduling\\\\ok.enk\",\n  \"once\": false,\n  \"run_policy\": {\n    \"drain_mode\": \"until_idle\",\n    \"max_messages\": null,\n    \"visibility_timeout_ms\": 77\n  },\n  \"json\": false,\n  \"output\": null\n}\n",
+      "stderr_tail": ""
+    }
+  },
+  "artifacts": {
+    "workspace": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling",
+    "state_dir": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\v3_8_0_worker_persistence_scheduling\\state"
+  }
+}

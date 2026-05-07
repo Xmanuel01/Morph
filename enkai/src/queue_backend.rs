@@ -12,7 +12,15 @@ pub(crate) struct QueueMessage {
     pub(crate) tenant: Option<String>,
     pub(crate) attempts: u32,
     pub(crate) max_attempts: u32,
+    #[serde(default)]
+    pub(crate) retry_delay_ms: u64,
     pub(crate) enqueued_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) lease_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) leased_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) lease_deadline_ms: Option<u64>,
     pub(crate) last_error: Option<String>,
 }
 
@@ -33,6 +41,8 @@ pub(crate) struct QueueState {
     pub(crate) acked_count: u64,
     pub(crate) retry_count: u64,
     pub(crate) dead_letter_count: u64,
+    #[serde(default)]
+    pub(crate) stale_reclaimed_count: u64,
     pub(crate) last_message_id: Option<String>,
     pub(crate) updated_ms: u64,
 }
@@ -96,6 +106,7 @@ impl WorkerQueueStore {
                 acked_count: 0,
                 retry_count: 0,
                 dead_letter_count: 0,
+                stale_reclaimed_count: 0,
                 last_message_id: None,
                 updated_ms: now_ms(),
             })?;
@@ -112,14 +123,26 @@ impl WorkerQueueStore {
         })
     }
 
-    pub(crate) fn lease_next(&self) -> Result<Option<QueueMessage>, String> {
+    pub(crate) fn lease_next_with_timeout(
+        &self,
+        visibility_timeout_ms: u64,
+    ) -> Result<Option<QueueMessage>, String> {
         self.ensure_layout()?;
         self.promote_due_scheduled()?;
+        self.reclaim_stale_inflight()?;
         let mut pending = self.load_pending()?;
-        let Some(message) = pending.first().cloned() else {
+        let Some(mut message) = pending.first().cloned() else {
             return Ok(None);
         };
         pending.remove(0);
+        let leased_ms = now_ms();
+        message.lease_id = Some(format!("lease-{}-{}", message.id, leased_ms));
+        message.leased_ms = Some(leased_ms);
+        message.lease_deadline_ms = if visibility_timeout_ms > 0 {
+            Some(leased_ms.saturating_add(visibility_timeout_ms))
+        } else {
+            None
+        };
         self.write_pending(&pending)?;
         let mut inflight = self.load_inflight()?;
         inflight.push(message.clone());
@@ -195,6 +218,7 @@ impl WorkerQueueStore {
                 acked_count: 0,
                 retry_count: 0,
                 dead_letter_count: 0,
+                stale_reclaimed_count: 0,
                 last_message_id: None,
                 updated_ms: now_ms(),
             });
@@ -258,6 +282,46 @@ impl WorkerQueueStore {
         pending.extend(due);
         self.write_pending(&pending)?;
         self.write_scheduled(&keep)
+    }
+
+    pub(crate) fn reclaim_stale_inflight(&self) -> Result<usize, String> {
+        self.ensure_layout()?;
+        let now = now_ms();
+        let inflight = self.load_inflight()?;
+        if inflight.is_empty() {
+            return Ok(0);
+        }
+        let mut keep = Vec::new();
+        let mut reclaimed = Vec::new();
+        for mut message in inflight {
+            if message
+                .lease_deadline_ms
+                .map(|deadline| deadline <= now)
+                .unwrap_or(false)
+            {
+                message.lease_id = None;
+                message.leased_ms = None;
+                message.lease_deadline_ms = None;
+                reclaimed.push(message);
+            } else {
+                keep.push(message);
+            }
+        }
+        if reclaimed.is_empty() {
+            return Ok(0);
+        }
+        let reclaimed_count = reclaimed.len();
+        let mut pending = self.load_pending()?;
+        reclaimed.extend(pending);
+        pending = reclaimed;
+        self.write_inflight(&keep)?;
+        self.write_pending(&pending)?;
+        self.update_state(|state| {
+            state.stale_reclaimed_count = state
+                .stale_reclaimed_count
+                .saturating_add(reclaimed_count as u64);
+        })?;
+        Ok(reclaimed_count)
     }
 
     fn remove_inflight(&self, message_id: &str) -> Result<(), String> {

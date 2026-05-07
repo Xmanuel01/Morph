@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "contract": "C:\\Users\\USER\\Desktop\\Morph\\enkai\\contracts\\v3_8_0_worker_lifecycle.json",
+  "report": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\readiness\\v3_8_0_worker_lifecycle.json",
+  "generated_at_utc": "2026-05-07T16:33:59.362274+00:00",
+  "all_passed": true,
+  "failures": []
+}

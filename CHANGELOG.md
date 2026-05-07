@@ -5,6 +5,16 @@
 ### Breaking changes
 - None.
 
+## v3.8.0
+
+### Highlights
+- Advanced the active release line to `v3.8.0` after the closed `v3.7.0` AI runtime foundation.
+- Started `v3.8.0` with a bounded worker lifecycle proof over networked `world_size = 4` execution.
+- Added bounded checkpoint sharding/restore proof with shard manifesting, merge/replay, corruption rejection, and shard-copy throughput evidence.
+- Added the parent `v3.8.0` worker/checkpoint tranche verifier requiring both proof artifacts and bumped version metadata to stay green.
+- Added worker persistence/scheduling proof for delayed retry and stale inflight reclamation.
+- Closed `v3.8.0` with a final closure verifier and archived release proof.
+
 ## v3.7.0
 
 ### Highlights

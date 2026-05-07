@@ -2,8 +2,8 @@ use crate::queue_runtime;
 use crate::systems::WorkerQueueManifest;
 
 pub fn print_worker_usage() {
-    eprintln!("  enkai worker enqueue --queue <name> --dir <state_dir> --payload <json> [--tenant <tenant>] [--id <id>] [--max-attempts <n>] [--json] [--output <file>]");
-    eprintln!("  enkai worker run --queue <name> --dir <state_dir> --handler <file.enk> [--once] [--json] [--output <file>]");
+    eprintln!("  enkai worker enqueue --queue <name> --dir <state_dir> --payload <json> [--tenant <tenant>] [--id <id>] [--max-attempts <n>] [--retry-delay-ms <n>] [--json] [--output <file>]");
+    eprintln!("  enkai worker run --queue <name> --dir <state_dir> --handler <file.enk> [--once] [--visibility-timeout-ms <n>] [--json] [--output <file>]");
 }
 
 pub fn worker_command(args: &[String]) -> i32 {

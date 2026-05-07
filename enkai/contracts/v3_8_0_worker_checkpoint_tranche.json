@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.8.0",
+  "scope": "v3_8_0_worker_checkpoint_tranche",
+  "generated_purpose": "Parent proof for the closed v3.8.0 worker/checkpoint tranche requiring worker lifecycle, worker persistence/scheduling, and checkpoint sharding artifacts to stay green under bumped version metadata.",
+  "required_reports": [
+    "artifacts/readiness/v3_8_0_worker_lifecycle.json",
+    "artifacts/readiness/v3_8_0_checkpoint_sharding.json",
+    "artifacts/readiness/v3_8_0_worker_lifecycle_verify.json",
+    "artifacts/readiness/v3_8_0_checkpoint_sharding_verify.json",
+    "artifacts/readiness/v3_8_0_worker_persistence_scheduling.json",
+    "artifacts/readiness/v3_8_0_worker_persistence_scheduling_verify.json"
+  ],
+  "required_version": "3.8.0",
+  "output_report": "artifacts/readiness/v3_8_0_worker_checkpoint_tranche.json",
+  "required_text_snippets": {
+    "README.md": [
+      "Status (v3.8.0)"
+    ],
+    "docs/README.md": [
+      "v3.8.0"
+    ],
+    "docs/Enkai.spec": [
+      "Known Limits in v3.8.0"
+    ],
+    "docs/roadmap.md": [
+      "v3.8.0 (done)"
+    ],
+    "CHANGELOG.md": [
+      "## v3.8.0"
+    ]
+  }
+}

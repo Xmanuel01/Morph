@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "contract": "C:\\Users\\USER\\Desktop\\Morph\\enkai\\contracts\\v3_8_0_closure.json",
+  "generated_at_utc": "2026-05-07T16:38:26.719236+00:00",
+  "verified_contract_version": "v3.8.0",
+  "all_passed": true,
+  "required_reports": [
+    {
+      "path": "artifacts/readiness/v3_8_0_worker_lifecycle.json",
+      "all_passed": true
+    },
+    {
+      "path": "artifacts/readiness/v3_8_0_worker_lifecycle_verify.json",
+      "all_passed": true
+    },
+    {
+      "path": "artifacts/readiness/v3_8_0_checkpoint_sharding.json",
+      "all_passed": true
+    },
+    {
+      "path": "artifacts/readiness/v3_8_0_checkpoint_sharding_verify.json",
+      "all_passed": true
+    },
+    {
+      "path": "artifacts/readiness/v3_8_0_worker_persistence_scheduling.json",
+      "all_passed": true
+    },
+    {
+      "path": "artifacts/readiness/v3_8_0_worker_persistence_scheduling_verify.json",
+      "all_passed": true
+    },
+    {
+      "path": "artifacts/readiness/v3_8_0_worker_checkpoint_tranche.json",
+      "all_passed": true
+    }
+  ],
+  "failures": []
+}

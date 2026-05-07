@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "suite": "v3_8_0_worker_checkpoint",
+  "description": "Bounded v3.8.0 worker lifecycle and checkpoint sharding/restore suite for the global self-host AI runtime line.",
+  "machine_profile": "bench/machines/windows_ref.json",
+  "base_config": {
+    "config_version": 1,
+    "backend": "enkai_accel",
+    "vocab_size": 96,
+    "hidden_size": 48,
+    "seq_len": 16,
+    "batch_size": 4,
+    "lr": 0.005,
+    "max_steps": 4,
+    "save_every": 1,
+    "log_every": 1,
+    "eval_steps": 3,
+    "drop_remainder": false,
+    "seed": 1337,
+    "shuffle": true,
+    "prefetch_batches": 1,
+    "tokenizer_train": {
+      "vocab_size": 96
+    },
+    "model": {
+      "vocab_size": 96,
+      "hidden_size": 48,
+      "preset": "v3_8_worker_lifecycle_residual",
+      "n_layers": 4,
+      "n_heads": 4,
+      "ff_mult": 2.0,
+      "activation": "silu",
+      "norm": "rmsnorm",
+      "tie_embeddings": false,
+      "device": "cpu"
+    },
+    "suite_id": "v3_8_0_worker_checkpoint",
+    "oom_budget_bytes": 33554432
+  },
+  "dataset_lines": [
+    "worker lifecycle checkpoint sharding recovery deterministic rank supervision",
+    "networked rendezvous gradient exchange barrier retry checkpoint replay",
+    "bounded runtime proof evidence artifact provenance validation contract",
+    "enkai accel global self host ai runtime worker heartbeat checkpoint shard",
+    "resume after peer disconnect with same deterministic model state",
+    "merged checkpoint replay must reject corrupted shard input",
+    "cloud security defense adoption requires audited runtime lifecycle proof",
+    "training eval pretrain bounded suite remains reproducible and measured",
+    "distributed runtime widening stays frozen behind contracts before claims",
+    "no hidden native dependency should be needed for shipped bounded suite"
+  ],
+  "dataset_repeat": 5,
+  "worker_lifecycle": {
+    "execution_mode": "networked-sync-preview",
+    "topology": "multi-node",
+    "world_size": 4,
+    "rendezvous": "tcp://127.0.0.1:43401",
+    "retry_budget": 3,
+    "require_dist_opt_in": true,
+    "baseline_max_steps": 2,
+    "recovery_max_steps": 4,
+    "fault": {
+      "mode": "peer-disconnect",
+      "target_rank": 1,
+      "target_step": 3,
+      "timeout_ms": 1000,
+      "expected_error": "E_DIST_SYNC_PEER_DISCONNECT"
+    },
+    "min_rank_tokens": 64
+  },
+  "checkpoint_sharding": {
+    "world_size": 4,
+    "require_merged_replay": true,
+    "corruption_case": "mutated_weights",
+    "expected_corruption_errors": [
+      "E_CHECKPOINT_CORRUPT",
+      "E_CHECKPOINT_MISSING"
+    ],
+    "throughput_gates": {
+      "min_shard_copy_bytes_per_sec": 1000000,
+      "min_merged_replay_eval_batches": 1
+    }
+  },
+  "worker_persistence_scheduling": {
+    "queue": "jobs",
+    "retry_delay_ms": 500,
+    "visibility_timeout_ms": 1,
+    "stale_lease_age_ms": 1000,
+    "expected_backend_kind": "selfhost_jsonl_queue_v2",
+    "required_state_counters": {
+      "retry_count": 1,
+      "stale_reclaimed_count": 1
+    }
+  }
+}

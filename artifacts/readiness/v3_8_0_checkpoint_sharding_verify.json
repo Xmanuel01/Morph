@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "contract": "C:\\Users\\USER\\Desktop\\Morph\\enkai\\contracts\\v3_8_0_checkpoint_sharding.json",
+  "report": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\readiness\\v3_8_0_checkpoint_sharding.json",
+  "generated_at_utc": "2026-05-07T16:34:00.253490+00:00",
+  "all_passed": true,
+  "failures": []
+}

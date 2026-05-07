@@ -2,11 +2,42 @@ Enkai Roadmap
 
 Note:
 - Historical milestones below capture the path that led to current releases.
-- Current release line is v3.7.0 closed.
+- Current release line is v3.8.0 closed.
 - `v3.3.0` closed the strict-selfhost shipped-surface objective set.
 - Next major program line remains `v3.1.0 -> v4.0.0` zero-Rust strict self-hosting, with post-closure scope now moving past the shipped-surface completion proof.
 - v2.6.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
+
+v3.8.0 (done)
+- Worker lifecycle and checkpoint sharding tranche (done):
+  - advances the global self-host AI runtime line beyond v3.7.0 closure without widening claims outside the bounded networked runtime surface
+  - freezes the first v3.8.0 frontier as:
+    - worker lifecycle supervision over networked `world_size = 4`
+    - supervised recovery after peer disconnect during gradient exchange
+    - post-recovery deterministic eval
+    - rank checkpoint shard archiving
+    - shard merge/replay proof
+    - corrupted shard rejection proof
+  - emits:
+    - `bench/suites/v3_8_0_worker_checkpoint.json`
+    - `enkai/contracts/v3_8_0_worker_lifecycle.json`
+    - `enkai/contracts/v3_8_0_checkpoint_sharding.json`
+    - `enkai/contracts/v3_8_0_worker_checkpoint_tranche.json`
+    - `artifacts/readiness/v3_8_0_worker_lifecycle.json`
+    - `artifacts/readiness/v3_8_0_checkpoint_sharding.json`
+    - `artifacts/readiness/v3_8_0_worker_checkpoint_tranche.json`
+  - checkpoint sharding/restore proof archived under `artifacts/readiness/v3_8_0_checkpoint_sharding.json`
+  - worker persistence/scheduling proof archived under `artifacts/readiness/v3_8_0_worker_persistence_scheduling.json`
+  - v3.8.0 closure proof archived under `artifacts/readiness/v3_8_0_closure.json`
+  - exit state for this tranche:
+    - the repository has a machine-verifiable worker lifecycle and checkpoint shard/restore baseline before broader distributed-runtime claims are widened
+- Worker persistence and scheduling tranche (done):
+  - moves delayed retry persistence, stale inflight reclamation, lease visibility policy, and worker manifest projection behind the self-host JSONL worker runtime
+  - emits:
+    - `enkai/contracts/v3_8_0_worker_persistence_scheduling.json`
+    - `artifacts/readiness/v3_8_0_worker_persistence_scheduling.json`
+  - exit state for this tranche:
+    - worker queue persistence owns delayed retry and stale lease recovery behavior without relying on command-module orchestration
 
 v3.7.0 (done)
 - Global self-host AI runtime foundation (done):

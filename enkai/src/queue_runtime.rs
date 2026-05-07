@@ -36,6 +36,7 @@ pub(crate) struct WorkerRunReport {
     pub(crate) acked: usize,
     pub(crate) requeued: usize,
     pub(crate) dead_lettered: usize,
+    pub(crate) reclaimed_stale: usize,
     pub(crate) last_message_id: Option<String>,
     pub(crate) last_attempt: Option<u32>,
     pub(crate) pending_path: String,
@@ -55,6 +56,7 @@ struct WorkerRetryPolicy {
 pub(crate) struct WorkerRunPolicy {
     drain_mode: WorkerDrainMode,
     max_messages: Option<usize>,
+    visibility_timeout_ms: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,7 +99,11 @@ pub(crate) fn enqueue(request: &EnqueueRequest) -> Result<serde_json::Value, Str
         tenant: request.tenant.clone(),
         attempts: 0,
         max_attempts: request.max_attempts,
+        retry_delay_ms: request.retry_policy.delay_ms,
         enqueued_ms: now_ms(),
+        lease_id: None,
+        leased_ms: None,
+        lease_deadline_ms: None,
         last_error: None,
     };
     request.store.enqueue(&message)?;
@@ -197,19 +203,31 @@ impl WorkerQueueBackend {
     fn run(&self, request: &RunRequest) -> Result<WorkerRunReport, String> {
         self.store.ensure_layout()?;
         if matches!(request.run_policy.drain_mode, WorkerDrainMode::Once) {
-            return self.execute_once(&request.handler);
+            return self.execute_once(&request.handler, request.run_policy.visibility_timeout_ms);
         }
-        self.run_until_idle(&request.handler, request.run_policy.max_messages)
+        self.run_until_idle(
+            &request.handler,
+            request.run_policy.max_messages,
+            request.run_policy.visibility_timeout_ms,
+        )
     }
 
-    fn execute_once(&self, handler: &Path) -> Result<WorkerRunReport, String> {
-        let Some(mut message) = self.store.lease_next()? else {
-            return Ok(self.idle_report());
+    fn execute_once(
+        &self,
+        handler: &Path,
+        visibility_timeout_ms: u64,
+    ) -> Result<WorkerRunReport, String> {
+        let reclaimed_stale = self.store.reclaim_stale_inflight()?;
+        let Some(mut message) = self.store.lease_next_with_timeout(visibility_timeout_ms)? else {
+            let mut report = self.idle_report();
+            report.reclaimed_stale = reclaimed_stale;
+            return Ok(report);
         };
         message.attempts = message.attempts.saturating_add(1);
         let execution_result = crate::worker_handler_runtime::execute_handler(handler, &message);
         let mut report = self.idle_report();
         report.processed = 1;
+        report.reclaimed_stale = reclaimed_stale;
         report.last_message_id = Some(message.id.clone());
         report.last_attempt = Some(message.attempts);
         let exit_code = match execution_result {
@@ -235,7 +253,7 @@ impl WorkerQueueBackend {
         report: &mut WorkerRunReport,
     ) -> Result<WorkerRunReport, String> {
         if message.attempts < message.max_attempts {
-            self.store.requeue(message, 0)?;
+            self.store.requeue(message, message.retry_delay_ms)?;
             report.status = "requeued".to_string();
             report.requeued = 1;
             return Ok(report.clone());
@@ -250,10 +268,11 @@ impl WorkerQueueBackend {
         &self,
         handler: &Path,
         max_messages: Option<usize>,
+        visibility_timeout_ms: u64,
     ) -> Result<WorkerRunReport, String> {
         let mut aggregate = self.idle_report();
         loop {
-            let report = self.execute_once(handler)?;
+            let report = self.execute_once(handler, visibility_timeout_ms)?;
             if report.processed == 0 {
                 if aggregate.processed == 0 {
                     return Ok(report);
@@ -274,6 +293,7 @@ impl WorkerQueueBackend {
             aggregate.acked += report.acked;
             aggregate.requeued += report.requeued;
             aggregate.dead_lettered += report.dead_lettered;
+            aggregate.reclaimed_stale += report.reclaimed_stale;
             aggregate.last_message_id = report.last_message_id;
             aggregate.last_attempt = report.last_attempt;
             aggregate.status = match (aggregate.status.as_str(), report.status.as_str()) {
@@ -301,6 +321,7 @@ impl WorkerQueueBackend {
             acked: 0,
             requeued: 0,
             dead_lettered: 0,
+            reclaimed_stale: 0,
             last_message_id: None,
             last_attempt: None,
             pending_path: self.store.pending_path.display().to_string(),
@@ -449,6 +470,7 @@ fn resolve_run_policy(
     Ok(WorkerRunPolicy {
         drain_mode,
         max_messages,
+        visibility_timeout_ms: run_policy.visibility_timeout_ms.unwrap_or(0),
     })
 }
 

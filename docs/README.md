@@ -2,13 +2,13 @@
 
 ## Versioning policy
 
-- Current release line: `v3.7.0`.
-- The first concrete `v3.7.0` implementation tranche is the global self-host AI runtime foundation:
-  - bounded `enkai_accel` train/pretrain/eval suite
-  - Python/native comparison evidence
-  - deterministic memory/safety/security proof
-- `docs/Enkai.spec` is the normative language reference for `v3.7.0`.
-- Known limits and partial features are tracked inside `docs/Enkai.spec` under `Known Limits in v3.7.0`.
+- Current release line: `v3.8.0`.
+- The closed worker lifecycle and checkpoint sharding line for `v3.8.0` extends the global self-host AI runtime line with:
+  - networked `world_size = 4` worker baseline/fault/recovery execution
+  - checkpoint shard archive and merge/replay evidence
+  - corrupted shard rejection and shard-copy throughput gates
+- `docs/Enkai.spec` is the normative language reference for `v3.8.0`.
+- Known limits and partial features are tracked inside `docs/Enkai.spec` under `Known Limits in v3.8.0`.
 - `docs/40_registry_convergence.md` defines the registry convergence contract for checkpoint, simulation, environment, and native-extension artifacts.
 - `docs/41_scale_reliability.md` defines the `v3.0.0` scale/reliability contract for supervised simulation clusters and degraded registry fallback.
 - `VALIDATION.md` defines the strict CPU/GPU validation matrix for release claims.

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "contract": "C:\\Users\\USER\\Desktop\\Morph\\enkai\\contracts\\v3_8_0_worker_checkpoint_tranche.json",
+  "generated_at_utc": "2026-05-07T16:38:26.545624+00:00",
+  "all_passed": true,
+  "required_reports": [
+    "artifacts/readiness/v3_8_0_worker_lifecycle.json",
+    "artifacts/readiness/v3_8_0_checkpoint_sharding.json",
+    "artifacts/readiness/v3_8_0_worker_lifecycle_verify.json",
+    "artifacts/readiness/v3_8_0_checkpoint_sharding_verify.json",
+    "artifacts/readiness/v3_8_0_worker_persistence_scheduling.json",
+    "artifacts/readiness/v3_8_0_worker_persistence_scheduling_verify.json"
+  ],
+  "failures": []
+}

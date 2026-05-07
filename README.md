@@ -4,7 +4,7 @@ ENKAI PROGRAMMING LANGUAGE
 Overview
 Enkai is a programming language with block structure defined by :: tokens, a clean
 assignment operator (:=), and an AI-native roadmap (tools, agents, memory, policy).
-This repository contains the v3.7.0 release line in Rust.
+This repository contains the v3.8.0 active release line in Rust.
 
 Strict self-host transition:
 - the `v3.1.0 -> v4.0.0` zero-Rust program is frozen in:
@@ -18,10 +18,16 @@ Strict self-host transition:
   - `enkai/contracts/selfhost_audited_surface_v3_1_1.json`
   - `docs/50_strict_selfhost_contract.md`
 
-Status (v3.7.0)
-- Release line: `v3.7.0`
+Status (v3.8.0)
+- Release line: `v3.8.0`
 - Release state: closed
-- Global self-host AI runtime foundation:
+- Worker lifecycle and checkpoint sharding tranche (closed):
+  - worker lifecycle proof archived under `artifacts/readiness/v3_8_0_worker_lifecycle.json`
+  - worker persistence/scheduling proof archived under `artifacts/readiness/v3_8_0_worker_persistence_scheduling.json`
+  - checkpoint sharding/restore proof archived under `artifacts/readiness/v3_8_0_checkpoint_sharding.json`
+  - parent tranche proof archived under `artifacts/readiness/v3_8_0_worker_checkpoint_tranche.json`
+  - v3.8.0 closure proof archived under `artifacts/readiness/v3_8_0_closure.json`
+- Prior v3.7.0 global self-host AI runtime foundation remains closed:
   - bounded `enkai_accel` single-node train/pretrain/eval suite
   - deterministic checkpoint/report emission under `ai_runtime_report.json`
   - pinned benchmark comparison against Python and the current `native` backend
