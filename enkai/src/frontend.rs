@@ -823,6 +823,7 @@ fn render_backend_main(api_version: &str) -> String {
     let ws = format!("{}/chat/ws", base);
     format!(
         "import std::http\n\
+import std::json\n\
 import std::io\n\
 import std::env\n\
 import std::path\n\
@@ -901,7 +902,7 @@ fn request_api_version(req: Request) -> String? ::\n\
     return http.header(req, \"x-enkai-api-version\")\n\
 ::\n\n\
 fn request_ws_api_version(req: Request) -> String? ::\n\
-    let value := http.header(req, \"x-enkai-api-version\")\n\
+    mut value := http.header(req, \"x-enkai-api-version\")\n\
     if value == none ::\n\
         value := http.query(req, \"api_version\")\n\
     ::\n\
@@ -914,7 +915,7 @@ fn next_conversation_id(value: String?) -> String ::\n\
     return json.stringify(time.now_ms())\n\
 ::\n\n\
 fn migrate_conversation_state_file() ::\n\
-    let raw := io.read_text(conversation_path())\n\
+    mut raw := io.read_text(conversation_path())\n\
     if raw == none ::\n\
         raw := io.read_text(conversation_backup_path())\n\
     ::\n\
@@ -1097,7 +1098,7 @@ fn main() ::\n\
         http.middleware(\"jsonl_log\", log_cfg),\n\
         http.middleware(\"default\", not_found)\n\
     ]\n\
-    let host := \"0.0.0.0\"\n\
+    mut host := \"0.0.0.0\"\n\
     let host_env := env.get(\"ENKAI_SERVE_HOST\")\n\
     if host_env != none ::\n\
         host := host_env?\n\
@@ -1632,7 +1633,7 @@ fn sanitize_name(path: &Path) -> String {
 
 const MOBILE_BABEL_CONFIG: &str = "module.exports = function(api) {\n  api.cache(true);\n  return {\n    presets: ['babel-preset-expo'],\n  };\n};\n";
 const MOBILE_TSCONFIG: &str = "{\n  \"extends\": \"expo/tsconfig.base\",\n  \"compilerOptions\": {\n    \"strict\": true\n  }\n}\n";
-const WORKER_HANDLER_ENK: &str = "import std::env\nimport json\n\nfn main() ::\n    let payload_raw := env.get(\"ENKAI_WORKER_PAYLOAD\")\n    if payload_raw == none ::\n        return 1\n    ::\n    let payload := json.parse(payload_raw?)\n    let fail_until := payload.fail_until\n    if fail_until != none ::\n        let attempt := json.parse(env.get(\"ENKAI_WORKER_ATTEMPT\")?)\n        if attempt <= fail_until? ::\n            return 2\n        ::\n    ::\n    return 0\n::\n\nmain()\n";
+const WORKER_HANDLER_ENK: &str = "import std::env\nimport std::json\n\nfn main() ::\n    let payload_raw := env.get(\"ENKAI_WORKER_PAYLOAD\")\n    if payload_raw == none ::\n        return 1\n    ::\n    let payload := json.parse(payload_raw?)\n    let fail_until := payload.fail_until\n    if fail_until != none ::\n        let attempt := json.parse(env.get(\"ENKAI_WORKER_ATTEMPT\")?)\n        if attempt <= fail_until? ::\n            return 2\n        ::\n    ::\n    return 0\n::\n\nmain()\n";
 const FRONTEND_INDEX_HTML: &str = "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta charset=\"UTF-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n    <title>Enkai Chat</title>\n  </head>\n  <body>\n    <div id=\"root\"></div>\n    <script type=\"module\" src=\"/src/main.tsx\"></script>\n  </body>\n</html>\n";
 
 const FRONTEND_MAIN_TSX: &str = "import React from \"react\";\nimport ReactDOM from \"react-dom/client\";\nimport App from \"./App\";\nimport \"./styles.css\";\n\nReactDOM.createRoot(document.getElementById(\"root\")!).render(\n  <React.StrictMode>\n    <App />\n  </React.StrictMode>\n);\n";

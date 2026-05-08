@@ -1,3 +1,4 @@
+import std::json
 // std::optim (v1.1 core)
 
 native::import "enkai_tensor" ::

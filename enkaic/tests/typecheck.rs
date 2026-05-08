@@ -13,6 +13,13 @@ fn type_err(src: &str) -> String {
     tc.check_module(&m).unwrap_err().message
 }
 
+fn compile_err(src: &str) -> String {
+    let m = parse_module(src).expect("parse");
+    enkaic::compiler::compile_module(&m)
+        .unwrap_err()
+        .message
+}
+
 #[test]
 fn arithmetic_types_ok() {
     assert!(type_ok("let x := 1 + 2\n"));
@@ -26,6 +33,53 @@ fn logic_types_ok() {
 #[test]
 fn optional_allows_none() {
     assert!(type_ok("let x: String? := none\n"));
+}
+
+#[test]
+fn reassignment_requires_mut_binding() {
+    let msg = type_err("let count := 6\ncount := 7\n");
+    assert!(msg.contains("cannot assign to immutable variable `count`"));
+    assert!(msg.contains("declare it with `mut`"));
+}
+
+#[test]
+fn mut_binding_allows_reassignment() {
+    assert!(type_ok("mut count := 6\ncount := count + 1\n"));
+    assert!(type_ok("let mut score := 0.0\nscore := score + 1.0\n"));
+}
+
+#[test]
+fn compiler_rejects_immutable_reassignment_without_typecheck() {
+    let msg = compile_err("let count := 6\ncount := 7\n");
+    assert!(msg.contains("cannot assign to immutable variable `count`"));
+}
+
+#[test]
+fn json_namespace_requires_std_json_import() {
+    let msg = type_err("let value := json.parse(\"{}\")\n");
+    assert!(msg.contains("ImportError: `json.parse` requires `import std::json`"));
+}
+
+#[test]
+fn std_json_import_enables_json_namespace() {
+    assert!(type_ok(
+        "import std::json\n\
+         let value := json.parse(\"{}\")\n\
+         let text := json.enkai(value)\n"
+    ));
+}
+
+#[test]
+fn function_params_are_immutable_by_default() {
+    let msg = type_err("fn bump(count: Int) -> Int ::\n    count := count + 1\n    return count\n::\n");
+    assert!(msg.contains("cannot assign to immutable variable `count`"));
+}
+
+#[test]
+fn mutable_function_params_allow_reassignment() {
+    assert!(type_ok(
+        "fn bump(mut count: Int) -> Int ::\n    count := count + 1\n    return count\n::\n"
+    ));
 }
 
 #[test]
@@ -89,7 +143,7 @@ fn simulation_stdlib_modules_typecheck() {
 fn simulation_world_stdlib_typechecks() {
     assert!(type_ok(
         "import std::sim\n\
-         import json\n\
+         import std::json\n\
          let world: SimWorld := sim.make_seeded(16, 7)\n\
          sim.schedule(world, 1.0, json.parse(\"{\\\"kind\\\":\\\"tick\\\"}\"))\n\
          let next := sim.step(world)\n\
@@ -123,7 +177,7 @@ fn simulation_coroutines_typecheck() {
 #[test]
 fn spatial_snn_and_agent_modules_typecheck() {
     assert!(type_ok(
-        "import json\n\
+        "import std::json\n\
          import std::agent\n\
          import std::sim\n\
          import std::snn\n\
@@ -203,6 +257,40 @@ fn list_index_rejects_non_int_index() {
     let msg =
         type_err("fn main() -> Int ::\n    let xs := [4, 5, 6]\n    return xs[true]\n::\nmain()\n");
     assert!(msg.contains("Index expects Int"));
+}
+
+#[test]
+fn arrays_infer_homogeneous_element_types() {
+    assert!(type_ok(
+        "let names: Array[String] := [\"Nairobi\", \"Mombasa\"]\n\
+         let scores: Array[Float] := [0.7, 0.8, 1]\n\
+         let first: String := names[0]\n\
+         let score: Float := scores[2]\n"
+    ));
+}
+
+#[test]
+fn empty_array_requires_explicit_type() {
+    let msg = type_err("let empty := []\n");
+    assert!(msg.contains("cannot infer type of empty array"));
+    assert!(type_ok("let empty: Array[String] := []\n"));
+}
+
+#[test]
+fn mixed_array_binding_requires_explicit_dynamic_type() {
+    let msg = type_err("let values := [1, \"two\"]\n");
+    assert!(msg.contains("mixed-type arrays require an explicit dynamic type"));
+    assert!(type_ok("let values: Array[Any] := [1, \"two\"]\n"));
+}
+
+#[test]
+fn vector_sparse_vector_and_tensor_annotations_typecheck() {
+    assert!(type_ok(
+        "import std::sparse\n\
+         let scores: Vector[Float] := [0.75, 0.68, 0.62]\n\
+         let weights: SparseVector[Float] := sparse.vector()\n\
+         let matrix: Tensor[Float, 2] := 0\n"
+    ));
 }
 
 #[test]

@@ -1,3 +1,4 @@
+import std::json
 import std::env
 import std::io
 
@@ -44,7 +45,7 @@ fn main() -> Int ::
     summary.status := "ok"
     summary.output := output?
     let quiet := env.get("ENKAI_BOOTSTRAP_QUIET")
-    let should_print := true
+    mut should_print := true
     if quiet != none ::
         if quiet? == "1" ::
             should_print := false

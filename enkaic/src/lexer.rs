@@ -17,6 +17,7 @@ impl Token {
 pub enum TokenKind {
     BlockStart,
     BlockEnd,
+    BlockEndTagged(String),
     Newline,
     Eof,
 
@@ -26,6 +27,7 @@ pub enum TokenKind {
     String(String),
 
     Let,
+    Mut,
     Fn,
     If,
     Else,
@@ -226,7 +228,19 @@ impl Lexer {
         }
 
         let len = self.line_tokens.len();
-        if len > 0 && self.line_tokens[len - 1].kind == TokenKind::ColonColon {
+        if len == 2 && self.line_tokens[0].kind == TokenKind::ColonColon {
+            if let Some(tag) = block_tag_from_token(&self.line_tokens[1].kind) {
+                let line = self.line_tokens[0].line;
+                let col = self.line_tokens[0].col;
+                if self.block_depth == 0 {
+                    return Err(self.error("Block end without matching start", line, col));
+                }
+                self.block_depth -= 1;
+                self.line_tokens.clear();
+                self.line_tokens
+                    .push(Token::new(TokenKind::BlockEndTagged(tag), line, col));
+            }
+        } else if len > 0 && self.line_tokens[len - 1].kind == TokenKind::ColonColon {
             if len == 1 {
                 let line = self.line_tokens[len - 1].line;
                 let col = self.line_tokens[len - 1].col;
@@ -353,6 +367,7 @@ impl Lexer {
 
         let kind = match ident.as_str() {
             "let" => TokenKind::Let,
+            "mut" => TokenKind::Mut,
             "fn" => TokenKind::Fn,
             "if" => TokenKind::If,
             "else" => TokenKind::Else,
@@ -531,4 +546,28 @@ fn is_ident_start(c: char) -> bool {
 
 fn is_ident_continue(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_'
+}
+
+fn block_tag_from_token(kind: &TokenKind) -> Option<String> {
+    match kind {
+        TokenKind::Fn => Some("fn".to_string()),
+        TokenKind::If => Some("if".to_string()),
+        TokenKind::Else => Some("else".to_string()),
+        TokenKind::While => Some("while".to_string()),
+        TokenKind::For => Some("for".to_string()),
+        TokenKind::Policy => Some("policy".to_string()),
+        TokenKind::Match => Some("match".to_string()),
+        TokenKind::Type => Some("type".to_string()),
+        TokenKind::Enum => Some("enum".to_string()),
+        TokenKind::Impl => Some("impl".to_string()),
+        TokenKind::Ident(name)
+            if matches!(
+                name.as_str(),
+                "struct" | "module" | "class" | "trait" | "try" | "catch"
+            ) =>
+        {
+            Some(name.clone())
+        }
+        _ => None,
+    }
 }

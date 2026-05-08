@@ -1,3 +1,4 @@
+import std::json
 // std::process (v1.2 systems)
 
 native::import "enkai_native" ::

@@ -258,10 +258,20 @@ Workspace structure
 Spec
 See docs/Enkai.spec for the grammar, keywords, and :: block rules.
 
+Official CLI
+- `enkai run <file.enkai>` executes Enkai source.
+- `enkai check <file.enkai>` checks syntax, types, imports, and policies without executing.
+- `enkai build <file.enkai>` builds a source file or project.
+- `enkai fmt <file.enkai>` formats source.
+- `enkai test [dir]` runs project tests.
+- `enkai version` prints the compiler/interpreter version.
+- `enkai help` shows available commands.
+- `enkai safari` is reserved for a future interactive workspace; use `enkai run` for normal execution.
+
 Quick example
 fn greet(name: String) -> String ::
     return "Hello " + name
-::
+::fn
 
 let msg := greet("Enkai")
 print(msg)

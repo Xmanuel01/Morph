@@ -1,5 +1,10 @@
 /target
 /dist/
+/release-assets/*
+!/release-assets/.gitkeep
+!/release-assets/README.md
+/enkai/artifacts/
+/enkai_programming/
 **/*.rs.bk
 /checkpoints
 /data

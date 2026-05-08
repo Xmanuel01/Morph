@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use libloading::Library;
 use serde::Deserialize;
@@ -18,6 +18,8 @@ const E_FFI_ABI_VERSION: &str = "E_FFI_ABI_VERSION";
 const E_FFI_SYMBOL_TABLE: &str = "E_FFI_SYMBOL_TABLE";
 const E_FFI_FREE_MISSING: &str = "E_FFI_FREE_MISSING";
 const E_FFI_HANDLE_FREE_MISSING: &str = "E_FFI_HANDLE_FREE_MISSING";
+
+static PROCESS_FFI_LIBRARIES: OnceLock<Mutex<HashMap<String, Arc<Library>>>> = OnceLock::new();
 
 #[repr(C)]
 struct FfiSlice {
@@ -83,11 +85,26 @@ impl FfiLoader {
         if let Some(lib) = self.libraries.get(name) {
             return Ok(lib.clone());
         }
+        if let Some(lib) = PROCESS_FFI_LIBRARIES
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .expect("process FFI library cache poisoned")
+            .get(name)
+            .cloned()
+        {
+            self.libraries.insert(name.to_string(), lib.clone());
+            return Ok(lib);
+        }
         let mut last_err: Option<String> = None;
         for path in library_candidates(name) {
             match unsafe { Library::new(&path) } {
                 Ok(lib) => {
                     let lib = Arc::new(lib);
+                    PROCESS_FFI_LIBRARIES
+                        .get_or_init(|| Mutex::new(HashMap::new()))
+                        .lock()
+                        .expect("process FFI library cache poisoned")
+                        .insert(name.to_string(), lib.clone());
                     self.libraries.insert(name.to_string(), lib.clone());
                     return Ok(lib);
                 }

@@ -160,7 +160,7 @@ mod tests {
         let dir = tempdir_in(".").expect("tempdir");
         let config = write_cluster_config(
             dir.path(),
-            r#"import json
+            r#"import std::json
 fn main() ::
     return json.parse("{\"config_version\":1,\"backend\":\"cpu\",\"vocab_size\":8,\"hidden_size\":4,\"seq_len\":4,\"batch_size\":2,\"lr\":0.1,\"dataset_path\":\"data.txt\",\"checkpoint_dir\":\"ckpt\",\"max_steps\":2,\"save_every\":1,\"log_every\":1,\"tokenizer_train\":{\"path\":\"data.txt\",\"vocab_size\":8}}")
 ::
@@ -205,7 +205,7 @@ main()
         let dir = tempdir_in(".").expect("tempdir");
         let config = write_cluster_config(
             dir.path(),
-            r#"import json
+            r#"import std::json
 fn main() ::
     return json.parse("{\"config_version\":1,\"backend\":\"cpu\",\"vocab_size\":8,\"hidden_size\":4,\"seq_len\":4,\"batch_size\":2,\"lr\":0.1,\"dataset_path\":\"data.txt\",\"checkpoint_dir\":\"ckpt\",\"max_steps\":2,\"save_every\":1,\"log_every\":1,\"tokenizer_train\":{\"path\":\"data.txt\",\"vocab_size\":8},\"world_size\":2,\"rank\":0,\"dist\":{\"topology\":\"multi-node\",\"rendezvous\":\"tcp://127.0.0.1:29500\",\"retry_budget\":2,\"device_map\":[0,1],\"hosts\":[\"node-a\",\"node-b\"],\"host_map\":[0,1]}}")
 ::
@@ -231,7 +231,7 @@ main()
         let dir = tempdir_in(".").expect("tempdir");
         let config = write_cluster_config(
             dir.path(),
-            r#"import json
+            r#"import std::json
 fn main() ::
     return json.parse("{\"config_version\":1,\"backend\":\"cpu\",\"vocab_size\":8,\"hidden_size\":4,\"seq_len\":4,\"batch_size\":2,\"lr\":0.1,\"dataset_path\":\"data.txt\",\"checkpoint_dir\":\"ckpt\",\"max_steps\":2,\"save_every\":1,\"log_every\":1,\"tokenizer_train\":{\"path\":\"data.txt\",\"vocab_size\":8},\"world_size\":2,\"rank\":0,\"dist\":{\"topology\":\"multi-node\",\"rendezvous\":\"env://\",\"retry_budget\":2,\"device_map\":[0,1],\"hosts\":[\"node-a\",\"node-b\"],\"host_map\":[0,1]}}")
 ::
@@ -249,7 +249,7 @@ main()
         fs::write(&sim_target, "fn main() ::\n    return 0\n::\nmain()\n").expect("sim write");
         let config = write_cluster_config(
             dir.path(),
-            r#"import json
+            r#"import std::json
 fn main() ::
     return json.parse("{\"config_version\":1,\"backend\":\"cpu\",\"vocab_size\":8,\"hidden_size\":4,\"seq_len\":4,\"batch_size\":2,\"lr\":0.1,\"dataset_path\":\"data.txt\",\"checkpoint_dir\":\"ckpt\",\"max_steps\":2,\"save_every\":1,\"log_every\":1,\"tokenizer_train\":{\"path\":\"data.txt\",\"vocab_size\":8},\"world_size\":2,\"rank\":0,\"workload\":\"simulation\",\"dist\":{\"topology\":\"multi-node\",\"rendezvous\":\"tcp://127.0.0.1:29500\",\"retry_budget\":2,\"device_map\":[0,1],\"hosts\":[\"node-a\",\"node-b\"],\"host_map\":[0,1]},\"simulation\":{\"target\":\"sim_world.enk\",\"partition_count\":2,\"total_steps\":6,\"step_window\":2,\"snapshot_interval\":2,\"route_policy\":\"deterministic-ring\",\"recovery_dir\":\"recovery\",\"seed\":11}}")
 ::

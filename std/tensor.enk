@@ -1,3 +1,4 @@
+import std::json
 // std::tensor (v0.9 GPU core)
 
 native::import "enkai_tensor" ::

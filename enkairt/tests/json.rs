@@ -29,6 +29,25 @@ fn json_parse_stringify_roundtrip() {
 }
 
 #[test]
+fn json_enkai_alias_stringifies_value() {
+    let source = "let v := json.parse(\"{\\\"language\\\":\\\"enkai\\\",\\\"version\\\":1}\")\n\
+                  let out := json.enkai(v)\n\
+                  return out\n";
+    let value = run_value(source).expect("run");
+    let out = match value {
+        enkairt::Value::Obj(obj) => match obj.as_obj() {
+            enkairt::object::Obj::String(s) => s.clone(),
+            _ => panic!("expected string"),
+        },
+        _ => panic!("expected string"),
+    };
+    let parsed: serde_json::Value = serde_json::from_str(&out).expect("json");
+    let expected: serde_json::Value =
+        serde_json::from_str("{\"language\":\"enkai\",\"version\":1}").expect("expected");
+    assert_eq!(parsed, expected);
+}
+
+#[test]
 fn json_parse_invalid_errors() {
     let source = "let v := json.parse(\"{not_json}\")\n\
                   return v\n";

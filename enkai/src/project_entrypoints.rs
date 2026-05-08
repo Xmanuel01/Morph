@@ -208,8 +208,16 @@ pub(crate) fn build_command(args: &[String]) -> i32 {
         }
     };
     if find_manifest(&root).is_none() {
-        eprintln!("enkai.toml not found in {}", root.display());
-        return 1;
+        let (_program, backend) = match crate::compile_program_prefer_selfhost(&entry) {
+            Ok(value) => value,
+            Err(err) => {
+                eprintln!("{}", err);
+                return 1;
+            }
+        };
+        crate::emit_command_backend_report("build", &entry, &root, backend);
+        println!("build ok");
+        return 0;
     }
     let manifest = match read_manifest_info(&root) {
         Ok(info) => info,

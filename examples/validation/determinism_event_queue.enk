@@ -1,4 +1,4 @@
-import json
+import std::json
 import std::event
 
 fn main() ::

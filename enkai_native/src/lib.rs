@@ -22,6 +22,7 @@ use std::sync::{
 static HANDLE_LIVE_COUNT: AtomicI64 = AtomicI64::new(0);
 static HANDLE_STALE_COUNT: AtomicI64 = AtomicI64::new(0);
 static LIVE_HANDLES: OnceLock<Mutex<HashMap<usize, OpaqueHandleKind>>> = OnceLock::new();
+static RUNTIME_BRIDGE_LIBRARIES: OnceLock<Mutex<HashMap<String, Arc<Library>>>> = OnceLock::new();
 
 #[derive(Debug)]
 struct ExampleHandle {
@@ -191,6 +192,10 @@ fn make_slice(bytes: Vec<u8>) -> FfiSlice {
 
 fn live_handles() -> &'static Mutex<HashMap<usize, OpaqueHandleKind>> {
     LIVE_HANDLES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn runtime_bridge_libraries() -> &'static Mutex<HashMap<String, Arc<Library>>> {
+    RUNTIME_BRIDGE_LIBRARIES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 fn note_stale_handle() {
@@ -873,10 +878,26 @@ fn runtime_library_candidates(name: &str) -> Vec<PathBuf> {
 }
 
 fn runtime_load_library(name: &str) -> Result<Arc<Library>, String> {
+    if let Some(existing) = runtime_bridge_libraries()
+        .lock()
+        .expect("runtime bridge library cache poisoned")
+        .get(name)
+        .cloned()
+    {
+        return Ok(existing);
+    }
+
     let mut last_err = None;
     for candidate in runtime_library_candidates(name) {
         match unsafe { Library::new(&candidate) } {
-            Ok(lib) => return Ok(Arc::new(lib)),
+            Ok(lib) => {
+                let library = Arc::new(lib);
+                runtime_bridge_libraries()
+                    .lock()
+                    .expect("runtime bridge library cache poisoned")
+                    .insert(name.to_string(), library.clone());
+                return Ok(library);
+            }
             Err(err) => last_err = Some(format!("{} ({})", candidate.display(), err)),
         }
     }
@@ -1020,6 +1041,116 @@ fn runtime_decode_handle(arg: &serde_json::Value) -> Result<*mut c_void, String>
     let raw = usize::from_str_radix(text, 16)
         .map_err(|err| format!("runtime FFI Handle arg is not valid hex: {}", err))?;
     Ok(raw as *mut c_void)
+}
+
+fn runtime_decode_int(arg: &serde_json::Value) -> Result<i64, String> {
+    if runtime_value_kind(arg)? != "Int" {
+        return Err("runtime FFI arg expects Int".to_string());
+    }
+    arg.get("value")
+        .and_then(serde_json::Value::as_i64)
+        .ok_or_else(|| "runtime FFI Int arg missing value".to_string())
+}
+
+fn runtime_decode_float(arg: &serde_json::Value) -> Result<f64, String> {
+    match runtime_value_kind(arg)? {
+        "Float" => arg
+            .get("value")
+            .and_then(serde_json::Value::as_f64)
+            .ok_or_else(|| "runtime FFI Float arg missing value".to_string()),
+        "Int" => arg
+            .get("value")
+            .and_then(serde_json::Value::as_i64)
+            .map(|value| value as f64)
+            .ok_or_else(|| "runtime FFI Int arg missing value".to_string()),
+        _ => Err("runtime FFI arg expects Float".to_string()),
+    }
+}
+
+fn runtime_call_enkai_native_direct(
+    name: &str,
+    args: &[serde_json::Value],
+) -> Option<Result<serde_json::Value, String>> {
+    let result = match name {
+        // Keep handle-sensitive calls inside this loaded module. That avoids recursively
+        // loading the same DLL while opaque handles from previous runtime FFI calls are live.
+        "handle_reset_stale_count" => {
+            if !args.is_empty() {
+                Err("runtime FFI arity mismatch: expected 0, found arguments".to_string())
+            } else {
+                handle_reset_stale_count();
+                Ok(runtime_null_json())
+            }
+        }
+        "handle_stale_count" => {
+            if !args.is_empty() {
+                Err("runtime FFI arity mismatch: expected 0, found arguments".to_string())
+            } else {
+                Ok(runtime_int_json(handle_stale_count()))
+            }
+        }
+        "handle_live_count" => {
+            if !args.is_empty() {
+                Err("runtime FFI arity mismatch: expected 0, found arguments".to_string())
+            } else {
+                Ok(runtime_int_json(handle_live_count()))
+            }
+        }
+        "handle_new" => {
+            if args.len() != 1 {
+                Err(format!(
+                    "runtime FFI arity mismatch: expected 1, found {}",
+                    args.len()
+                ))
+            } else {
+                runtime_decode_int(&args[0]).map(|value| runtime_handle_json(handle_new(value)))
+            }
+        }
+        "handle_read" => {
+            if args.len() != 1 {
+                Err(format!(
+                    "runtime FFI arity mismatch: expected 1, found {}",
+                    args.len()
+                ))
+            } else {
+                runtime_decode_handle(&args[0])
+                    .map(|handle| runtime_int_json(unsafe { handle_read(handle) }))
+            }
+        }
+        "sim_sparse_vector_set" => {
+            if args.len() != 3 {
+                Err(format!(
+                    "runtime FFI arity mismatch: expected 3, found {}",
+                    args.len()
+                ))
+            } else {
+                let handle = match runtime_decode_handle(&args[0]) {
+                    Ok(value) => value,
+                    Err(err) => return Some(Err(err)),
+                };
+                let index = match runtime_decode_int(&args[1]) {
+                    Ok(value) => value,
+                    Err(err) => return Some(Err(err)),
+                };
+                let value = match runtime_decode_float(&args[2]) {
+                    Ok(value) => value,
+                    Err(err) => return Some(Err(err)),
+                };
+                Ok(runtime_bool_json(unsafe {
+                    sim_sparse_vector_set(handle, index, value) != 0
+                }))
+            }
+        }
+        "sim_sparse_vector_new" => {
+            if !args.is_empty() {
+                Err("runtime FFI arity mismatch: expected 0, found arguments".to_string())
+            } else {
+                Ok(runtime_handle_json(sim_sparse_vector_new()))
+            }
+        }
+        _ => return None,
+    };
+    Some(result)
 }
 
 impl RuntimeBridgeFunction {
@@ -1291,6 +1422,15 @@ pub unsafe extern "C" fn runtime_ffi_invoke(
             return string_slice(serde_json::json!({ "ok": false, "error": err }).to_string())
         }
     };
+    if library == "enkai_native" {
+        if let Some(result) = runtime_call_enkai_native_direct(name, &args) {
+            let response = match result {
+                Ok(value) => serde_json::json!({ "ok": true, "value": value }),
+                Err(err) => serde_json::json!({ "ok": false, "error": err }),
+            };
+            return string_slice(response.to_string());
+        }
+    }
     let response = match runtime_bind_bridge_function(library, name, signature_json)
         .and_then(|bridge| bridge.call(&args))
     {

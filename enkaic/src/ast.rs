@@ -81,6 +81,7 @@ pub struct Param {
     pub name: String,
     pub type_ann: Option<TypeRef>,
     pub default: Option<Expr>,
+    pub mutable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -192,6 +193,7 @@ pub enum Stmt {
         name_span: Span,
         type_ann: Option<TypeRef>,
         expr: Expr,
+        mutable: bool,
     },
     Assign {
         target: LValue,
@@ -362,6 +364,7 @@ pub enum TypeRef {
         params: Vec<TypeRef>,
         ret: Box<TypeRef>,
     },
+    ConstInt(i64),
 }
 
 #[derive(Debug, Clone, PartialEq)]

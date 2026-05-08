@@ -1264,6 +1264,15 @@ impl VM {
             }))),
         );
         json_record.insert(
+            "enkai".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "json.enkai".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        json_record.insert(
             "parse_many".to_string(),
             Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
                 name: "json.parse_many".to_string(),
@@ -5011,7 +5020,7 @@ impl VM {
                             self.stack.push(value);
                             return Ok(());
                         }
-                        if nf.name == "json.stringify" {
+                        if nf.name == "json.stringify" || nf.name == "json.enkai" {
                             let value = args
                                 .first()
                                 .cloned()
@@ -6908,6 +6917,24 @@ impl VM {
                     Err(_) => Ok(Some(Value::Null)),
                 }
             }
+            "buffer_len" => {
+                let bytes = value_as_buffer(
+                    args.first()
+                        .ok_or_else(|| RuntimeError::new("buffer_len expects Buffer"))?,
+                )?;
+                Ok(Some(Value::Int(bytes.len() as i64)))
+            }
+            "buffer_eq" => {
+                let lhs = value_as_buffer(
+                    args.first()
+                        .ok_or_else(|| RuntimeError::new("buffer_eq expects Buffer"))?,
+                )?;
+                let rhs = value_as_buffer(
+                    args.get(1)
+                        .ok_or_else(|| RuntimeError::new("buffer_eq expects Buffer"))?,
+                )?;
+                Ok(Some(Value::Bool(lhs == rhs)))
+            }
             "fsx_read_bytes" | "fsx_mmap_read" => {
                 let path = value_as_string(
                     args.first()
@@ -6953,6 +6980,23 @@ impl VM {
                 let mut out = std::io::stderr();
                 let ok = out.write_all(&bytes).and_then(|_| out.flush()).is_ok();
                 Ok(Some(Value::Bool(ok)))
+            }
+            "log_emit" => {
+                let level = value_as_string(
+                    args.first()
+                        .ok_or_else(|| RuntimeError::new("log_emit expects level"))?,
+                )?;
+                let message = value_as_string(
+                    args.get(1)
+                        .ok_or_else(|| RuntimeError::new("log_emit expects message"))?,
+                )?;
+                let level_norm = level.to_lowercase();
+                if matches!(level_norm.as_str(), "error" | "warn") {
+                    eprintln!("[{}] {}", level_norm, message);
+                } else {
+                    println!("[{}] {}", level_norm, message);
+                }
+                Ok(Some(Value::Bool(true)))
             }
             "env_get" => {
                 let key = value_as_string(
@@ -12557,12 +12601,15 @@ fn builtin_native_std_function(decl: &NativeFunctionDecl) -> Option<NativeFuncti
         decl.name.as_str(),
         "buffer_from_string"
             | "buffer_to_string"
+            | "buffer_len"
+            | "buffer_eq"
             | "fsx_read_bytes"
             | "fsx_write_bytes"
             | "fsx_mmap_read"
             | "io_read_stdin"
             | "io_write_stdout"
             | "io_write_stderr"
+            | "log_emit"
             | "env_get"
             | "env_set"
             | "env_remove"
@@ -15205,6 +15252,10 @@ fn describe_subset_type_ref_value(type_ref: &TypeRef) -> Value {
                 "return_type".to_string(),
                 describe_subset_type_ref_value(ret),
             );
+        }
+        TypeRef::ConstInt(value) => {
+            map.insert("kind".to_string(), string_value("ConstInt"));
+            map.insert("value".to_string(), Value::Int(*value));
         }
     }
     record_value(map)

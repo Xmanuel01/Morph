@@ -137,7 +137,7 @@ Operators and punctuation:
 - Postfix: `.`, `()`, `[]`, `?`
 
 Keywords:
-`agent allow and as async await break catch continue deny else enum false fn for if impl import in let match memory model none not or policy prompt pub return spawn tool true try type use while`
+`agent allow and as async await break catch continue deny else enum false fn for if impl import in let match memory model mut none not or policy prompt pub return spawn tool true try type use while`
 
 -------------------------------------------------------------------------------
 3. Block Model (`::`)
@@ -286,8 +286,9 @@ Runtime semantics (v1.1):
 -------------------------------------------------------------------------------
 
 Statements:
-- `let` bindings: `let x := expr` or `let x: Type := expr`
-- Assignment statement: `target := expr`
+- Immutable `let` bindings: `let x := expr` or `let x: Type := expr`
+- Mutable bindings: `mut x := expr`, `mut x: Type := expr`, or `let mut x := expr`
+- Assignment statement: `target := expr`; direct reassignment requires a `mut` binding.
 - `if` / `else`
 - `while`
 - `for x in expr`
@@ -303,7 +304,7 @@ Expressions:
 - Call: `f(...)`, named arguments supported
 - Indexing: `a[i]`
 - Field: `obj.field`
-- Lists: `[a, b, c]`
+- Arrays: `[a, b, c]`; homogeneous literals infer `Array[T]`
 - Lambda: `(a: Int, b: Int) -> Int => a + b`
 - Match expression
 - Try postfix: `expr?`
@@ -323,7 +324,15 @@ Core types used in v3.0.0:
 - `Int`, `Float`, `Bool`, `String`, `Buffer`, `Handle`, `SimCoroutine`, `Void`
 - Optional: `T?`
 - Function: `fn(T1, T2) -> R`
-- Named types with optional generic arguments in syntax
+- Collections: `Array[T]`, `Vector[T]`, `SparseVector[T]`
+- Tensors: `Tensor[T, N]` for rank-qualified tensor annotations
+- Named types with optional generic arguments in `Name[T]` or legacy `Name<T>` syntax
+
+Collection inference:
+- `["a", "b"]` infers `Array[String]`
+- `[0.7, 0.8, 1]` infers `Array[Float]`
+- `[]` requires an explicit annotation such as `Array[String]`
+- mixed-type array bindings require an explicit dynamic annotation such as `Array[Any]`
 
 Typechecking behavior (production):
 - Function arity/type checks for declared function signatures.
@@ -357,6 +366,7 @@ Diagnostics:
 
 Formatting and tests:
 - Deterministic formatter (`enkai fmt`, `enkai fmt --check`).
+- Formatter upgrades recognized anonymous block closers to tagged closers (`::fn`, `::if`, `::while`, `::policy`, etc.) while plain `::` remains parse-compatible.
 - Project test runner (`enkai test`) compiles and executes test files.
 
 -------------------------------------------------------------------------------
@@ -405,8 +415,10 @@ HTTP server/client:
   - `x-enkai-error-code` (machine-parseable deterministic error code)
 
 JSON:
+- requires `import std::json`
 - `json.parse(text)`
 - `json.stringify(value)`
+- `json.enkai(value)` as the Enkai-preferred alias for `json.stringify(value)`
 
 Bootstrap:
 - `bootstrap.format(source)` -> canonical formatted source text

@@ -3,6 +3,12 @@ use enkaic::parser::parse_module;
 use enkairt::error::RuntimeError;
 use enkairt::object::Obj;
 use enkairt::{Value, VM};
+use std::sync::{Mutex, OnceLock};
+
+fn handle_counter_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
 
 fn run(source: &str) -> Result<Value, RuntimeError> {
     let module = parse_module(source).expect("parse");
@@ -59,6 +65,7 @@ fn ffi_hash_sha256_len() {
 
 #[test]
 fn ffi_handle_roundtrip_and_drop() {
+    let _guard = handle_counter_lock().lock().expect("handle counter lock poisoned");
     {
         let value = run(
             "native::import \"enkai_native\" ::\n    fn handle_new(value: Int) -> Handle\n    fn handle_read(handle: Handle) -> Int\n::\nlet handle := handle_new(41)\nhandle_read(handle)\n",
@@ -114,8 +121,9 @@ fn ffi_optional_scalar_signature_rejected_at_compile() {
 
 #[test]
 fn ffi_wrong_handle_kind_is_rejected_and_counted() {
+    let _guard = handle_counter_lock().lock().expect("handle counter lock poisoned");
     let value = run(
-        "native::import \"enkai_native\" ::\n    fn handle_reset_stale_count() -> Void\n    fn handle_stale_count() -> Int\n    fn handle_new(value: Int) -> Handle\n    fn sim_sparse_vector_set(handle: Handle, index: Int, value: Float) -> Bool\n::\nhandle_reset_stale_count()\nlet handle := handle_new(9)\nlet ok := sim_sparse_vector_set(handle, 0, 1.0)\nlet out := 0\nif ok ::\n    out := -100\n::\nout := out + handle_stale_count()\nout\n",
+        "native::import \"enkai_native\" ::\n    fn handle_reset_stale_count() -> Void\n    fn handle_stale_count() -> Int\n    fn handle_read(handle: Handle) -> Int\n    fn sim_sparse_vector_new() -> Handle\n::\nhandle_reset_stale_count()\nlet handle := sim_sparse_vector_new()\nlet accepted := handle_read(handle) != 0\nmut out := 0\nif accepted ::\n    out := -100\n::\nout := out + handle_stale_count()\nout\n",
     )
     .expect("run");
     assert_eq!(value, Value::Int(1));

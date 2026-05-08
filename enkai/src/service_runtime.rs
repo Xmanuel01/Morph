@@ -1250,7 +1250,8 @@ mod tests {
         .expect("main");
         fs::write(
             routes_root.join("get").join("ping.enk"),
-            "fn main() ::\n\
+            "import std::json\n\
+fn main() ::\n\
     let resp := json.parse(\"{}\")\n\
     let body := json.parse(\"{}\")\n\
     body.route := \"ping\"\n\
@@ -1263,6 +1264,7 @@ main()\n",
         fs::write(
             routes_root.join("get").join("users").join("[id].enk"),
             "import std::env\n\
+import std::json\n\
 policy default ::\n\
     allow env\n\
 ::\n\
@@ -1361,6 +1363,7 @@ main()\n",
         fs::write(
             routes_root.join("post").join("echo.enk"),
             "import std::env\n\
+import std::json\n\
 policy default ::\n\
     allow env\n\
 ::\n\
@@ -1454,7 +1457,8 @@ main()\n",
         .expect("main");
         fs::write(
             routes_root.join("any").join("status.enk"),
-            "fn main() ::\n\
+            "import std::json\n\
+fn main() ::\n\
     let resp := json.parse(\"{}\")\n\
     let body := json.parse(\"{}\")\n\
     body.route := \"any_status\"\n\
@@ -1472,6 +1476,7 @@ main()\n",
                 .join("comments")
                 .join("[comment_id].enk"),
             "import std::env\n\
+import std::json\n\
 policy default ::\n\
     allow env\n\
 ::\n\
@@ -1494,6 +1499,7 @@ main()\n",
                 .join("...path")
                 .join("index.enk"),
             "import std::env\n\
+import std::json\n\
 policy default ::\n\
     allow env\n\
 ::\n\

@@ -1,3 +1,4 @@
+import std::json
 import std::env
 import std::io
 
@@ -46,7 +47,7 @@ fn push_function_signature_with_source_set(set: Record?, name: String, arity: In
 ::
 
 fn string_set_contains(set: Record?, value: String) -> Bool ::
-    let current := set
+    mut current := set
     while current != none ::
         if current?.value == value ::
             return true
@@ -57,7 +58,7 @@ fn string_set_contains(set: Record?, value: String) -> Bool ::
 ::
 
 fn function_signature_set_contains(set: Record?, name: String, arity: Int) -> Bool ::
-    let current := set
+    mut current := set
     while current != none ::
         if current?.name == name ::
             if current?.arity == arity ::
@@ -69,8 +70,40 @@ fn function_signature_set_contains(set: Record?, name: String, arity: Int) -> Bo
     return false
 ::
 
+fn is_json_builtin_function(name: String) -> Bool ::
+    if name == "parse" ::
+        return true
+    ::
+    if name == "stringify" ::
+        return true
+    ::
+    if name == "enkai" ::
+        return true
+    ::
+    if name == "parse_many" ::
+        return true
+    ::
+    if name == "stringify_many" ::
+        return true
+    ::
+    return false
+::
+
+fn json_builtin_return_type_key(name: String) -> String ::
+    if name == "stringify" ::
+        return "String"
+    ::
+    if name == "enkai" ::
+        return "String"
+    ::
+    if name == "stringify_many" ::
+        return "List"
+    ::
+    return ""
+::
+
 fn function_signature_with_source_set_contains(set: Record?, name: String, arity: Int, source: String) -> Bool ::
-    let current := set
+    mut current := set
     while current != none ::
         if current?.name == name ::
             if current?.arity == arity ::
@@ -85,7 +118,7 @@ fn function_signature_with_source_set_contains(set: Record?, name: String, arity
 ::
 
 fn find_module_index(pkg: Record, module_id: String) -> Int ::
-    let idx := 0
+    mut idx := 0
     while idx < pkg.modules_count ::
         let module_info := pkg.modules[idx]
         if module_info.id == module_id ::
@@ -97,7 +130,7 @@ fn find_module_index(pkg: Record, module_id: String) -> Int ::
 ::
 
 fn find_local_function_arity(module: Record, name: String) ::
-    let idx := 0
+    mut idx := 0
     while idx < module.items_count ::
         let item := module.items[idx]
         if item.kind == "Fn" ::
@@ -111,7 +144,7 @@ fn find_local_function_arity(module: Record, name: String) ::
 ::
 
 fn import_bind_target(module_info: Record, bind: String) ::
-    let idx := 0
+    mut idx := 0
     while idx < module_info.imports_count ::
         let import_info := module_info.imports[idx]
         if import_info.bind == bind ::
@@ -123,7 +156,7 @@ fn import_bind_target(module_info: Record, bind: String) ::
 ::
 
 fn find_module_info(pkg: Record, module_id: String) ::
-    let idx := find_module_index(pkg, module_id)
+    mut idx := find_module_index(pkg, module_id)
     if idx < 0 ::
         return none
     ::
@@ -131,7 +164,7 @@ fn find_module_info(pkg: Record, module_id: String) ::
 ::
 
 fn module_exports_symbol(module_info: Record, name: String) -> Bool ::
-    let idx := 0
+    mut idx := 0
     while idx < module_info.exports_count ::
         if module_info.exports[idx] == name ::
             return true
@@ -180,7 +213,7 @@ fn module_bind_target(pkg: Record, module_info: Record, bind: String) ::
     if target != "" ::
         return target
     ::
-    let idx := 0
+    mut idx := 0
     while idx < module_info.module.items_count ::
         let item := module_info.module.items[idx]
         if item.kind == "Use" ::
@@ -199,7 +232,7 @@ fn module_bind_target(pkg: Record, module_info: Record, bind: String) ::
 ::
 
 fn find_local_function_record(module: Record, name: String) ::
-    let idx := 0
+    mut idx := 0
     while idx < module.items_count ::
         let item := module.items[idx]
         if item.kind == "Fn" ::
@@ -213,7 +246,7 @@ fn find_local_function_record(module: Record, name: String) ::
 ::
 
 fn find_local_type_record(module: Record, name: String) ::
-    let idx := 0
+    mut idx := 0
     while idx < module.items_count ::
         let item := module.items[idx]
         if item.kind == "Type" ::
@@ -253,12 +286,12 @@ fn find_visible_function_record(pkg: Record, module_info: Record, name: String) 
     if local != none ::
         return local
     ::
-    let idx := 0
+    mut idx := 0
     while idx < module_info.module.items_count ::
         let item := module_info.module.items[idx]
         if item.kind == "Use" ::
             if item.symbols_count > 0 ::
-                let symbol_idx := 0
+                mut symbol_idx := 0
                 while symbol_idx < item.symbols_count ::
                     if item.symbols[symbol_idx] == name ::
                         return find_exported_function_record(pkg, item.path, name)
@@ -270,7 +303,7 @@ fn find_visible_function_record(pkg: Record, module_info: Record, name: String) 
                 let alias := use_decl_bind(item)
                 if alias == name ::
                     let module_id := resolve_use_target_module_id(pkg, item)
-                    let symbol := resolve_use_target_symbol(item)
+                    mut symbol := resolve_use_target_symbol(item)
                     if module_id != "" ::
                         if symbol != "" ::
                             return find_exported_function_record(pkg, module_id, symbol)
@@ -289,12 +322,12 @@ fn find_visible_type_record(pkg: Record, module_info: Record, name: String) ::
     if local != none ::
         return local
     ::
-    let idx := 0
+    mut idx := 0
     while idx < module_info.module.items_count ::
         let item := module_info.module.items[idx]
         if item.kind == "Use" ::
             if item.symbols_count > 0 ::
-                let symbol_idx := 0
+                mut symbol_idx := 0
                 while symbol_idx < item.symbols_count ::
                     if item.symbols[symbol_idx] == name ::
                         return find_exported_type_record(pkg, item.path, name)
@@ -306,7 +339,7 @@ fn find_visible_type_record(pkg: Record, module_info: Record, name: String) ::
                 let alias := use_decl_bind(item)
                 if alias == name ::
                     let module_id := resolve_use_target_module_id(pkg, item)
-                    let symbol := resolve_use_target_symbol(item)
+                    mut symbol := resolve_use_target_symbol(item)
                     if module_id != "" ::
                         if symbol != "" ::
                             return find_exported_type_record(pkg, module_id, symbol)
@@ -393,7 +426,7 @@ fn push_scope(scope: Record?, name: String, type_key: String) -> Record ::
 ::
 
 fn scope_type_key(scope: Record?, name: String) ::
-    let current := scope
+    mut current := scope
     while current != none ::
         if current?.name == name ::
             return current?.type_key
@@ -404,11 +437,11 @@ fn scope_type_key(scope: Record?, name: String) ::
 ::
 
 fn scope_from_params(scope: Record?, params, params_count: Int) ::
-    let next_scope := scope
-    let idx := 0
+    mut next_scope := scope
+    mut idx := 0
     while idx < params_count ::
         let param := params[idx]
-        let type_key := ""
+        mut type_key := ""
         if param.type_ref != none ::
             if param.type_ref.kind == "Named" ::
                 type_key := param.type_ref.path
@@ -454,7 +487,7 @@ fn type_key_matches(type_ref, actual: String) -> Bool ::
 ::
 
 fn type_record_field_type_key(type_decl: Record, field_name: String) ::
-    let idx := 0
+    mut idx := 0
     while idx < type_decl.fields_count ::
         let field := type_decl.fields[idx]
         if field.name == field_name ::
@@ -522,7 +555,7 @@ fn validate_type_ref_known(pkg: Record, module_info: Record, type_ref) -> String
         if not resolve_named_type_visible(pkg, module_info, type_ref) ::
             return "selfhost semantic unknown type"
         ::
-        let arg_idx := 0
+        mut arg_idx := 0
         while arg_idx < type_ref.args_count ::
             let arg_err := validate_type_ref_known(pkg, module_info, type_ref.args[arg_idx])
             if arg_err != "" ::
@@ -533,7 +566,7 @@ fn validate_type_ref_known(pkg: Record, module_info: Record, type_ref) -> String
         return ""
     ::
     if type_ref.kind == "Function" ::
-        let param_idx := 0
+        mut param_idx := 0
         while param_idx < type_ref.params_count ::
             let param_err := validate_type_ref_known(pkg, module_info, type_ref.params[param_idx])
             if param_err != "" ::
@@ -658,6 +691,11 @@ fn infer_call_type_key(pkg: Record, module_info: Record, scope: Record?, expr: R
         if target.kind == "Ident" ::
             let module_id := module_bind_target(pkg, module_info, target.name)
             if module_id != "" ::
+                if module_id == "json" ::
+                    if is_json_builtin_function(callee.field) ::
+                        return json_builtin_return_type_key(callee.field)
+                    ::
+                ::
                 let function_decl := find_exported_function_record(pkg, module_id, callee.field)
                 if function_decl != none ::
                     return function_return_type_key(function_decl?)
@@ -793,10 +831,10 @@ fn validate_call_semantics(pkg: Record, module_info: Record, call: Record) -> St
             if ctor_decl?.fields_count != call.arg_count ::
                 return "selfhost semantic constructor arity mismatch"
             ::
-            let arg_idx := 0
+            mut arg_idx := 0
             while arg_idx < call.arg_count ::
                 let arg_type := infer_expr_type_key(pkg, module_info, none, call.args[arg_idx].expr)
-                let field_type := ""
+                mut field_type := ""
                 if call.args[arg_idx].kind == "Positional" ::
                     field_type := type_record_field_type_key(ctor_decl?, ctor_decl?.fields[arg_idx].name)
                 ::
@@ -810,7 +848,7 @@ fn validate_call_semantics(pkg: Record, module_info: Record, call: Record) -> St
                     if arg_type != "" ::
                         let mismatch := field_type != arg_type
                         if mismatch ::
-                            let compatible := false
+                            mut compatible := false
                             if field_type == "Float" and arg_type == "Int" ::
                                 compatible := true
                             ::
@@ -865,15 +903,15 @@ fn validate_call_semantics(pkg: Record, module_info: Record, call: Record) -> St
             if function_decl?.params_count != call.arg_count ::
                 return "selfhost semantic arity mismatch"
             ::
-            let arg_idx := 0
+            mut arg_idx := 0
             while arg_idx < call.arg_count ::
                 let expected_type := function_param_type_key(function_decl?, arg_idx)
-                let actual_type := infer_expr_type_key(pkg, module_info, none, call.args[arg_idx].expr)
+                mut actual_type := infer_expr_type_key(pkg, module_info, none, call.args[arg_idx].expr)
                 if expected_type != "" ::
                     if actual_type != "" ::
                         let mismatch := expected_type != actual_type
                         if mismatch ::
-                            let compatible := false
+                            mut compatible := false
                             if expected_type == "Float" and actual_type == "Int" ::
                                 compatible := true
                             ::
@@ -929,6 +967,14 @@ fn validate_call_semantics(pkg: Record, module_info: Record, call: Record) -> St
         if target.kind == "Ident" ::
             let module_id := module_bind_target(pkg, module_info, target.name)
             if module_id != "" ::
+                if module_id == "json" ::
+                    if is_json_builtin_function(callee.field) ::
+                        if call.arg_count != 1 ::
+                            return "selfhost semantic imported arity mismatch"
+                        ::
+                        return ""
+                    ::
+                ::
                 let function_decl := find_exported_function_record(pkg, module_id, callee.field)
                 if function_decl == none ::
                     return "selfhost semantic unresolved imported function"
@@ -936,15 +982,15 @@ fn validate_call_semantics(pkg: Record, module_info: Record, call: Record) -> St
                 if function_decl?.params_count != call.arg_count ::
                     return "selfhost semantic imported arity mismatch"
                 ::
-                let arg_idx := 0
+                mut arg_idx := 0
                 while arg_idx < call.arg_count ::
                     let expected_type := function_param_type_key(function_decl?, arg_idx)
-                    let actual_type := infer_expr_type_key(pkg, module_info, none, call.args[arg_idx].expr)
+                    mut actual_type := infer_expr_type_key(pkg, module_info, none, call.args[arg_idx].expr)
                     if expected_type != "" ::
                         if actual_type != "" ::
                             let mismatch := expected_type != actual_type
                             if mismatch ::
-                                let compatible := false
+                                mut compatible := false
                                 if expected_type == "Float" and actual_type == "Int" ::
                                     compatible := true
                                 ::
@@ -1076,8 +1122,8 @@ fn validate_expr_type_semantics(pkg: Record, module_info: Record, scope: Record?
         return ""
     ::
     if expr.kind == "List" ::
-        let expected := ""
-        let item_idx := 0
+        mut expected := ""
+        mut item_idx := 0
         while item_idx < expr.item_count ::
             let item_err := validate_expr_type_semantics(pkg, module_info, scope, expr.items[item_idx])
             if item_err != "" ::
@@ -1127,7 +1173,7 @@ fn find_exported_function_arity(pkg: Record, module_id: String, name: String) ::
 ::
 
 fn find_local_type_fields_count(module: Record, name: String) ::
-    let idx := 0
+    mut idx := 0
     while idx < module.items_count ::
         let item := module.items[idx]
         if item.kind == "Type" ::
@@ -1145,10 +1191,10 @@ fn module_has_type(module: Record, name: String) -> Bool ::
 ::
 
 fn validate_export_contract(pkg: Record, module_info: Record) -> String ::
-    let idx := 0
+    mut idx := 0
     while idx < module_info.module.items_count ::
         let item := module_info.module.items[idx]
-        let is_export_decl := false
+        mut is_export_decl := false
         if item.kind == "Fn" ::
             is_export_decl := true
         ::
@@ -1174,9 +1220,9 @@ fn validate_export_contract(pkg: Record, module_info: Record) -> String ::
             if item.symbols_count > 0 ::
                 let module_ref := find_module_info(pkg, item.path)
                 if module_ref != none ::
-                    let symbol_idx := 0
+                    mut symbol_idx := 0
                     while symbol_idx < item.symbols_count ::
-                        let symbol := item.symbols[symbol_idx]
+                        mut symbol := item.symbols[symbol_idx]
                         if not module_exports_symbol(module_ref?, symbol) ::
                             return "selfhost semantic use imports private symbol"
                         ::
@@ -1197,7 +1243,7 @@ fn validate_export_contract(pkg: Record, module_info: Record) -> String ::
             if item.symbols_count == 0 ::
                 let module_id := resolve_use_target_module_id(pkg, item)
                 let bind := use_decl_bind(item)
-                let symbol := resolve_use_target_symbol(item)
+                mut symbol := resolve_use_target_symbol(item)
                 if module_id != "" ::
                     if symbol != "" ::
                         let exported_type := find_exported_type_record(pkg, module_id, symbol)
@@ -1227,11 +1273,11 @@ fn validate_export_contract(pkg: Record, module_info: Record) -> String ::
 ::
 
 fn duplicate_module_symbol_kind(module: Record) -> String ::
-    let seen := none
-    let idx := 0
+    mut seen := none
+    mut idx := 0
     while idx < module.items_count ::
         let item := module.items[idx]
-        let symbol := ""
+        mut symbol := ""
         if item.kind == "Fn" ::
             symbol := item.name
         ::
@@ -1256,8 +1302,8 @@ fn duplicate_module_symbol_kind(module: Record) -> String ::
 ::
 
 fn duplicate_import_bind(module_info: Record) -> String ::
-    let seen := none
-    let idx := 0
+    mut seen := none
+    mut idx := 0
     while idx < module_info.imports_count ::
         let import_info := module_info.imports[idx]
         if string_set_contains(seen, import_info.bind) ::
@@ -1270,7 +1316,7 @@ fn duplicate_import_bind(module_info: Record) -> String ::
 ::
 
 fn import_bind_conflict(module_info: Record) -> String ::
-    let idx := 0
+    mut idx := 0
     while idx < module_info.imports_count ::
         let import_info := module_info.imports[idx]
         if find_local_function_arity(module_info.module, import_info.bind) >= 0 ::
@@ -1285,15 +1331,15 @@ fn import_bind_conflict(module_info: Record) -> String ::
 ::
 
 fn validate_impl_targets(module: Record) -> String ::
-    let idx := 0
+    mut idx := 0
     while idx < module.items_count ::
         let item := module.items[idx]
         if item.kind == "Impl" ::
             if not module_has_type(module, item.name) ::
                 return "selfhost semantic impl target missing type"
             ::
-            let seen_methods := none
-            let method_idx := 0
+            mut seen_methods := none
+            mut method_idx := 0
             while method_idx < item.methods_count ::
                 let method := item.methods[method_idx]
                 if string_set_contains(seen_methods, method.name) ::
@@ -1331,6 +1377,14 @@ fn validate_call_semantics_legacy(pkg: Record, module_info: Record, call: Record
         if target.kind == "Ident" ::
             let module_id := module_bind_target(pkg, module_info, target.name)
             if module_id != "" ::
+                if module_id == "json" ::
+                    if is_json_builtin_function(callee.field) ::
+                        if call.arg_count != 1 ::
+                            return "selfhost semantic imported arity mismatch"
+                        ::
+                        return ""
+                    ::
+                ::
                 let function_decl := find_exported_function_record(pkg, module_id, callee.field)
                 if function_decl == none ::
                     return "selfhost semantic unresolved imported function"
@@ -1349,8 +1403,8 @@ fn validate_stmt_type_semantics(pkg: Record, module_info: Record, scope: Record?
 ::
 
 fn validate_block_type_semantics(pkg: Record, module_info: Record, scope: Record?, return_type, block: Record) -> String ::
-    let current_scope := scope
-    let stmt_idx := 0
+    mut current_scope := scope
+    mut stmt_idx := 0
     while stmt_idx < block.stmt_count ::
         let stmt := block.stmts[stmt_idx]
         if stmt.kind == "Let" ::
@@ -1359,13 +1413,13 @@ fn validate_block_type_semantics(pkg: Record, module_info: Record, scope: Record
                 return ann_err
             ::
             if stmt.expr.kind == "Literal" ::
-                let actual_type := stmt.expr.literal_kind
+                mut actual_type := stmt.expr.literal_kind
                 if not type_key_matches(stmt.type_ref, actual_type) ::
                     return "selfhost semantic let type mismatch"
                 ::
             ::
             if stmt.expr.kind != "Literal" ::
-                let actual_type := infer_expr_type_key(pkg, module_info, current_scope, stmt.expr)
+                mut actual_type := infer_expr_type_key(pkg, module_info, current_scope, stmt.expr)
                 if actual_type != "" ::
                     if not type_key_matches(stmt.type_ref, actual_type) ::
                         return "selfhost semantic let type mismatch"
@@ -1436,7 +1490,7 @@ fn validate_block_type_semantics(pkg: Record, module_info: Record, scope: Record
                         if field_type == "" ::
                             return "selfhost semantic assignment unknown field"
                         ::
-                        let actual_type := ""
+                        mut actual_type := ""
                         if stmt.expr.kind == "Literal" ::
                             actual_type := stmt.expr.literal_kind
                         ::
@@ -1486,10 +1540,10 @@ fn validate_item_type_semantics(pkg: Record, module_info: Record, item: Record) 
                 return "selfhost semantic invalid self param"
             ::
         ::
-        let name_idx := 0
+        mut name_idx := 0
         while name_idx < item.params_count ::
             let name := item.params[name_idx].name
-            let other_idx := name_idx + 1
+            mut other_idx := name_idx + 1
             while other_idx < item.params_count ::
                 if item.params[other_idx].name == name ::
                     return "selfhost semantic duplicate param"
@@ -1498,8 +1552,8 @@ fn validate_item_type_semantics(pkg: Record, module_info: Record, item: Record) 
             ::
             name_idx := name_idx + 1
         ::
-        let param_scope := scope_from_params(none, item.params, item.params_count)
-        let param_idx := 0
+        mut param_scope := scope_from_params(none, item.params, item.params_count)
+        mut param_idx := 0
         while param_idx < item.params_count ::
             let param_err := validate_type_ref_known(pkg, module_info, item.params[param_idx].type_ref)
             if param_err != "" ::
@@ -1514,23 +1568,23 @@ fn validate_item_type_semantics(pkg: Record, module_info: Record, item: Record) 
         return validate_block_type_semantics(pkg, module_info, param_scope, item.return_type, item.body)
     ::
     if item.kind == "Impl" ::
-        let method_idx := 0
+        mut method_idx := 0
         while method_idx < item.methods_count ::
             let method := item.methods[method_idx]
-            let other_idx := method_idx + 1
+            mut other_idx := method_idx + 1
             while other_idx < item.methods_count ::
                 if item.methods[other_idx].name == method.name ::
                     return "selfhost semantic duplicate impl method"
                 ::
                 other_idx := other_idx + 1
             ::
-            let has_explicit_self := false
+            mut has_explicit_self := false
             if method.params_count > 0 ::
                 if method.params[0].name == "self" ::
                     has_explicit_self := true
                 ::
             ::
-            let name_idx := 0
+            mut name_idx := 0
             while name_idx < method.params_count ::
                 let name := method.params[name_idx].name
                 if name == "self" ::
@@ -1538,7 +1592,7 @@ fn validate_item_type_semantics(pkg: Record, module_info: Record, item: Record) 
                         return "selfhost semantic impl method invalid self param"
                     ::
                 ::
-                let other_idx := name_idx + 1
+                mut other_idx := name_idx + 1
                 while other_idx < method.params_count ::
                     if method.params[other_idx].name == name ::
                         return "selfhost semantic duplicate param"
@@ -1547,11 +1601,11 @@ fn validate_item_type_semantics(pkg: Record, module_info: Record, item: Record) 
                 ::
                 name_idx := name_idx + 1
             ::
-            let param_scope := scope_from_params(none, method.params, method.params_count)
+            mut param_scope := scope_from_params(none, method.params, method.params_count)
             if not has_explicit_self ::
                 param_scope := push_scope(param_scope, "self", item.name)
             ::
-            let param_idx := 0
+            mut param_idx := 0
             while param_idx < method.params_count ::
                 let param_err := validate_type_ref_known(pkg, module_info, method.params[param_idx].type_ref)
                 if param_err != "" ::
@@ -1572,10 +1626,10 @@ fn validate_item_type_semantics(pkg: Record, module_info: Record, item: Record) 
         return ""
     ::
     if item.kind == "Type" ::
-        let field_i := 0
+        mut field_i := 0
         while field_i < item.fields_count ::
             let field_name := item.fields[field_i].name
-            let field_j := field_i + 1
+            mut field_j := field_i + 1
             while field_j < item.fields_count ::
                 if item.fields[field_j].name == field_name ::
                     return "selfhost semantic duplicate type field"
@@ -1584,7 +1638,7 @@ fn validate_item_type_semantics(pkg: Record, module_info: Record, item: Record) 
             ::
             field_i := field_i + 1
         ::
-        let field_idx := 0
+        mut field_idx := 0
         while field_idx < item.fields_count ::
             let field_err := validate_type_ref_known(pkg, module_info, item.fields[field_idx].type_ref)
             if field_err != "" ::
@@ -1595,10 +1649,10 @@ fn validate_item_type_semantics(pkg: Record, module_info: Record, item: Record) 
         return ""
     ::
     if item.kind == "Enum" ::
-        let variant_i := 0
+        mut variant_i := 0
         while variant_i < item.variants_count ::
             let variant := item.variants[variant_i]
-            let variant_j := variant_i + 1
+            mut variant_j := variant_i + 1
             while variant_j < item.variants_count ::
                 if item.variants[variant_j] == variant ::
                     return "selfhost semantic duplicate enum variant"
@@ -1613,8 +1667,8 @@ fn validate_item_type_semantics(pkg: Record, module_info: Record, item: Record) 
 ::
 
 fn validate_module(module: Record) -> String ::
-    let stack := none
-    let idx := 0
+    mut stack := none
+    mut idx := 0
     while idx < module.items_count ::
         stack := push_frame(stack, "item", module.items[idx])
         idx := idx + 1
@@ -1632,7 +1686,7 @@ fn validate_module(module: Record) -> String ::
                 stack := push_frame(stack, "block", node.body)
             ::
             if kind == "Impl" ::
-                let method_idx := 0
+                mut method_idx := 0
                 while method_idx < node.methods_count ::
                     let method := node.methods[method_idx]
                     stack := push_frame(stack, "block", method.body)
@@ -1643,7 +1697,7 @@ fn validate_module(module: Record) -> String ::
                 stack := push_frame(stack, "expr", node.expr)
             ::
             if kind == "Agent" ::
-                let agent_idx := 0
+                mut agent_idx := 0
                 while agent_idx < node.agent_items_count ::
                     stack := push_frame(stack, "agent_item", node.agent_items[agent_idx])
                     agent_idx := agent_idx + 1
@@ -1673,7 +1727,7 @@ fn validate_module(module: Record) -> String ::
         ::
 
         if frame_kind == "block" ::
-            let stmt_idx := 0
+            mut stmt_idx := 0
             while stmt_idx < node.stmt_count ::
                 stack := push_frame(stack, "stmt", node.stmts[stmt_idx])
                 stmt_idx := stmt_idx + 1
@@ -1729,7 +1783,7 @@ fn validate_module(module: Record) -> String ::
         ::
 
         if frame_kind == "lvalue" ::
-            let access_idx := 0
+            mut access_idx := 0
             while access_idx < node.access_count ::
                 let access := node.accesses[access_idx]
                 if access.kind == "Index" ::
@@ -1750,7 +1804,7 @@ fn validate_module(module: Record) -> String ::
             ::
             if kind == "Call" ::
                 stack := push_frame(stack, "expr", node.callee)
-                let arg_idx := 0
+                mut arg_idx := 0
                 while arg_idx < node.arg_count ::
                     let arg := node.args[arg_idx]
                     stack := push_frame(stack, "expr", arg.expr)
@@ -1765,7 +1819,7 @@ fn validate_module(module: Record) -> String ::
                 stack := push_frame(stack, "expr", node.target)
             ::
             if kind == "List" ::
-                let item_idx := 0
+                mut item_idx := 0
                 while item_idx < node.item_count ::
                     stack := push_frame(stack, "expr", node.items[item_idx])
                     item_idx := item_idx + 1
@@ -1807,7 +1861,7 @@ fn validate_module_semantics(pkg: Record, module_info: Record) -> String ::
     if impl_target_err != "" ::
         return impl_target_err
     ::
-    let stack := none
+    mut stack := none
     stack := push_frame(stack, "item-blocks", module_info.module)
     while stack != none ::
         let current := stack?
@@ -1816,7 +1870,7 @@ fn validate_module_semantics(pkg: Record, module_info: Record) -> String ::
         stack := current.next
 
         if frame_kind == "block" ::
-            let stmt_idx := 0
+            mut stmt_idx := 0
             while stmt_idx < node.stmt_count ::
                 stack := push_frame(stack, "stmt", node.stmts[stmt_idx])
                 stmt_idx := stmt_idx + 1
@@ -1824,14 +1878,14 @@ fn validate_module_semantics(pkg: Record, module_info: Record) -> String ::
         ::
 
         if frame_kind == "item-blocks" ::
-            let idx := 0
+            mut idx := 0
             while idx < node.items_count ::
                 let item := node.items[idx]
                 if item.kind == "Fn" ::
                     stack := push_frame(stack, "block", item.body)
                 ::
                 if item.kind == "Impl" ::
-                    let method_idx := 0
+                    mut method_idx := 0
                     while method_idx < item.methods_count ::
                         stack := push_frame(stack, "block", item.methods[method_idx].body)
                         method_idx := method_idx + 1
@@ -1841,7 +1895,7 @@ fn validate_module_semantics(pkg: Record, module_info: Record) -> String ::
                     stack := push_frame(stack, "expr", item.expr)
                 ::
                 if item.kind == "Agent" ::
-                    let agent_idx := 0
+                    mut agent_idx := 0
                     while agent_idx < item.agent_items_count ::
                         let agent_item := item.agent_items[agent_idx]
                         if agent_item.kind == "Memory" ::
@@ -1880,7 +1934,7 @@ fn validate_module_semantics(pkg: Record, module_info: Record) -> String ::
             ::
             if kind == "Assign" ::
                 stack := push_frame(stack, "expr", node.expr)
-                let access_idx := 0
+                mut access_idx := 0
                 while access_idx < node.target.access_count ::
                     let access := node.target.accesses[access_idx]
                     if access.kind == "Index" ::
@@ -1921,7 +1975,7 @@ fn validate_module_semantics(pkg: Record, module_info: Record) -> String ::
                     return call_err
                 ::
                 stack := push_frame(stack, "expr", node.callee)
-                let arg_idx := 0
+                mut arg_idx := 0
                 while arg_idx < node.arg_count ::
                     stack := push_frame(stack, "expr", node.args[arg_idx].expr)
                     arg_idx := arg_idx + 1
@@ -1942,7 +1996,7 @@ fn validate_module_semantics(pkg: Record, module_info: Record) -> String ::
                 stack := push_frame(stack, "expr", node.target)
             ::
             if kind == "List" ::
-                let item_idx := 0
+                mut item_idx := 0
                 while item_idx < node.item_count ::
                     stack := push_frame(stack, "expr", node.items[item_idx])
                     item_idx := item_idx + 1
@@ -1956,7 +2010,7 @@ fn validate_module_semantics(pkg: Record, module_info: Record) -> String ::
             ::
         ::
     ::
-    let item_idx := 0
+    mut item_idx := 0
     while item_idx < module_info.module.items_count ::
         let item_err := validate_item_type_semantics(pkg, module_info, module_info.module.items[item_idx])
         if item_err != "" ::
@@ -1968,7 +2022,7 @@ fn validate_module_semantics(pkg: Record, module_info: Record) -> String ::
 ::
 
 fn emitted_has_function(program: Record, name: String, arity: Int) -> Bool ::
-    let idx := 0
+    mut idx := 0
     while idx < program.functions_count ::
         let function := program.functions[idx]
         if function.name == name ::
@@ -1982,7 +2036,7 @@ fn emitted_has_function(program: Record, name: String, arity: Int) -> Bool ::
 ::
 
 fn emitted_has_global(program: Record, name: String) -> Bool ::
-    let idx := 0
+    mut idx := 0
     while idx < program.globals_count ::
         if program.globals[idx] == name ::
             return true
@@ -1993,8 +2047,8 @@ fn emitted_has_global(program: Record, name: String) -> Bool ::
 ::
 
 fn validate_codegen_manifest(pkg: Record, program: Record) -> String ::
-    let seen_globals := none
-    let global_idx := 0
+    mut seen_globals := none
+    mut global_idx := 0
     while global_idx < program.globals_count ::
         let global_name := program.globals[global_idx]
         if string_set_contains(seen_globals, global_name) ::
@@ -2003,10 +2057,10 @@ fn validate_codegen_manifest(pkg: Record, program: Record) -> String ::
         seen_globals := push_string_set(seen_globals, global_name)
         global_idx := global_idx + 1
     ::
-    let module_idx := 0
+    mut module_idx := 0
     while module_idx < pkg.modules_count ::
         let module_info := pkg.modules[module_idx]
-        let item_idx := 0
+        mut item_idx := 0
         while item_idx < module_info.module.items_count ::
             let item := module_info.module.items[item_idx]
             if item.kind == "Fn" ::
@@ -2029,7 +2083,7 @@ fn validate_codegen_manifest(pkg: Record, program: Record) -> String ::
 ::
 
 fn validate_package(pkg: Record) -> String ::
-    let idx := 0
+    mut idx := 0
     while idx < pkg.modules_count ::
         let module_info := pkg.modules[idx]
         let err := validate_module(module_info.module)

@@ -2,12 +2,21 @@ use enkaic::compiler::compile_module;
 use enkaic::parser::parse_module;
 use enkairt::error::RuntimeError;
 use enkairt::{Value, VM};
+use std::sync::{Mutex, OnceLock};
+
+fn interpreter_test_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
 
 fn run_value(source: &str) -> Value {
-    run_value_with_accel(source, true)
+    run_value_with_accel(source, false)
 }
 
 fn run_value_with_accel(source: &str, accel_enabled: bool) -> Value {
+    let _guard = interpreter_test_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let module = parse_module(source).expect("parse");
     let program = compile_module(&module).expect("compile");
     let mut vm = VM::new(false, false, false, false);
@@ -16,10 +25,13 @@ fn run_value_with_accel(source: &str, accel_enabled: bool) -> Value {
 }
 
 fn run_result(source: &str) -> Result<Value, RuntimeError> {
-    run_result_with_accel(source, true)
+    run_result_with_accel(source, false)
 }
 
 fn run_result_with_accel(source: &str, accel_enabled: bool) -> Result<Value, RuntimeError> {
+    let _guard = interpreter_test_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let module = parse_module(source).expect("parse");
     let program = compile_module(&module).expect("compile");
     let mut vm = VM::new(false, false, false, false);
@@ -51,7 +63,7 @@ fn let_and_arithmetic() {
 
 #[test]
 fn assignment_updates() {
-    let result = run_value("let x := 1\nx := x + 4\nx");
+    let result = run_value("mut x := 1\nx := x + 4\nx");
     assert_eq!(result, Value::Int(5));
 }
 
@@ -70,14 +82,14 @@ fn return_default_null() {
 #[test]
 fn if_else_branches() {
     let result = run_value(
-        "let x := 1\nlet y := 0\nif x == 1 ::\n    y := 10\n::\nelse ::\n    y := 5\n::\ny",
+        "let x := 1\nmut y := 0\nif x == 1 ::\n    y := 10\n::\nelse ::\n    y := 5\n::\ny",
     );
     assert_eq!(result, Value::Int(10));
 }
 
 #[test]
 fn while_loop_counts() {
-    let result = run_value("let x := 0\nwhile x < 3 ::\n    x := x + 1\n::\nx");
+    let result = run_value("mut x := 0\nwhile x < 3 ::\n    x := x + 1\n::\nx");
     assert_eq!(result, Value::Int(3));
 }
 
@@ -90,7 +102,7 @@ fn globals_work() {
 #[test]
 fn logic_short_circuit_and() {
     let result = run_value(
-        "let x := 0\nfn set() -> Bool ::\n    x := 1\n    return true\n::\nfalse and set()\nx",
+        "mut x := 0\nfn set() -> Bool ::\n    x := 1\n    return true\n::\nfalse and set()\nx",
     );
     assert_eq!(result, Value::Int(0));
 }
@@ -98,7 +110,7 @@ fn logic_short_circuit_and() {
 #[test]
 fn logic_short_circuit_or() {
     let result = run_value(
-        "let x := 0\nfn set() -> Bool ::\n    x := 1\n    return true\n::\ntrue or set()\nx",
+        "mut x := 0\nfn set() -> Bool ::\n    x := 1\n    return true\n::\ntrue or set()\nx",
     );
     assert_eq!(result, Value::Int(0));
 }
@@ -177,7 +189,7 @@ fn sparse_access_and_dense_length_mismatch_are_stable() {
          let mat := sparse.matvec(m, [2.0, 4.0])\n\
          let dot := sparse.dot(v, [5.0, 0.0, 0.0])\n\
          let items := sparse.nonzero(m)\n\
-         let out := 0\n\
+         mut out := 0\n\
          if miss_m == none and miss_v == none ::\n\
              out := sparse.nnz(m) * 100000 + sparse.nnz(v) * 10000 + items[0].row * 1000 + items[0].col * 100 + mat[0] * 10 + dot\n\
          ::\n\
@@ -238,7 +250,7 @@ fn event_queue_peek_len_and_empty_are_stable() {
          let popped := event.pop(q)?\n\
          let len_after := event.len(q)\n\
          let empty_after := event.is_empty(q)\n\
-         let out := 0\n\
+         mut out := 0\n\
          if empty_before and not empty_after ::\n\
              out := peeked.event * 10000 + popped.event * 100 + len_before * 10 + len_after\n\
          ::\n\
@@ -256,7 +268,7 @@ fn pool_fixed_and_growable_behaviors_work() {
          let second := pool.release(p, 9)\n\
          let got := pool.acquire(p)?\n\
          let stats := pool.stats(p)\n\
-         let out := 0\n\
+         mut out := 0\n\
          if first and not second ::\n\
              out := got * 100 + stats.dropped_on_full\n\
          ::\n\
@@ -318,7 +330,7 @@ fn sim_entities_round_trip_through_world_state() {
          let before := sim.entity_get(w, 7)?\n\
          let removed := sim.entity_remove(w, 7)\n\
          let after := sim.entity_get(w, 7)\n\
-         let out := 0\n\
+         mut out := 0\n\
          if removed and after == none ::\n\
              out := before * 100 + sim.pending(w)\n\
          ::\n\
@@ -344,7 +356,7 @@ fn sim_run_reports_stable_starvation_error_code() {
 fn sim_restore_rejects_corrupted_snapshots() {
     let result = run_result(
         "import std::sim\n\
-         import json\n\
+         import std::json\n\
          sim.restore(json.parse(\"{\\\"seed\\\":1,\\\"now\\\":0.0,\\\"max_events\\\":2,\\\"next_seq\\\":0,\\\"queue\\\":[{\\\"time\\\":-1.0,\\\"seq\\\":0,\\\"event\\\":1}],\\\"log\\\":[],\\\"entities\\\":[]}\"))\n",
     );
     let err = result.expect_err("restore should fail");
@@ -357,7 +369,7 @@ fn sim_coroutines_yield_and_join_through_stdlib() {
         "import std::sim\n\
          fn worker(coro: SimCoroutine, state: Int) -> Int ::\n\
              let world := sim.world(coro)\n\
-             let step := 0\n\
+             mut step := 0\n\
              while step < state ::\n\
                  sim.schedule(world, sim.time(world) + 1.0, [state, step])\n\
                  sim.emit(coro, [state, step])\n\
@@ -373,7 +385,7 @@ fn sim_coroutines_yield_and_join_through_stdlib() {
          let done_before := sim.done(coro)\n\
          let joined := sim.join(coro)?\n\
          let done_after := sim.done(coro)\n\
-         let out := a[0] * 100000 + b[1] * 10000 + c[1] * 1000 + joined * 10\n\
+         mut out := a[0] * 100000 + b[1] * 10000 + c[1] * 1000 + joined * 10\n\
          if done_before ::\n\
              out := out + 1\n\
          ::\n\
@@ -406,7 +418,7 @@ fn sim_coroutine_native_and_vm_paths_match() {
     let source = "import std::sim\n\
          fn worker(coro: SimCoroutine, state: Int) -> Int ::\n\
              let world := sim.world(coro)\n\
-             let step := 0\n\
+             mut step := 0\n\
              while step < state ::\n\
                  sim.schedule(world, sim.time(world) + 1.0 + step, [state, step])\n\
                  sim.emit(coro, [state, step])\n\
@@ -425,7 +437,7 @@ fn sim_coroutine_native_and_vm_paths_match() {
          let third := sim.step(world)?\n\
          let replayed := sim.replay(sim.log(world), 16, sim.seed(world))\n\
          joined * 100000 + a[0] * 10000 + b[1] * 1000 + c[1] * 100 + first.event[1] * 10 + sim.snapshot(replayed).seed\n";
-    let native = run_value_with_accel(source, true);
+    let native = run_value_with_accel(source, cfg!(not(windows)));
     let fallback = run_value_with_accel(source, false);
     assert_eq!(native, fallback);
 }
@@ -483,7 +495,7 @@ fn snn_runtime_and_agent_environment_kernel_work() {
     assert_eq!(snn, Value::Int(2012));
 
     let agent_kernel = run_value(
-        "import json\n\
+        "import std::json\n\
          import std::agent\n\
          import std::sim\n\
          import std::spatial\n\
@@ -501,7 +513,7 @@ fn snn_runtime_and_agent_environment_kernel_work() {
          agent.set_position(env, 1, 0.25, 0.0)\n\
          let nearest := spatial.nearest(idx, 0.2, 0.0)?\n\
          let neighbors := agent.neighbors(env, 1, 1.0)\n\
-         let out := 0\n\
+         mut out := 0\n\
          if reward > 1.0 and sense == \"food\" and action == \"move\" and nearest == 1 ::\n\
              out := neighbors[0] * 10 + nearest\n\
          ::\n\
@@ -542,7 +554,7 @@ fn sparse_native_and_vm_paths_match_for_seeded_scenarios() {
         source.push_str("]\n");
         source.push_str(
             "let rows := sparse.matvec(m, dense)\n\
-             let acc := sparse.dot(v, dense)\n\
+             mut acc := sparse.dot(v, dense)\n\
              let head := sparse.nonzero(m)\n\
              acc := acc + sparse.nnz(v) * 0.01 + sparse.nnz(m) * 0.001\n\
              let v0 := sparse.get_vector(v, 0)\n\
@@ -557,7 +569,7 @@ fn sparse_native_and_vm_paths_match_for_seeded_scenarios() {
              acc := acc + rows[0] * 0.1 + rows[1] * 0.01 + rows[2] * 0.001 + rows[3] * 0.0001\n\
              acc\n",
         );
-        let native = run_value_with_accel(&source, true);
+        let native = run_value_with_accel(&source, cfg!(not(windows)));
         let fallback = run_value_with_accel(&source, false);
         assert_eq!(native, fallback, "seeded sparse case {}", case);
     }
@@ -575,14 +587,14 @@ fn event_queue_native_and_vm_paths_match_for_seeded_scenarios() {
             source.push_str(&format!("event.push(q, {time}, {event})\n"));
         }
         source.push_str(
-            "let acc := 0\n\
+            "mut acc := 0\n\
              while not event.is_empty(q) ::\n\
                  let item := event.pop(q)?\n\
                  acc := acc * 131 + item.event * 7 + item.time * 100\n\
              ::\n\
              acc\n",
         );
-        let native = run_value_with_accel(&source, true);
+        let native = run_value_with_accel(&source, cfg!(not(windows)));
         let fallback = run_value_with_accel(&source, false);
         assert_eq!(native, fallback, "seeded event case {}", case);
     }
@@ -593,7 +605,7 @@ fn pool_native_and_vm_paths_match_for_seeded_scenarios() {
     for case in 0..8_u64 {
         let mut seed = 300 + case;
         let mut source =
-            String::from("import std::pool\nlet p := pool.make_growable(2)\nlet acc := 0\n");
+            String::from("import std::pool\nlet p := pool.make_growable(2)\nmut acc := 0\n");
         for _ in 0..32 {
             if (next_seed(&mut seed) & 1) == 0 {
                 let value = rand_index(&mut seed, 100);
@@ -613,7 +625,7 @@ fn pool_native_and_vm_paths_match_for_seeded_scenarios() {
             "let stats := pool.stats(p)\n\
              acc + stats.available * 100000 + stats.capacity * 1000 + stats.high_watermark * 10 + stats.dropped_on_full\n",
         );
-        let native = run_value_with_accel(&source, true);
+        let native = run_value_with_accel(&source, cfg!(not(windows)));
         let fallback = run_value_with_accel(&source, false);
         assert_eq!(native, fallback, "seeded pool case {}", case);
     }

@@ -62,6 +62,14 @@ fn main() {
     }
 
     let exit_code = match args[1].as_str() {
+        "help" => {
+            print_usage();
+            0
+        }
+        "version" => {
+            print_version();
+            0
+        }
         "run" => run_command(&args[2..]),
         "serve" => serve_command(&args[2..]),
         "cluster" => cluster::cluster_command(&args[2..]),
@@ -93,6 +101,12 @@ fn main() {
         "eval" => eval_command(&args[2..]),
         "migrate" => migrate::migrate_command(&args[2..]),
         "doctor" => migrate::doctor_command(&args[2..]),
+        "safari" => {
+            eprintln!(
+                "enkai safari is reserved for a future interactive Enkai workspace. Use `enkai run <file.enkai>` to execute source files."
+            );
+            1
+        }
         _ => {
             print_usage();
             1
@@ -673,7 +687,9 @@ fn normalize_line_endings(input: &str) -> String {
 fn print_usage() {
     eprintln!("Enkai CLI");
     eprintln!("Usage:");
+    eprintln!("  enkai help");
     eprintln!("  enkai --version");
+    eprintln!("  enkai version");
     eprintln!(
         "  enkai run [--runtime-backend <auto|selfhost|rust>] [--trace-vm] [--disasm] [--trace-task] [--trace-net] <file|dir>"
     );
@@ -846,6 +862,24 @@ mod tests {
         assert_eq!(code, 0);
         let updated = fs::read_to_string(&file).expect("read");
         assert!(updated.contains("\n    print(\"hi\")\n"));
+        assert!(updated.contains("\n::if\n"));
+    }
+
+    #[test]
+    fn fmt_upgrades_nested_plain_closers() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("nested.enk");
+        fs::write(
+            &file,
+            "fn main() ::\nwhile ready ::\nif ready ::\nprint(\"done\")\n::\n::\n::\n",
+        )
+        .unwrap();
+        let code = fmt_command(&[file.to_string_lossy().to_string()]);
+        assert_eq!(code, 0);
+        let updated = fs::read_to_string(&file).expect("read");
+        assert!(updated.contains("\n        ::if\n"));
+        assert!(updated.contains("\n    ::while\n"));
+        assert!(updated.contains("\n::fn\n"));
     }
 
     #[test]

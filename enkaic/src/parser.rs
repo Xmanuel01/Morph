@@ -89,7 +89,7 @@ impl Parser {
                 let token = self.current();
                 return Err(self.error("Imports must appear before other items", token));
             }
-            if self.check(TokenKind::BlockEnd) {
+            if self.is_block_end() {
                 let token = self.current();
                 return Err(self.error("Unexpected block end", token));
             }
@@ -244,7 +244,7 @@ impl Parser {
         self.expect(TokenKind::BlockStart)?;
         self.consume_newlines();
         let mut functions = Vec::new();
-        while !self.check(TokenKind::BlockEnd) && !self.at_end() {
+        while !self.is_block_end() && !self.at_end() {
             if !self.matches(TokenKind::Fn) {
                 let token = self.current();
                 return Err(self.error("Expected fn in native import block", token));
@@ -252,7 +252,7 @@ impl Parser {
             functions.push(self.parse_native_fn_decl()?);
             self.consume_newlines();
         }
-        self.expect(TokenKind::BlockEnd)?;
+        self.expect_block_end("native")?;
         Ok(NativeImportDecl {
             library,
             library_span,
@@ -311,7 +311,7 @@ impl Parser {
         } else {
             None
         };
-        let body = self.parse_block()?;
+        let body = self.parse_block("fn")?;
         Ok(FnDecl {
             name,
             name_span,
@@ -327,7 +327,7 @@ impl Parser {
         let mut fields = Vec::new();
         self.expect(TokenKind::BlockStart)?;
         self.consume_newlines();
-        while !self.check(TokenKind::BlockEnd) {
+        while !self.is_block_end() {
             let field_name = self.expect_ident()?;
             self.expect(TokenKind::Colon)?;
             let field_type = self.parse_type_ref()?;
@@ -338,7 +338,7 @@ impl Parser {
             });
             self.consume_newlines();
         }
-        self.expect(TokenKind::BlockEnd)?;
+        self.expect_block_end("type")?;
         Ok(TypeDecl {
             name,
             fields,
@@ -351,13 +351,13 @@ impl Parser {
         let mut variants = Vec::new();
         self.expect(TokenKind::BlockStart)?;
         self.consume_newlines();
-        while !self.check(TokenKind::BlockEnd) {
+        while !self.is_block_end() {
             let variant = self.expect_ident()?;
             variants.push(variant);
             self.consume_stmt_end()?;
             self.consume_newlines();
         }
-        self.expect(TokenKind::BlockEnd)?;
+        self.expect_block_end("enum")?;
         Ok(EnumDecl {
             name,
             variants,
@@ -370,7 +370,7 @@ impl Parser {
         let mut methods = Vec::new();
         self.expect(TokenKind::BlockStart)?;
         self.consume_newlines();
-        while !self.check(TokenKind::BlockEnd) {
+        while !self.is_block_end() {
             if self.matches(TokenKind::Async) {
                 if !self.matches(TokenKind::Fn) {
                     let token = self.current();
@@ -385,7 +385,7 @@ impl Parser {
             }
             self.consume_newlines();
         }
-        self.expect(TokenKind::BlockEnd)?;
+        self.expect_block_end("impl")?;
         Ok(ImplDecl { name, methods })
     }
 
@@ -411,11 +411,11 @@ impl Parser {
         self.expect(TokenKind::BlockStart)?;
         let mut rules = Vec::new();
         self.consume_newlines();
-        while !self.check(TokenKind::BlockEnd) {
+        while !self.is_block_end() {
             rules.push(self.parse_policy_rule()?);
             self.consume_newlines();
         }
-        self.expect(TokenKind::BlockEnd)?;
+        self.expect_block_end("policy")?;
         Ok(PolicyDecl {
             name,
             rules,
@@ -478,12 +478,12 @@ impl Parser {
         let mut output_type = None;
         let mut template = None;
         self.consume_newlines();
-        while !self.check(TokenKind::BlockEnd) {
+        while !self.is_block_end() {
             if self.peek_ident_value("input") {
                 self.advance();
                 self.expect(TokenKind::BlockStart)?;
                 self.consume_newlines();
-                while !self.check(TokenKind::BlockEnd) {
+                while !self.is_block_end() {
                     let field_name = self.expect_ident()?;
                     self.expect(TokenKind::Colon)?;
                     let field_type = self.parse_type_ref()?;
@@ -494,17 +494,17 @@ impl Parser {
                     });
                     self.consume_newlines();
                 }
-                self.expect(TokenKind::BlockEnd)?;
+                self.expect_block_end("input")?;
             } else if self.peek_ident_value("output") {
                 self.advance();
                 self.expect(TokenKind::BlockStart)?;
                 self.consume_newlines();
-                if !self.check(TokenKind::BlockEnd) {
+                if !self.is_block_end() {
                     output_type = Some(self.parse_type_ref()?);
                     self.consume_stmt_end()?;
                 }
                 self.consume_newlines();
-                self.expect(TokenKind::BlockEnd)?;
+                self.expect_block_end("output")?;
             } else if self.peek_ident_value("template") {
                 self.advance();
                 self.expect(TokenKind::BlockStart)?;
@@ -516,14 +516,14 @@ impl Parser {
                     self.consume_stmt_end()?;
                 }
                 self.consume_newlines();
-                self.expect(TokenKind::BlockEnd)?;
+                self.expect_block_end("template")?;
             } else {
                 let token = self.current();
                 return Err(self.error("Unexpected token in prompt block", token));
             }
             self.consume_newlines();
         }
-        self.expect(TokenKind::BlockEnd)?;
+        self.expect_block_end("prompt")?;
         Ok(PromptDecl {
             name,
             input_fields,
@@ -546,7 +546,7 @@ impl Parser {
         self.expect(TokenKind::BlockStart)?;
         let mut items = Vec::new();
         self.consume_newlines();
-        while !self.check(TokenKind::BlockEnd) {
+        while !self.is_block_end() {
             if self.matches(TokenKind::Policy) {
                 let policy_name = self.expect_ident()?;
                 self.consume_stmt_end()?;
@@ -560,7 +560,7 @@ impl Parser {
             }
             self.consume_newlines();
         }
-        self.expect(TokenKind::BlockEnd)?;
+        self.expect_block_end("agent")?;
         Ok(AgentDecl {
             name,
             items,
@@ -592,7 +592,11 @@ impl Parser {
 
     fn parse_stmt(&mut self) -> Result<Stmt, ParseError> {
         if self.matches(TokenKind::Let) {
-            return self.parse_let_stmt();
+            let mutable = self.matches(TokenKind::Mut);
+            return self.parse_let_stmt(mutable);
+        }
+        if self.matches(TokenKind::Mut) {
+            return self.parse_let_stmt(true);
         }
         if self.matches(TokenKind::If) {
             return self.parse_if_stmt();
@@ -623,7 +627,7 @@ impl Parser {
         self.parse_assign_or_expr_stmt()
     }
 
-    fn parse_let_stmt(&mut self) -> Result<Stmt, ParseError> {
+    fn parse_let_stmt(&mut self, mutable: bool) -> Result<Stmt, ParseError> {
         let (name, name_span) = self.expect_ident_with_span()?;
         let type_ann = if self.matches(TokenKind::Colon) {
             Some(self.parse_type_ref()?)
@@ -642,18 +646,19 @@ impl Parser {
             name_span,
             type_ann,
             expr,
+            mutable,
         })
     }
 
     fn parse_if_stmt(&mut self) -> Result<Stmt, ParseError> {
         let cond = self.parse_expr()?;
-        let then_block = self.parse_block()?;
+        let then_block = self.parse_block("if")?;
         self.consume_newlines();
         let else_branch = if self.matches(TokenKind::Else) {
             if self.matches(TokenKind::If) {
                 Some(ElseBranch::If(Box::new(self.parse_if_stmt()?)))
             } else {
-                Some(ElseBranch::Block(self.parse_block()?))
+                Some(ElseBranch::Block(self.parse_block("else")?))
             }
         } else {
             None
@@ -667,7 +672,7 @@ impl Parser {
 
     fn parse_while_stmt(&mut self) -> Result<Stmt, ParseError> {
         let cond = self.parse_expr()?;
-        let body = self.parse_block()?;
+        let body = self.parse_block("while")?;
         Ok(Stmt::While { cond, body })
     }
 
@@ -675,7 +680,7 @@ impl Parser {
         let (var, var_span) = self.expect_ident_with_span()?;
         self.expect(TokenKind::In)?;
         let iter = self.parse_expr()?;
-        let body = self.parse_block()?;
+        let body = self.parse_block("for")?;
         Ok(Stmt::For {
             var,
             var_span,
@@ -691,11 +696,11 @@ impl Parser {
     }
 
     fn parse_try_stmt(&mut self) -> Result<Stmt, ParseError> {
-        let body = self.parse_block()?;
+        let body = self.parse_block("try")?;
         self.consume_newlines();
         self.expect(TokenKind::Catch)?;
         let catch_name = self.expect_ident()?;
-        let catch_body = self.parse_block()?;
+        let catch_body = self.parse_block("catch")?;
         Ok(Stmt::Try {
             body,
             catch_name,
@@ -755,15 +760,15 @@ impl Parser {
         })
     }
 
-    fn parse_block(&mut self) -> Result<Block, ParseError> {
+    fn parse_block(&mut self, expected_tag: &str) -> Result<Block, ParseError> {
         self.expect(TokenKind::BlockStart)?;
         let mut stmts = Vec::new();
         self.consume_newlines();
-        while !self.check(TokenKind::BlockEnd) {
+        while !self.is_block_end() {
             stmts.push(self.parse_stmt()?);
             self.consume_newlines();
         }
-        self.expect(TokenKind::BlockEnd)?;
+        self.expect_block_end(expected_tag)?;
         Ok(Block { stmts })
     }
 
@@ -771,7 +776,7 @@ impl Parser {
         self.expect(TokenKind::BlockStart)?;
         let mut arms = Vec::new();
         self.consume_newlines();
-        while !self.check(TokenKind::BlockEnd) {
+        while !self.is_block_end() {
             let pattern = self.parse_pattern()?;
             self.expect(TokenKind::FatArrow)?;
             let body = if self.check(TokenKind::BlockStart) {
@@ -781,7 +786,7 @@ impl Parser {
                         self.error("Block arms are not allowed in match expressions", token)
                     );
                 }
-                ArmBody::Block(self.parse_block()?)
+                ArmBody::Block(self.parse_block("match")?)
             } else {
                 let expr = self.parse_expr()?;
                 self.consume_stmt_end()?;
@@ -790,7 +795,7 @@ impl Parser {
             arms.push(MatchArm { pattern, body });
             self.consume_newlines();
         }
-        self.expect(TokenKind::BlockEnd)?;
+        self.expect_block_end("match")?;
         Ok(arms)
     }
 
@@ -1225,6 +1230,7 @@ impl Parser {
     }
 
     fn parse_param(&mut self) -> Result<Param, ParseError> {
+        let mutable = self.matches(TokenKind::Mut);
         let name = self.expect_ident()?;
         let type_ann = if self.matches(TokenKind::Colon) {
             Some(self.parse_type_ref()?)
@@ -1240,10 +1246,14 @@ impl Parser {
             name,
             type_ann,
             default,
+            mutable,
         })
     }
 
     fn parse_type_ref(&mut self) -> Result<TypeRef, ParseError> {
+        if let Some(value) = self.matches_int_literal() {
+            return Ok(TypeRef::ConstInt(value));
+        }
         if self.matches(TokenKind::Fn) {
             self.expect(TokenKind::LParen)?;
             let mut params = Vec::new();
@@ -1275,6 +1285,12 @@ impl Parser {
                 args.push(self.parse_type_ref()?);
             }
             self.expect(TokenKind::Greater)?;
+        } else if self.matches(TokenKind::LBracket) {
+            args.push(self.parse_type_ref()?);
+            while self.matches(TokenKind::Comma) {
+                args.push(self.parse_type_ref()?);
+            }
+            self.expect(TokenKind::RBracket)?;
         }
 
         let optional = self.matches(TokenKind::Question);
@@ -1283,6 +1299,15 @@ impl Parser {
             args,
             optional,
         })
+    }
+
+    fn matches_int_literal(&mut self) -> Option<i64> {
+        if let TokenKind::Int(value) = self.current().kind.clone() {
+            self.advance();
+            Some(value)
+        } else {
+            None
+        }
     }
 
     fn parse_path(&mut self) -> Result<Vec<String>, ParseError> {
@@ -1396,7 +1421,7 @@ impl Parser {
             self.consume_newlines();
             return Ok(());
         }
-        if self.check(TokenKind::Eof) || self.check(TokenKind::BlockEnd) {
+        if self.check(TokenKind::Eof) || self.is_block_end() {
             return Ok(());
         }
         let token = self.current();
@@ -1410,8 +1435,41 @@ impl Parser {
     fn is_stmt_end(&self) -> bool {
         matches!(
             self.peek().kind,
-            TokenKind::Newline | TokenKind::Semicolon | TokenKind::Eof | TokenKind::BlockEnd
+            TokenKind::Newline
+                | TokenKind::Semicolon
+                | TokenKind::Eof
+                | TokenKind::BlockEnd
+                | TokenKind::BlockEndTagged(_)
         )
+    }
+
+    fn is_block_end(&self) -> bool {
+        matches!(
+            self.peek().kind,
+            TokenKind::BlockEnd | TokenKind::BlockEndTagged(_)
+        )
+    }
+
+    fn expect_block_end(&mut self, expected_tag: &str) -> Result<Token, ParseError> {
+        let token = self.current().clone();
+        match &token.kind {
+            TokenKind::BlockEnd => {
+                self.advance();
+                Ok(token)
+            }
+            TokenKind::BlockEndTagged(found) if block_end_tag_matches(expected_tag, found) => {
+                self.advance();
+                Ok(token)
+            }
+            TokenKind::BlockEndTagged(found) => Err(self.error(
+                &format!(
+                    "SyntaxError: expected ::{} to close {} block, found ::{}",
+                    expected_tag, expected_tag, found
+                ),
+                &token,
+            )),
+            _ => Err(self.error("Expected block end", &token)),
+        }
     }
 
     fn check(&self, kind: TokenKind) -> bool {
@@ -1568,4 +1626,8 @@ impl Parser {
             col: token.col,
         }
     }
+}
+
+fn block_end_tag_matches(expected: &str, found: &str) -> bool {
+    expected == found || (expected == "type" && found == "struct")
 }

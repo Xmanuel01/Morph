@@ -1,3 +1,4 @@
+import std::json
 // std::algo + std::ml utility surface (v2.1.x)
 
 native::import "enkai_native" ::

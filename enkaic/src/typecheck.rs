@@ -4,6 +4,12 @@ use crate::modules::{ModuleId, Package};
 use crate::types::Type;
 
 #[derive(Debug, Clone)]
+struct BindingInfo {
+    ty: Type,
+    mutable: bool,
+}
+
+#[derive(Debug, Clone)]
 pub struct TypeError {
     pub message: String,
     pub span: Span,
@@ -22,7 +28,7 @@ impl TypeError {
 }
 
 pub struct TypeChecker {
-    scopes: Vec<std::collections::HashMap<String, Type>>,
+    scopes: Vec<std::collections::HashMap<String, BindingInfo>>,
     imports: std::collections::HashMap<String, ModuleId>,
     exports: std::collections::HashMap<ModuleId, std::collections::HashMap<String, Type>>,
     record_fields: std::collections::HashMap<String, Vec<(String, Type)>>,
@@ -80,13 +86,29 @@ impl TypeChecker {
     }
 
     fn define(&mut self, name: &str, ty: Type) {
-        self.scopes.last_mut().unwrap().insert(name.to_string(), ty);
+        self.define_binding(name, ty, false);
+    }
+
+    fn define_binding(&mut self, name: &str, ty: Type, mutable: bool) {
+        self.scopes
+            .last_mut()
+            .unwrap()
+            .insert(name.to_string(), BindingInfo { ty, mutable });
     }
 
     fn resolve(&self, name: &str) -> Option<Type> {
         for scope in self.scopes.iter().rev() {
-            if let Some(t) = scope.get(name) {
-                return Some(t.clone());
+            if let Some(binding) = scope.get(name) {
+                return Some(binding.ty.clone());
+            }
+        }
+        None
+    }
+
+    fn resolve_binding(&self, name: &str) -> Option<BindingInfo> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(binding) = scope.get(name) {
+                return Some(binding.clone());
             }
         }
         None
@@ -144,6 +166,7 @@ impl TypeChecker {
                         return Err(self.error("Index expects Int", line_span(index)));
                     }
                     match current {
+                        Type::Array(inner) | Type::Vector(inner) => *inner,
                         Type::List(inner) => *inner,
                         Type::Unknown => Type::Unknown,
                         _ => Type::Unknown,
@@ -241,8 +264,11 @@ impl TypeChecker {
         }
         for id in &package.order {
             let info = package.modules.get(id).expect("module");
-            let mut checker =
-                TypeChecker::new_with_imports(info.import_aliases.clone(), exports.clone());
+            let mut imports = info.import_aliases.clone();
+            if is_std_json_module(id) {
+                imports.insert("json".to_string(), ModuleId(vec!["json".to_string()]));
+            }
+            let mut checker = TypeChecker::new_with_imports(imports, exports.clone());
             if !info.file.as_os_str().is_empty() {
                 checker = checker.with_source(&info.file.to_string_lossy(), &info.source);
             }
@@ -256,7 +282,11 @@ impl TypeChecker {
             Item::Fn(decl) => {
                 self.push();
                 for param in &decl.params {
-                    self.define(&param.name, type_from_ref_opt(param.type_ann.clone()));
+                    self.define_binding(
+                        &param.name,
+                        type_from_ref_opt(param.type_ann.clone()),
+                        param.mutable,
+                    );
                 }
                 for stmt in &decl.body.stmts {
                     self.check_stmt(stmt, type_from_ref_opt(decl.return_type.clone()))?;
@@ -281,8 +311,26 @@ impl TypeChecker {
                 type_ann,
                 expr,
                 name_span,
+                mutable,
             } => {
-                let t = self.check_expr(expr)?;
+                let t = if let Expr::List { .. } = expr {
+                    let inferred = self.infer_array_literal(expr)?;
+                    if type_ann.is_none() && matches!(inferred, ArrayLiteralType::Empty) {
+                        return Err(self.error(
+                            "TypeError: cannot infer type of empty array; add an explicit type such as Array[String].",
+                            line_span(expr),
+                        ));
+                    }
+                    if type_ann.is_none() && matches!(inferred, ArrayLiteralType::Mixed) {
+                        return Err(self.error(
+                            "TypeError: mixed-type arrays require an explicit dynamic type such as Array[Any].",
+                            line_span(expr),
+                        ));
+                    }
+                    inferred.as_type()
+                } else {
+                    self.check_expr(expr)?
+                };
                 if let Some(ann) = type_ann {
                     let ann_t = type_from_ref(ann.clone());
                     if !compatible(&ann_t, &t) {
@@ -295,11 +343,30 @@ impl TypeChecker {
                             name_span.clone(),
                         ));
                     }
+                    self.define_binding(name, ann_t, *mutable);
+                    return Ok(());
                 }
-                self.define(name, t);
+                self.define_binding(name, t, *mutable);
             }
             Stmt::Assign { target, expr } => {
                 let t_expr = self.check_expr(expr)?;
+                if target.accesses.is_empty() {
+                    let binding = self.resolve_binding(&target.base).ok_or_else(|| {
+                        self.error(
+                            format!("Undefined variable {}", target.base),
+                            target.base_span.clone(),
+                        )
+                    })?;
+                    if !binding.mutable {
+                        return Err(self.error(
+                            format!(
+                                "TypeError: cannot assign to immutable variable `{}`; declare it with `mut` if mutation is required.",
+                                target.base
+                            ),
+                            target.base_span.clone(),
+                        ));
+                    }
+                }
                 let target_t = self.check_lvalue_target_type(target)?;
                 if target_t != Type::Unknown && !compatible(&target_t, &t_expr) {
                     return Err(self.error(
@@ -509,6 +576,53 @@ impl TypeChecker {
                     }
                 }
                 if let Expr::Field { target, name, .. } = &**callee {
+                    if let Expr::Ident { name: alias, .. } = &**target {
+                        if alias == "json" && !self.imports.contains_key(alias) {
+                            return Err(self.error(
+                                format!(
+                                    "ImportError: `json.{}` requires `import std::json`",
+                                    name
+                                ),
+                                span.clone(),
+                            ));
+                        }
+                        if let Some(module_id) = self.imports.get(alias) {
+                            if let Some(map) = self.exports.get(module_id) {
+                                if let Some(Type::Function(params, ret)) = map.get(name).cloned() {
+                                    if params.len() != args.len() {
+                                        return Err(self.error(
+                                            format!(
+                                                "Arity mismatch: expected {}, got {}",
+                                                params.len(),
+                                                args.len()
+                                            ),
+                                            span.clone(),
+                                        ));
+                                    }
+                                    for (arg, pt) in args.iter().zip(params.iter()) {
+                                        let at = self.check_expr(match arg {
+                                            Arg::Positional(e) => e,
+                                            Arg::Named(_, e) => e,
+                                        })?;
+                                        if *pt != Type::Unknown && !compatible(pt, &at) {
+                                            return Err(self.error(
+                                                format!(
+                                                    "Argument type mismatch: expected {}, found {}",
+                                                    pt.display(),
+                                                    at.display()
+                                                ),
+                                                line_span(match arg {
+                                                    Arg::Positional(e) => e,
+                                                    Arg::Named(_, e) => e,
+                                                }),
+                                            ));
+                                        }
+                                    }
+                                    return Ok(*ret);
+                                }
+                            }
+                        }
+                    }
                     let target_type = self.check_expr(target)?;
                     if let Type::Named(type_name) = target_type {
                         if self.record_field_type(&type_name, name).is_none() {
@@ -570,6 +684,15 @@ impl TypeChecker {
             }
             Expr::Field { target, name, span } => {
                 if let Expr::Ident { name: alias, .. } = &**target {
+                    if alias == "json" && !self.imports.contains_key(alias) {
+                        return Err(self.error(
+                            format!(
+                                "ImportError: `json.{}` requires `import std::json`",
+                                name
+                            ),
+                            span.clone(),
+                        ));
+                    }
                     if let Some(module_id) = self.imports.get(alias) {
                         if let Some(map) = self.exports.get(module_id) {
                             if let Some(t) = map.get(name) {
@@ -605,22 +728,14 @@ impl TypeChecker {
                     return Err(self.error("Index expects Int", line_span(index)));
                 }
                 match target_type {
+                    Type::Array(inner) | Type::Vector(inner) => Ok(*inner),
                     Type::List(inner) => Ok(*inner),
                     Type::Unknown => Ok(Type::Unknown),
                     _ => Ok(Type::Unknown),
                 }
             }
             Expr::List { items, .. } => {
-                let mut item_type = Type::Unknown;
-                for item in items {
-                    let current = self.check_expr(item)?;
-                    if item_type == Type::Unknown {
-                        item_type = current;
-                    } else if current != Type::Unknown && !compatible(&item_type, &current) {
-                        item_type = Type::Unknown;
-                    }
-                }
-                Ok(Type::List(Box::new(item_type)))
+                Ok(self.infer_array_items(items)?.as_type())
             }
             Expr::Try { expr, .. } => match self.check_expr(expr)? {
                 Type::Optional(inner) => Ok(*inner),
@@ -651,7 +766,7 @@ impl TypeChecker {
                             ));
                         }
                     }
-                    self.define(&param.name, declared.clone());
+                    self.define_binding(&param.name, declared.clone(), param.mutable);
                     param_types.push(declared);
                 }
                 let body_ty = match self.check_expr(body) {
@@ -683,6 +798,51 @@ impl TypeChecker {
             _ => Ok(Type::Unknown),
         }
     }
+
+    fn infer_array_literal(&mut self, expr: &Expr) -> Result<ArrayLiteralType, TypeError> {
+        match expr {
+            Expr::List { items, .. } => self.infer_array_items(items),
+            _ => Ok(ArrayLiteralType::Homogeneous(self.check_expr(expr)?)),
+        }
+    }
+
+    fn infer_array_items(&mut self, items: &[Expr]) -> Result<ArrayLiteralType, TypeError> {
+        if items.is_empty() {
+            return Ok(ArrayLiteralType::Empty);
+        }
+        let mut item_type: Option<Type> = None;
+        for item in items {
+            let current = self.check_expr(item)?;
+            item_type = Some(match item_type {
+                None => current,
+                Some(previous) => unify_array_item_type(previous, current).unwrap_or(Type::Unknown),
+            });
+        }
+        let inferred = item_type.unwrap_or(Type::Unknown);
+        if inferred == Type::Unknown {
+            Ok(ArrayLiteralType::Mixed)
+        } else {
+            Ok(ArrayLiteralType::Homogeneous(inferred))
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ArrayLiteralType {
+    Empty,
+    Mixed,
+    Homogeneous(Type),
+}
+
+impl ArrayLiteralType {
+    fn as_type(&self) -> Type {
+        match self {
+            ArrayLiteralType::Empty | ArrayLiteralType::Mixed => {
+                Type::Array(Box::new(Type::Unknown))
+            }
+            ArrayLiteralType::Homogeneous(item) => Type::Array(Box::new(item.clone())),
+        }
+    }
 }
 
 fn line_span(expr: &Expr) -> Span {
@@ -707,7 +867,17 @@ fn type_from_ref_opt(r: Option<TypeRef>) -> Type {
 
 fn type_from_ref(r: TypeRef) -> Type {
     match r {
-        TypeRef::Named { path, optional, .. } => {
+        TypeRef::Named {
+            path,
+            args,
+            optional,
+        } => {
+            let generic = |index: usize| {
+                args.get(index)
+                    .cloned()
+                    .map(type_from_ref)
+                    .unwrap_or(Type::Unknown)
+            };
             let mut t = match path.first().map(|s| s.as_str()) {
                 Some("Int") => Type::Int,
                 Some("Float") => Type::Float,
@@ -715,6 +885,11 @@ fn type_from_ref(r: TypeRef) -> Type {
                 Some("String") => Type::String,
                 Some("Buffer") => Type::Buffer,
                 Some("Handle") => Type::Handle,
+                Some("Array") => Type::Array(Box::new(generic(0))),
+                Some("Vector") => Type::Vector(Box::new(generic(0))),
+                Some("SparseVector") if !args.is_empty() => {
+                    Type::SparseVectorOf(Box::new(generic(0)))
+                }
                 Some("SparseVector") => Type::SparseVector,
                 Some("SparseMatrix") => Type::SparseMatrix,
                 Some("EventQueue") => Type::EventQueue,
@@ -728,6 +903,10 @@ fn type_from_ref(r: TypeRef) -> Type {
                 Some("Tokenizer") => Type::Tokenizer,
                 Some("DataStream") => Type::DataStream,
                 Some("Batch") => Type::Batch,
+                Some("Tensor") if !args.is_empty() => Type::TensorOf(
+                    Box::new(generic(0)),
+                    args.get(1).and_then(type_ref_const_usize),
+                ),
                 Some("Tensor") => Type::Tensor,
                 Some("Device") => Type::Device,
                 Some("DType") => Type::DType,
@@ -740,6 +919,7 @@ fn type_from_ref(r: TypeRef) -> Type {
                 Some("HttpStream") => Type::HttpStream,
                 Some("Any") => Type::Unknown,
                 Some("Record") => Type::Unknown,
+                Some("List") if !args.is_empty() => Type::Array(Box::new(generic(0))),
                 Some("List") => Type::Unknown,
                 Some("Void") => Type::Void,
                 Some(_) => Type::Named(path.join("::")),
@@ -755,6 +935,7 @@ fn type_from_ref(r: TypeRef) -> Type {
             let r = type_from_ref(*ret);
             Type::Function(p, Box::new(r))
         }
+        TypeRef::ConstInt(_) => Type::Unknown,
     }
 }
 
@@ -768,6 +949,27 @@ fn compatible(expected: &Type, found: &Type) -> bool {
         (Type::List(expected_inner), Type::List(found_inner)) => {
             compatible(expected_inner, found_inner)
         }
+        (Type::Array(expected_inner), Type::Array(found_inner))
+        | (Type::Array(expected_inner), Type::List(found_inner))
+        | (Type::List(expected_inner), Type::Array(found_inner))
+        | (Type::Vector(expected_inner), Type::Vector(found_inner))
+        | (Type::Vector(expected_inner), Type::Array(found_inner))
+        | (Type::Array(expected_inner), Type::Vector(found_inner)) => {
+            compatible(expected_inner, found_inner)
+        }
+        (Type::SparseVectorOf(expected_inner), Type::SparseVectorOf(found_inner)) => {
+            compatible(expected_inner, found_inner)
+        }
+        (Type::SparseVectorOf(_), Type::SparseVector)
+        | (Type::SparseVector, Type::SparseVectorOf(_)) => true,
+        (Type::TensorOf(expected_inner, expected_rank), Type::TensorOf(found_inner, found_rank)) => {
+            compatible(expected_inner, found_inner)
+                && (expected_rank.is_none() || found_rank.is_none() || expected_rank == found_rank)
+        }
+        (Type::TensorOf(_, _), Type::Tensor)
+        | (Type::Tensor, Type::TensorOf(_, _))
+        | (Type::TensorOf(_, _), Type::Int)
+        | (Type::Int, Type::TensorOf(_, _)) => true,
         (
             Type::Function(expected_params, expected_ret),
             Type::Function(found_params, found_ret),
@@ -792,6 +994,26 @@ fn compatible(expected: &Type, found: &Type) -> bool {
         (Type::Int, Type::Device) => true,
         (Type::Int, Type::OptimizerState) => true,
         _ => false,
+    }
+}
+
+fn unify_array_item_type(left: Type, right: Type) -> Option<Type> {
+    if left == right {
+        return Some(left);
+    }
+    if left == Type::Unknown || right == Type::Unknown {
+        return Some(Type::Unknown);
+    }
+    match (&left, &right) {
+        (Type::Int, Type::Float) | (Type::Float, Type::Int) => Some(Type::Float),
+        _ => None,
+    }
+}
+
+fn type_ref_const_usize(value: &TypeRef) -> Option<usize> {
+    match value {
+        TypeRef::ConstInt(raw) if *raw >= 0 => Some(*raw as usize),
+        _ => None,
     }
 }
 
@@ -967,7 +1189,6 @@ fn inject_builtins(
     );
     exports.entry(tool_id).or_insert(tool_exports);
     let json_id = ModuleId(vec!["json".to_string()]);
-    imports.entry("json".to_string()).or_insert(json_id.clone());
     let mut json_exports = std::collections::HashMap::new();
     json_exports.insert(
         "parse".to_string(),
@@ -977,7 +1198,22 @@ fn inject_builtins(
         "stringify".to_string(),
         Type::Function(vec![Type::Unknown], Box::new(Type::String)),
     );
-    exports.entry(json_id).or_insert(json_exports);
+    json_exports.insert(
+        "enkai".to_string(),
+        Type::Function(vec![Type::Unknown], Box::new(Type::String)),
+    );
+    json_exports.insert(
+        "parse_many".to_string(),
+        Type::Function(vec![Type::Unknown], Box::new(Type::Unknown)),
+    );
+    json_exports.insert(
+        "stringify_many".to_string(),
+        Type::Function(vec![Type::Unknown], Box::new(Type::Unknown)),
+    );
+    exports.entry(json_id).or_insert(json_exports.clone());
+    exports
+        .entry(ModuleId(vec!["std".to_string(), "json".to_string()]))
+        .or_insert(json_exports);
     let bootstrap_id = ModuleId(vec!["bootstrap".to_string()]);
     imports
         .entry("bootstrap".to_string())
@@ -1970,4 +2206,8 @@ fn collect_export_types(module: &Module) -> std::collections::HashMap<String, Ty
         }
     }
     out
+}
+
+fn is_std_json_module(id: &ModuleId) -> bool {
+    id.0.len() == 2 && id.0[0] == "std" && id.0[1] == "json"
 }

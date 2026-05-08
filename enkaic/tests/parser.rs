@@ -154,6 +154,51 @@ fn main() -> Int ::
 }
 
 #[test]
+fn parses_tagged_block_closers() {
+    let source = "\
+policy default ::
+    allow io.write
+::policy
+
+fn clamp(value: Float) -> Float ::
+    if value < 0.0 ::
+        return 0.0
+    ::if
+    while value > 1.0 ::
+        value := value - 1.0
+    ::while
+    return value
+::fn
+";
+    let module = parse_module(source).expect("module should parse");
+    assert!(!module.items.is_empty());
+}
+
+#[test]
+fn parses_mut_bindings() {
+    let source = "\
+mut epoch := 0
+let mut score: Float := 0.0
+";
+    let module = parse_module(source).expect("module should parse");
+    assert!(!module.items.is_empty());
+}
+
+#[test]
+fn rejects_mismatched_tagged_block_closer() {
+    let source = "\
+while true ::
+    if false ::
+        break
+    ::while
+::while
+";
+    let err = parse_module(source).expect_err("should fail");
+    let message = err.to_string();
+    assert!(message.contains("expected ::if to close if block, found ::while"));
+}
+
+#[test]
 fn parses_lambda_with_return_type() {
     let source = "\
 fn main() -> Int ::

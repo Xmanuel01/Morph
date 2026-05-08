@@ -1,3 +1,4 @@
+import std::json
 import std::env
 import std::io
 
@@ -43,49 +44,49 @@ fn finish(output: String, summary) -> Int ::
 ::
 
 fn int_value(value: Int) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.kind := "Int"
     out.value := value
     return out
 ::
 
 fn float_value(value: Float) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.kind := "Float"
     out.value := value
     return out
 ::
 
 fn string_value(value: String) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.kind := "String"
     out.value := value
     return out
 ::
 
 fn bool_value(value: Bool) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.kind := "Bool"
     out.value := value
     return out
 ::
 
 fn null_value() ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.kind := "Null"
     out.value := none
     return out
 ::
 
 fn function_value(function_index: Int) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.kind := "Function"
     out.function_index := function_index
     return out
 ::
 
 fn closure_value(function_index: Int, arity: Int, captures) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.kind := "Closure"
     out.function_index := function_index
     out.arity := arity
@@ -94,7 +95,7 @@ fn closure_value(function_index: Int, arity: Int, captures) ::
 ::
 
 fn native_function_value(library: String, name: String, signature) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.kind := "NativeFunction"
     out.library := library
     out.name := name
@@ -107,21 +108,21 @@ fn builtin_native_function(name: String) ::
 ::
 
 fn record_value(fields) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.kind := "Record"
     out.fields := fields
     return out
 ::
 
 fn list_value(items) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.kind := "List"
     out.items := items
     return out
 ::
 
-fn ok_state(value, globals) ::
-    let out := json.parse("{}")
+fn ok_state(value, mut globals) ::
+    mut out := json.parse("{}")
     out.ok := true
     out.supported := true
     out.yielded := false
@@ -184,7 +185,7 @@ fn runtime_error_code(message: String) -> String ::
 ::
 
 fn fail_state(message: String) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.ok := false
     out.supported := false
     out.yielded := false
@@ -197,13 +198,13 @@ fn fail_state(message: String) ::
 ::
 
 fn fail_state_with_globals(message: String, globals) ::
-    let out := fail_state(message)
+    mut out := fail_state(message)
     out.globals := globals
     return out
 ::
 
 fn yield_state(value, globals, locals, stack, ip: Int, function_index: Int) ::
-    let out := ok_state(value, globals)
+    mut out := ok_state(value, globals)
     out.yielded := true
     out.locals := locals
     out.stack := stack
@@ -214,14 +215,14 @@ fn yield_state(value, globals, locals, stack, ip: Int, function_index: Int) ::
 ::
 
 fn push_stack(head, value) ::
-    let node := json.parse("{}")
+    mut node := json.parse("{}")
     node.value := value
     node.next := head
     return node
 ::
 
 fn pop_stack(head) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     if head == none ::
         out.ok := false
         out.error := "stack underflow"
@@ -234,7 +235,7 @@ fn pop_stack(head) ::
 ::
 
 fn load_global(head, slot: Int) ::
-    let node := head
+    mut node := head
     while node != none ::
         if node?.slot == slot ::
             return node?.value
@@ -245,7 +246,7 @@ fn load_global(head, slot: Int) ::
 ::
 
 fn store_global(head, slot: Int, value) ::
-    let node := head
+    mut node := head
     while node != none ::
         if node?.slot == slot ::
             node.value := value
@@ -261,7 +262,7 @@ fn store_global(head, slot: Int, value) ::
 ::
 
 fn load_local(head, slot: Int) ::
-    let node := head
+    mut node := head
     while node != none ::
         if node?.slot == slot ::
             return node?.value
@@ -272,7 +273,7 @@ fn load_local(head, slot: Int) ::
 ::
 
 fn store_local(head, slot: Int, value) ::
-    let node := head
+    mut node := head
     while node != none ::
         if node?.slot == slot ::
             node.value := value
@@ -444,7 +445,7 @@ fn runtime_traversal_step_limit() -> Int ::
 ::
 
 fn runtime_table_lookup(head, id: Int) ::
-    let node := head
+    mut node := head
     while node != none ::
         if node?.id == id ::
             return node?.value
@@ -455,7 +456,7 @@ fn runtime_table_lookup(head, id: Int) ::
 ::
 
 fn runtime_table_store(head, id: Int, value) ::
-    let node := head
+    mut node := head
     while node != none ::
         if node?.id == id ::
             node.value := value
@@ -501,7 +502,7 @@ fn metric_inc(globals, slot: Int, amount: Int) ::
 ::
 
 fn metric_max(globals, slot: Int, value: Int) ::
-    let current := metric_value(globals, slot)
+    mut current := metric_value(globals, slot)
     if value > current ::
         return store_global(globals, slot, int_value(value))
     ::
@@ -509,7 +510,7 @@ fn metric_max(globals, slot: Int, value: Int) ::
 ::
 
 fn runtime_metrics_record(globals) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.execute_calls := metric_value(globals, metric_exec_calls_slot())
     out.execute_max_depth := metric_value(globals, metric_exec_max_depth_slot())
     out.json_nodes := metric_value(globals, metric_json_nodes_slot())
@@ -529,7 +530,7 @@ fn runtime_metrics_record(globals) ::
     return out
 ::
 
-fn runtime_cleanup_globals(globals) ::
+fn runtime_cleanup_globals(mut globals) ::
     if globals == none ::
         return none
     ::
@@ -650,7 +651,7 @@ fn require_world_state(globals, value, message: String) ::
     if state == none ::
         return fail_state("sim world handle is not registered")
     ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.ok := true
     out.value := state?
     out.world_id := world_id
@@ -667,7 +668,7 @@ fn require_coroutine_state(globals, value, message: String) ::
     if state == none ::
         return fail_state("sim coroutine handle is not registered")
     ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.ok := true
     out.value := state?
     out.coro_id := coro_id
@@ -684,7 +685,7 @@ fn require_spatial_state(globals, value, message: String) ::
     if state == none ::
         return fail_state("spatial index handle is not registered")
     ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.ok := true
     out.value := state?
     out.spatial_id := spatial_id
@@ -701,7 +702,7 @@ fn require_agent_env_state(globals, value, message: String) ::
     if state == none ::
         return fail_state("agent env handle is not registered")
     ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.ok := true
     out.value := state?
     out.env_id := env_id
@@ -718,7 +719,7 @@ fn require_snn_state(globals, value, message: String) ::
     if state == none ::
         return fail_state("snn network handle is not registered")
     ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.ok := true
     out.value := state?
     out.snn_id := snn_id
@@ -735,7 +736,7 @@ fn require_task_state(globals, value, message: String) ::
     if state == none ::
         return fail_state("task handle is not registered")
     ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.ok := true
     out.value := state?
     out.task_id := task_id
@@ -752,7 +753,7 @@ fn require_channel_state(globals, value, message: String) ::
     if state == none ::
         return fail_state("channel handle is not registered")
     ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.ok := true
     out.value := state?
     out.channel_id := channel_id
@@ -1089,7 +1090,7 @@ fn is_sim_coro_control_name(name: String) -> Bool ::
 ::
 
 fn load_named_field(head, name: String) ::
-    let node := head
+    mut node := head
     while node != none ::
         if node?.name == name ::
             return node?.value
@@ -1100,7 +1101,7 @@ fn load_named_field(head, name: String) ::
 ::
 
 fn store_named_field(head, name: String, value) ::
-    let node := head
+    mut node := head
     while node != none ::
         if node?.name == name ::
             node.value := value
@@ -1116,8 +1117,8 @@ fn store_named_field(head, name: String, value) ::
 ::
 
 fn list_length(items) -> Int ::
-    let count := 0
-    let node := items
+    mut count := 0
+    mut node := items
     while node != none ::
         count := count + 1
         node := node?.next
@@ -1126,8 +1127,8 @@ fn list_length(items) -> Int ::
 ::
 
 fn linked_node_length(items) -> Int ::
-    let count := 0
-    let node := items
+    mut count := 0
+    mut node := items
     while node != none ::
         count := count + 1
         node := node?.next
@@ -1136,8 +1137,8 @@ fn linked_node_length(items) -> Int ::
 ::
 
 fn append_traversal_steps_for_length(length: Int) -> Int ::
-    let steps := 0
-    let next := 0
+    mut steps := 0
+    mut next := 0
     while next < length ::
         steps := steps + next
         next := next + 1
@@ -1146,7 +1147,7 @@ fn append_traversal_steps_for_length(length: Int) -> Int ::
 ::
 
 fn metric_record_append(globals, length: Int, label: String) ::
-    let next_globals := metric_inc(globals, metric_list_append_calls_slot(), 1)
+    mut next_globals := metric_inc(globals, metric_list_append_calls_slot(), 1)
     next_globals := metric_inc(next_globals, metric_list_append_steps_slot(), length)
     let total_steps := metric_value(next_globals, metric_list_append_steps_slot())
     if total_steps > runtime_traversal_step_limit() ::
@@ -1165,8 +1166,8 @@ fn list_get(items, index: Int) ::
     if index < 0 ::
         return none
     ::
-    let current := 0
-    let node := items
+    mut current := 0
+    mut node := items
     while node != none ::
         if current == index ::
             return node?.value
@@ -1185,21 +1186,21 @@ fn push_list_item(head, value) ::
 ::
 
 fn sparse_vector_value(entries) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.kind := "SparseVector"
     out.entries := entries
     return out
 ::
 
 fn sparse_matrix_value(entries) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.kind := "SparseMatrix"
     out.entries := entries
     return out
 ::
 
 fn event_queue_value() ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.kind := "EventQueue"
     out.items := none
     out.tail := none
@@ -1209,7 +1210,7 @@ fn event_queue_value() ::
 ::
 
 fn event_log_chunks_value(chunks, count: Int) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.kind := "EventLogChunks"
     out.chunks := chunks
     out.count := count
@@ -1217,7 +1218,7 @@ fn event_log_chunks_value(chunks, count: Int) ::
 ::
 
 fn pool_value(capacity: Int, growable: Bool) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.kind := "Pool"
     out.items := none
     out.capacity := capacity
@@ -1231,14 +1232,14 @@ fn pool_value(capacity: Int, growable: Bool) ::
 ::
 
 fn sim_world_handle(world_id: Int) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.kind := "SimWorld"
     out.world_id := world_id
     return out
 ::
 
 fn sim_world_state_value(max_events: Int, seed: Int) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.max_events := max_events
     out.seed := seed
     out.now := 0.0
@@ -1254,14 +1255,14 @@ fn sim_world_state_value(max_events: Int, seed: Int) ::
 ::
 
 fn sim_coroutine_handle(coro_id: Int) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.kind := "SimCoroutine"
     out.coro_id := coro_id
     return out
 ::
 
 fn sim_coroutine_state_value(world_id: Int, worker, args) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.world_id := world_id
     out.worker := worker
     out.args := args
@@ -1282,7 +1283,7 @@ fn sim_coroutine_state_value(world_id: Int, worker, args) ::
 fn allocate_world(globals, max_events: Int, seed: Int) ::
     let world_id := next_runtime_id(globals, next_world_id_slot())
     let state := sim_world_state_value(max_events, seed)
-    let next_globals := store_world_state_record(globals, world_id, state)
+    mut next_globals := store_world_state_record(globals, world_id, state)
     let final_globals := store_global(next_globals, next_world_id_slot(), int_value(world_id + 1))
     return ok_state(sim_world_handle(world_id), final_globals)
 ::
@@ -1291,32 +1292,32 @@ fn allocate_coroutine(globals, world_id: Int, worker, args, state_value) ::
     let coro_id := next_runtime_id(globals, next_coroutine_id_slot())
     let state := sim_coroutine_state_value(world_id, worker, args)
     state.state := state_value
-    let next_globals := store_coroutine_state_record(globals, coro_id, state)
+    mut next_globals := store_coroutine_state_record(globals, coro_id, state)
     let final_globals := store_global(next_globals, next_coroutine_id_slot(), int_value(coro_id + 1))
     return ok_state(sim_coroutine_handle(coro_id), final_globals)
 ::
 fn spatial_index_handle(spatial_id: Int) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.kind := "SpatialIndex"
     out.spatial_id := spatial_id
     return out
 ::
 
 fn spatial_index_state_value() ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.positions := none
     return out
 ::
 
 fn snn_network_handle(snn_id: Int) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.kind := "SnnNetwork"
     out.snn_id := snn_id
     return out
 ::
 
 fn snn_network_state_value(neuron_count: Int) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.neuron_count := neuron_count
     out.thresholds := none
     out.potentials := none
@@ -1327,14 +1328,14 @@ fn snn_network_state_value(neuron_count: Int) ::
 ::
 
 fn agent_env_handle(env_id: Int) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.kind := "AgentEnv"
     out.env_id := env_id
     return out
 ::
 
 fn agent_env_state_value(world_id: Int, spatial_id: Int) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.world_id := world_id
     out.spatial_id := spatial_id
     out.agents := none
@@ -1342,7 +1343,7 @@ fn agent_env_state_value(world_id: Int, spatial_id: Int) ::
 ::
 
 fn rng_stream_value(world_seed: Int, stream_id: Int, domain_id: Int, state: Int) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.kind := "RngStream"
     out.world_seed := world_seed
     out.stream_id := stream_id
@@ -1354,7 +1355,7 @@ fn rng_stream_value(world_seed: Int, stream_id: Int, domain_id: Int, state: Int)
 fn allocate_spatial_index(globals) ::
     let spatial_id := next_runtime_id(globals, next_spatial_id_slot())
     let state := spatial_index_state_value()
-    let next_globals := store_spatial_state_record(globals, spatial_id, state)
+    mut next_globals := store_spatial_state_record(globals, spatial_id, state)
     let final_globals := store_global(next_globals, next_spatial_id_slot(), int_value(spatial_id + 1))
     return ok_state(spatial_index_handle(spatial_id), final_globals)
 ::
@@ -1362,7 +1363,7 @@ fn allocate_spatial_index(globals) ::
 fn allocate_agent_env(globals, world_id: Int, spatial_id: Int) ::
     let env_id := next_runtime_id(globals, next_agent_env_id_slot())
     let state := agent_env_state_value(world_id, spatial_id)
-    let next_globals := store_agent_env_state_record(globals, env_id, state)
+    mut next_globals := store_agent_env_state_record(globals, env_id, state)
     let final_globals := store_global(next_globals, next_agent_env_id_slot(), int_value(env_id + 1))
     return ok_state(agent_env_handle(env_id), final_globals)
 ::
@@ -1370,20 +1371,20 @@ fn allocate_agent_env(globals, world_id: Int, spatial_id: Int) ::
 fn allocate_snn_network(globals, neuron_count: Int) ::
     let snn_id := next_runtime_id(globals, next_snn_id_slot())
     let state := snn_network_state_value(neuron_count)
-    let next_globals := store_snn_state_record(globals, snn_id, state)
+    mut next_globals := store_snn_state_record(globals, snn_id, state)
     let final_globals := store_global(next_globals, next_snn_id_slot(), int_value(snn_id + 1))
     return ok_state(snn_network_handle(snn_id), final_globals)
 ::
 
 fn task_handle_value(task_id: Int) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.kind := "TaskHandle"
     out.task_id := task_id
     return out
 ::
 
 fn task_state_value(result, error) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.finished := true
     out.result := result
     out.error := error
@@ -1393,21 +1394,21 @@ fn task_state_value(result, error) ::
 fn allocate_finished_task(globals, result, error) ::
     let task_id := next_runtime_id(globals, next_task_id_slot())
     let state := task_state_value(result, error)
-    let next_globals := store_task_state_record(globals, task_id, state)
+    mut next_globals := store_task_state_record(globals, task_id, state)
     let with_next := store_global(next_globals, next_task_id_slot(), int_value(task_id + 1))
     let with_metric := metric_inc(with_next, metric_tasks_spawned_slot(), 1)
     return ok_state(task_handle_value(task_id), with_metric)
 ::
 
 fn channel_handle_value(channel_id: Int) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.kind := "Channel"
     out.channel_id := channel_id
     return out
 ::
 
 fn channel_state_value() ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.queue := none
     return out
 ::
@@ -1415,13 +1416,13 @@ fn channel_state_value() ::
 fn allocate_channel(globals) ::
     let channel_id := next_runtime_id(globals, next_channel_id_slot())
     let state := channel_state_value()
-    let next_globals := store_channel_state_record(globals, channel_id, state)
+    mut next_globals := store_channel_state_record(globals, channel_id, state)
     let final_globals := store_global(next_globals, next_channel_id_slot(), int_value(channel_id + 1))
     return ok_state(channel_handle_value(channel_id), final_globals)
 ::
 
 fn callable_initial_locals(callable) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.ok := true
     out.function_index := -1
     out.locals := none
@@ -1431,9 +1432,9 @@ fn callable_initial_locals(callable) ::
     ::
     if callable.kind == "Closure" ::
         out.function_index := parse_i64(json.stringify(callable.function_index))
-        let locals := none
-        let slot := 0
-        let capture_node := callable.captures
+        mut locals := none
+        mut slot := 0
+        mut capture_node := callable.captures
         while capture_node != none ::
             locals := store_local(locals, slot, capture_node?.value)
             slot := slot + 1
@@ -1456,7 +1457,7 @@ fn push_sparse_vector_entry(head, index: Int, value: Float) ::
 ::
 
 fn store_sparse_vector_entry(head, index: Int, value: Float) ::
-    let node := head
+    mut node := head
     while node != none ::
         if node?.index == index ::
             if value == 0.0 ::
@@ -1476,7 +1477,7 @@ fn store_sparse_vector_entry(head, index: Int, value: Float) ::
 ::
 
 fn load_sparse_vector_entry(head, index: Int) ::
-    let node := head
+    mut node := head
     while node != none ::
         if node?.index == index ::
             if node?.value == 0.0 ::
@@ -1499,7 +1500,7 @@ fn push_sparse_matrix_entry(head, row: Int, col: Int, value: Float) ::
 ::
 
 fn store_sparse_matrix_entry(head, row: Int, col: Int, value: Float) ::
-    let node := head
+    mut node := head
     while node != none ::
         if node?.row == row ::
             if node?.col == col ::
@@ -1516,7 +1517,7 @@ fn store_sparse_matrix_entry(head, row: Int, col: Int, value: Float) ::
 ::
 
 fn load_sparse_matrix_entry(head, row: Int, col: Int) ::
-    let node := head
+    mut node := head
     while node != none ::
         if node?.row == row ::
             if node?.col == col ::
@@ -1532,8 +1533,8 @@ fn load_sparse_matrix_entry(head, row: Int, col: Int) ::
 ::
 
 fn count_nonzero_entries(head) -> Int ::
-    let count := 0
-    let node := head
+    mut count := 0
+    mut node := head
     while node != none ::
         if node?.value != 0.0 ::
             count := count + 1
@@ -1544,7 +1545,7 @@ fn count_nonzero_entries(head) -> Int ::
 ::
 
 fn sparse_matrix_nonzero_record(row: Int, col: Int, value: Float) ::
-    let fields := none
+    mut fields := none
     fields := store_named_field(fields, "value", float_value(value))
     fields := store_named_field(fields, "col", int_value(col))
     fields := store_named_field(fields, "row", int_value(row))
@@ -1552,15 +1553,15 @@ fn sparse_matrix_nonzero_record(row: Int, col: Int, value: Float) ::
 ::
 
 fn sparse_vector_nonzero_record(index: Int, value: Float) ::
-    let fields := none
+    mut fields := none
     fields := store_named_field(fields, "value", float_value(value))
     fields := store_named_field(fields, "index", int_value(index))
     return record_value(fields)
 ::
 
 fn sparse_matrix_max_row(head) -> Int ::
-    let max_row := -1
-    let node := head
+    mut max_row := -1
+    mut node := head
     while node != none ::
         if node?.value != 0.0 ::
             if node?.row > max_row ::
@@ -1595,10 +1596,10 @@ fn extract_min_event(head) ::
     if head == none ::
         return ok_state(none, none)
     ::
-    let min_time := head?.time
-    let min_seq := head?.seq
-    let min_event := head?.event
-    let node := head?.next
+    mut min_time := head?.time
+    mut min_seq := head?.seq
+    mut min_event := head?.event
+    mut node := head?.next
     while node != none ::
         if event_before(node?.time, node?.seq, min_time, min_seq) ::
             min_time := node?.time
@@ -1607,11 +1608,11 @@ fn extract_min_event(head) ::
         ::
         node := node?.next
     ::
-    let remaining := none
+    mut remaining := none
     node := head
-    let removed := false
+    mut removed := false
     while node != none ::
-        let skip := false
+        mut skip := false
         if not removed ::
             if node?.seq == min_seq ::
                 if node?.time == min_time ::
@@ -1633,7 +1634,7 @@ fn extract_min_event(head) ::
 ::
 
 fn event_record_value(event_entry) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.time := event_entry.time
     out.seq := event_entry.seq
     out.event := event_entry.event
@@ -1685,7 +1686,7 @@ fn push_entity_entry(head, id: Int, value) ::
 ::
 
 fn store_entity_entry(head, id: Int, value) ::
-    let node := head
+    mut node := head
     while node != none ::
         if node?.id == id ::
             node.value := value
@@ -1697,7 +1698,7 @@ fn store_entity_entry(head, id: Int, value) ::
 ::
 
 fn load_entity_entry(head, id: Int) ::
-    let node := head
+    mut node := head
     while node != none ::
         if node?.id == id ::
             return node?.value
@@ -1708,11 +1709,11 @@ fn load_entity_entry(head, id: Int) ::
 ::
 
 fn remove_entity_entry(head, id: Int) ::
-    let remaining := none
-    let removed := false
-    let node := head
+    mut remaining := none
+    mut removed := false
+    mut node := head
     while node != none ::
-        let skip := false
+        mut skip := false
         if not removed ::
             if node?.id == id ::
                 skip := true
@@ -1724,7 +1725,7 @@ fn remove_entity_entry(head, id: Int) ::
         ::
         node := node?.next
     ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.removed := removed
     out.items := remaining
     return out
@@ -1741,7 +1742,7 @@ fn position_record_value(x: Float, y: Float) ::
 ::
 
 fn agent_state_snapshot(agent_record) ::
-    let fields := none
+    mut fields := none
     fields := store_named_field(fields, "actions_pending", int_value(list_length(agent_record.actions)))
     fields := store_named_field(fields, "senses_pending", int_value(list_length(agent_record.sensors)))
     fields := store_named_field(fields, "position", position_record_value(agent_record.x, agent_record.y))
@@ -1760,7 +1761,7 @@ fn push_agent_entry(head, id: Int, value) ::
 ::
 
 fn store_agent_entry(head, id: Int, value) ::
-    let node := head
+    mut node := head
     while node != none ::
         if node?.id == id ::
             node.value := value
@@ -1772,7 +1773,7 @@ fn store_agent_entry(head, id: Int, value) ::
 ::
 
 fn load_agent_entry(head, id: Int) ::
-    let node := head
+    mut node := head
     while node != none ::
         if node?.id == id ::
             return node?.value
@@ -1789,7 +1790,7 @@ fn sync_agent_world_snapshot(globals, env_state, agent_id: Int, agent_record) ::
     ::
     let world_value := world_state.value
     world_value.entities := store_entity_entry(world_value.entities, agent_id, agent_state_snapshot(agent_record))
-    let next_globals := store_world_state_record(world_state.globals, world_state.world_id, world_value)
+    mut next_globals := store_world_state_record(world_state.globals, world_state.world_id, world_value)
     return ok_state(null_value(), next_globals)
 ::
 
@@ -1803,7 +1804,7 @@ fn push_position_entry(head, id: Int, x: Float, y: Float) ::
 ::
 
 fn store_position_entry(head, id: Int, x: Float, y: Float) ::
-    let node := head
+    mut node := head
     while node != none ::
         if node?.id == id ::
             node.x := x
@@ -1816,11 +1817,11 @@ fn store_position_entry(head, id: Int, x: Float, y: Float) ::
 ::
 
 fn remove_position_entry(head, id: Int) ::
-    let remaining := none
-    let removed := false
-    let node := head
+    mut remaining := none
+    mut removed := false
+    mut node := head
     while node != none ::
-        let skip := false
+        mut skip := false
         if not removed ::
             if node?.id == id ::
                 skip := true
@@ -1832,7 +1833,7 @@ fn remove_position_entry(head, id: Int) ::
         ::
         node := node?.next
     ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.removed := removed
     out.items := remaining
     return out
@@ -1844,11 +1845,11 @@ fn load_dense_value(items, index: Int) -> Float ::
         return 0.0
     ::
     if value?.kind == "Float" ::
-        let out := parse_f64(json.stringify(value?.value))
+        mut out := parse_f64(json.stringify(value?.value))
         return out
     ::
     if value?.kind == "Int" ::
-        let out := parse_f64(json.stringify(value?.value))
+        mut out := parse_f64(json.stringify(value?.value))
         return out
     ::
     return 0.0
@@ -1879,8 +1880,8 @@ fn load_scalar_int(value) -> Int ::
 ::
 
 fn splitmix64_step(state: Int) ::
-    let next := state + 1103515245
-    let out := json.parse("{}")
+    mut next := state + 1103515245
+    mut out := json.parse("{}")
     out.state := next
     out.value := next
     return out
@@ -1912,8 +1913,8 @@ fn materialize_constant(constant) ::
 ::
 
 fn build_call_arg_list(call_locals, argc: Int) ::
-    let args := none
-    let arg_slot := argc - 1
+    mut args := none
+    mut arg_slot := argc - 1
     while arg_slot > -1 ::
         let arg_value := load_local(call_locals, arg_slot)
         if arg_value == none ::
@@ -1951,7 +1952,7 @@ fn append_list_item(head, value) ::
     if head == none ::
         return push_list_item(none, value)
     ::
-    let node := head
+    mut node := head
     while node?.next != none ::
         node := node?.next
     ::
@@ -1960,8 +1961,8 @@ fn append_list_item(head, value) ::
 ::
 
 fn reverse_list_items(head) ::
-    let out := none
-    let node := head
+    mut out := none
+    mut node := head
     while node != none ::
         out := push_list_item(out, node?.value)
         node := node?.next
@@ -1987,9 +1988,9 @@ fn insert_spatial_result_sorted(head, id: Int, dist_sq: Float) ::
             return entry
         ::
     ::
-    let node := head
+    mut node := head
     while node?.next != none ::
-        let before := false
+        mut before := false
         if dist_sq < node?.next?.dist_sq ::
             before := true
         ::
@@ -2010,8 +2011,8 @@ fn insert_spatial_result_sorted(head, id: Int, dist_sq: Float) ::
 ::
 
 fn spatial_sorted_ids(head) ::
-    let out := none
-    let node := head
+    mut out := none
+    mut node := head
     while node != none ::
         out := append_list_item(out, int_value(node?.id))
         node := node?.next
@@ -2023,7 +2024,7 @@ fn append_event_entry(head, time: Float, seq: Int, event) ::
     if head == none ::
         return push_event_entry(none, time, seq, event)
     ::
-    let node := head
+    mut node := head
     while node?.next != none ::
         node := node?.next
     ::
@@ -2032,9 +2033,9 @@ fn append_event_entry(head, time: Float, seq: Int, event) ::
 ::
 
 fn event_list_metadata(head) ::
-    let out := json.parse("{}")
-    let length := 0
-    let node := head
+    mut out := json.parse("{}")
+    mut length := 0
+    mut node := head
     while node != none ::
         length := length + 1
         node := node?.next
@@ -2046,7 +2047,7 @@ fn event_list_metadata(head) ::
 ::
 
 fn append_event_tail(head, tail, length: Int, time: Float, seq: Int, event) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.items := push_event_entry(head, time, seq, event)
     out.tail := none
     out.len := length + 1
@@ -2062,7 +2063,7 @@ fn insert_event_sorted(head, time: Float, seq: Int, event) ::
         entry.next := head
         return entry
     ::
-    let node := head
+    mut node := head
     while node?.next != none ::
         if event_before(time, seq, node?.next?.time, node?.next?.seq) ::
             entry.next := node?.next
@@ -2098,7 +2099,7 @@ fn push_event_log_chunk(head) ::
     return chunk
 ::
 
-fn append_event_log_chunk(head, time: Float, seq: Int, event) ::
+fn append_event_log_chunk(mut head, time: Float, seq: Int, event) ::
     if head == none ::
         head := push_event_log_chunk(none)
     ::
@@ -2175,8 +2176,8 @@ fn require_kind_arg(args, index: Int, kind: String, message: String) ::
 ::
 
 fn queue_events_sorted(items) ::
-    let sorted_reversed := none
-    let remaining := items
+    mut sorted_reversed := none
+    mut remaining := items
     while remaining != none ::
         let popped := extract_min_event(remaining)
         if popped.value == none ::
@@ -2191,8 +2192,8 @@ fn queue_events_sorted(items) ::
 ::
 
 fn queue_events_reverse_insertion_order(items) ::
-    let out := none
-    let node := items
+    mut out := none
+    mut node := items
     while node != none ::
         out := push_list_item(out, event_record_value(node))
         node := node?.next
@@ -2201,8 +2202,8 @@ fn queue_events_reverse_insertion_order(items) ::
 ::
 
 fn queue_events_in_existing_order(items) ::
-    let reversed := none
-    let node := items
+    mut reversed := none
+    mut node := items
     while node != none ::
         reversed := push_list_item(reversed, event_record_value(node))
         node := node?.next
@@ -2225,19 +2226,19 @@ fn append_entity_snapshot(head, id: Int, value) ::
     return append_list_item(head, record)
 ::
 
-fn entities_sorted_snapshot(items) ::
-    let entity_ids := none
-    let node := items
+fn entities_sorted_snapshot(mut items) ::
+    mut entity_ids := none
+    mut node := items
     while node != none ::
         entity_ids := append_list_item(entity_ids, int_value(node?.id))
         node := node?.next
     ::
-    let sorted := none
-    let expected := 0
+    mut sorted := none
+    mut expected := 0
     while expected < list_length(entity_ids) ::
-        let min_id := none
-        let min_value := none
-        let cursor := items
+        mut min_id := none
+        mut min_value := none
+        mut cursor := items
         while cursor != none ::
             if min_id == none ::
                 min_id := cursor?.id
@@ -2346,8 +2347,8 @@ fn runtime_builtin_sparse(args, name: String) ::
         if not dense_state.ok ::
             return dense_state
         ::
-        let total := 0.0
-        let node := vector_state.value.entries
+        mut total := 0.0
+        mut node := vector_state.value.entries
         while node != none ::
             let entry_value := node?.value
             let entry_index := node?.index
@@ -2368,12 +2369,12 @@ fn runtime_builtin_sparse(args, name: String) ::
         if not dense_state.ok ::
             return dense_state
         ::
-        let max_row := sparse_matrix_max_row(matrix_state.value.entries)
-        let out := none
-        let row := 0
+        mut max_row := sparse_matrix_max_row(matrix_state.value.entries)
+        mut out := none
+        mut row := 0
         while row <= max_row ::
-            let total := 0.0
-            let node := matrix_state.value.entries
+            mut total := 0.0
+            mut node := matrix_state.value.entries
             while node != none ::
                 if node?.row == row ::
                     if node?.value != 0.0 ::
@@ -2392,8 +2393,8 @@ fn runtime_builtin_sparse(args, name: String) ::
         if not matrix_state.ok ::
             return matrix_state
         ::
-        let out_reversed := none
-        let node := matrix_state.value.entries
+        mut out_reversed := none
+        mut node := matrix_state.value.entries
         while node != none ::
             if node?.value != 0.0 ::
                 out_reversed := push_list_item(out_reversed, sparse_matrix_nonzero_record(node?.row, node?.col, parse_f64(json.stringify(node?.value))))
@@ -2407,8 +2408,8 @@ fn runtime_builtin_sparse(args, name: String) ::
         if not vector_state.ok ::
             return vector_state
         ::
-        let out_reversed := none
-        let node := vector_state.value.entries
+        mut out_reversed := none
+        mut node := vector_state.value.entries
         while node != none ::
             if node?.value != 0.0 ::
                 out_reversed := push_list_item(out_reversed, sparse_vector_nonzero_record(node?.index, parse_f64(json.stringify(node?.value))))
@@ -2600,7 +2601,7 @@ fn runtime_builtin_pool(args, name: String) ::
         if not pool_state.ok ::
             return pool_state
         ::
-        let fields := none
+        mut fields := none
         fields := store_named_field(fields, "high_watermark", int_value(parse_i64(json.stringify(pool_state.value.high_watermark))))
         fields := store_named_field(fields, "dropped_on_full", int_value(parse_i64(json.stringify(pool_state.value.dropped_on_full))))
         fields := store_named_field(fields, "releases", int_value(parse_i64(json.stringify(pool_state.value.releases))))
@@ -2700,7 +2701,7 @@ fn runtime_builtin_sim(program, globals, args, name: String, active_coro) ::
         world_state.value.queue := insert_event_sorted(world_state.value.queue, time_state.value, seq, event_state.value)
         world_state.value.queue_tail := none
         world_state.value.queue_len := parse_i64(json.stringify(world_state.value.queue_len)) + 1
-        let next_globals := store_world_state_record(append_metric.globals, world_state.world_id, world_state.value)
+        mut next_globals := store_world_state_record(append_metric.globals, world_state.world_id, world_state.value)
         return ok_state(null_value(), next_globals)
     ::
     if name == "sim.step" ::
@@ -2719,7 +2720,7 @@ fn runtime_builtin_sim(program, globals, args, name: String, active_coro) ::
             world_state.value.queue_len := parse_i64(json.stringify(world_state.value.queue_len)) - 1
         ::
         if popped.value == none ::
-            let next_globals := store_world_state_record(world_state.globals, world_state.world_id, world_state.value)
+            mut next_globals := store_world_state_record(world_state.globals, world_state.world_id, world_state.value)
             return ok_state(null_value(), next_globals)
         ::
         let event_time := parse_f64(json.stringify(popped.value.time))
@@ -2740,7 +2741,7 @@ fn runtime_builtin_sim(program, globals, args, name: String, active_coro) ::
         )
         world_state.value.log_tail := none
         world_state.value.log_len := parse_i64(json.stringify(world_state.value.log_len)) + 1
-        let next_globals := store_world_state_record(append_metric.globals, world_state.world_id, world_state.value)
+        mut next_globals := store_world_state_record(append_metric.globals, world_state.world_id, world_state.value)
         return ok_state(event_record_value(popped.value), next_globals)
     ::
     if name == "sim.run" ::
@@ -2756,9 +2757,9 @@ fn runtime_builtin_sim(program, globals, args, name: String, active_coro) ::
         if not max_steps_state.ok ::
             return max_steps_state
         ::
-        let dispatched_count := 0
-        let step := 0
-        let run_globals := world_state.globals
+        mut dispatched_count := 0
+        mut step := 0
+        mut run_globals := world_state.globals
         while step < max_steps_state.value ::
             let step_args := append_list_item(append_list_item(none, world_arg.value), int_value(0))
             let step_state := runtime_builtin_sim(program, run_globals, step_args, "sim.step", active_coro)
@@ -2797,7 +2798,7 @@ fn runtime_builtin_sim(program, globals, args, name: String, active_coro) ::
         let queue_count := parse_i64(json.stringify(world_state.value.queue_len))
         let append_calls := entity_count + entity_count
         let append_steps := append_traversal_steps_for_length(entity_count) + append_traversal_steps_for_length(entity_count)
-        let metric_globals := metric_inc(world_state.globals, metric_snapshot_calls_slot(), 1)
+        mut metric_globals := metric_inc(world_state.globals, metric_snapshot_calls_slot(), 1)
         metric_globals := metric_inc(metric_globals, metric_entity_snapshot_calls_slot(), 1)
         metric_globals := metric_inc(metric_globals, metric_entity_snapshot_items_slot(), entity_count)
         metric_globals := metric_inc(metric_globals, metric_queue_sort_calls_slot(), 1)
@@ -2815,7 +2816,7 @@ fn runtime_builtin_sim(program, globals, args, name: String, active_coro) ::
             detail.limit := runtime_traversal_step_limit()
             return fail_state_with_globals(json.stringify(detail), metric_globals)
         ::
-        let fields := none
+        mut fields := none
         fields := store_named_field(fields, "entities", entities_sorted_snapshot(world_state.value.entities))
         fields := store_named_field(fields, "log", event_log_chunks_value(world_state.value.log, log_count))
         fields := store_named_field(fields, "queue", queue_events_as_list(world_state.value.queue))
@@ -2879,7 +2880,7 @@ fn runtime_builtin_sim(program, globals, args, name: String, active_coro) ::
         ::
         world_state.value.now := load_scalar_float(now_value?)
         world_state.value.next_seq := load_scalar_int(next_seq_value?)
-        let queue_node := queue_value?.items
+        mut queue_node := queue_value?.items
         while queue_node != none ::
             let entry := queue_node?.value
             if entry.kind == "Record" ::
@@ -2893,7 +2894,7 @@ fn runtime_builtin_sim(program, globals, args, name: String, active_coro) ::
             world_state.value.log_len := parse_i64(json.stringify(log_value?.count))
         ::
         else ::
-            let log_node := log_value?.items
+            mut log_node := log_value?.items
             while log_node != none ::
                 let entry := log_node?.value
                 if entry.kind == "Record" ::
@@ -2903,7 +2904,7 @@ fn runtime_builtin_sim(program, globals, args, name: String, active_coro) ::
                 log_node := log_node?.next
             ::
         ::
-        let entity_node := entities_value?.items
+        mut entity_node := entities_value?.items
         while entity_node != none ::
             let entity := entity_node?.value
             if entity.kind == "Record" ::
@@ -2917,7 +2918,7 @@ fn runtime_builtin_sim(program, globals, args, name: String, active_coro) ::
             ::
             entity_node := entity_node?.next
         ::
-        let next_globals := store_world_state_record(world_state.globals, world_state.world_id, world_state.value)
+        mut next_globals := store_world_state_record(world_state.globals, world_state.world_id, world_state.value)
         return ok_state(allocated.value, next_globals)
     ::
     if name == "sim.replay" ::
@@ -2942,9 +2943,9 @@ fn runtime_builtin_sim(program, globals, args, name: String, active_coro) ::
             return world_state
         ::
         if log_state.value.kind == "EventLogChunks" ::
-            let chunk_node := log_state.value.chunks
+            mut chunk_node := log_state.value.chunks
             while chunk_node != none ::
-                let event_node := chunk_node?.events
+                mut event_node := chunk_node?.events
                 while event_node != none ::
                     let seq := parse_i64(json.stringify(event_node?.seq))
                     world_state.value.queue := insert_event_sorted(world_state.value.queue, event_node?.time, seq, event_node?.event)
@@ -2958,7 +2959,7 @@ fn runtime_builtin_sim(program, globals, args, name: String, active_coro) ::
             ::
         ::
         else ::
-            let node := log_state.value.items
+            mut node := log_state.value.items
             while node != none ::
                 let entry := node?.value
                 if entry.kind == "Record" ::
@@ -2998,7 +2999,7 @@ fn runtime_builtin_sim(program, globals, args, name: String, active_coro) ::
             return value_state
         ::
         world_state.value.entities := store_entity_entry(world_state.value.entities, id_state.value, value_state.value)
-        let next_globals := store_world_state_record(world_state.globals, world_state.world_id, world_state.value)
+        mut next_globals := store_world_state_record(world_state.globals, world_state.world_id, world_state.value)
         return ok_state(null_value(), next_globals)
     ::
     if name == "sim.entity_get" ::
@@ -3033,9 +3034,9 @@ fn runtime_builtin_sim(program, globals, args, name: String, active_coro) ::
         if not id_state.ok ::
             return id_state
         ::
-        let removed := remove_entity_entry(world_state.value.entities, id_state.value)
+        mut removed := remove_entity_entry(world_state.value.entities, id_state.value)
         world_state.value.entities := removed.items
-        let next_globals := store_world_state_record(world_state.globals, world_state.world_id, world_state.value)
+        mut next_globals := store_world_state_record(world_state.globals, world_state.world_id, world_state.value)
         return ok_state(bool_value(removed.removed), next_globals)
     ::
     if name == "sim.entity_ids" ::
@@ -3048,8 +3049,8 @@ fn runtime_builtin_sim(program, globals, args, name: String, active_coro) ::
             return world_state
         ::
         let snapshot := entities_sorted_snapshot(world_state.value.entities)
-        let ids := none
-        let node := snapshot.items
+        mut ids := none
+        mut node := snapshot.items
         while node != none ::
             ids := append_list_item(ids, load_named_field(node?.value.fields, "id")?)
             node := node?.next
@@ -3151,7 +3152,7 @@ fn runtime_builtin_sim(program, globals, args, name: String, active_coro) ::
             return append_metric
         ::
         active_state.value.outputs := append_list_item(active_state.value.outputs, value_state.value)
-        let next_globals := store_coroutine_state_record(append_metric.globals, active_state.coro_id, active_state.value)
+        mut next_globals := store_coroutine_state_record(append_metric.globals, active_state.coro_id, active_state.value)
         return yield_state(null_value(), next_globals, none, none, 0, 0)
     ::
     if name == "sim.next" ::
@@ -3171,7 +3172,7 @@ fn runtime_builtin_sim(program, globals, args, name: String, active_coro) ::
         ::
         let popped := pop_stack(coro_state.value.outputs)
         coro_state.value.outputs := popped.next
-        let next_globals := store_coroutine_state_record(coro_state.globals, coro_state.coro_id, coro_state.value)
+        mut next_globals := store_coroutine_state_record(coro_state.globals, coro_state.coro_id, coro_state.value)
         return ok_state(popped.value, next_globals)
     ::
     if name == "sim.join" ::
@@ -3238,7 +3239,7 @@ fn runtime_builtin_spatial(globals, args, name: String) ::
             return y_state
         ::
         spatial_state.value.positions := store_position_entry(spatial_state.value.positions, id_state.value, x_state.value, y_state.value)
-        let next_globals := store_spatial_state_record(spatial_state.globals, spatial_state.spatial_id, spatial_state.value)
+        mut next_globals := store_spatial_state_record(spatial_state.globals, spatial_state.spatial_id, spatial_state.value)
         return ok_state(null_value(), next_globals)
     ::
     if name == "spatial.remove" ::
@@ -3254,9 +3255,9 @@ fn runtime_builtin_spatial(globals, args, name: String) ::
         if not id_state.ok ::
             return id_state
         ::
-        let removed := remove_position_entry(spatial_state.value.positions, id_state.value)
+        mut removed := remove_position_entry(spatial_state.value.positions, id_state.value)
         spatial_state.value.positions := removed.items
-        let next_globals := store_spatial_state_record(spatial_state.globals, spatial_state.spatial_id, spatial_state.value)
+        mut next_globals := store_spatial_state_record(spatial_state.globals, spatial_state.spatial_id, spatial_state.value)
         return ok_state(bool_value(removed.removed), next_globals)
     ::
     if name == "spatial.radius" ::
@@ -3284,8 +3285,8 @@ fn runtime_builtin_spatial(globals, args, name: String) ::
         let x_value := parse_f64(json.stringify(x.value))
         let y_value := parse_f64(json.stringify(y.value))
         let radius_sq := radius_value * radius_value
-        let matches := none
-        let node := spatial_state.value.positions
+        mut matches := none
+        mut node := spatial_state.value.positions
         while node != none ::
             let dx := parse_f64(json.stringify(node?.x)) - x_value
             let dy := parse_f64(json.stringify(node?.y)) - y_value
@@ -3316,9 +3317,9 @@ fn runtime_builtin_spatial(globals, args, name: String) ::
         ::
         let x_value := parse_f64(json.stringify(x.value))
         let y_value := parse_f64(json.stringify(y.value))
-        let best_id := none
-        let best_dist := 0.0
-        let node := spatial_state.value.positions
+        mut best_id := none
+        mut best_dist := 0.0
+        mut node := spatial_state.value.positions
         while node != none ::
             let dx := parse_f64(json.stringify(node?.x)) - x_value
             let dy := parse_f64(json.stringify(node?.y)) - y_value
@@ -3371,8 +3372,8 @@ fn runtime_builtin_spatial(globals, args, name: String) ::
         if not max_y.ok ::
             return max_y
         ::
-        let count := 0
-        let node := spatial_state.value.positions
+        mut count := 0
+        mut node := spatial_state.value.positions
         while node != none ::
             let pos_x := node?.x
             let pos_y := node?.y
@@ -3422,7 +3423,7 @@ fn runtime_builtin_snn(globals, args, name: String) ::
             return weight_state
         ::
         snn_state.value.synapses.entries := store_sparse_matrix_entry(snn_state.value.synapses.entries, from_state.value, to_state.value, weight_state.value)
-        let next_globals := store_snn_state_record(snn_state.globals, snn_state.snn_id, snn_state.value)
+        mut next_globals := store_snn_state_record(snn_state.globals, snn_state.snn_id, snn_state.value)
         return ok_state(null_value(), next_globals)
     ::
     if name == "snn.set_threshold" ::
@@ -3443,7 +3444,7 @@ fn runtime_builtin_snn(globals, args, name: String) ::
             return value_state
         ::
         snn_state.value.thresholds := store_sparse_vector_entry(snn_state.value.thresholds, index_state.value, value_state.value)
-        let next_globals := store_snn_state_record(snn_state.globals, snn_state.snn_id, snn_state.value)
+        mut next_globals := store_snn_state_record(snn_state.globals, snn_state.snn_id, snn_state.value)
         return ok_state(null_value(), next_globals)
     ::
     if name == "snn.get_threshold" ::
@@ -3483,7 +3484,7 @@ fn runtime_builtin_snn(globals, args, name: String) ::
             return value_state
         ::
         snn_state.value.potentials := store_sparse_vector_entry(snn_state.value.potentials, index_state.value, value_state.value)
-        let next_globals := store_snn_state_record(snn_state.globals, snn_state.snn_id, snn_state.value)
+        mut next_globals := store_snn_state_record(snn_state.globals, snn_state.snn_id, snn_state.value)
         return ok_state(null_value(), next_globals)
     ::
     if name == "snn.get_potential" ::
@@ -3519,7 +3520,7 @@ fn runtime_builtin_snn(globals, args, name: String) ::
             return value_state
         ::
         snn_state.value.decay := parse_f64(json.stringify(value_state.value))
-        let next_globals := store_snn_state_record(snn_state.globals, snn_state.snn_id, snn_state.value)
+        mut next_globals := store_snn_state_record(snn_state.globals, snn_state.snn_id, snn_state.value)
         return ok_state(null_value(), next_globals)
     ::
     if name == "snn.get_decay" ::
@@ -3546,19 +3547,19 @@ fn runtime_builtin_snn(globals, args, name: String) ::
         if not dense_state.ok ::
             return dense_state
         ::
-        let spikes := none
-        let new_potentials := none
-        let idx := 0
+        mut spikes := none
+        mut new_potentials := none
+        mut idx := 0
         let neuron_count := parse_i64(json.stringify(snn_state.value.neuron_count))
         while idx < neuron_count ::
-            let recurrent := 0.0
-            let syn := snn_state.value.synapses.entries
+            mut recurrent := 0.0
+            mut syn := snn_state.value.synapses.entries
             while syn != none ::
                 let syn_to := syn?.col
                 let syn_from := syn?.row
                 let syn_weight := syn?.value
                 if syn_to == idx ::
-                    let spike_node := snn_state.value.last_spikes
+                    mut spike_node := snn_state.value.last_spikes
                     while spike_node != none ::
                         if spike_node?.value.kind == "Int" ::
                             if parse_i64(json.stringify(spike_node?.value.value)) == syn_from ::
@@ -3570,20 +3571,20 @@ fn runtime_builtin_snn(globals, args, name: String) ::
                 ::
                 syn := syn?.next
             ::
-            let current := load_sparse_vector_entry(snn_state.value.potentials, idx)
-            let potential := 0.0
+            mut current := load_sparse_vector_entry(snn_state.value.potentials, idx)
+            mut potential := 0.0
             if current != none ::
                 potential := current?
             ::
             let threshold := load_sparse_vector_entry(snn_state.value.thresholds, idx)
-            let threshold_value := 1.0
+            mut threshold_value := 1.0
             if threshold != none ::
                 threshold_value := threshold?
             ::
             let decay := parse_f64(json.stringify(snn_state.value.decay))
             let next_value := potential * decay + load_dense_value(dense_state.value.items, idx) + recurrent
             let fired := next_value >= threshold_value
-            let stored_value := next_value
+            mut stored_value := next_value
             if fired ::
                 stored_value := 0.0
                 spikes := append_list_item(spikes, int_value(idx))
@@ -3593,7 +3594,7 @@ fn runtime_builtin_snn(globals, args, name: String) ::
         ::
         snn_state.value.potentials := new_potentials
         snn_state.value.last_spikes := spikes
-        let next_globals := store_snn_state_record(snn_state.globals, snn_state.snn_id, snn_state.value)
+        mut next_globals := store_snn_state_record(snn_state.globals, snn_state.snn_id, snn_state.value)
         return ok_state(list_value(spikes), next_globals)
     ::
     if name == "snn.spikes" ::
@@ -3616,8 +3617,8 @@ fn runtime_builtin_snn(globals, args, name: String) ::
         if not snn_state.ok ::
             return snn_state
         ::
-        let out := none
-        let idx := 0
+        mut out := none
+        mut idx := 0
         let neuron_count := parse_i64(json.stringify(snn_state.value.neuron_count))
         while idx < neuron_count ::
             let value := load_sparse_vector_entry(snn_state.value.potentials, idx)
@@ -3816,8 +3817,8 @@ fn runtime_builtin_agent(globals, args, name: String) ::
         if not radius_state.ok ::
             return radius_state
         ::
-        let filtered := none
-        let node := radius_state.value.items
+        mut filtered := none
+        mut node := radius_state.value.items
         while node != none ::
             if node?.value.kind == "Int" ::
                 if parse_i64(json.stringify(node?.value.value)) != agent_id.value ::
@@ -4173,8 +4174,8 @@ fn runtime_builtin_channel(globals, args, name: String) ::
         ::
         let append_metric := metric_record_append(channel_state.globals, list_length(channel_state.value.queue), "chan.send")
         channel_state.value.queue := append_list_item(channel_state.value.queue, value?)
-        let next_globals := store_channel_state_record(append_metric.globals, channel_state.channel_id, channel_state.value)
-        let metric_globals := metric_inc(next_globals, metric_channel_sends_slot(), 1)
+        mut next_globals := store_channel_state_record(append_metric.globals, channel_state.channel_id, channel_state.value)
+        mut metric_globals := metric_inc(next_globals, metric_channel_sends_slot(), 1)
         return ok_state(null_value(), metric_globals)
     ::
     if name == "chan.recv" ::
@@ -4191,8 +4192,8 @@ fn runtime_builtin_channel(globals, args, name: String) ::
         ::
         let message := channel_state.value.queue?.value
         channel_state.value.queue := channel_state.value.queue?.next
-        let next_globals := store_channel_state_record(channel_state.globals, channel_state.channel_id, channel_state.value)
-        let metric_globals := metric_inc(next_globals, metric_channel_recvs_slot(), 1)
+        mut next_globals := store_channel_state_record(channel_state.globals, channel_state.channel_id, channel_state.value)
+        mut metric_globals := metric_inc(next_globals, metric_channel_recvs_slot(), 1)
         return ok_state(message, metric_globals)
     ::
     return fail_state("unsupported channel builtin")
@@ -4214,6 +4215,9 @@ fn invoke_runtime_builtin(program, globals, active_coro, callee_name: String, ar
         return runtime_builtin_json_parse(source)
     ::
     if callee_name == "json.stringify" ::
+        return runtime_builtin_json_stringify(args)
+    ::
+    if callee_name == "json.enkai" ::
         return runtime_builtin_json_stringify(args)
     ::
     if is_sparse_builtin_name(callee_name) ::
@@ -4241,7 +4245,7 @@ fn invoke_runtime_builtin(program, globals, active_coro, callee_name: String, ar
         return runtime_builtin_channel(globals, args, callee_name)
     ::
     if callee_name == "task.sleep" ::
-        let next_globals := metric_inc(globals, metric_task_sleeps_slot(), 1)
+        mut next_globals := metric_inc(globals, metric_task_sleeps_slot(), 1)
         return ok_state(null_value(), next_globals)
     ::
     if callee_name == "print" ::
@@ -4258,7 +4262,7 @@ fn invoke_native_function(program, globals, callee, call_locals, argc: Int, acti
     if not args_state.ok ::
         return args_state
     ::
-    let args := args_state.value
+    mut args := args_state.value
     if callee.library == "__runtime_builtin__" ::
         let runtime_state := invoke_runtime_builtin(program, globals, active_coro, callee.name, args)
         if not runtime_state.ok ::
@@ -4476,8 +4480,8 @@ fn eq_values(lhs, rhs) ::
         if rhs.kind != "List" ::
             return ok_state(bool_value(false), none)
         ::
-        let lhs_node := lhs.items
-        let rhs_node := rhs.items
+        mut lhs_node := lhs.items
+        mut rhs_node := rhs.items
         while lhs_node != none ::
             if rhs_node == none ::
                 return ok_state(bool_value(false), none)
@@ -4502,9 +4506,9 @@ fn eq_values(lhs, rhs) ::
         if rhs.kind != "Record" ::
             return ok_state(bool_value(false), none)
         ::
-        let lhs_field := lhs.fields
-        let lhs_count := 0
-        let rhs_count := 0
+        mut lhs_field := lhs.fields
+        mut lhs_count := 0
+        mut rhs_count := 0
         while lhs_field != none ::
             let rhs_value := load_named_field(rhs.fields, lhs_field?.name)
             if rhs_value == none ::
@@ -4520,7 +4524,7 @@ fn eq_values(lhs, rhs) ::
             lhs_count := lhs_count + 1
             lhs_field := lhs_field?.next
         ::
-        let rhs_field := rhs.fields
+        mut rhs_field := rhs.fields
         while rhs_field != none ::
             rhs_count := rhs_count + 1
             rhs_field := rhs_field?.next
@@ -4883,9 +4887,9 @@ fn is_supported_instruction_kind(kind: String) -> Bool ::
 ::
 
 fn build_record_from_stack(stack, field_count: Int) ::
-    let fields := none
-    let remaining := stack
-    let field_idx := 0
+    mut fields := none
+    mut remaining := stack
+    mut field_idx := 0
     while field_idx < field_count ::
         let value_pop := pop_stack(remaining)
         if not value_pop.ok ::
@@ -4906,9 +4910,9 @@ fn build_record_from_stack(stack, field_count: Int) ::
 ::
 
 fn build_list_from_stack(stack, item_count: Int) ::
-    let items := none
-    let remaining := stack
-    let item_idx := 0
+    mut items := none
+    mut remaining := stack
+    mut item_idx := 0
     while item_idx < item_count ::
         let popped := pop_stack(remaining)
         if not popped.ok ::
@@ -4922,15 +4926,15 @@ fn build_list_from_stack(stack, item_count: Int) ::
 ::
 
 fn list_set_item(head, index: Int, value) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     out.ok := false
     out.error := "list index out of bounds"
     out.items := head
     if index < 0 ::
         return out
     ::
-    let node := head
-    let current := 0
+    mut node := head
+    mut current := 0
     while node != none ::
         if current == index ::
             node.value := value
@@ -4971,7 +4975,7 @@ fn install_builtin_global(globals, slot: Int, name: String) ::
         return store_global(globals, slot, builtin_native_function("print"))
     ::
     if canonical_name == "sparse" ::
-        let fields := none
+        mut fields := none
         fields := store_named_field(fields, "nnz", builtin_native_function("sparse.nnz"))
         fields := store_named_field(fields, "nonzero_vector", builtin_native_function("sparse.nonzero_vector"))
         fields := store_named_field(fields, "nonzero", builtin_native_function("sparse.nonzero"))
@@ -4986,7 +4990,7 @@ fn install_builtin_global(globals, slot: Int, name: String) ::
         return store_global(globals, slot, record_value(fields))
     ::
     if canonical_name == "event" ::
-        let fields := none
+        mut fields := none
         fields := store_named_field(fields, "len", builtin_native_function("event.len"))
         fields := store_named_field(fields, "is_empty", builtin_native_function("event.is_empty"))
         fields := store_named_field(fields, "peek", builtin_native_function("event.peek"))
@@ -4996,7 +5000,7 @@ fn install_builtin_global(globals, slot: Int, name: String) ::
         return store_global(globals, slot, record_value(fields))
     ::
     if canonical_name == "pool" ::
-        let fields := none
+        mut fields := none
         fields := store_named_field(fields, "stats", builtin_native_function("pool.stats"))
         fields := store_named_field(fields, "capacity", builtin_native_function("pool.capacity"))
         fields := store_named_field(fields, "available", builtin_native_function("pool.available"))
@@ -5008,31 +5012,32 @@ fn install_builtin_global(globals, slot: Int, name: String) ::
         return store_global(globals, slot, record_value(fields))
     ::
     if canonical_name == "task" ::
-        let fields := none
+        mut fields := none
         fields := store_named_field(fields, "sleep", builtin_native_function("task.sleep"))
         fields := store_named_field(fields, "join", builtin_native_function("task.join"))
         fields := store_named_field(fields, "spawn", builtin_native_function("task.spawn"))
         return store_global(globals, slot, record_value(fields))
     ::
     if canonical_name == "chan" ::
-        let fields := none
+        mut fields := none
         fields := store_named_field(fields, "recv", builtin_native_function("chan.recv"))
         fields := store_named_field(fields, "send", builtin_native_function("chan.send"))
         fields := store_named_field(fields, "make", builtin_native_function("chan.make"))
         return store_global(globals, slot, record_value(fields))
     ::
     if canonical_name == "policy" ::
-        let fields := store_named_field(none, "register", builtin_native_function("policy.register"))
+        mut fields := store_named_field(none, "register", builtin_native_function("policy.register"))
         return store_global(globals, slot, record_value(fields))
     ::
     if canonical_name == "json" ::
-        let fields := none
+        mut fields := none
         fields := store_named_field(fields, "parse", builtin_native_function("json.parse"))
         fields := store_named_field(fields, "stringify", builtin_native_function("json.stringify"))
+        fields := store_named_field(fields, "enkai", builtin_native_function("json.enkai"))
         return store_global(globals, slot, record_value(fields))
     ::
     if canonical_name == "sim" ::
-        let fields := none
+        mut fields := none
         fields := store_named_field(fields, "done", builtin_native_function("sim.done"))
         fields := store_named_field(fields, "join", builtin_native_function("sim.join"))
         fields := store_named_field(fields, "next", builtin_native_function("sim.next"))
@@ -5061,7 +5066,7 @@ fn install_builtin_global(globals, slot: Int, name: String) ::
         return store_global(globals, slot, record_value(fields))
     ::
     if canonical_name == "spatial" ::
-        let fields := none
+        mut fields := none
         fields := store_named_field(fields, "occupancy", builtin_native_function("spatial.occupancy"))
         fields := store_named_field(fields, "nearest", builtin_native_function("spatial.nearest"))
         fields := store_named_field(fields, "radius", builtin_native_function("spatial.radius"))
@@ -5071,7 +5076,7 @@ fn install_builtin_global(globals, slot: Int, name: String) ::
         return store_global(globals, slot, record_value(fields))
     ::
     if canonical_name == "snn" ::
-        let fields := none
+        mut fields := none
         fields := store_named_field(fields, "synapses", builtin_native_function("snn.synapses"))
         fields := store_named_field(fields, "potentials", builtin_native_function("snn.potentials"))
         fields := store_named_field(fields, "spikes", builtin_native_function("snn.spikes"))
@@ -5087,7 +5092,7 @@ fn install_builtin_global(globals, slot: Int, name: String) ::
         return store_global(globals, slot, record_value(fields))
     ::
     if canonical_name == "agent" ::
-        let fields := none
+        mut fields := none
         fields := store_named_field(fields, "next_int", builtin_native_function("agent.next_int"))
         fields := store_named_field(fields, "next_float", builtin_native_function("agent.next_float"))
         fields := store_named_field(fields, "stream", builtin_native_function("agent.stream"))
@@ -5114,10 +5119,10 @@ fn install_builtin_global(globals, slot: Int, name: String) ::
 ::
 
 fn lookup_function_index_by_name(program, name: String) ::
-    let function_index := 0
+    mut function_index := 0
     let tail_name := qualified_name_tail(name)
-    let tail_match := none
-    let tail_match_count := 0
+    mut tail_match := none
+    mut tail_match_count := 0
     while function_index < program.functions_count ::
         let function := program.functions[function_index]
         if function != none ::
@@ -5159,13 +5164,13 @@ fn should_skip_prelude_main_call(program, callee_index: Int, argc: Int) -> Bool 
 ::
 
 fn install_globals(program) ::
-    let globals := none
-    let global_slot := 0
+    mut globals := none
+    mut global_slot := 0
     while global_slot < program.globals_count ::
         globals := store_global(globals, global_slot, null_value())
         global_slot := global_slot + 1
     ::
-    let global_index := 0
+    mut global_index := 0
     while global_index < program.global_inits_count ::
         let init_value := program.global_inits[global_index]
         if init_value != none ::
@@ -5185,7 +5190,7 @@ fn install_globals(program) ::
         let current_value := load_global(globals, global_index)
         if current_value != none ::
             if current_value?.kind == "Null" ::
-                let function_index := lookup_function_index_by_name(program, global_name)
+                mut function_index := lookup_function_index_by_name(program, global_name)
                 if function_index != none ::
                     globals := store_global(globals, global_index, function_value(function_index.value))
                 ::
@@ -5202,7 +5207,7 @@ fn install_globals(program) ::
     return ok_state(null_value(), globals)
 ::
 
-fn runtime_value_to_json_value(globals, value, depth: Int) ::
+fn runtime_value_to_json_value(mut globals, value, depth: Int) ::
     globals := metric_inc(globals, metric_json_nodes_slot(), 1)
     globals := metric_max(globals, metric_json_max_depth_slot(), depth)
     if depth > runtime_json_depth_limit() ::
@@ -5235,10 +5240,10 @@ fn runtime_value_to_json_value(globals, value, depth: Int) ::
         return ok_state(null_value(), globals)
     ::
     if value.kind == "List" ::
-        let out := json.parse("{}")
+        mut out := json.parse("{}")
         out.kind := "List"
-        let node := value.items
-        let encoded_items_reversed := none
+        mut node := value.items
+        mut encoded_items_reversed := none
         while node != none ::
             let item_state := runtime_value_to_json_value(globals, node?.value, depth + 1)
             if not item_state.ok ::
@@ -5252,10 +5257,10 @@ fn runtime_value_to_json_value(globals, value, depth: Int) ::
         return ok_state(out, globals)
     ::
     if value.kind == "Record" ::
-        let out := json.parse("{}")
+        mut out := json.parse("{}")
         out.kind := "Record"
-        let node := value.fields
-        let encoded_fields := none
+        mut node := value.fields
+        mut encoded_fields := none
         while node != none ::
             let item_state := runtime_value_to_json_value(globals, node?.value, depth + 1)
             if not item_state.ok ::
@@ -5269,16 +5274,16 @@ fn runtime_value_to_json_value(globals, value, depth: Int) ::
         return ok_state(out, globals)
     ::
     if value.kind == "EventLogChunks" ::
-        let out := json.parse("{}")
+        mut out := json.parse("{}")
         out.kind := "EventLogChunks"
         out.count := parse_i64(json.stringify(value.count))
-        let encoded_chunks_reversed := none
-        let chunk_node := value.chunks
+        mut encoded_chunks_reversed := none
+        mut chunk_node := value.chunks
         while chunk_node != none ::
             let chunk_out := json.parse("{}")
             chunk_out.count := parse_i64(json.stringify(chunk_node?.count))
-            let encoded_events_reversed := none
-            let event_node := chunk_node?.events
+            mut encoded_events_reversed := none
+            mut event_node := chunk_node?.events
             while event_node != none ::
                 let event_value := event_record_value(event_node)
                 let event_state := runtime_value_to_json_value(globals, event_value, depth + 1)
@@ -5300,7 +5305,7 @@ fn runtime_value_to_json_value(globals, value, depth: Int) ::
 ::
 
 fn summarize_result(globals, value) ::
-    let out := json.parse("{}")
+    mut out := json.parse("{}")
     if value.kind == "Int" ::
         out.ok := true
         out.result_kind := "Int"
@@ -5374,9 +5379,9 @@ fn prepare_coroutine_worker(program, coro_arg, coro_value) ::
         return ok_state(prepared, none)
     ::
 
-    let worker_locals := none
-    let worker_function_index := -1
-    let visible_arity := 0
+    mut worker_locals := none
+    mut worker_function_index := -1
+    mut visible_arity := 0
     if worker?.kind == "Function" ::
         worker_function_index := worker?.function_index
         let worker_function := program.functions[worker_function_index]
@@ -5386,8 +5391,8 @@ fn prepare_coroutine_worker(program, coro_arg, coro_value) ::
         if worker?.kind == "Closure" ::
             worker_function_index := worker?.function_index
             visible_arity := parse_i64(json.stringify(worker?.arity))
-            let capture_slot := 0
-            let capture_node := worker?.captures
+            mut capture_slot := 0
+            mut capture_node := worker?.captures
             while capture_node != none ::
                 worker_locals := store_local(worker_locals, capture_slot, capture_node?.value)
                 capture_slot := capture_slot + 1
@@ -5399,19 +5404,19 @@ fn prepare_coroutine_worker(program, coro_arg, coro_value) ::
         ::
     ::
 
-    let next_slot := 0
+    mut next_slot := 0
     if worker?.kind == "Closure" ::
-        let capture_node := worker?.captures
+        mut capture_node := worker?.captures
         while capture_node != none ::
             next_slot := next_slot + 1
             capture_node := capture_node?.next
         ::
     ::
     worker_locals := store_local(worker_locals, next_slot, coro_arg)
-    let arg_slot := next_slot + 1
-    let arg_values := none
+    mut arg_slot := next_slot + 1
+    mut arg_values := none
     if coro_value.args != none ::
-        let arg_node := coro_value.args
+        mut arg_node := coro_value.args
         while arg_node != none ::
             arg_values := append_list_item(arg_values, arg_node?.value)
             arg_node := arg_node?.next
@@ -5425,7 +5430,7 @@ fn prepare_coroutine_worker(program, coro_arg, coro_value) ::
     if 1 + list_length(arg_values) != visible_arity ::
         return fail_state("sim coroutine arity must match worker arity")
     ::
-    let arg_node := arg_values
+    mut arg_node := arg_values
     while arg_node != none ::
         worker_locals := store_local(worker_locals, arg_slot, arg_node?.value)
         arg_slot := arg_slot + 1
@@ -5449,8 +5454,8 @@ fn continuation_frame(function_index: Int, locals, stack, ip: Int) ::
 
 fn coroutine_handles_creation_order(globals) ::
     let table := load_global(globals, coroutine_table_slot())
-    let handles := none
-    let node := table
+    mut handles := none
+    mut node := table
     while node != none ::
         handles := push_list_item(handles, sim_coroutine_handle(node?.id))
         node := node?.next
@@ -5458,10 +5463,10 @@ fn coroutine_handles_creation_order(globals) ::
     return handles
 ::
 
-fn execute_function_resume(program, globals, function_index: Int, locals, active_coro, call_depth: Int, start_ip: Int, start_stack, skip_top_main_call: Bool) ::
+fn execute_function_resume(program, mut globals, function_index: Int, mut locals, active_coro, call_depth: Int, start_ip: Int, start_stack, skip_top_main_call: Bool) ::
     let function := program.functions[function_index]
-    let ip := start_ip
-    let stack := start_stack
+    mut ip := start_ip
+    mut stack := start_stack
     globals := metric_inc(globals, metric_exec_calls_slot(), 1)
     globals := metric_max(globals, metric_exec_max_depth_slot(), call_depth)
     if metric_value(globals, metric_exec_calls_slot()) > runtime_exec_call_limit() ::
@@ -5481,7 +5486,7 @@ fn execute_function_resume(program, globals, function_index: Int, locals, active
         return fail_state_with_globals(json.stringify(detail), globals)
     ::
 
-    let instruction_steps := 0
+    mut instruction_steps := 0
     let instruction_limit := runtime_instruction_limit()
     while ip < function.code_count ::
         instruction_steps := instruction_steps + 1
@@ -5509,7 +5514,7 @@ fn execute_function_resume(program, globals, function_index: Int, locals, active
         ::
 
         if instruction.kind == "LoadLocal" ::
-            let slot := parse_i64(json.stringify(instruction.index))
+            mut slot := parse_i64(json.stringify(instruction.index))
             let value := load_local(locals, slot)
             if value == none ::
                 return fail_state("load from uninitialized local")
@@ -5523,14 +5528,14 @@ fn execute_function_resume(program, globals, function_index: Int, locals, active
             if not popped.ok ::
                 return fail_state(popped.error)
             ::
-            let slot := parse_i64(json.stringify(instruction.index))
+            mut slot := parse_i64(json.stringify(instruction.index))
             locals := store_local(locals, slot, popped.value)
             stack := popped.next
             ip := ip + 1
         ::
 
         if instruction.kind == "LoadGlobal" ::
-            let slot := parse_i64(json.stringify(instruction.index))
+            mut slot := parse_i64(json.stringify(instruction.index))
             let value := load_global(globals, slot)
             if value == none ::
                 let detail := json.parse("{}")
@@ -5548,7 +5553,7 @@ fn execute_function_resume(program, globals, function_index: Int, locals, active
             if not popped.ok ::
                 return fail_state(popped.error)
             ::
-            let slot := parse_i64(json.stringify(instruction.index))
+            mut slot := parse_i64(json.stringify(instruction.index))
             globals := store_global(globals, slot, popped.value)
             stack := popped.next
             ip := ip + 1
@@ -5559,7 +5564,7 @@ fn execute_function_resume(program, globals, function_index: Int, locals, active
             if not popped.ok ::
                 return fail_state(popped.error)
             ::
-            let slot := parse_i64(json.stringify(instruction.index))
+            mut slot := parse_i64(json.stringify(instruction.index))
             globals := store_global(globals, slot, popped.value)
             stack := popped.next
             ip := ip + 1
@@ -5714,9 +5719,9 @@ fn execute_function_resume(program, globals, function_index: Int, locals, active
 
         if instruction.kind == "Call" ::
             let argc := parse_i64(json.stringify(instruction.argc))
-            let call_locals := none
-            let arg_slot := argc - 1
-            let stack_after_args := stack
+            mut call_locals := none
+            mut arg_slot := argc - 1
+            mut stack_after_args := stack
             while arg_slot > -1 ::
                 let arg_pop := pop_stack(stack_after_args)
                 if not arg_pop.ok ::
@@ -5730,7 +5735,7 @@ fn execute_function_resume(program, globals, function_index: Int, locals, active
             if not callee_pop.ok ::
                 return fail_state(callee_pop.error)
             ::
-            let callee_function := none
+            mut callee_function := none
             if callee_pop.value.kind == "Function" ::
                 callee_function := program.functions[callee_pop.value.function_index]
                 let callee_arity := parse_i64(json.stringify(callee_function?.arity))
@@ -5740,19 +5745,19 @@ fn execute_function_resume(program, globals, function_index: Int, locals, active
             ::
             if callee_pop.value.kind == "Closure" ::
                 callee_function := program.functions[callee_pop.value.function_index]
-                let visible_arity := parse_i64(json.stringify(callee_pop.value.arity))
+                mut visible_arity := parse_i64(json.stringify(callee_pop.value.arity))
                 if visible_arity != argc ::
                     return fail_state("Call arity mismatch in audited subset")
                 ::
-                let merged_locals := none
-                let capture_slot := 0
-                let capture_node := callee_pop.value.captures
+                mut merged_locals := none
+                mut capture_slot := 0
+                mut capture_node := callee_pop.value.captures
                 while capture_node != none ::
                     merged_locals := store_local(merged_locals, capture_slot, capture_node?.value)
                     capture_slot := capture_slot + 1
                     capture_node := capture_node?.next
                 ::
-                let arg_slot_index := 0
+                mut arg_slot_index := 0
                 while arg_slot_index < argc ::
                     let arg_value := load_local(call_locals, arg_slot_index)
                     if arg_value == none ::
@@ -5776,7 +5781,7 @@ fn execute_function_resume(program, globals, function_index: Int, locals, active
                     ::
                     ip := ip + 1
                 ::
-            let native_handled := false
+            mut native_handled := false
             if callee_pop.value.library == "__runtime_builtin__" ::
                 if is_task_builtin_name(callee_pop.value.name) ::
                     if callee_pop.value.name == "task.sleep" ::
@@ -5852,14 +5857,14 @@ fn execute_function_resume(program, globals, function_index: Int, locals, active
                             if requested_state.value.outputs == none ::
                                 if not (requested_state.value.finished == true) ::
                                     let fair_targets := coroutine_handles_creation_order(globals)
-                                    let fair_node := fair_targets
+                                    mut fair_node := fair_targets
                                     while fair_node != none ::
                                         let fair_state := require_coroutine_state(globals, fair_node?.value, "sim.next fair scheduling expects SimCoroutine")
                                         if not fair_state.ok ::
                                             return fair_state
                                         ::
-                                        let fair_value := fair_state.value
-                                        let fair_should_resume := false
+                                        mut fair_value := fair_state.value
+                                        mut fair_should_resume := false
                                         if not (fair_value.finished == true) ::
                                             fair_should_resume := true
                                         ::
@@ -5897,7 +5902,7 @@ fn execute_function_resume(program, globals, function_index: Int, locals, active
                                                     false
                                                 )
                                                 if not fair_exec.ok ::
-                                                    let error_globals := fair_exec.globals
+                                                    mut error_globals := fair_exec.globals
                                                     if error_globals == none ::
                                                         error_globals := fair_state.globals
                                                     ::
@@ -5945,11 +5950,11 @@ fn execute_function_resume(program, globals, function_index: Int, locals, active
                             ::
                         ::
                         let resume_budget := runtime_coroutine_resume_limit()
-                        let resume_guard := 0
-                        let should_resume := true
+                        mut resume_guard := 0
+                        mut should_resume := true
                         while resume_guard < resume_budget ::
-                            let pre_state := none
-                            let coro_value := none
+                            mut pre_state := none
+                            mut coro_value := none
                             if should_resume ::
                                 should_resume := false
                                 pre_state := require_coroutine_state(globals, coro_arg?, "sim coroutine builtin expects SimCoroutine")
@@ -6007,7 +6012,7 @@ fn execute_function_resume(program, globals, function_index: Int, locals, active
                                         false
                                     )
                                     if not exec_state.ok ::
-                                        let error_globals := exec_state.globals
+                                        mut error_globals := exec_state.globals
                                         if error_globals == none ::
                                             error_globals := pre_state.globals
                                         ::

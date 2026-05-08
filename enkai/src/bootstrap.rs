@@ -2441,13 +2441,15 @@ fn litec_runtime_coverage(args: &[String]) -> i32 {
                 continue;
             }
         };
-        let stage2_bytes = match run_litec_mode_with_program(
+        let codegen_result = run_litec_mode_with_program(
             &mainline.stage2_driver,
             "codegen",
             file,
             Some(&program_path),
-        ) {
-            Ok(0) => match fs::read(&program_path) {
+        );
+        let stage2_bytes = match codegen_result {
+            Ok(0) => {
+                match fs::read(&program_path) {
                 Ok(bytes) => {
                     compiled_files += 1;
                     entry["compiled"] = serde_json::json!(true);
@@ -2465,6 +2467,7 @@ fn litec_runtime_coverage(args: &[String]) -> i32 {
                     entries.push(entry);
                     continue;
                 }
+            }
             },
             Ok(code) => {
                 runtime_gap_files += 1;
@@ -2485,7 +2488,6 @@ fn litec_runtime_coverage(args: &[String]) -> i32 {
             }
         };
         let _ = fs::remove_file(&program_path);
-
         let program = match decode_program_bytes(file, &stage2_bytes, "stage2") {
             Ok(program) => program,
             Err(err) => {
@@ -2526,7 +2528,6 @@ fn litec_runtime_coverage(args: &[String]) -> i32 {
                 }
             }
         }
-
         let rust_value = match run_program(&program) {
             Ok(value) => value,
             Err(err) => {
@@ -2767,13 +2768,13 @@ fn litec_runtime_audit(args: &[String]) -> i32 {
                 continue;
             }
         };
-
-        let stage2_bytes = match run_litec_mode_with_program(
+        let codegen_result = run_litec_mode_with_program(
             &mainline.stage2_driver,
             "codegen",
             file,
             Some(&program_path),
-        ) {
+        );
+        let stage2_bytes = match codegen_result {
             Ok(0) => match fs::read(&program_path) {
                 Ok(bytes) => {
                     compiled_files += 1;
@@ -2843,7 +2844,6 @@ fn litec_runtime_audit(args: &[String]) -> i32 {
                 continue;
             }
         };
-
         let rust_json = match runtime_audit_json_value(&rust_value) {
             Some(value) => value,
             None => {
@@ -2858,7 +2858,6 @@ fn litec_runtime_audit(args: &[String]) -> i32 {
                 continue;
             }
         };
-
         let runtime_code = match run_runtime_mode_with_program(
             &runtime_driver,
             "audit",
@@ -2876,7 +2875,6 @@ fn litec_runtime_audit(args: &[String]) -> i32 {
                 continue;
             }
         };
-
         let summary_text = match fs::read_to_string(&summary_path) {
             Ok(text) => text,
             Err(err) => {
@@ -4820,7 +4818,7 @@ mod tests {
         let input = dir.path().join("verify.enk");
         fs::write(
             &input,
-            "fn main() -> Int ::\n    let n := 3\n    let out := 0\n    while n > 0 ::\n        out := out + n\n        n := n - 1\n    ::\n    return out\n::\nmain()\n",
+            "fn main() -> Int ::\n    mut n := 3\n    mut out := 0\n    while n > 0 ::\n        out := out + n\n        n := n - 1\n    ::\n    return out\n::\nmain()\n",
         )
         .expect("write input");
         let code = litec_command(&["verify".to_string(), input.to_string_lossy().to_string()]);
@@ -5820,7 +5818,7 @@ mod tests {
         let triage = dir.path().join("triage");
         fs::write(
             &file,
-            "let c := chan.make()\nlet acc := 0\n\nfn fast() -> Int ::\n    acc := acc + 2\n    return 2\n::\n\nfn slow() -> Int ::\n    task.sleep(5)\n    acc := acc + 1\n    return 1\n::\n\nfn sender() -> Int ::\n    chan.send(c, 7)\n    acc := acc + 4\n    return 4\n::\n\nfn main() -> Int ::\n    let h1 := task.spawn(slow)\n    let h2 := task.spawn(fast)\n    let h3 := task.spawn(sender)\n    chan.recv(c)\n    task.join(h2)\n    task.join(h1)\n    task.join(h3)\n    return acc\n::\n\nmain()\n",
+            "let c := chan.make()\nmut acc := 0\n\nfn fast() -> Int ::\n    acc := acc + 2\n    return 2\n::\n\nfn slow() -> Int ::\n    task.sleep(5)\n    acc := acc + 1\n    return 1\n::\n\nfn sender() -> Int ::\n    chan.send(c, 7)\n    acc := acc + 4\n    return 4\n::\n\nfn main() -> Int ::\n    let h1 := task.spawn(slow)\n    let h2 := task.spawn(fast)\n    let h3 := task.spawn(sender)\n    chan.recv(c)\n    task.join(h2)\n    task.join(h1)\n    task.join(h3)\n    return acc\n::\n\nmain()\n",
         )
         .expect("write tasks/channels");
 
@@ -6164,7 +6162,7 @@ mod tests {
         let triage = dir.path().join("triage");
         fs::write(
             &file,
-            "fn main() -> Int ::\n    let i := 0\n    let acc := 0\n    while i < 4 ::\n        acc := acc + i\n        i := i + 1\n    ::\n    return acc\n::\nmain()\n",
+            "fn main() -> Int ::\n    mut i := 0\n    mut acc := 0\n    while i < 4 ::\n        acc := acc + i\n        i := i + 1\n    ::\n    return acc\n::\nmain()\n",
         )
         .expect("write whileloop");
 

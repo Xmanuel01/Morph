@@ -54,6 +54,12 @@ enum ResolvedVar {
     Global(u16),
 }
 
+#[derive(Debug, Clone, Copy)]
+struct LocalBinding {
+    slot: u16,
+    mutable: bool,
+}
+
 pub fn compile_module(module: &Module) -> Result<Program, CompileError> {
     let arena = CompilerArena::new();
     let mut ctx = ProgramBuilder::new(&arena.bump);
@@ -122,6 +128,7 @@ struct ProgramBuilder<'a> {
     globals: HashMap<String, u16>,
     global_names: Vec<String>,
     global_inits: Vec<Option<Constant>>,
+    global_mutability: HashMap<String, bool>,
     functions: Vec<ByteFunction>,
     method_tables: HashSet<String>,
     tool_namespaces: HashSet<String>,
@@ -145,6 +152,7 @@ impl<'a> ProgramBuilder<'a> {
             globals: HashMap::new(),
             global_names: Vec::new(),
             global_inits: Vec::new(),
+            global_mutability: HashMap::new(),
             functions: Vec::new(),
             method_tables: HashSet::new(),
             tool_namespaces: HashSet::new(),
@@ -318,7 +326,7 @@ struct FunctionBuilder<'a, 'p> {
     chunk: Chunk,
     enclosing: &'p mut ProgramBuilder<'a>,
     is_root: bool,
-    scopes: Vec<std::collections::HashMap<String, u16>>,
+    scopes: Vec<std::collections::HashMap<String, LocalBinding>>,
     next_local: Vec<u16>,
     module: ModuleContext,
 }
@@ -362,12 +370,16 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
 
     fn compile_items(&mut self, items: &[Item]) -> Result<(), CompileError> {
         for name in self.capture_names.clone() {
-            self.define_local(&name);
+            self.define_local(&name, false);
         }
         // define params as locals
-        let param_names: Vec<String> = self.params.iter().map(|p| p.name.clone()).collect();
-        for name in param_names {
-            self.define_local(&name);
+        let params: Vec<(String, bool)> = self
+            .params
+            .iter()
+            .map(|p| (p.name.clone(), p.mutable))
+            .collect();
+        for (name, mutable) in params {
+            self.define_local(&name, mutable);
         }
         if self.is_root {
             self.emit_imports()?;
@@ -378,7 +390,7 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
             match item {
                 Item::Stmt(Stmt::Expr(expr)) if is_last => {
                     if self.is_root && !self.module.exports.is_empty() {
-                        let slot = self.add_local("__last");
+                        let slot = self.add_local("__last", false);
                         self.compile_expr(expr)?;
                         self.chunk
                             .write(Instruction::StoreLocal(slot), line_of_expr(expr));
@@ -502,6 +514,7 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                                 optional: false,
                             }),
                             default: None,
+                            mutable: false,
                         });
                         params.extend(method.params.clone());
                         let body_items: Vec<Item> =
@@ -789,16 +802,23 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
 
     fn compile_stmt(&mut self, stmt: &Stmt) -> Result<(), CompileError> {
         match stmt {
-            Stmt::Let { name, expr, .. } => {
+            Stmt::Let {
+                name,
+                expr,
+                mutable,
+                ..
+            } => {
                 if self.is_root {
-                    let g = self
-                        .enclosing
-                        .ensure_global(&mangle_symbol(&self.module.prefix, name));
+                    let global_name = mangle_symbol(&self.module.prefix, name);
+                    let g = self.enclosing.ensure_global(&global_name);
+                    self.enclosing
+                        .global_mutability
+                        .insert(global_name, *mutable);
                     self.compile_expr(expr)?;
                     self.chunk
                         .write(Instruction::DefineGlobal(g), line_of_expr(expr));
                 } else {
-                    let idx = self.add_local(name);
+                    let idx = self.add_local(name, *mutable);
                     self.compile_expr(expr)?;
                     self.chunk
                         .write(Instruction::StoreLocal(idx), line_of_expr(expr));
@@ -806,6 +826,7 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
             }
             Stmt::Assign { target, expr } => {
                 if target.accesses.is_empty() {
+                    self.ensure_assignable(&target.base, target.base_span.clone())?;
                     self.compile_expr(expr)?;
                     let resolved = self
                         .resolve_var(&target.base)
@@ -1257,19 +1278,22 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
         self.next_local.pop();
     }
 
-    fn define_local(&mut self, name: &str) -> u16 {
+    fn define_local(&mut self, name: &str, mutable: bool) -> u16 {
         let next = self.next_local.last_mut().unwrap();
         let slot = *next;
         *next += 1;
-        self.scopes
-            .last_mut()
-            .unwrap()
-            .insert(name.to_string(), slot);
+        self.scopes.last_mut().unwrap().insert(
+            name.to_string(),
+            LocalBinding {
+                slot,
+                mutable,
+            },
+        );
         slot
     }
 
-    fn add_local(&mut self, name: &str) -> u16 {
-        self.define_local(name)
+    fn add_local(&mut self, name: &str, mutable: bool) -> u16 {
+        self.define_local(name, mutable)
     }
 
     fn is_local_name(&self, name: &str) -> bool {
@@ -1283,8 +1307,8 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
 
     fn resolve_var(&self, name: &str) -> Result<ResolvedVar, CompileError> {
         for scope in self.scopes.iter().rev() {
-            if let Some(idx) = scope.get(name) {
-                return Ok(ResolvedVar::Local(*idx));
+            if let Some(binding) = scope.get(name) {
+                return Ok(ResolvedVar::Local(binding.slot));
             }
         }
         let key = mangle_symbol(&self.module.prefix, name);
@@ -1295,6 +1319,31 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
             return Ok(ResolvedVar::Global(*idx));
         }
         Err(CompileError::new("Unknown variable"))
+    }
+
+    fn ensure_assignable(&self, name: &str, span: Span) -> Result<(), CompileError> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(binding) = scope.get(name) {
+                if binding.mutable {
+                    return Ok(());
+                }
+                return Err(immutable_assignment_error(name).with_span(span));
+            }
+        }
+        let key = mangle_symbol(&self.module.prefix, name);
+        if let Some(mutable) = self.enclosing.global_mutability.get(&key) {
+            if *mutable {
+                return Ok(());
+            }
+            return Err(immutable_assignment_error(name).with_span(span));
+        }
+        if let Some(mutable) = self.enclosing.global_mutability.get(name) {
+            if *mutable {
+                return Ok(());
+            }
+            return Err(immutable_assignment_error(name).with_span(span));
+        }
+        Ok(())
     }
 
     fn finish(self) -> ByteFunction {
@@ -1437,7 +1486,7 @@ fn ffi_type_from_ref(ty: &TypeRef) -> Option<FfiType> {
                 _ => None,
             }
         }
-        TypeRef::Function { .. } => None,
+        TypeRef::Function { .. } | TypeRef::ConstInt(_) => None,
     }
 }
 
@@ -1458,6 +1507,13 @@ fn policy_filter_values(filter: &PolicyFilter) -> Vec<String> {
         }
     }
     out
+}
+
+fn immutable_assignment_error(name: &str) -> CompileError {
+    CompileError::new(&format!(
+        "TypeError: cannot assign to immutable variable `{}`; declare it with `mut` if mutation is required.",
+        name
+    ))
 }
 
 fn module_prefix(id: &ModuleId) -> String {
