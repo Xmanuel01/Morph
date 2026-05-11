@@ -250,6 +250,11 @@ fn ensure_requires_grad(t: Tensor) -> Tensor {
     }
 }
 
+#[cfg(feature = "torch")]
+fn trainable_leaf(t: Tensor) -> Tensor {
+    t.detach().set_requires_grad(true)
+}
+
 #[no_mangle]
 /// # Safety
 /// `out_json` and `out_len` must be valid writable pointers for this call.
@@ -3491,52 +3496,52 @@ fn init_lm_params(spec: &LmArchSpec, device: Device, seed: i64) -> Result<Vec<i6
 
     let tok_embed =
         Tensor::randn([spec.vocab_size, spec.d_model], (Kind::Float, device)) * init_scale;
-    handles.push(register_tensor(tok_embed.set_requires_grad(true)));
+    handles.push(register_tensor(trainable_leaf(tok_embed)));
     let pos_embed = Tensor::randn([spec.seq_len, spec.d_model], (Kind::Float, device)) * init_scale;
-    handles.push(register_tensor(pos_embed.set_requires_grad(true)));
+    handles.push(register_tensor(trainable_leaf(pos_embed)));
 
     for _ in 0..spec.n_layers {
         let ln1_w = Tensor::ones([spec.d_model], (Kind::Float, device));
         let ln1_b = Tensor::zeros([spec.d_model], (Kind::Float, device));
-        handles.push(register_tensor(ln1_w.set_requires_grad(true)));
-        handles.push(register_tensor(ln1_b.set_requires_grad(true)));
+        handles.push(register_tensor(trainable_leaf(ln1_w)));
+        handles.push(register_tensor(trainable_leaf(ln1_b)));
 
         let qkv_w =
             Tensor::randn([spec.d_model, 3 * spec.d_model], (Kind::Float, device)) * init_scale;
         let qkv_b = Tensor::zeros([3 * spec.d_model], (Kind::Float, device));
-        handles.push(register_tensor(qkv_w.set_requires_grad(true)));
-        handles.push(register_tensor(qkv_b.set_requires_grad(true)));
+        handles.push(register_tensor(trainable_leaf(qkv_w)));
+        handles.push(register_tensor(trainable_leaf(qkv_b)));
 
         let proj_w =
             Tensor::randn([spec.d_model, spec.d_model], (Kind::Float, device)) * init_scale;
         let proj_b = Tensor::zeros([spec.d_model], (Kind::Float, device));
-        handles.push(register_tensor(proj_w.set_requires_grad(true)));
-        handles.push(register_tensor(proj_b.set_requires_grad(true)));
+        handles.push(register_tensor(trainable_leaf(proj_w)));
+        handles.push(register_tensor(trainable_leaf(proj_b)));
 
         let ln2_w = Tensor::ones([spec.d_model], (Kind::Float, device));
         let ln2_b = Tensor::zeros([spec.d_model], (Kind::Float, device));
-        handles.push(register_tensor(ln2_w.set_requires_grad(true)));
-        handles.push(register_tensor(ln2_b.set_requires_grad(true)));
+        handles.push(register_tensor(trainable_leaf(ln2_w)));
+        handles.push(register_tensor(trainable_leaf(ln2_b)));
 
         let mlp_w1 = Tensor::randn([spec.d_model, hidden_ff], (Kind::Float, device)) * init_scale;
         let mlp_b1 = Tensor::zeros([hidden_ff], (Kind::Float, device));
         let mlp_w2 = Tensor::randn([hidden_ff, spec.d_model], (Kind::Float, device)) * init_scale;
         let mlp_b2 = Tensor::zeros([spec.d_model], (Kind::Float, device));
-        handles.push(register_tensor(mlp_w1.set_requires_grad(true)));
-        handles.push(register_tensor(mlp_b1.set_requires_grad(true)));
-        handles.push(register_tensor(mlp_w2.set_requires_grad(true)));
-        handles.push(register_tensor(mlp_b2.set_requires_grad(true)));
+        handles.push(register_tensor(trainable_leaf(mlp_w1)));
+        handles.push(register_tensor(trainable_leaf(mlp_b1)));
+        handles.push(register_tensor(trainable_leaf(mlp_w2)));
+        handles.push(register_tensor(trainable_leaf(mlp_b2)));
     }
 
     let ln_f_w = Tensor::ones([spec.d_model], (Kind::Float, device));
     let ln_f_b = Tensor::zeros([spec.d_model], (Kind::Float, device));
-    handles.push(register_tensor(ln_f_w.set_requires_grad(true)));
-    handles.push(register_tensor(ln_f_b.set_requires_grad(true)));
+    handles.push(register_tensor(trainable_leaf(ln_f_w)));
+    handles.push(register_tensor(trainable_leaf(ln_f_b)));
 
     let head_w = Tensor::randn([spec.d_model, spec.vocab_size], (Kind::Float, device)) * init_scale;
     let head_b = Tensor::zeros([spec.vocab_size], (Kind::Float, device));
-    handles.push(register_tensor(head_w.set_requires_grad(true)));
-    handles.push(register_tensor(head_b.set_requires_grad(true)));
+    handles.push(register_tensor(trainable_leaf(head_w)));
+    handles.push(register_tensor(trainable_leaf(head_b)));
     Ok(handles)
 }
 
@@ -4167,7 +4172,7 @@ pub extern "C" fn enkai_tensor_adamw_step(
             let v_hat = &slot.v / bias2;
             let update =
                 &m_hat / (v_hat.sqrt() + eps) + param_tensor.shallow_clone() * weight_decay;
-            let new_param = param_tensor - update * lr;
+            let new_param = trainable_leaf(param_tensor - update * lr);
             update_tensor(param, new_param);
             state_obj.slots.insert(param, slot);
             let handle = if state == 0 {
@@ -4297,7 +4302,7 @@ pub extern "C" fn enkai_tensor_adamw_step_multi(
             let v_hat = &slot.v / bias2;
             let update =
                 &m_hat / (v_hat.sqrt() + eps) + param_tensor.shallow_clone() * weight_decay;
-            let new_param = param_tensor - update * lr;
+            let new_param = trainable_leaf(param_tensor - update * lr);
             update_tensor(*param_handle, new_param);
             state_obj.slots.insert(*param_handle, slot);
         }
