@@ -1,5 +1,5 @@
 #[test]
-fn cuda_kernel_manifest_and_amp_policy_are_stable_without_cuda_feature() {
+fn cuda_kernel_manifest_and_amp_policy_report_feature_build_status() {
     let mut out: *mut i8 = std::ptr::null_mut();
     let mut len: usize = 0;
     let rc = unsafe { enkai_tensor::enkai_cuda_kernel_manifest(&mut out, &mut len) };
@@ -28,7 +28,11 @@ fn cuda_kernel_manifest_and_amp_policy_are_stable_without_cuda_feature() {
     assert!(text.contains("bounded_llm_training_kernel_set"));
     assert!(!text.contains("missing_for_full_llm_training"));
     assert!(text.contains("requires_cuda_hardware"));
-    assert!(text.contains("not_compiled"));
+    if cfg!(feature = "cuda-kernels") {
+        assert!(text.contains("\"build_status\":\"compiled\""));
+    } else {
+        assert!(text.contains("\"build_status\":\"not_compiled\""));
+    }
 
     let mut policy_out: *mut i8 = std::ptr::null_mut();
     let mut policy_len: usize = 0;
