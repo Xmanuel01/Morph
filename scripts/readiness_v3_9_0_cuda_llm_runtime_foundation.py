@@ -228,9 +228,9 @@ model_cfg = json.loads(r''' + repr(json.dumps(model_cfg)) + r''')
 work_dir = Path(r''' + repr(str(work_dir)) + r''')
 work_dir.mkdir(parents=True, exist_ok=True)
 device = torch.device("cuda:0")
+torch.cuda.set_device(device)
 torch.manual_seed(1337)
 torch.cuda.manual_seed_all(1337)
-torch.cuda.reset_peak_memory_stats(device)
 torch.use_deterministic_algorithms(True, warn_only=True)
 vocab = int(model_cfg["vocab_size"]); hidden = int(model_cfg["hidden_size"])
 layers = int(model_cfg["layers"]); heads = int(model_cfg["heads"])
@@ -254,6 +254,8 @@ model = TinyDecoder().to(device)
 opt = torch.optim.AdamW(model.parameters(), lr=1e-3)
 data = torch.randint(0, vocab, (batch, seq), device=device)
 target = torch.roll(data, shifts=-1, dims=1)
+torch.cuda.synchronize(device)
+torch.cuda.reset_peak_memory_stats(device)
 losses = []
 train_start = time.perf_counter()
 for _ in range(train_steps):
@@ -301,7 +303,11 @@ def run_enkai_cuda_reference(root: Path, py_info: dict[str, Any], torch_info: di
         env["PYTHON_SYS_EXECUTABLE"] = executable
     env["LIBTORCH_USE_PYTORCH"] = "1"
     if torch_lib:
-        env["PATH"] = f"{torch_lib};{env.get('PATH', '')}"
+        env["PATH"] = f"{torch_lib}{os.pathsep}{env.get('PATH', '')}"
+        env["LD_LIBRARY_PATH"] = f"{torch_lib}{os.pathsep}{env.get('LD_LIBRARY_PATH', '')}"
+    if executable:
+        conda_lib = str(Path(executable).resolve().parents[1] / "lib")
+        env["LD_LIBRARY_PATH"] = f"{conda_lib}{os.pathsep}{env.get('LD_LIBRARY_PATH', '')}"
     command = ["cargo", "test", "-p", "enkai_tensor", "--features", "torch", "--test", "cuda_llm_foundation", "--", "--nocapture"]
     result = run_command(command, root, env=env, timeout=900)
     metrics = parse_enkai_metrics(result.get("stdout_tail", ""))
