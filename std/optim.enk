@@ -1,4 +1,5 @@
 import std::json
+import std::tensor
 // std::optim (v1.1 core)
 
 native::import "enkai_tensor" ::
@@ -22,4 +23,16 @@ pub fn retain(opt: OptimizerState) -> Int ::
 
 pub fn free(opt: OptimizerState) -> Int ::
     return enkai_tensor_opt_free(opt)
+::
+
+pub fn adamw(params, lr: Float, beta1: Float, beta2: Float, eps: Float, weight_decay: Float) -> OptimizerState ::
+    return adamw_create(params, lr, beta1, beta2, eps, weight_decay)
+::
+
+pub fn sgd(param: Tensor, grad: Tensor, lr: Float, wd: Float) -> Tensor ::
+    return tensor.sgd_step(param, grad, lr, wd)
+::
+
+pub fn clip_grad_norm(params, max_norm: Float, eps: Float) -> Float ::
+    return tensor.clip_grad_norm(params, max_norm, eps)
 ::

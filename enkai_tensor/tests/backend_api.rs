@@ -15,6 +15,17 @@ fn backend_list_and_set() {
     assert!(text.contains("cpu"));
     unsafe { enkai_tensor::enkai_free(out as *mut u8, len) };
 
+    let mut catalog_out: *mut i8 = std::ptr::null_mut();
+    let mut catalog_len: usize = 0;
+    let rc = unsafe { enkai_tensor::enkai_backend_catalog(&mut catalog_out, &mut catalog_len) };
+    assert_eq!(rc, 0);
+    let slice = unsafe { std::slice::from_raw_parts(catalog_out as *const u8, catalog_len) };
+    let catalog = std::str::from_utf8(slice).unwrap();
+    assert!(catalog.contains("\"name\":\"cuda\""));
+    assert!(catalog.contains("\"name\":\"rocm\""));
+    assert!(catalog.contains("\"name\":\"metal\""));
+    unsafe { enkai_tensor::enkai_free(catalog_out as *mut u8, catalog_len) };
+
     let rc = enkai_tensor::enkai_backend_set(CString::new("torch").unwrap().as_ptr());
     assert_eq!(rc, 0);
 
@@ -40,4 +51,34 @@ fn backend_list_and_set() {
     assert!(t > 0);
     assert_eq!(enkai_tensor::enkai_tensor_free(t), 0);
     assert_eq!(enkai_tensor::enkai_tensor_device_free(dev), 0);
+}
+
+#[test]
+fn unsupported_backend_errors_are_deterministic() {
+    let rc = enkai_tensor::enkai_backend_set(CString::new("metal").unwrap().as_ptr());
+    assert_eq!(rc, 1);
+    let err = unsafe {
+        let ptr = enkai_tensor::enkai_tensor_last_error();
+        assert!(!ptr.is_null());
+        std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned()
+    };
+    assert!(err.contains("E_BACKEND_FEATURE_MISSING") || err.contains("E_BACKEND_UNAVAILABLE"));
+
+    let rc = enkai_tensor::enkai_backend_set(CString::new("rocm").unwrap().as_ptr());
+    assert_eq!(rc, 1);
+    let err = unsafe {
+        let ptr = enkai_tensor::enkai_tensor_last_error();
+        assert!(!ptr.is_null());
+        std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned()
+    };
+    assert!(err.contains("E_BACKEND_FEATURE_MISSING") || err.contains("E_BACKEND_UNAVAILABLE"));
+
+    let rc = enkai_tensor::enkai_backend_set(CString::new("not_real").unwrap().as_ptr());
+    assert_eq!(rc, 1);
+    let err = unsafe {
+        let ptr = enkai_tensor::enkai_tensor_last_error();
+        assert!(!ptr.is_null());
+        std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned()
+    };
+    assert!(err.contains("E_BACKEND_UNKNOWN"));
 }

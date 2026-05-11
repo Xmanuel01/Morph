@@ -12,7 +12,8 @@
     {"open": "(", "close": ")"},
     {"open": "[", "close": "]"},
     {"open": "{", "close": "}"},
-    {"open": "\"", "close": "\""}
+    {"open": "\"", "close": "\"", "notIn": ["string", "comment"]},
+    {"open": "/*", "close": "*/", "notIn": ["string"]}
   ],
   "surroundingPairs": [
     ["(", ")"],
@@ -20,14 +21,15 @@
     ["{", "}"],
     ["\"", "\""]
   ],
+  "wordPattern": "(-?\\d*\\.\\d\\w*)|([^`~!@#$%^&*()=+[{]}\\\\|;:'\\\",.<>/?\\s]+)",
   "indentationRules": {
-    "increaseIndentPattern": "^.*::\\s*$",
-    "decreaseIndentPattern": "^\\s*::\\s*$"
+    "increaseIndentPattern": "^(?!\\s*::(?:fn|if|else|while|for|policy|match|struct|enum|impl|module|class|trait)?\\s*(?://.*)?$).*::\\s*(?://.*)?$",
+    "decreaseIndentPattern": "^\\s*::(?:fn|if|else|while|for|policy|match|struct|enum|impl|module|class|trait)?\\s*(?://.*)?$"
   },
   "folding": {
     "markers": {
-      "start": "^.*::\\s*$",
-      "end": "^\\s*::\\s*$"
+      "start": "^(?!\\s*::).*::\\s*(?://.*)?$",
+      "end": "^\\s*::(?:fn|if|else|while|for|policy|match|struct|enum|impl|module|class|trait)?\\s*(?://.*)?$"
     }
   }
 }

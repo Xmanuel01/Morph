@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.9.0",
+  "scope": "cuda_first_llm_runtime_foundation",
+  "generated_purpose": "Freeze the CUDA-first production LLM runtime foundation before broader GPU/distributed/package claims are widened.",
+  "status": "foundation_contract",
+  "required_backend_catalog": [
+    "cpu",
+    "torch",
+    "cuda",
+    "rocm",
+    "metal"
+  ],
+  "primary_proof_backend": "cuda",
+  "reference_backend": "pytorch",
+  "bounded_model": {
+    "family": "decoder_transformer",
+    "batch_size": 2,
+    "seq_len": 32,
+    "vocab_size": 128,
+    "hidden_size": 64,
+    "layers": 2,
+    "heads": 4,
+    "train_steps": 4,
+    "eval_steps": 4
+  },
+  "required_surfaces": [
+    "device_backend_catalog",
+    "pytorch_reference_baseline",
+    "enkai_cuda_backend_preflight",
+    "bounded_train_eval_checkpoint_schema",
+    "memory_and_checkpoint_metrics_schema",
+    "unsupported_rocm_metal_errors",
+    "enkai_cuda_bounded_execution",
+    "enkai_vs_pytorch_metric_comparison",
+    "first_party_cuda_kernel_source",
+    "cuda_kernel_manifest_abi",
+    "mixed_precision_policy_abi",
+    "amp_deterministic_fault_policy",
+    "rocm_metal_feature_surfaces",
+    "distributed_gpu_execution_proof_surface",
+    "stable_package_model_api_lock",
+    "release_closure_contract",
+    "performance_targets_50_percent"
+  ],
+  "required_metrics": [
+    "train_tokens_per_sec",
+    "eval_tokens_per_sec",
+    "peak_memory_bytes",
+    "checkpoint_write_bytes_per_sec",
+    "checkpoint_resume_ms",
+    "loss_initial",
+    "loss_final"
+  ],
+  "production_gate_policy": {
+    "cuda_unavailable": "blocked_not_passed",
+    "pytorch_unavailable": "blocked_not_passed",
+    "rocm_metal": "feature_surface_locked_no_production_claim_without_hardware",
+    "full_pytorch_parity": "out_of_scope",
+    "enkai_cuda_unavailable": "blocked_not_passed",
+    "first_party_cuda_kernels": "requires cuda-kernels feature, nvcc, CUDA hardware, and green verifier",
+    "mixed_precision": "requires overflow fault injection and PyTorch gradient parity evidence"
+  },
+  "required_text_snippets": {
+    "docs/tensor_api.md": [
+      "CUDA-first production LLM runtime foundation",
+      "rocm-kernels",
+      "metal-kernels",
+      "hardware-backed verifier evidence"
+    ],
+    "docs/roadmap.md": [
+      "v3.9.0 (in progress)",
+      "CUDA-first production LLM runtime foundation"
+    ],
+    "README.md": [
+      "Next line: v3.9.0 CUDA-first production LLM runtime foundation"
+    ],
+    "enkai/contracts/v3_9_0_package_model_api_lock.json": [
+      "stable_package_model_api_lock",
+      "std::model"
+    ],
+    "enkai/contracts/v3_9_0_release_closure.json": [
+      "release_closure",
+      "cargo test --workspace"
+    ]
+  },
+  "output_report": "artifacts/readiness/v3_9_0_cuda_llm_runtime_foundation.json",
+  "verify_report": "artifacts/readiness/v3_9_0_cuda_llm_runtime_foundation_verify.json",
+  "performance_targets": {
+    "policy": "bounded_gpu_acceptance_targets_v1",
+    "claim": "Enkai CUDA must meet these targets on the frozen suite before any production-grade performance claim.",
+    "throughput_min_ratios": {
+      "enkai_vs_pytorch_train_tokens_per_sec_ratio": 1.5,
+      "enkai_vs_pytorch_eval_tokens_per_sec_ratio": 1.5,
+      "enkai_vs_pytorch_checkpoint_write_bytes_per_sec_ratio": 1.5
+    },
+    "resource_max_ratios": {
+      "enkai_vs_pytorch_peak_memory_bytes_ratio": 1.0,
+      "enkai_vs_pytorch_checkpoint_resume_ms_ratio": 1.0
+    },
+    "quality_limits": {
+      "loss_delta_abs_max": 0.25,
+      "loss_final_regression_factor_max": 1.25
+    },
+    "hardware_required": true,
+    "failure_policy": "blocked_not_passed_no_marketing_claim"
+  }
+}

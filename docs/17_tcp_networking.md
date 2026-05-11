@@ -4,7 +4,11 @@ The `net` module exposes basic TCP networking.
 
 ## Server
 
-```
+```enkai
+policy default ::
+    allow net.serve
+::policy
+
 let listener := net.bind("127.0.0.1", 8080)
 let conn := listener.accept()
 let data := conn.read(5)
@@ -25,5 +29,8 @@ conn.close()
 
 - `net.bind` expects a string host and integer port.
 - `conn.read` expects an integer byte count.
+- Binding a port requires the matching `net.serve` policy permission.
+- TLS and higher-level HTTP behavior should use the dedicated TLS/HTTP modules
+  where available.
 
 

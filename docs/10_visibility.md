@@ -1,41 +1,30 @@
-# Visibility (public/private)
+# Visibility
 
-Symbols are private by default. Use `pub` to export.
+Visibility controls which module symbols can be used by other files.
 
-## Functions
+## Public Exports
 
-```
-// app/utils.enk
-pub fn add(a: Int, b: Int) -> Int ::
+Use the module's public/export form for functions, constants, and types that are
+part of the module API. Keep helper functions private unless another module needs
+them.
+
+```enkai
+export fn add(a: Int, b: Int) -> Int ::
     return a + b
-::
-
-fn secret(x: Int) -> Int ::
-    return x
-::
+::fn
 ```
 
-```
-// main.enk
-import app::utils as utils
+## Private Helpers
 
-fn main() -> Int ::
-    return utils.add(1, 2)
-::
-```
+A function without an export marker is private to its module:
 
-## Common error
-
-Accessing a private symbol:
-
-```
-return utils.secret(1)
+```enkai
+fn normalize(value: Float) -> Float ::
+    return value
+::fn
 ```
 
-Produces:
+## API Design Rule
 
-```
-error: Symbol 'secret' is private to module app::utils
-```
-
-
+Export the smallest stable surface. This keeps packages easier to evolve and
+makes `enkai check` diagnostics clearer for users.

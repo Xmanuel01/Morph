@@ -1,6 +1,7 @@
-﻿# 33. Benchmark Suite (v2.3.0 Matrix)
+# 33. Benchmark Suite
 
 This document defines the benchmark contract used for bounded Enkai performance claims.
+Benchmarks are evidence artifacts, not marketing claims: every claim must name the suite, machine profile, runtime versions, and verifier result.
 
 ## CLI
 
@@ -75,12 +76,16 @@ Performance claims are bounded to:
 - pinned machine profile(s)
 - recorded tool/runtime versions
 
-For release blocking in v2.3.0:
+For release blocking on frozen suites:
 
 - every official case must satisfy class targets in `official_v2_3_0_targets.json`
 - memory reduction floor is enforced per case
 
 No universal cross-hardware claim is implied.
+
+## CUDA/PyTorch Claim Rule
+
+The v3.9.0 CUDA-first LLM runtime line has its own stricter verifier. A CUDA performance claim is blocked unless the archived hardware run reaches the contracted PyTorch comparison thresholds and writes green readiness artifacts. Use `docs/tensor_api.md` and `docs/gpu_backend.md` for the GPU proof commands.
 
 ## AI Optimization Sweep
 

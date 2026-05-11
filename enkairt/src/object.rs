@@ -3,6 +3,7 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BinaryHeap, VecDeque};
 use std::ffi::c_void;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
 use enkaic::bytecode::Program;
 use libffi::middle::{Arg, Cif, CodePtr};
@@ -28,6 +29,8 @@ pub enum Obj {
     BoundFunction(BoundFunctionObj),
     NativeFunction(NativeFunction),
     NativeHandle(NativeHandle),
+    Vector(Box<RefCell<DenseVectorState>>),
+    Tensor(Box<RefCell<TensorState>>),
     SparseVector(Box<RefCell<SparseVectorState>>),
     SparseMatrix(Box<RefCell<SparseMatrixState>>),
     EventQueue(Box<RefCell<EventQueueState>>),
@@ -61,6 +64,8 @@ impl Obj {
             Obj::BoundFunction(_) => "BoundFunction",
             Obj::NativeFunction(_) => "NativeFunction",
             Obj::NativeHandle(_) => "Handle",
+            Obj::Vector(_) => "Vector",
+            Obj::Tensor(_) => "Tensor",
             Obj::SparseVector(_) => "SparseVector",
             Obj::SparseMatrix(_) => "SparseMatrix",
             Obj::EventQueue(_) => "EventQueue",
@@ -130,6 +135,92 @@ pub struct NativeHandleDrop {
 pub struct NativeHandle {
     pub ptr: *mut c_void,
     pub dropper: Rc<NativeHandleDrop>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct DenseVectorState {
+    pub data: Vec<f64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TensorState {
+    pub id: u64,
+    pub shape: Vec<usize>,
+    pub data: Vec<f64>,
+    pub dtype: String,
+}
+
+static TENSOR_MEMORY_CURRENT_BYTES: AtomicU64 = AtomicU64::new(0);
+static TENSOR_MEMORY_PEAK_BYTES: AtomicU64 = AtomicU64::new(0);
+static TENSOR_MEMORY_LIMIT_BYTES: AtomicU64 = AtomicU64::new(u64::MAX);
+
+pub fn tensor_memory_bytes_for_len(len: usize) -> u64 {
+    (len as u64).saturating_mul(std::mem::size_of::<f64>() as u64)
+}
+
+fn tensor_memory_reserve(bytes: u64) {
+    let current = TENSOR_MEMORY_CURRENT_BYTES.fetch_add(bytes, AtomicOrdering::Relaxed) + bytes;
+    let mut peak = TENSOR_MEMORY_PEAK_BYTES.load(AtomicOrdering::Relaxed);
+    while current > peak {
+        match TENSOR_MEMORY_PEAK_BYTES.compare_exchange_weak(
+            peak,
+            current,
+            AtomicOrdering::Relaxed,
+            AtomicOrdering::Relaxed,
+        ) {
+            Ok(_) => break,
+            Err(next) => peak = next,
+        }
+    }
+}
+
+fn tensor_memory_release(bytes: u64) {
+    let _ = TENSOR_MEMORY_CURRENT_BYTES.fetch_update(
+        AtomicOrdering::Relaxed,
+        AtomicOrdering::Relaxed,
+        |current| Some(current.saturating_sub(bytes)),
+    );
+}
+
+pub fn tensor_memory_can_allocate(bytes: u64) -> bool {
+    let current = TENSOR_MEMORY_CURRENT_BYTES.load(AtomicOrdering::Relaxed);
+    current.saturating_add(bytes) <= TENSOR_MEMORY_LIMIT_BYTES.load(AtomicOrdering::Relaxed)
+}
+
+pub fn tensor_memory_current_bytes() -> u64 {
+    TENSOR_MEMORY_CURRENT_BYTES.load(AtomicOrdering::Relaxed)
+}
+
+pub fn tensor_memory_peak_bytes() -> u64 {
+    TENSOR_MEMORY_PEAK_BYTES.load(AtomicOrdering::Relaxed)
+}
+
+pub fn tensor_memory_limit_bytes() -> Option<u64> {
+    match TENSOR_MEMORY_LIMIT_BYTES.load(AtomicOrdering::Relaxed) {
+        u64::MAX => None,
+        limit => Some(limit),
+    }
+}
+
+pub fn tensor_memory_set_limit_bytes(limit: Option<u64>) -> Option<u64> {
+    let next = limit.unwrap_or(u64::MAX);
+    match TENSOR_MEMORY_LIMIT_BYTES.swap(next, AtomicOrdering::Relaxed) {
+        u64::MAX => None,
+        previous => Some(previous),
+    }
+}
+
+pub fn tensor_memory_reset_peak_bytes() {
+    TENSOR_MEMORY_PEAK_BYTES.store(tensor_memory_current_bytes(), AtomicOrdering::Relaxed);
+}
+
+impl Drop for Obj {
+    fn drop(&mut self) {
+        if let Obj::Tensor(inner) = self {
+            let bytes = tensor_memory_bytes_for_len(inner.borrow().data.len());
+            tensor_memory_release(bytes);
+        }
+    }
 }
 
 impl Drop for NativeHandle {
@@ -430,6 +521,25 @@ pub fn native_handle_value(ptr: *mut c_void, dropper: Rc<NativeHandleDrop>) -> V
         ptr,
         dropper,
     })))
+}
+
+pub fn vector_value(data: Vec<f64>) -> Value {
+    Value::Obj(ObjRef::new(Obj::Vector(Box::new(RefCell::new(
+        DenseVectorState { data },
+    )))))
+}
+
+pub fn tensor_value(shape: Vec<usize>, data: Vec<f64>, dtype: impl Into<String>) -> Value {
+    static NEXT_TENSOR_ID: AtomicU64 = AtomicU64::new(1);
+    tensor_memory_reserve(tensor_memory_bytes_for_len(data.len()));
+    Value::Obj(ObjRef::new(Obj::Tensor(Box::new(RefCell::new(
+        TensorState {
+            id: NEXT_TENSOR_ID.fetch_add(1, AtomicOrdering::Relaxed),
+            shape,
+            data,
+            dtype: dtype.into(),
+        },
+    )))))
 }
 
 pub fn sparse_vector_value() -> Value {

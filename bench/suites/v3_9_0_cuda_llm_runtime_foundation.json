@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "suite": "v3_9_0_cuda_llm_runtime_foundation",
+  "description": "Bounded CUDA-first small-transformer train/eval/checkpoint benchmark suite against PyTorch.",
+  "model": {
+    "family": "decoder_transformer",
+    "batch_size": 2,
+    "seq_len": 32,
+    "vocab_size": 128,
+    "hidden_size": 64,
+    "layers": 2,
+    "heads": 4,
+    "train_steps": 4,
+    "eval_steps": 4
+  },
+  "metrics": [
+    "train_tokens_per_sec",
+    "eval_tokens_per_sec",
+    "peak_memory_bytes",
+    "checkpoint_write_bytes_per_sec",
+    "checkpoint_resume_ms",
+    "loss_initial",
+    "loss_final"
+  ],
+  "backends": {
+    "primary": "enkai_cuda",
+    "reference": "pytorch_cuda",
+    "fallback": "enkai_cpu"
+  },
+  "non_claims": [
+    "not full PyTorch parity",
+    "not ROCm or Metal production support",
+    "not distributed training closure"
+  ],
+  "performance_targets": {
+    "train_tokens_per_sec_vs_pytorch_min_ratio": 1.5,
+    "eval_tokens_per_sec_vs_pytorch_min_ratio": 1.5,
+    "checkpoint_write_bytes_per_sec_vs_pytorch_min_ratio": 1.5,
+    "peak_memory_bytes_vs_pytorch_max_ratio": 1.0,
+    "checkpoint_resume_ms_vs_pytorch_max_ratio": 1.0,
+    "loss_delta_abs_max": 0.25
+  },
+  "production_gate": "blocked unless CUDA hardware proof, PyTorch reference, Enkai CUDA proof, and performance_targets all pass"
+}

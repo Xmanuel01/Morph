@@ -1,6 +1,13 @@
-# GPU Backend (v0.9)
+# GPU Backend
 
-Enkai uses a native GPU backend (`enkai_tensor`) built on libtorch + CUDA.
+Enkai's GPU work is centered on `enkai_tensor`, the native tensor backend and
+first-party accelerator kernel source tree. CUDA is the first production proof
+target. ROCm and Metal have source/build surfaces but require separate hardware
+evidence before production claims.
+
+Read this document as an operator guide, not as proof that a given GPU claim is
+closed. A claim is closed only when its verifier artifact is green under
+`artifacts/readiness/`.
 
 ## Design
 
@@ -8,6 +15,8 @@ Enkai uses a native GPU backend (`enkai_tensor`) built on libtorch + CUDA.
 - Enkai holds **opaque Int handles** to native tensors/devices.
 - The native library owns memory and lifetime.
 - Errors are surfaced via `enkai_tensor_last_error()` (legacy `enkai_tensor_last_error()` is accepted).
+- CUDA source kernels are build-gated through the `cuda-kernels` feature.
+- Hardware benchmark claims are gated against PyTorch CUDA reference runs.
 
 ## C ABI overview
 
@@ -38,6 +47,8 @@ enkai_tensor_opt_free(handle);
 
 - If the `torch` feature is disabled, the backend will return errors.
 - CUDA is optional in CI; CPU-only is supported if libtorch is installed.
+- Builds without CUDA hardware can validate manifests and CPU behavior, but they
+  cannot close CUDA production performance claims.
 
 ## Local verification
 
@@ -79,10 +90,10 @@ If CUDA validation fails:
 
 ## Operator preflight
 
-Before any real sign-off soak/parity run, execute the GPU preflight:
+Before any real sign-off soak/parity run, execute the v3.9.0 GPU preflight:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/gpu_preflight.ps1 -Profile full -Output artifacts/gpu/preflight.json
+py -3.11 scripts\preflight_v3_9_0_gpu_test.py --workspace . --python "py -3.11" --require-nvcc
 ```
 
 This validates:
@@ -94,3 +105,13 @@ This validates:
 - `nvidia-smi`
 - PyTorch CUDA visibility
 - required GPU count for the chosen profile
+
+Run the full CUDA/PyTorch proof on the proof machine:
+
+```powershell
+scripts\run_v3_9_0_gpu_proof.ps1 -Python "py -3.11" -InstallPyTorchCuda -BuildFirstPartyCudaKernels
+```
+
+Distributed claims require the distributed proof flags and archived multi-rank
+evidence. Do not mark distributed training production-closed from a single-GPU
+run.

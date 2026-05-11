@@ -375,10 +375,31 @@ fn builtin_named_type(name: String) -> Bool ::
     if name == "Handle" ::
         return true
     ::
+    if name == "Device" ::
+        return true
+    ::
+    if name == "DType" ::
+        return true
+    ::
+    if name == "Shape" ::
+        return true
+    ::
+    if name == "OptimizerState" ::
+        return true
+    ::
     if name == "Record" ::
         return true
     ::
+    if name == "Any" ::
+        return true
+    ::
+    if name == "Array" ::
+        return true
+    ::
     if name == "List" ::
+        return true
+    ::
+    if name == "Vector" ::
         return true
     ::
     if name == "Tensor" ::
@@ -482,6 +503,39 @@ fn type_key_matches(type_ref, actual: String) -> Bool ::
     ::
     if type_ref.optional ::
         return actual == "None" or actual == type_ref.path
+    ::
+    if type_ref.path == "Float" and actual == "Int" ::
+        return true
+    ::
+    if type_ref.path == "Tensor" and actual == "Int" ::
+        return true
+    ::
+    if type_ref.path == "Device" and actual == "Int" ::
+        return true
+    ::
+    if type_ref.path == "OptimizerState" and actual == "Int" ::
+        return true
+    ::
+    if type_ref.path == "Int" and actual == "Tensor" ::
+        return true
+    ::
+    if type_ref.path == "Int" and actual == "Device" ::
+        return true
+    ::
+    if type_ref.path == "Int" and actual == "OptimizerState" ::
+        return true
+    ::
+    if type_ref.path == "DType" and actual == "String" ::
+        return true
+    ::
+    if type_ref.path == "Shape" and actual == "String" ::
+        return true
+    ::
+    if type_ref.path == "String" and actual == "DType" ::
+        return true
+    ::
+    if type_ref.path == "String" and actual == "Shape" ::
+        return true
     ::
     return actual == type_ref.path
 ::

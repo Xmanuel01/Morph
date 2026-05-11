@@ -173,9 +173,25 @@ fn preferred_tag_for_frame(frame: &BlockFrame, end_line: usize) -> Option<&'stat
     let length = end_line.saturating_sub(frame.start_line);
     let should_tag = matches!(
         tag,
-        "fn" | "policy" | "while" | "for" | "match" | "struct" | "enum" | "impl"
-            | "module" | "class" | "trait" | "try" | "catch" | "agent" | "prompt" | "model"
-            | "native" | "input" | "output" | "template"
+        "fn" | "policy"
+            | "while"
+            | "for"
+            | "match"
+            | "struct"
+            | "enum"
+            | "impl"
+            | "module"
+            | "class"
+            | "trait"
+            | "try"
+            | "catch"
+            | "agent"
+            | "prompt"
+            | "model"
+            | "native"
+            | "input"
+            | "output"
+            | "template"
     ) || matches!(tag, "if" | "else")
         || length > 5
         || frame.child_blocks > 0;

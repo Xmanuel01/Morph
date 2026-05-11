@@ -1,11 +1,11 @@
 # Train/Eval CLI
 
-Enkai v0.8 adds:
+Use lowercase commands:
 
-```
-Enkai train config.enk
-Enkai pretrain config.enk
-Enkai eval config.enk
+```powershell
+enkai train config.enk
+enkai pretrain config.enk
+enkai eval config.enk
 ```
 
 ## Config format
@@ -13,10 +13,12 @@ Enkai eval config.enk
 `config.enk` must return a record. v1 configs must include `config_version: 1`
 and an explicit `backend` ("cpu" or "native"). The simplest approach:
 
-```
+```enkai
+import std::json
+
 fn main() ::
     return json.parse("{\"config_version\":1,\"backend\":\"cpu\",\"vocab_size\":8,\"hidden_size\":4,\"seq_len\":4,\"batch_size\":2,\"lr\":0.1,\"dataset_path\":\"data.txt\",\"checkpoint_dir\":\"ckpt\",\"max_steps\":2,\"save_every\":1,\"log_every\":1,\"tokenizer_train\":{\"path\":\"data.txt\",\"vocab_size\":8}}")
-::
+::fn
 ```
 
 Optional determinism:
@@ -62,15 +64,15 @@ Runtime outputs for train/pretrain:
 
 ## Evaluation
 
-```
-Enkai eval config.enk
+```powershell
+enkai eval config.enk
 ```
 
 Uses the latest checkpoint and computes average loss/perplexity.
 
 ## Cluster orchestration helpers
 
-```
+```powershell
 enkai cluster validate config.enk [--json]
 enkai cluster plan config.enk [--json]
 enkai cluster run config.enk [--dry-run] [--json]
@@ -86,5 +88,8 @@ enkai cluster run config.enk [--dry-run] [--json]
 - `checkpoint_dir` not writable.
 - `config_version` missing or not `1` for v1 configs.
 - `backend`, `dtype`, or `device` invalid for the selected backend.
+- `json.parse` used without `import std::json`.
+- CUDA/distributed production claims attempted without green hardware proof
+  artifacts.
 
 

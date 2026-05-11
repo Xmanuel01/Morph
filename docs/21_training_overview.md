@@ -1,22 +1,25 @@
-# Training Overview (v0.8)
+# Training Overview
 
-Enkai v0.8 provides an end-to-end training pipeline:
+Enkai provides an end-to-end training pipeline for bounded local training and
+proof workloads:
 
-1) Tokenizer (train/load, encode/decode)
-2) Streaming dataset loader (shards + packing + batching)
-3) Checkpoint manager (save/load/rotate/resume)
-4) `Enkai train` / `Enkai eval`
+1. Tokenizer train/load/encode/decode.
+2. Streaming dataset loader with sharding, packing, batching, and replay cursors.
+3. Checkpoint manager with save/load/rotate/resume behavior.
+4. `enkai train`, `enkai pretrain`, and `enkai eval`.
 
 The training CLI expects a `config.enk` file that returns a config record.
 v1 configs must include `config_version: 1` and an explicit `backend`.
-Because Enkai doesn't yet have record literals, use `json.parse` to build the config.
+Use `import std::json` and `json.parse` to build portable config records.
 
 ## Minimal example
 
-```
+```enkai
+import std::json
+
 fn main() ::
     return json.parse("{\"config_version\":1,\"backend\":\"cpu\",\"vocab_size\":8,\"hidden_size\":4,\"seq_len\":4,\"batch_size\":2,\"lr\":0.1,\"dataset_path\":\"data.txt\",\"checkpoint_dir\":\"ckpt\",\"max_steps\":2,\"save_every\":1,\"log_every\":1,\"tokenizer_train\":{\"path\":\"data.txt\",\"vocab_size\":8}}")
-::
+::fn
 ```
 
 Determinism:
@@ -35,9 +38,16 @@ Long-run safety:
 
 Run:
 
+```powershell
+enkai train config.enk
+enkai pretrain config.enk
+enkai eval config.enk
 ```
-Enkai train config.enk
-Enkai eval config.enk
+
+Run a static check first:
+
+```powershell
+enkai check config.enk
 ```
 
 ## Common errors
@@ -45,3 +55,5 @@ Enkai eval config.enk
 - Missing required config fields (e.g., `seq_len`, `batch_size`, `dataset_path`).
 - Tokenizer config missing (`tokenizer_path` or `tokenizer_train`).
 - Invalid `backend`, `dtype`, or `device` settings.
+- GPU production claims require archived hardware evidence; CPU training config
+  success is not the same as CUDA/PyTorch benchmark closure.

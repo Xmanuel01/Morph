@@ -28,6 +28,7 @@ pub enum TokenKind {
 
     Let,
     Mut,
+    Const,
     Fn,
     If,
     Else,
@@ -368,6 +369,7 @@ impl Lexer {
         let kind = match ident.as_str() {
             "let" => TokenKind::Let,
             "mut" => TokenKind::Mut,
+            "const" => TokenKind::Const,
             "fn" => TokenKind::Fn,
             "if" => TokenKind::If,
             "else" => TokenKind::Else,

@@ -185,6 +185,33 @@ let mut score: Float := 0.0
 }
 
 #[test]
+fn parses_const_bindings() {
+    let source = "\
+const PI: Float := 3.14159
+const COUNT := 4
+";
+    let module = parse_module(source).expect("module should parse");
+    let mut constants = 0usize;
+    for item in module.items {
+        if let enkaic::ast::Item::Stmt(enkaic::ast::Stmt::Let {
+            constant, mutable, ..
+        }) = item
+        {
+            assert!(constant);
+            assert!(!mutable);
+            constants += 1;
+        }
+    }
+    assert_eq!(constants, 2);
+}
+
+#[test]
+fn rejects_mutable_const_binding() {
+    let err = parse_module("const mut count := 1\n").expect_err("const mut should fail");
+    assert!(err.to_string().contains("Const bindings cannot be mutable"));
+}
+
+#[test]
 fn rejects_mismatched_tagged_block_closer() {
     let source = "\
 while true ::

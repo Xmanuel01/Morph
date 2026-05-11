@@ -1,31 +1,44 @@
-# FFI (native::import)
+# FFI (`native::import`)
 
 Enkai can call native C ABI functions via `native::import` blocks.
+FFI is an advanced systems feature. Prefer standard-library modules first; use
+FFI only when a native boundary is required and audited.
 
 ## Syntax
 
-```
+```enkai
+import std::io
+import std::json
+
 native::import "enkai_native" ::
     fn add_i64(a: Int, b: Int) -> Int
     fn echo_string(data: String) -> String
     fn handle_new(seed: Int) -> Handle
     fn handle_read(handle: Handle) -> Int
-::
+::native
 
-let x := add_i64(2, 3)
-print(x)
+policy default ::
+    allow io.write
+::policy
+
+fn main() ::
+    let x := add_i64(2, 3)
+    let _ := io.stdout_write_text("result=" + json.enkai(x) + "\n")
+::fn
 ```
 
 `native::import` is a top-level declaration and must appear before other items.
+Tagged `::native` closers are preferred when supported by the parser; plain
+`::` remains valid for compatibility.
 
-## Supported types (v0.6)
+## Supported Types
 
-- `Int` -> `i64`
-- `Float` -> `f64`
-- `Bool` -> `u8` (`0` or `1`)
-- `String` -> `(ptr, len)` bytes (UTF-8)
-- `Buffer` -> `(ptr, len)` bytes
-- `Handle` -> opaque native pointer managed by Enkai
+- `Int` maps to `i64`.
+- `Float` maps to `f64`.
+- `Bool` maps to `u8` (`0` or `1`).
+- `String` maps to `(ptr, len)` UTF-8 bytes.
+- `Buffer` maps to `(ptr, len)` bytes.
+- `Handle` maps to an opaque native pointer managed by Enkai.
 - `Void` return only
 - `Optional[T]` for `String`/`Buffer`/`Handle`
 
@@ -76,3 +89,10 @@ VM benchmark profiles record:
 - Missing `enkai_free` / `enkai_handle_free`
 
 The VM returns a clean runtime error instead of panicking.
+
+## Safety Guidance
+
+- Do not use FFI to bypass Enkai policy checks for normal application IO.
+- Keep native APIs small and versioned.
+- Return deterministic error codes/messages from native code.
+- Treat unaudited native libraries as outside the strict self-host proof surface.

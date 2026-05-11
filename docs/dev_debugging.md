@@ -1,15 +1,22 @@
-# Developer Debugging Guide
+# Developer Debugging
 
-- `Enkai run --disasm file.enk` prints bytecode before execution.
-- `Enkai run --trace-vm file.enk` prints each instruction and current stack.
-- Reading disassembly: instruction index, source line, opcode.
-- Adding an opcode:
-  1) Add to `enkaic/src/bytecode.rs`.
-  2) Emit it in the compiler.
-  3) Execute it in `enkairt/src/vm.rs` with stack safety.
-  4) Add tests.
-- Stack issues:
-  - Underflow: ensure you push before reading; trace-vm will show empty stack.
-  - Overflow: keep stack usage bounded by control flow; pops should mirror pushes.
+Use these flags when diagnosing compiler or VM behavior.
 
+```powershell
+enkai run --disasm file.enk
+enkai run --trace-vm file.enk
+enkai run --trace-task file.enk
+enkai run --trace-net file.enk
+```
 
+`--disasm` prints bytecode before execution. `--trace-vm` prints VM instruction
+execution and stack state. Task and network tracing are useful for runtime and
+transport debugging.
+
+For normal user programs, prefer this loop first:
+
+```powershell
+enkai fmt --check file.enk
+enkai check file.enk
+enkai run file.enk
+```

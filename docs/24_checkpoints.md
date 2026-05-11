@@ -1,14 +1,16 @@
 # Checkpoints
 
 The `checkpoint` module persists training state safely and atomically.
+The current training runtime exposes `checkpoint.*` as a runtime namespace.
+The stable package API also includes `std::checkpoint` manifest helpers.
 
 ## API
 
-```
-checkpoint.save("ckpt", state)
+```enkai
+let _ := checkpoint.save("ckpt", state)
 let path := checkpoint.latest("ckpt")
 let loaded := checkpoint.load(path)
-checkpoint.rotate("ckpt", 3)
+let _rotated := checkpoint.rotate("ckpt", 3)
 ```
 
 `state` is a record with:
@@ -36,4 +38,6 @@ checkpoint.rotate("ckpt", 3)
 
 - Missing `weights` or `step`.
 - Invalid buffer sizes (must be multiple of 4 bytes for f32).
+- Corrupted or stale checkpoint metadata fails deterministically during load or
+  resume validation.
 

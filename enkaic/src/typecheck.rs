@@ -7,6 +7,31 @@ use crate::types::Type;
 struct BindingInfo {
     ty: Type,
     mutable: bool,
+    constant: bool,
+}
+
+#[derive(Debug, Clone)]
+struct StaticPolicy {
+    rules: Vec<StaticPolicyRule>,
+}
+
+#[derive(Debug, Clone)]
+struct StaticPolicyRule {
+    allow: bool,
+    capability: Vec<String>,
+    filters: Vec<StaticPolicyFilter>,
+}
+
+#[derive(Debug, Clone)]
+struct StaticPolicyFilter {
+    name: String,
+    values: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum StaticCapabilityContext {
+    Path(String),
+    Domain(String),
 }
 
 #[derive(Debug, Clone)]
@@ -32,6 +57,7 @@ pub struct TypeChecker {
     imports: std::collections::HashMap<String, ModuleId>,
     exports: std::collections::HashMap<ModuleId, std::collections::HashMap<String, Type>>,
     record_fields: std::collections::HashMap<String, Vec<(String, Type)>>,
+    policies: std::collections::HashMap<String, StaticPolicy>,
     source_name: Option<String>,
     source: Option<String>,
 }
@@ -43,6 +69,7 @@ impl Default for TypeChecker {
             imports: std::collections::HashMap::new(),
             exports: std::collections::HashMap::new(),
             record_fields: std::collections::HashMap::new(),
+            policies: std::collections::HashMap::new(),
             source_name: None,
             source: None,
         }
@@ -67,6 +94,7 @@ impl TypeChecker {
             imports,
             exports,
             record_fields: std::collections::HashMap::new(),
+            policies: std::collections::HashMap::new(),
             source_name: None,
             source: None,
         }
@@ -90,10 +118,18 @@ impl TypeChecker {
     }
 
     fn define_binding(&mut self, name: &str, ty: Type, mutable: bool) {
-        self.scopes
-            .last_mut()
-            .unwrap()
-            .insert(name.to_string(), BindingInfo { ty, mutable });
+        self.define_binding_with_const(name, ty, mutable, false);
+    }
+
+    fn define_binding_with_const(&mut self, name: &str, ty: Type, mutable: bool, constant: bool) {
+        self.scopes.last_mut().unwrap().insert(
+            name.to_string(),
+            BindingInfo {
+                ty,
+                mutable,
+                constant,
+            },
+        );
     }
 
     fn resolve(&self, name: &str) -> Option<Type> {
@@ -199,6 +235,68 @@ impl TypeChecker {
         Ok(())
     }
 
+    fn register_policy_decl(&mut self, decl: &PolicyDecl) -> Result<(), TypeError> {
+        if self.policies.contains_key(&decl.name) {
+            return Err(self.error(
+                format!("PolicyError: duplicate policy `{}`", decl.name),
+                Span::single(1, 1),
+            ));
+        }
+        let mut rules = Vec::with_capacity(decl.rules.len());
+        for rule in &decl.rules {
+            if rule.capability.is_empty() {
+                return Err(self.error(
+                    "PolicyError: policy rule capability cannot be empty",
+                    Span::single(1, 1),
+                ));
+            }
+            for segment in &rule.capability {
+                if segment.trim().is_empty() {
+                    return Err(self.error(
+                        "PolicyError: policy capability contains an empty segment",
+                        Span::single(1, 1),
+                    ));
+                }
+            }
+            let mut filters = Vec::with_capacity(rule.filters.len());
+            for filter in &rule.filters {
+                if !matches!(filter.name.as_str(), "path_prefix" | "domain") {
+                    return Err(self.error(
+                        format!(
+                            "PolicyError: unsupported policy filter `{}`; expected `path_prefix` or `domain`",
+                            filter.name
+                        ),
+                        Span::single(1, 1),
+                    ));
+                }
+                let values = policy_filter_static_values(filter).map_err(|message| {
+                    self.error(format!("PolicyError: {}", message), Span::single(1, 1))
+                })?;
+                if values.is_empty() {
+                    return Err(self.error(
+                        format!(
+                            "PolicyError: policy filter `{}` cannot be empty",
+                            filter.name
+                        ),
+                        Span::single(1, 1),
+                    ));
+                }
+                filters.push(StaticPolicyFilter {
+                    name: filter.name.clone(),
+                    values,
+                });
+            }
+            rules.push(StaticPolicyRule {
+                allow: rule.allow,
+                capability: rule.capability.clone(),
+                filters,
+            });
+        }
+        self.policies
+            .insert(decl.name.clone(), StaticPolicy { rules });
+        Ok(())
+    }
+
     pub fn check_module(&mut self, module: &Module) -> Result<(), TypeError> {
         for item in &module.items {
             if let Item::Import(decl) = item {
@@ -209,6 +307,8 @@ impl TypeChecker {
                 self.imports
                     .entry(alias)
                     .or_insert(ModuleId(decl.path.clone()));
+            } else if let Item::Policy(decl) = item {
+                self.register_policy_decl(decl)?;
             }
         }
         for alias in self.imports.keys().cloned().collect::<Vec<_>>() {
@@ -312,6 +412,7 @@ impl TypeChecker {
                 expr,
                 name_span,
                 mutable,
+                constant,
             } => {
                 let t = if let Expr::List { .. } = expr {
                     let inferred = self.infer_array_literal(expr)?;
@@ -331,6 +432,15 @@ impl TypeChecker {
                 } else {
                     self.check_expr(expr)?
                 };
+                if *constant && !self.is_compile_time_const_expr(expr) {
+                    return Err(self.error(
+                        format!(
+                            "TypeError: const binding `{}` requires a compile-time constant expression.",
+                            name
+                        ),
+                        line_span(expr),
+                    ));
+                }
                 if let Some(ann) = type_ann {
                     let ann_t = type_from_ref(ann.clone());
                     if !compatible(&ann_t, &t) {
@@ -343,10 +453,10 @@ impl TypeChecker {
                             name_span.clone(),
                         ));
                     }
-                    self.define_binding(name, ann_t, *mutable);
+                    self.define_binding_with_const(name, ann_t, *mutable, *constant);
                     return Ok(());
                 }
-                self.define_binding(name, t, *mutable);
+                self.define_binding_with_const(name, t, *mutable, *constant);
             }
             Stmt::Assign { target, expr } => {
                 let t_expr = self.check_expr(expr)?;
@@ -424,7 +534,7 @@ impl TypeChecker {
                 } else {
                     Type::Void
                 };
-                if expected_return != Type::Unknown && t_val != expected_return {
+                if expected_return != Type::Unknown && !compatible(&expected_return, &t_val) {
                     return Err(self.error(
                         format!(
                             "Return type mismatch: expected {}, found {}",
@@ -579,10 +689,7 @@ impl TypeChecker {
                     if let Expr::Ident { name: alias, .. } = &**target {
                         if alias == "json" && !self.imports.contains_key(alias) {
                             return Err(self.error(
-                                format!(
-                                    "ImportError: `json.{}` requires `import std::json`",
-                                    name
-                                ),
+                                format!("ImportError: `json.{}` requires `import std::json`", name),
                                 span.clone(),
                             ));
                         }
@@ -618,6 +725,12 @@ impl TypeChecker {
                                             ));
                                         }
                                     }
+                                    self.check_static_policy_for_module_call(
+                                        alias,
+                                        name,
+                                        args,
+                                        span.clone(),
+                                    )?;
                                     return Ok(*ret);
                                 }
                             }
@@ -686,10 +799,7 @@ impl TypeChecker {
                 if let Expr::Ident { name: alias, .. } = &**target {
                     if alias == "json" && !self.imports.contains_key(alias) {
                         return Err(self.error(
-                            format!(
-                                "ImportError: `json.{}` requires `import std::json`",
-                                name
-                            ),
+                            format!("ImportError: `json.{}` requires `import std::json`", name),
                             span.clone(),
                         ));
                     }
@@ -734,9 +844,7 @@ impl TypeChecker {
                     _ => Ok(Type::Unknown),
                 }
             }
-            Expr::List { items, .. } => {
-                Ok(self.infer_array_items(items)?.as_type())
-            }
+            Expr::List { items, .. } => Ok(self.infer_array_items(items)?.as_type()),
             Expr::Try { expr, .. } => match self.check_expr(expr)? {
                 Type::Optional(inner) => Ok(*inner),
                 _ => Ok(Type::Unknown),
@@ -825,6 +933,107 @@ impl TypeChecker {
             Ok(ArrayLiteralType::Homogeneous(inferred))
         }
     }
+
+    fn is_compile_time_const_expr(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Literal { .. } => true,
+            Expr::Ident { name, .. } => self
+                .resolve_binding(name)
+                .map(|binding| binding.constant)
+                .unwrap_or(false),
+            Expr::Unary { op, expr, .. } => {
+                matches!(op, UnaryOp::Negate | UnaryOp::Not)
+                    && self.is_compile_time_const_expr(expr)
+            }
+            Expr::Binary { left, right, .. } => {
+                self.is_compile_time_const_expr(left) && self.is_compile_time_const_expr(right)
+            }
+            Expr::List { items, .. } => items
+                .iter()
+                .all(|item| self.is_compile_time_const_expr(item)),
+            _ => false,
+        }
+    }
+
+    fn check_static_policy_for_module_call(
+        &self,
+        alias: &str,
+        function: &str,
+        args: &[Arg],
+        span: Span,
+    ) -> Result<(), TypeError> {
+        let Some(module_id) = self.imports.get(alias) else {
+            return Ok(());
+        };
+        let Some(capability) = static_capability_for_std_call(module_id, function) else {
+            return Ok(());
+        };
+        let context = static_context_for_call(&capability, args);
+        self.check_static_policy_capability(&capability, context.as_ref(), span)
+    }
+
+    fn check_static_policy_capability(
+        &self,
+        capability: &[String],
+        context: Option<&StaticCapabilityContext>,
+        span: Span,
+    ) -> Result<(), TypeError> {
+        let Some(policy) = self.policies.get("default") else {
+            return Err(self.error(
+                format!(
+                    "PolicyError: `{}` requires `policy default` with an explicit `allow {}` rule.",
+                    capability.join("."),
+                    capability.join(".")
+                ),
+                span,
+            ));
+        };
+        let mut allowed = false;
+        let mut filtered_allow = false;
+        for rule in &policy.rules {
+            if !capability_matches_static(&rule.capability, capability) {
+                continue;
+            }
+            let filter_result = static_filters_match(&rule.filters, context);
+            if filter_result == FilterMatch::No {
+                continue;
+            }
+            if !rule.allow {
+                return Err(self.error(
+                    format!(
+                        "PolicyError: {} is denied by policy `default`.",
+                        capability.join(".")
+                    ),
+                    span,
+                ));
+            }
+            if filter_result == FilterMatch::Unknown {
+                filtered_allow = true;
+            } else {
+                allowed = true;
+            }
+        }
+        if allowed {
+            return Ok(());
+        }
+        if filtered_allow {
+            return Err(self.error(
+                format!(
+                    "PolicyError: {} requires a statically matching policy filter or an unfiltered `allow {}` rule.",
+                    capability.join("."),
+                    capability.join(".")
+                ),
+                span,
+            ));
+        }
+        Err(self.error(
+            format!(
+                "PolicyError: {} is not allowed by policy `default`.",
+                capability.join(".")
+            ),
+            span,
+        ))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -842,6 +1051,194 @@ impl ArrayLiteralType {
             }
             ArrayLiteralType::Homogeneous(item) => Type::Array(Box::new(item.clone())),
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FilterMatch {
+    Yes,
+    No,
+    Unknown,
+}
+
+fn policy_filter_static_values(filter: &PolicyFilter) -> Result<Vec<String>, String> {
+    match &filter.value {
+        LiteralOrList::Literal(lit) => literal_to_policy_string(lit)
+            .map(|value| vec![value])
+            .ok_or_else(|| format!("policy filter `{}` requires string values", filter.name)),
+        LiteralOrList::List(values) => {
+            let mut out = Vec::with_capacity(values.len());
+            for value in values {
+                let Some(value) = literal_to_policy_string(value) else {
+                    return Err(format!(
+                        "policy filter `{}` requires string values",
+                        filter.name
+                    ));
+                };
+                out.push(value);
+            }
+            Ok(out)
+        }
+    }
+}
+
+fn literal_to_policy_string(lit: &Literal) -> Option<String> {
+    match lit {
+        Literal::String(value) => Some(value.clone()),
+        _ => None,
+    }
+}
+
+fn static_capability_for_std_call(module_id: &ModuleId, function: &str) -> Option<Vec<String>> {
+    let path = module_id.0.iter().map(String::as_str).collect::<Vec<_>>();
+    match path.as_slice() {
+        ["std", "io"] => match function {
+            "read_bytes" | "read_text" => Some(cap("fs.read")),
+            "write_bytes" | "write_text" => Some(cap("fs.write")),
+            "stdin_read" => Some(cap("io.read")),
+            "stdout_write" | "stderr_write" | "stdout_write_text" | "stderr_write_text" => {
+                Some(cap("io.write"))
+            }
+            _ => None,
+        },
+        ["std", "fsx"] => match function {
+            "read_bytes" | "mmap_read" => Some(cap("fs.read")),
+            "write_bytes" => Some(cap("fs.write")),
+            _ => None,
+        },
+        ["std", "env"] => match function {
+            "get" | "cwd" => Some(cap("env.read")),
+            "set" | "remove" | "set_cwd" => Some(cap("env.write")),
+            _ => None,
+        },
+        ["std", "process"] => match function {
+            "start" | "run" => Some(cap("process.spawn")),
+            "wait" | "kill" => Some(cap("process.control")),
+            "exit" => Some(cap("process.exit")),
+            _ => None,
+        },
+        ["std", "db"] => match function {
+            "sqlite_exec"
+            | "sqlite_exec_many"
+            | "sqlite_transaction_begin"
+            | "sqlite_transaction_commit"
+            | "pg_exec"
+            | "mysql_exec" => Some(cap("db.write")),
+            "sqlite_open" | "sqlite_close" | "sqlite_query" | "pg_open" | "pg_close"
+            | "pg_query" | "mysql_open" | "mysql_close" | "mysql_query" => Some(cap("db.read")),
+            _ => None,
+        },
+        ["std", "tls"] => match function {
+            "inspect" => Some(cap("net.tls")),
+            _ => None,
+        },
+        ["std", "http"] => match function {
+            "serve" => Some(cap("net.serve")),
+            "sse_send" | "sse_close" | "ws_send" | "ws_recv" | "ws_recv_timeout" | "ws_close" => {
+                Some(cap("net.http"))
+            }
+            _ => None,
+        },
+        ["std", "log"] => match function {
+            "info" | "warn" | "error" => Some(cap("io.log")),
+            _ => None,
+        },
+        ["std", "time"] => match function {
+            "sleep_ms" => Some(cap("time.sleep")),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn cap(path: &str) -> Vec<String> {
+    path.split('.').map(|segment| segment.to_string()).collect()
+}
+
+fn static_context_for_call(capability: &[String], args: &[Arg]) -> Option<StaticCapabilityContext> {
+    let first_arg = args.first().and_then(arg_expr)?;
+    match capability.first().map(String::as_str) {
+        Some("fs") => string_literal(first_arg).map(StaticCapabilityContext::Path),
+        Some("net") => string_literal(first_arg).map(StaticCapabilityContext::Domain),
+        _ => None,
+    }
+}
+
+fn arg_expr(arg: &Arg) -> Option<&Expr> {
+    match arg {
+        Arg::Positional(expr) => Some(expr),
+        Arg::Named(_, _) => None,
+    }
+}
+
+fn string_literal(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Literal {
+            lit: Literal::String(value),
+            ..
+        } => Some(value.clone()),
+        _ => None,
+    }
+}
+
+fn capability_matches_static(rule: &[String], requested: &[String]) -> bool {
+    if rule.is_empty() || rule.len() > requested.len() {
+        return false;
+    }
+    rule.iter().zip(requested.iter()).all(|(a, b)| a == b)
+}
+
+fn static_filters_match(
+    filters: &[StaticPolicyFilter],
+    context: Option<&StaticCapabilityContext>,
+) -> FilterMatch {
+    if filters.is_empty() {
+        return FilterMatch::Yes;
+    }
+    let Some(context) = context else {
+        return FilterMatch::Unknown;
+    };
+    let mut any_unknown = false;
+    for filter in filters {
+        match static_filter_matches(filter, context) {
+            FilterMatch::Yes => {}
+            FilterMatch::No => return FilterMatch::No,
+            FilterMatch::Unknown => any_unknown = true,
+        }
+    }
+    if any_unknown {
+        FilterMatch::Unknown
+    } else {
+        FilterMatch::Yes
+    }
+}
+
+fn static_filter_matches(
+    filter: &StaticPolicyFilter,
+    context: &StaticCapabilityContext,
+) -> FilterMatch {
+    match (filter.name.as_str(), context) {
+        ("path_prefix", StaticCapabilityContext::Path(path)) => {
+            if filter.values.iter().any(|prefix| path.starts_with(prefix)) {
+                FilterMatch::Yes
+            } else {
+                FilterMatch::No
+            }
+        }
+        ("domain", StaticCapabilityContext::Domain(domain)) => {
+            if filter.values.iter().any(|allowed| {
+                domain == allowed
+                    || domain
+                        .strip_suffix(allowed)
+                        .map(|prefix| prefix.ends_with('.'))
+                        .unwrap_or(false)
+            }) {
+                FilterMatch::Yes
+            } else {
+                FilterMatch::No
+            }
+        }
+        _ => FilterMatch::Unknown,
     }
 }
 
@@ -962,7 +1359,10 @@ fn compatible(expected: &Type, found: &Type) -> bool {
         }
         (Type::SparseVectorOf(_), Type::SparseVector)
         | (Type::SparseVector, Type::SparseVectorOf(_)) => true,
-        (Type::TensorOf(expected_inner, expected_rank), Type::TensorOf(found_inner, found_rank)) => {
+        (
+            Type::TensorOf(expected_inner, expected_rank),
+            Type::TensorOf(found_inner, found_rank),
+        ) => {
             compatible(expected_inner, found_inner)
                 && (expected_rank.is_none() || found_rank.is_none() || expected_rank == found_rank)
         }
@@ -1059,6 +1459,100 @@ fn inject_builtins(
         Type::Function(vec![Type::Channel], Box::new(Type::Unknown)),
     );
     exports.entry(chan_id).or_insert(chan_exports);
+    let array_id = ModuleId(vec!["array".to_string()]);
+    imports
+        .entry("array".to_string())
+        .or_insert(array_id.clone());
+    let mut array_exports = std::collections::HashMap::new();
+    array_exports.insert(
+        "len".to_string(),
+        Type::Function(
+            vec![Type::Array(Box::new(Type::Unknown))],
+            Box::new(Type::Int),
+        ),
+    );
+    array_exports.insert(
+        "element_type".to_string(),
+        Type::Function(
+            vec![Type::Array(Box::new(Type::Unknown))],
+            Box::new(Type::String),
+        ),
+    );
+    array_exports.insert(
+        "is_homogeneous".to_string(),
+        Type::Function(
+            vec![Type::Array(Box::new(Type::Unknown))],
+            Box::new(Type::Bool),
+        ),
+    );
+    exports.entry(array_id).or_insert(array_exports.clone());
+    exports
+        .entry(ModuleId(vec!["std".to_string(), "array".to_string()]))
+        .or_insert(array_exports);
+    let vector_id = ModuleId(vec!["vector".to_string()]);
+    imports
+        .entry("vector".to_string())
+        .or_insert(vector_id.clone());
+    let mut vector_exports = std::collections::HashMap::new();
+    vector_exports.insert(
+        "from_array".to_string(),
+        Type::Function(
+            vec![Type::Array(Box::new(Type::Float))],
+            Box::new(Type::Vector(Box::new(Type::Float))),
+        ),
+    );
+    vector_exports.insert(
+        "len".to_string(),
+        Type::Function(
+            vec![Type::Vector(Box::new(Type::Float))],
+            Box::new(Type::Int),
+        ),
+    );
+    vector_exports.insert(
+        "get".to_string(),
+        Type::Function(
+            vec![Type::Vector(Box::new(Type::Float)), Type::Int],
+            Box::new(Type::Float),
+        ),
+    );
+    vector_exports.insert(
+        "dot".to_string(),
+        Type::Function(
+            vec![
+                Type::Vector(Box::new(Type::Float)),
+                Type::Vector(Box::new(Type::Float)),
+            ],
+            Box::new(Type::Float),
+        ),
+    );
+    vector_exports.insert(
+        "add".to_string(),
+        Type::Function(
+            vec![
+                Type::Vector(Box::new(Type::Float)),
+                Type::Vector(Box::new(Type::Float)),
+            ],
+            Box::new(Type::Vector(Box::new(Type::Float))),
+        ),
+    );
+    vector_exports.insert(
+        "scale".to_string(),
+        Type::Function(
+            vec![Type::Vector(Box::new(Type::Float)), Type::Float],
+            Box::new(Type::Vector(Box::new(Type::Float))),
+        ),
+    );
+    vector_exports.insert(
+        "to_array".to_string(),
+        Type::Function(
+            vec![Type::Vector(Box::new(Type::Float))],
+            Box::new(Type::Array(Box::new(Type::Float))),
+        ),
+    );
+    exports.entry(vector_id).or_insert(vector_exports.clone());
+    exports
+        .entry(ModuleId(vec!["std".to_string(), "vector".to_string()]))
+        .or_insert(vector_exports);
     let net_id = ModuleId(vec!["net".to_string()]);
     imports.entry("net".to_string()).or_insert(net_id.clone());
     let mut net_exports = std::collections::HashMap::new();
@@ -1906,6 +2400,372 @@ fn inject_builtins(
         Type::Function(vec![Type::RngStream, Type::Int], Box::new(Type::Int)),
     );
     exports.entry(std_agent_id).or_insert(agent_exports);
+    let std_tensor_id = ModuleId(vec!["std".to_string(), "tensor".to_string()]);
+    let mut tensor_exports = std::collections::HashMap::new();
+    tensor_exports.insert(
+        "device".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::Device)),
+    );
+    tensor_exports.insert(
+        "from_array".to_string(),
+        Type::Function(
+            vec![
+                Type::Array(Box::new(Type::Float)),
+                Type::Array(Box::new(Type::Int)),
+            ],
+            Box::new(Type::Tensor),
+        ),
+    );
+    tensor_exports.insert(
+        "to_array".to_string(),
+        Type::Function(
+            vec![Type::Tensor],
+            Box::new(Type::Array(Box::new(Type::Float))),
+        ),
+    );
+    tensor_exports.insert(
+        "rank".to_string(),
+        Type::Function(vec![Type::Tensor], Box::new(Type::Int)),
+    );
+    tensor_exports.insert(
+        "len".to_string(),
+        Type::Function(vec![Type::Tensor], Box::new(Type::Int)),
+    );
+    tensor_exports.insert(
+        "get_flat".to_string(),
+        Type::Function(vec![Type::Tensor, Type::Int], Box::new(Type::Float)),
+    );
+    for name in ["randn", "zeros"] {
+        tensor_exports.insert(
+            name.to_string(),
+            Type::Function(
+                vec![Type::Unknown, Type::DType, Type::Device],
+                Box::new(Type::Tensor),
+            ),
+        );
+    }
+    for name in ["matmul", "add", "sub", "mul", "div"] {
+        tensor_exports.insert(
+            name.to_string(),
+            Type::Function(vec![Type::Tensor, Type::Tensor], Box::new(Type::Tensor)),
+        );
+    }
+    tensor_exports.insert(
+        "scale".to_string(),
+        Type::Function(vec![Type::Tensor, Type::Float], Box::new(Type::Tensor)),
+    );
+    tensor_exports.insert(
+        "broadcast_to".to_string(),
+        Type::Function(vec![Type::Tensor, Type::Unknown], Box::new(Type::Tensor)),
+    );
+    tensor_exports.insert(
+        "reshape".to_string(),
+        Type::Function(vec![Type::Tensor, Type::Unknown], Box::new(Type::Tensor)),
+    );
+    tensor_exports.insert(
+        "transpose".to_string(),
+        Type::Function(
+            vec![Type::Tensor, Type::Int, Type::Int],
+            Box::new(Type::Tensor),
+        ),
+    );
+    tensor_exports.insert(
+        "slice".to_string(),
+        Type::Function(
+            vec![Type::Tensor, Type::Int, Type::Int, Type::Int, Type::Int],
+            Box::new(Type::Tensor),
+        ),
+    );
+    tensor_exports.insert(
+        "concat".to_string(),
+        Type::Function(
+            vec![Type::Array(Box::new(Type::Tensor)), Type::Int],
+            Box::new(Type::Tensor),
+        ),
+    );
+    for name in ["sum", "mean"] {
+        tensor_exports.insert(
+            name.to_string(),
+            Type::Function(
+                vec![Type::Tensor, Type::Int, Type::Bool],
+                Box::new(Type::Tensor),
+            ),
+        );
+    }
+    tensor_exports.insert(
+        "softmax".to_string(),
+        Type::Function(vec![Type::Tensor, Type::Int], Box::new(Type::Tensor)),
+    );
+    for name in ["relu", "sigmoid", "gelu", "exp", "log", "sqrt", "tanh"] {
+        tensor_exports.insert(
+            name.to_string(),
+            Type::Function(vec![Type::Tensor], Box::new(Type::Tensor)),
+        );
+    }
+    tensor_exports.insert(
+        "dropout".to_string(),
+        Type::Function(
+            vec![Type::Tensor, Type::Float, Type::Bool],
+            Box::new(Type::Tensor),
+        ),
+    );
+    tensor_exports.insert(
+        "linear".to_string(),
+        Type::Function(
+            vec![Type::Tensor, Type::Tensor, Type::Tensor],
+            Box::new(Type::Tensor),
+        ),
+    );
+    tensor_exports.insert(
+        "layernorm".to_string(),
+        Type::Function(
+            vec![Type::Tensor, Type::Tensor, Type::Tensor, Type::Float],
+            Box::new(Type::Tensor),
+        ),
+    );
+    tensor_exports.insert(
+        "embedding".to_string(),
+        Type::Function(vec![Type::Tensor, Type::Tensor], Box::new(Type::Tensor)),
+    );
+    tensor_exports.insert(
+        "cross_entropy".to_string(),
+        Type::Function(vec![Type::Tensor, Type::Tensor], Box::new(Type::Tensor)),
+    );
+    tensor_exports.insert(
+        "to_dtype".to_string(),
+        Type::Function(vec![Type::Tensor, Type::DType], Box::new(Type::Tensor)),
+    );
+    tensor_exports.insert(
+        "to_device".to_string(),
+        Type::Function(vec![Type::Tensor, Type::Device], Box::new(Type::Tensor)),
+    );
+    for name in ["require_grad", "requires_grad", "detach", "grad"] {
+        tensor_exports.insert(
+            name.to_string(),
+            Type::Function(vec![Type::Tensor], Box::new(Type::Tensor)),
+        );
+    }
+    tensor_exports.insert(
+        "backward".to_string(),
+        Type::Function(vec![Type::Tensor], Box::new(Type::Int)),
+    );
+    tensor_exports.insert(
+        "zero_grad".to_string(),
+        Type::Function(vec![Type::Tensor], Box::new(Type::Int)),
+    );
+    tensor_exports.insert(
+        "sgd_step".to_string(),
+        Type::Function(
+            vec![Type::Tensor, Type::Tensor, Type::Float, Type::Float],
+            Box::new(Type::Int),
+        ),
+    );
+    tensor_exports.insert(
+        "sgd_step_multi".to_string(),
+        Type::Function(
+            vec![
+                Type::Array(Box::new(Type::Tensor)),
+                Type::Array(Box::new(Type::Tensor)),
+                Type::Float,
+                Type::Float,
+            ],
+            Box::new(Type::Int),
+        ),
+    );
+    tensor_exports.insert(
+        "clip_grad_norm".to_string(),
+        Type::Function(
+            vec![
+                Type::Array(Box::new(Type::Tensor)),
+                Type::Float,
+                Type::Float,
+            ],
+            Box::new(Type::Float),
+        ),
+    );
+    tensor_exports.insert(
+        "zero_grad_multi".to_string(),
+        Type::Function(
+            vec![Type::Array(Box::new(Type::Tensor))],
+            Box::new(Type::Int),
+        ),
+    );
+    for name in [
+        "memory_current",
+        "memory_peak",
+        "memory_limit",
+        "memory_clear_limit",
+        "memory_reset_peak",
+    ] {
+        tensor_exports.insert(
+            name.to_string(),
+            Type::Function(Vec::new(), Box::new(Type::Int)),
+        );
+    }
+    tensor_exports.insert(
+        "memory_set_limit".to_string(),
+        Type::Function(vec![Type::Int], Box::new(Type::Int)),
+    );
+    tensor_exports.insert(
+        "adamw_state".to_string(),
+        Type::Function(Vec::new(), Box::new(Type::OptimizerState)),
+    );
+    tensor_exports.insert(
+        "adamw_step".to_string(),
+        Type::Function(
+            vec![
+                Type::Tensor,
+                Type::Tensor,
+                Type::OptimizerState,
+                Type::Float,
+                Type::Float,
+                Type::Float,
+                Type::Float,
+                Type::Float,
+            ],
+            Box::new(Type::OptimizerState),
+        ),
+    );
+    tensor_exports.insert(
+        "adamw_step_multi".to_string(),
+        Type::Function(
+            vec![
+                Type::Array(Box::new(Type::Tensor)),
+                Type::Array(Box::new(Type::Tensor)),
+                Type::OptimizerState,
+                Type::Float,
+                Type::Float,
+                Type::Float,
+                Type::Float,
+                Type::Float,
+            ],
+            Box::new(Type::OptimizerState),
+        ),
+    );
+    tensor_exports.insert(
+        "no_grad".to_string(),
+        Type::Function(vec![Type::Bool], Box::new(Type::Bool)),
+    );
+    tensor_exports.insert(
+        "grad_check".to_string(),
+        Type::Function(
+            vec![Type::Tensor, Type::Tensor, Type::Float],
+            Box::new(Type::Bool),
+        ),
+    );
+    tensor_exports.insert(
+        "where".to_string(),
+        Type::Function(
+            vec![Type::Tensor, Type::Tensor, Type::Tensor],
+            Box::new(Type::Tensor),
+        ),
+    );
+    tensor_exports.insert(
+        "clip".to_string(),
+        Type::Function(
+            vec![Type::Tensor, Type::Float, Type::Float],
+            Box::new(Type::Tensor),
+        ),
+    );
+    tensor_exports.insert(
+        "argmax".to_string(),
+        Type::Function(
+            vec![Type::Tensor, Type::Int, Type::Bool],
+            Box::new(Type::Tensor),
+        ),
+    );
+    tensor_exports.insert(
+        "sort".to_string(),
+        Type::Function(
+            vec![Type::Tensor, Type::Int, Type::Bool],
+            Box::new(Type::Tensor),
+        ),
+    );
+    tensor_exports.insert(
+        "topk".to_string(),
+        Type::Function(
+            vec![Type::Tensor, Type::Int, Type::Int],
+            Box::new(Type::Tensor),
+        ),
+    );
+    tensor_exports.insert(
+        "gather".to_string(),
+        Type::Function(
+            vec![Type::Tensor, Type::Int, Type::Tensor],
+            Box::new(Type::Tensor),
+        ),
+    );
+    tensor_exports.insert(
+        "scatter".to_string(),
+        Type::Function(
+            vec![Type::Tensor, Type::Int, Type::Tensor, Type::Tensor],
+            Box::new(Type::Tensor),
+        ),
+    );
+    tensor_exports.insert(
+        "masked_fill".to_string(),
+        Type::Function(
+            vec![Type::Tensor, Type::Tensor, Type::Float],
+            Box::new(Type::Tensor),
+        ),
+    );
+    tensor_exports.insert(
+        "einsum".to_string(),
+        Type::Function(
+            vec![Type::String, Type::Tensor, Type::Tensor],
+            Box::new(Type::Tensor),
+        ),
+    );
+    tensor_exports.insert(
+        "conv2d".to_string(),
+        Type::Function(
+            vec![
+                Type::Tensor,
+                Type::Tensor,
+                Type::Tensor,
+                Type::Int,
+                Type::Int,
+            ],
+            Box::new(Type::Tensor),
+        ),
+    );
+    for name in ["max_pool2d", "avg_pool2d"] {
+        tensor_exports.insert(
+            name.to_string(),
+            Type::Function(
+                vec![Type::Tensor, Type::Int, Type::Int],
+                Box::new(Type::Tensor),
+            ),
+        );
+    }
+    tensor_exports.insert(
+        "batchnorm1d".to_string(),
+        Type::Function(
+            vec![
+                Type::Tensor,
+                Type::Tensor,
+                Type::Tensor,
+                Type::Float,
+                Type::Bool,
+            ],
+            Box::new(Type::Tensor),
+        ),
+    );
+    tensor_exports.insert(
+        "attention".to_string(),
+        Type::Function(
+            vec![Type::Tensor, Type::Tensor, Type::Tensor],
+            Box::new(Type::Tensor),
+        ),
+    );
+    tensor_exports.insert(
+        "shape".to_string(),
+        Type::Function(
+            vec![Type::Tensor],
+            Box::new(Type::Array(Box::new(Type::Int))),
+        ),
+    );
+    exports.entry(std_tensor_id).or_insert(tensor_exports);
     let std_nn_id = ModuleId(vec!["std".to_string(), "nn".to_string()]);
     let mut nn_exports = std::collections::HashMap::new();
     nn_exports.insert(

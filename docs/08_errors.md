@@ -1,31 +1,51 @@
-# Errors
+# Errors And Diagnostics
 
-- Parse errors: line/col with snippet.
-- Type errors: show location, expected vs found.
-- Runtime errors: safe messages (stack underflow, undefined global, etc.).
+Use `enkai check` before `enkai run` when you want fast feedback without
+executing side effects:
 
-Tips:
-- Run `Enkai check file.enk` to catch type issues.
-- Use `--trace-vm` to see execution flow.
-
-## Diagnostic format (v0.5)
-
-Compiler/type errors now include structured diagnostics with source snippets:
-
-```
-error: Symbol 'secret' is private to module app::utils
---> path/to/main.enk:5:18
-  |
-5 |     return utils.secret(x)
-  |                  ^
+```powershell
+enkai check main.enkai
 ```
 
-Runtime errors include a lightweight stack trace (function + source + line):
+## Common Error Classes
 
+```text
+SyntaxError     invalid tokens, block structure, or tagged closer mismatch
+TypeError       invalid assignment, return type, call arity, or inference result
+ImportError     missing module or missing required import
+PolicyError     denied or unallowed side effect under policy default
+RuntimeError    deterministic runtime failure during execution
 ```
-Runtime error: Division by zero
-  at main (path/to/main.enk:3)
-  at <bootstrap> (path/to/main.enk:1)
+
+## Examples
+
+Mismatched block closer:
+
+```text
+SyntaxError: expected ::while to close while block, found ::if
 ```
 
+Immutable reassignment:
 
+```text
+TypeError: cannot assign to immutable variable `count`; declare it with `mut` if mutation is required.
+```
+
+Missing JSON import:
+
+```text
+ImportError: `json.enkai` requires `import std::json`
+```
+
+Denied policy:
+
+```text
+PolicyError: io.write is denied by policy `default`.
+```
+
+## Debugging Flow
+
+1. Run `enkai fmt --check <file>` to catch formatting drift.
+2. Run `enkai check <file>` to catch syntax, type, import, and policy errors.
+3. Run `enkai run <file>` only after checks pass.
+4. Use `enkai run --trace-vm <file>` or `enkai run --disasm <file>` for VM-level debugging.

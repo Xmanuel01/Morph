@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
@@ -28,7 +28,10 @@ use crate::checkpoint::{
     latest_checkpoint, load_checkpoint, rotate_checkpoints, save_checkpoint, CheckpointMeta,
     CheckpointState,
 };
-use crate::dataset::{resolve_dataset_paths, Batch, DatasetConfig, DatasetStream};
+use crate::dataset::{
+    dataset_pipeline_manifest, resolve_dataset_paths, Batch, DatasetConfig, DatasetCursor,
+    DatasetStream,
+};
 use crate::error::{RuntimeError, RuntimeFrame};
 use crate::ffi::FfiFunction;
 use crate::ffi::{ffi_stats_snapshot, FfiLoader, FfiStats};
@@ -36,9 +39,11 @@ use crate::object::{
     agent_env_value, buffer_value, channel_value, event_queue_value_with_native, function_value,
     pool_value_with_native, record_value, rng_stream_value, sim_coroutine_value, sim_world_value,
     snn_network_value, sparse_matrix_value_with_native, sparse_vector_value_with_native,
-    spatial_index_value_with_native, string_value, task_handle_value, BoundFunctionObj, ClosureObj,
-    HttpStream, NativeFunction, NativeImpl, Obj, StreamCommand, WebSocketHandle, WsCommand,
-    WsIncoming,
+    spatial_index_value_with_native, string_value, task_handle_value, tensor_memory_bytes_for_len,
+    tensor_memory_can_allocate, tensor_memory_current_bytes, tensor_memory_limit_bytes,
+    tensor_memory_peak_bytes, tensor_memory_reset_peak_bytes, tensor_memory_set_limit_bytes,
+    tensor_value, vector_value, BoundFunctionObj, ClosureObj, HttpStream, NativeFunction,
+    NativeImpl, Obj, StreamCommand, TensorState, WebSocketHandle, WsCommand, WsIncoming,
 };
 use crate::tokenizer::{bytes_to_ids, ids_to_bytes, Tokenizer, TrainConfig};
 use crate::value::{object_allocation_count, ObjRef, Value};
@@ -1533,6 +1538,24 @@ impl VM {
                 bound: None,
             }))),
         );
+        tokenizer_record.insert(
+            "fingerprint".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "tokenizer.fingerprint".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        tokenizer_record.insert(
+            "provenance".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "tokenizer.provenance".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
         let tokenizer_value = record_value(tokenizer_record);
         if let Some(idx) = self.globals_map.get("tokenizer").copied() {
             self.globals[idx as usize] = tokenizer_value;
@@ -1556,6 +1579,33 @@ impl VM {
             Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
                 name: "dataset.next_batch".to_string(),
                 arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        dataset_record.insert(
+            "cursor".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "dataset.cursor".to_string(),
+                arity: 1,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        dataset_record.insert(
+            "restore".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "dataset.restore".to_string(),
+                arity: 2,
+                kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+                bound: None,
+            }))),
+        );
+        dataset_record.insert(
+            "manifest".to_string(),
+            Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+                name: "dataset.manifest".to_string(),
+                arity: 3,
                 kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
                 bound: None,
             }))),
@@ -1612,6 +1662,239 @@ impl VM {
             self.globals_map
                 .insert("checkpoint".to_string(), self.globals.len() as u16);
             self.globals.push(checkpoint_value);
+        }
+        let array_value = record_value(HashMap::from([
+            ("len".to_string(), native_placeholder("array.len", 1)),
+            (
+                "element_type".to_string(),
+                native_placeholder("array.element_type", 1),
+            ),
+            (
+                "is_homogeneous".to_string(),
+                native_placeholder("array.is_homogeneous", 1),
+            ),
+        ]));
+        if let Some(idx) = self.globals_map.get("array").copied() {
+            self.globals[idx as usize] = array_value;
+        } else {
+            self.globals_map
+                .insert("array".to_string(), self.globals.len() as u16);
+            self.globals.push(array_value);
+        }
+        let vector_value = record_value(HashMap::from([
+            (
+                "from_array".to_string(),
+                native_placeholder("vector.from_array", 1),
+            ),
+            ("len".to_string(), native_placeholder("vector.len", 1)),
+            ("get".to_string(), native_placeholder("vector.get", 2)),
+            ("dot".to_string(), native_placeholder("vector.dot", 2)),
+            ("add".to_string(), native_placeholder("vector.add", 2)),
+            ("scale".to_string(), native_placeholder("vector.scale", 2)),
+            (
+                "to_array".to_string(),
+                native_placeholder("vector.to_array", 1),
+            ),
+        ]));
+        if let Some(idx) = self.globals_map.get("vector").copied() {
+            self.globals[idx as usize] = vector_value;
+        } else {
+            self.globals_map
+                .insert("vector".to_string(), self.globals.len() as u16);
+            self.globals.push(vector_value);
+        }
+        let tensor_record_value = record_value(HashMap::from([
+            (
+                "from_array".to_string(),
+                native_placeholder("tensor.from_array", 2),
+            ),
+            (
+                "to_array".to_string(),
+                native_placeholder("tensor.to_array", 1),
+            ),
+            ("rank".to_string(), native_placeholder("tensor.rank", 1)),
+            ("len".to_string(), native_placeholder("tensor.len", 1)),
+            (
+                "get_flat".to_string(),
+                native_placeholder("tensor.get_flat", 2),
+            ),
+            ("zeros".to_string(), native_placeholder("tensor.zeros", 3)),
+            ("randn".to_string(), native_placeholder("tensor.randn", 3)),
+            ("shape".to_string(), native_placeholder("tensor.shape", 1)),
+            ("add".to_string(), native_placeholder("tensor.add", 2)),
+            ("sub".to_string(), native_placeholder("tensor.sub", 2)),
+            ("mul".to_string(), native_placeholder("tensor.mul", 2)),
+            ("div".to_string(), native_placeholder("tensor.div", 2)),
+            ("scale".to_string(), native_placeholder("tensor.scale", 2)),
+            (
+                "broadcast_to".to_string(),
+                native_placeholder("tensor.broadcast_to", 2),
+            ),
+            ("matmul".to_string(), native_placeholder("tensor.matmul", 2)),
+            (
+                "reshape".to_string(),
+                native_placeholder("tensor.reshape", 2),
+            ),
+            (
+                "transpose".to_string(),
+                native_placeholder("tensor.transpose", 3),
+            ),
+            ("slice".to_string(), native_placeholder("tensor.slice", 5)),
+            ("concat".to_string(), native_placeholder("tensor.concat", 2)),
+            ("sum".to_string(), native_placeholder("tensor.sum", 3)),
+            ("mean".to_string(), native_placeholder("tensor.mean", 3)),
+            (
+                "softmax".to_string(),
+                native_placeholder("tensor.softmax", 2),
+            ),
+            ("relu".to_string(), native_placeholder("tensor.relu", 1)),
+            (
+                "sigmoid".to_string(),
+                native_placeholder("tensor.sigmoid", 1),
+            ),
+            ("gelu".to_string(), native_placeholder("tensor.gelu", 1)),
+            ("exp".to_string(), native_placeholder("tensor.exp", 1)),
+            ("log".to_string(), native_placeholder("tensor.log", 1)),
+            ("sqrt".to_string(), native_placeholder("tensor.sqrt", 1)),
+            ("tanh".to_string(), native_placeholder("tensor.tanh", 1)),
+            (
+                "dropout".to_string(),
+                native_placeholder("tensor.dropout", 3),
+            ),
+            ("linear".to_string(), native_placeholder("tensor.linear", 3)),
+            (
+                "layernorm".to_string(),
+                native_placeholder("tensor.layernorm", 4),
+            ),
+            (
+                "embedding".to_string(),
+                native_placeholder("tensor.embedding", 2),
+            ),
+            (
+                "cross_entropy".to_string(),
+                native_placeholder("tensor.cross_entropy", 2),
+            ),
+            (
+                "to_dtype".to_string(),
+                native_placeholder("tensor.to_dtype", 2),
+            ),
+            (
+                "to_device".to_string(),
+                native_placeholder("tensor.to_device", 2),
+            ),
+            (
+                "requires_grad".to_string(),
+                native_placeholder("tensor.requires_grad", 1),
+            ),
+            ("detach".to_string(), native_placeholder("tensor.detach", 1)),
+            (
+                "backward".to_string(),
+                native_placeholder("tensor.backward", 1),
+            ),
+            ("grad".to_string(), native_placeholder("tensor.grad", 1)),
+            (
+                "zero_grad".to_string(),
+                native_placeholder("tensor.zero_grad", 1),
+            ),
+            (
+                "sgd_step".to_string(),
+                native_placeholder("tensor.sgd_step", 4),
+            ),
+            (
+                "sgd_step_multi".to_string(),
+                native_placeholder("tensor.sgd_step_multi", 4),
+            ),
+            (
+                "clip_grad_norm".to_string(),
+                native_placeholder("tensor.clip_grad_norm", 3),
+            ),
+            (
+                "zero_grad_multi".to_string(),
+                native_placeholder("tensor.zero_grad_multi", 1),
+            ),
+            (
+                "memory_current".to_string(),
+                native_placeholder("tensor.memory_current", 0),
+            ),
+            (
+                "memory_peak".to_string(),
+                native_placeholder("tensor.memory_peak", 0),
+            ),
+            (
+                "memory_limit".to_string(),
+                native_placeholder("tensor.memory_limit", 0),
+            ),
+            (
+                "memory_set_limit".to_string(),
+                native_placeholder("tensor.memory_set_limit", 1),
+            ),
+            (
+                "memory_clear_limit".to_string(),
+                native_placeholder("tensor.memory_clear_limit", 0),
+            ),
+            (
+                "memory_reset_peak".to_string(),
+                native_placeholder("tensor.memory_reset_peak", 0),
+            ),
+            (
+                "adamw_state".to_string(),
+                native_placeholder("tensor.adamw_state", 0),
+            ),
+            (
+                "adamw_step".to_string(),
+                native_placeholder("tensor.adamw_step", 8),
+            ),
+            (
+                "adamw_step_multi".to_string(),
+                native_placeholder("tensor.adamw_step_multi", 8),
+            ),
+            (
+                "no_grad".to_string(),
+                native_placeholder("tensor.no_grad", 1),
+            ),
+            (
+                "grad_check".to_string(),
+                native_placeholder("tensor.grad_check", 3),
+            ),
+            ("where".to_string(), native_placeholder("tensor.where", 3)),
+            ("clip".to_string(), native_placeholder("tensor.clip", 3)),
+            ("argmax".to_string(), native_placeholder("tensor.argmax", 3)),
+            ("sort".to_string(), native_placeholder("tensor.sort", 3)),
+            ("topk".to_string(), native_placeholder("tensor.topk", 3)),
+            ("gather".to_string(), native_placeholder("tensor.gather", 3)),
+            (
+                "scatter".to_string(),
+                native_placeholder("tensor.scatter", 4),
+            ),
+            (
+                "masked_fill".to_string(),
+                native_placeholder("tensor.masked_fill", 3),
+            ),
+            ("einsum".to_string(), native_placeholder("tensor.einsum", 3)),
+            ("conv2d".to_string(), native_placeholder("tensor.conv2d", 5)),
+            (
+                "max_pool2d".to_string(),
+                native_placeholder("tensor.max_pool2d", 3),
+            ),
+            (
+                "avg_pool2d".to_string(),
+                native_placeholder("tensor.avg_pool2d", 3),
+            ),
+            (
+                "batchnorm1d".to_string(),
+                native_placeholder("tensor.batchnorm1d", 5),
+            ),
+            (
+                "attention".to_string(),
+                native_placeholder("tensor.attention", 3),
+            ),
+        ]));
+        if let Some(idx) = self.globals_map.get("tensor").copied() {
+            self.globals[idx as usize] = tensor_record_value;
+        } else {
+            self.globals_map
+                .insert("tensor".to_string(), self.globals.len() as u16);
+            self.globals.push(tensor_record_value);
         }
         let mut sparse_record = std::collections::HashMap::new();
         sparse_record.insert(
@@ -4199,6 +4482,12 @@ impl VM {
                                 "encode" => self.bound_native("tokenizer.encode", 1, target),
                                 "decode" => self.bound_native("tokenizer.decode", 1, target),
                                 "save" => self.bound_native("tokenizer.save", 1, target),
+                                "fingerprint" => {
+                                    self.bound_native("tokenizer.fingerprint", 0, target)
+                                }
+                                "provenance" => {
+                                    self.bound_native("tokenizer.provenance", 0, target)
+                                }
                                 _ => {
                                     return TaskRunOutcome::Errored(trace(
                                         self,
@@ -4208,6 +4497,8 @@ impl VM {
                             },
                             Obj::DatasetStream(_) => match name.as_str() {
                                 "next_batch" => self.bound_native("dataset.next_batch", 0, target),
+                                "cursor" => self.bound_native("dataset.cursor", 0, target),
+                                "restore" => self.bound_native("dataset.restore", 1, target),
                                 _ => {
                                     return TaskRunOutcome::Errored(trace(
                                         self,
@@ -5306,6 +5597,25 @@ impl VM {
                             self.stack.push(Value::Null);
                             return Ok(());
                         }
+                        if nf.name == "tokenizer.fingerprint" {
+                            let tokenizer = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("fingerprint expects tokenizer")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let fingerprint = self.tokenizer_fingerprint(tokenizer)?;
+                            self.stack.push(fingerprint);
+                            return Ok(());
+                        }
+                        if nf.name == "tokenizer.provenance" {
+                            let tokenizer = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("provenance expects tokenizer"))?;
+                            self.stack.truncate(callee_index);
+                            let provenance = self.tokenizer_provenance(tokenizer)?;
+                            self.stack.push(provenance);
+                            return Ok(());
+                        }
                         if nf.name == "dataset.open" {
                             let path = args
                                 .first()
@@ -5334,6 +5644,45 @@ impl VM {
                             } else {
                                 self.stack.push(Value::Null);
                             }
+                            return Ok(());
+                        }
+                        if nf.name == "dataset.cursor" {
+                            let stream = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("cursor expects stream"))?;
+                            self.stack.truncate(callee_index);
+                            let cursor = self.dataset_cursor(stream)?;
+                            self.stack.push(cursor);
+                            return Ok(());
+                        }
+                        if nf.name == "dataset.restore" {
+                            let stream = args
+                                .first()
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("restore expects stream"))?;
+                            let cursor = args
+                                .get(1)
+                                .cloned()
+                                .ok_or_else(|| RuntimeError::new("restore expects cursor"))?;
+                            self.stack.truncate(callee_index);
+                            self.dataset_restore(stream, cursor)?;
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "dataset.manifest" {
+                            let path = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("dataset.manifest expects path")
+                            })?;
+                            let tokenizer = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("dataset.manifest expects tokenizer")
+                            })?;
+                            let config = args.get(2).cloned().ok_or_else(|| {
+                                RuntimeError::new("dataset.manifest expects config")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let manifest = self.dataset_manifest(path, tokenizer, config)?;
+                            self.stack.push(manifest);
                             return Ok(());
                         }
                         if nf.name == "checkpoint.save" {
@@ -5378,6 +5727,1018 @@ impl VM {
                             self.stack.truncate(callee_index);
                             self.checkpoint_rotate(dir, keep)?;
                             self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "array.len" {
+                            let values =
+                                value_as_list(args.first().ok_or_else(|| {
+                                    RuntimeError::new("array.len expects Array")
+                                })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(Value::Int(values.len() as i64));
+                            return Ok(());
+                        }
+                        if nf.name == "array.element_type" {
+                            let values = value_as_list(args.first().ok_or_else(|| {
+                                RuntimeError::new("array.element_type expects Array")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack
+                                .push(string_value(&runtime_array_element_type(&values)));
+                            return Ok(());
+                        }
+                        if nf.name == "array.is_homogeneous" {
+                            let values = value_as_list(args.first().ok_or_else(|| {
+                                RuntimeError::new("array.is_homogeneous expects Array")
+                            })?)?;
+                            let element_type = runtime_array_element_type(&values);
+                            self.stack.truncate(callee_index);
+                            self.stack.push(Value::Bool(element_type != "Mixed"));
+                            return Ok(());
+                        }
+                        if nf.name == "vector.from_array" {
+                            let data =
+                                numeric_values_from_list(args.first().ok_or_else(|| {
+                                    RuntimeError::new("vector.from_array expects Array[Float]")
+                                })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(vector_value(data));
+                            return Ok(());
+                        }
+                        if nf.name == "vector.len" {
+                            let data =
+                                vector_data(args.first().ok_or_else(|| {
+                                    RuntimeError::new("vector.len expects Vector")
+                                })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(Value::Int(data.len() as i64));
+                            return Ok(());
+                        }
+                        if nf.name == "vector.get" {
+                            let data =
+                                vector_data(args.first().ok_or_else(|| {
+                                    RuntimeError::new("vector.get expects Vector")
+                                })?)?;
+                            let index = value_as_non_negative_int(
+                                args.get(1)
+                                    .ok_or_else(|| RuntimeError::new("vector.get expects index"))?,
+                                "vector.get expects index >= 0",
+                            )? as usize;
+                            let value = data.get(index).copied().ok_or_else(|| {
+                                RuntimeError::new("vector.get index out of bounds")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(Value::Float(value));
+                            return Ok(());
+                        }
+                        if nf.name == "vector.dot" {
+                            let left = vector_data(args.first().ok_or_else(|| {
+                                RuntimeError::new("vector.dot expects left Vector")
+                            })?)?;
+                            let right = vector_data(args.get(1).ok_or_else(|| {
+                                RuntimeError::new("vector.dot expects right Vector")
+                            })?)?;
+                            if left.len() != right.len() {
+                                return Err(RuntimeError::new(
+                                    "vector.dot requires equal vector lengths",
+                                ));
+                            }
+                            let dot = left.iter().zip(right.iter()).map(|(a, b)| a * b).sum();
+                            self.stack.truncate(callee_index);
+                            self.stack.push(Value::Float(dot));
+                            return Ok(());
+                        }
+                        if nf.name == "vector.add" {
+                            let left = vector_data(args.first().ok_or_else(|| {
+                                RuntimeError::new("vector.add expects left Vector")
+                            })?)?;
+                            let right = vector_data(args.get(1).ok_or_else(|| {
+                                RuntimeError::new("vector.add expects right Vector")
+                            })?)?;
+                            if left.len() != right.len() {
+                                return Err(RuntimeError::new(
+                                    "vector.add requires equal vector lengths",
+                                ));
+                            }
+                            self.stack.truncate(callee_index);
+                            self.stack.push(vector_value(
+                                left.iter().zip(right.iter()).map(|(a, b)| a + b).collect(),
+                            ));
+                            return Ok(());
+                        }
+                        if nf.name == "vector.scale" {
+                            let data = vector_data(args.first().ok_or_else(|| {
+                                RuntimeError::new("vector.scale expects Vector")
+                            })?)?;
+                            let scale =
+                                value_as_float_like(args.get(1).ok_or_else(|| {
+                                    RuntimeError::new("vector.scale expects scale")
+                                })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(vector_value(
+                                data.iter().map(|value| value * scale).collect(),
+                            ));
+                            return Ok(());
+                        }
+                        if nf.name == "vector.to_array" {
+                            let data = vector_data(args.first().ok_or_else(|| {
+                                RuntimeError::new("vector.to_array expects Vector")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(list_from_f64(data));
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.from_array" {
+                            let data =
+                                numeric_values_from_list(args.first().ok_or_else(|| {
+                                    RuntimeError::new("tensor.from_array expects Array[Float]")
+                                })?)?;
+                            let shape = shape_from_value(args.get(1).ok_or_else(|| {
+                                RuntimeError::new("tensor.from_array expects shape")
+                            })?)?;
+                            ensure_tensor_size(&shape, data.len())?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(checked_tensor_value(
+                                shape,
+                                data,
+                                "f64",
+                                "tensor.from_array",
+                            )?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.to_array" {
+                            let tensor = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.to_array expects Tensor")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(list_from_f64(tensor.data));
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.rank" {
+                            let tensor =
+                                tensor_state(args.first().ok_or_else(|| {
+                                    RuntimeError::new("tensor.rank expects Tensor")
+                                })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(Value::Int(tensor.shape.len() as i64));
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.len" {
+                            let tensor =
+                                tensor_state(args.first().ok_or_else(|| {
+                                    RuntimeError::new("tensor.len expects Tensor")
+                                })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(Value::Int(tensor.data.len() as i64));
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.get_flat" {
+                            let tensor = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.get_flat expects Tensor")
+                            })?)?;
+                            let index = value_as_non_negative_int(
+                                args.get(1).ok_or_else(|| {
+                                    RuntimeError::new("tensor.get_flat expects index")
+                                })?,
+                                "tensor.get_flat expects index >= 0",
+                            )? as usize;
+                            let value = tensor.data.get(index).copied().ok_or_else(|| {
+                                RuntimeError::new("tensor.get_flat index out of bounds")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(Value::Float(value));
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.zeros" || nf.name == "tensor.randn" {
+                            let shape = shape_from_value(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor constructor expects shape")
+                            })?)?;
+                            let dtype = args
+                                .get(1)
+                                .and_then(|value| value_as_string(value).ok())
+                                .unwrap_or_else(|| "f64".to_string());
+                            let len = tensor_len_from_shape(&shape)?;
+                            let data = if nf.name == "tensor.zeros" {
+                                vec![0.0; len]
+                            } else {
+                                (0..len)
+                                    .map(|idx| {
+                                        (((idx as u64 * 6364136223846793005 + 1) % 10_000) as f64)
+                                            / 10_000.0
+                                    })
+                                    .collect()
+                            };
+                            self.stack.truncate(callee_index);
+                            self.stack.push(checked_tensor_value(
+                                shape,
+                                data,
+                                dtype,
+                                "tensor constructor",
+                            )?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.shape" {
+                            let tensor = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.shape expects Tensor")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack
+                                .push(Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                                    tensor
+                                        .shape
+                                        .into_iter()
+                                        .map(|v| Value::Int(v as i64))
+                                        .collect(),
+                                )))));
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.add"
+                            || nf.name == "tensor.sub"
+                            || nf.name == "tensor.mul"
+                            || nf.name == "tensor.div"
+                        {
+                            let left = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor binary op expects left Tensor")
+                            })?)?;
+                            let right = tensor_state(args.get(1).ok_or_else(|| {
+                                RuntimeError::new("tensor binary op expects right Tensor")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(tensor_binary(left, right, &nf.name)?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.scale" {
+                            let tensor = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.scale expects Tensor")
+                            })?)?;
+                            let scale =
+                                value_as_float_like(args.get(1).ok_or_else(|| {
+                                    RuntimeError::new("tensor.scale expects scale")
+                                })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(tensor_scale(tensor, scale)?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.broadcast_to" {
+                            let tensor = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.broadcast_to expects Tensor")
+                            })?)?;
+                            let shape = shape_from_value(args.get(1).ok_or_else(|| {
+                                RuntimeError::new("tensor.broadcast_to expects shape")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(tensor_broadcast_to(tensor, &shape)?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.matmul" {
+                            let left = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.matmul expects left Tensor")
+                            })?)?;
+                            let right = tensor_state(args.get(1).ok_or_else(|| {
+                                RuntimeError::new("tensor.matmul expects right Tensor")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(tensor_matmul(left, right)?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.reshape" {
+                            let tensor = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.reshape expects Tensor")
+                            })?)?;
+                            let shape = shape_from_value(args.get(1).ok_or_else(|| {
+                                RuntimeError::new("tensor.reshape expects shape")
+                            })?)?;
+                            ensure_tensor_size(&shape, tensor.data.len())?;
+                            self.stack.truncate(callee_index);
+                            self.stack
+                                .push(tensor_value(shape, tensor.data, tensor.dtype));
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.transpose" {
+                            let tensor = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.transpose expects Tensor")
+                            })?)?;
+                            let dim0 = value_as_non_negative_int(
+                                args.get(1).ok_or_else(|| {
+                                    RuntimeError::new("tensor.transpose expects dim0")
+                                })?,
+                                "tensor.transpose expects dim0 >= 0",
+                            )? as usize;
+                            let dim1 = value_as_non_negative_int(
+                                args.get(2).ok_or_else(|| {
+                                    RuntimeError::new("tensor.transpose expects dim1")
+                                })?,
+                                "tensor.transpose expects dim1 >= 0",
+                            )? as usize;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(tensor_transpose(tensor, dim0, dim1)?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.slice" {
+                            let tensor = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.slice expects Tensor")
+                            })?)?;
+                            let dim = value_as_non_negative_int(
+                                args.get(1)
+                                    .ok_or_else(|| RuntimeError::new("tensor.slice expects dim"))?,
+                                "tensor.slice expects dim >= 0",
+                            )? as usize;
+                            let start =
+                                value_as_int(args.get(2).ok_or_else(|| {
+                                    RuntimeError::new("tensor.slice expects start")
+                                })?)?;
+                            let end =
+                                value_as_int(args.get(3).ok_or_else(|| {
+                                    RuntimeError::new("tensor.slice expects end")
+                                })?)?;
+                            let step =
+                                value_as_int(args.get(4).ok_or_else(|| {
+                                    RuntimeError::new("tensor.slice expects step")
+                                })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack
+                                .push(tensor_slice(tensor, dim, start, end, step)?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.concat" {
+                            let tensors = tensor_list(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.concat expects tensors")
+                            })?)?;
+                            let dim = value_as_non_negative_int(
+                                args.get(1).ok_or_else(|| {
+                                    RuntimeError::new("tensor.concat expects dim")
+                                })?,
+                                "tensor.concat expects dim >= 0",
+                            )? as usize;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(tensor_concat(tensors, dim)?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.sum" || nf.name == "tensor.mean" {
+                            let tensor = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor reduction expects Tensor")
+                            })?)?;
+                            let dim = value_as_non_negative_int(
+                                args.get(1).ok_or_else(|| {
+                                    RuntimeError::new("tensor reduction expects dim")
+                                })?,
+                                "tensor reduction expects dim >= 0",
+                            )? as usize;
+                            let keepdim = value_as_bool(args.get(2).ok_or_else(|| {
+                                RuntimeError::new("tensor reduction expects keepdim")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(tensor_reduce(
+                                tensor,
+                                dim,
+                                keepdim,
+                                nf.name == "tensor.mean",
+                            )?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.softmax" {
+                            let tensor = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.softmax expects Tensor")
+                            })?)?;
+                            let dim = value_as_non_negative_int(
+                                args.get(1).ok_or_else(|| {
+                                    RuntimeError::new("tensor.softmax expects dim")
+                                })?,
+                                "tensor.softmax expects dim >= 0",
+                            )? as usize;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(tensor_softmax(tensor, dim)?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.relu"
+                            || nf.name == "tensor.sigmoid"
+                            || nf.name == "tensor.gelu"
+                            || nf.name == "tensor.exp"
+                            || nf.name == "tensor.log"
+                            || nf.name == "tensor.sqrt"
+                            || nf.name == "tensor.tanh"
+                        {
+                            let tensor = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor unary op expects Tensor")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(tensor_unary(tensor, &nf.name)?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.dropout" {
+                            let tensor = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.dropout expects Tensor")
+                            })?)?;
+                            let p = value_as_float_like(args.get(1).ok_or_else(|| {
+                                RuntimeError::new("tensor.dropout expects probability")
+                            })?)?;
+                            let train = value_as_bool(args.get(2).ok_or_else(|| {
+                                RuntimeError::new("tensor.dropout expects train flag")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(tensor_dropout(tensor, p, train)?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.linear" {
+                            let x = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.linear expects input Tensor")
+                            })?)?;
+                            let w = tensor_state(args.get(1).ok_or_else(|| {
+                                RuntimeError::new("tensor.linear expects weight Tensor")
+                            })?)?;
+                            let b = tensor_state(args.get(2).ok_or_else(|| {
+                                RuntimeError::new("tensor.linear expects bias Tensor")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(tensor_linear(x, w, b)?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.layernorm" {
+                            let x = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.layernorm expects input Tensor")
+                            })?)?;
+                            let w = tensor_state(args.get(1).ok_or_else(|| {
+                                RuntimeError::new("tensor.layernorm expects weight Tensor")
+                            })?)?;
+                            let b = tensor_state(args.get(2).ok_or_else(|| {
+                                RuntimeError::new("tensor.layernorm expects bias Tensor")
+                            })?)?;
+                            let eps = value_as_float_like(args.get(3).ok_or_else(|| {
+                                RuntimeError::new("tensor.layernorm expects eps")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(tensor_layernorm(x, w, b, eps)?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.embedding" {
+                            let w = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.embedding expects weights Tensor")
+                            })?)?;
+                            let ids = tensor_state(args.get(1).ok_or_else(|| {
+                                RuntimeError::new("tensor.embedding expects ids Tensor")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(tensor_embedding(w, ids)?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.cross_entropy" {
+                            let logits = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.cross_entropy expects logits Tensor")
+                            })?)?;
+                            let targets = tensor_state(args.get(1).ok_or_else(|| {
+                                RuntimeError::new("tensor.cross_entropy expects targets Tensor")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(tensor_cross_entropy(logits, targets)?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.to_dtype" {
+                            let tensor = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.to_dtype expects Tensor")
+                            })?)?;
+                            let dtype = value_as_string(args.get(1).ok_or_else(|| {
+                                RuntimeError::new("tensor.to_dtype expects dtype")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack
+                                .push(tensor_value(tensor.shape, tensor.data, dtype));
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.to_device" {
+                            let tensor = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.to_device expects Tensor")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack
+                                .push(tensor_value(tensor.shape, tensor.data, tensor.dtype));
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.requires_grad" {
+                            let tensor = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.requires_grad expects Tensor")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(tensor_leaf_with_grad(tensor)?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.detach" {
+                            let tensor = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.detach expects Tensor")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(tensor_detached_value(tensor));
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.backward" {
+                            let tensor = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.backward expects Tensor")
+                            })?)?;
+                            tensor_backward(tensor)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.grad" {
+                            let tensor =
+                                tensor_state(args.first().ok_or_else(|| {
+                                    RuntimeError::new("tensor.grad expects Tensor")
+                                })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(tensor_grad_value(tensor));
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.zero_grad" {
+                            let tensor = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.zero_grad expects Tensor")
+                            })?)?;
+                            tensor_zero_grad(tensor);
+                            self.stack.truncate(callee_index);
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.sgd_step" {
+                            let param = args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.sgd_step expects param Tensor")
+                            })?;
+                            let grad = tensor_state(args.get(1).ok_or_else(|| {
+                                RuntimeError::new("tensor.sgd_step expects grad Tensor")
+                            })?)?;
+                            let lr =
+                                value_as_float_like(args.get(2).ok_or_else(|| {
+                                    RuntimeError::new("tensor.sgd_step expects lr")
+                                })?)?;
+                            let weight_decay =
+                                value_as_float_like(args.get(3).ok_or_else(|| {
+                                    RuntimeError::new("tensor.sgd_step expects weight_decay")
+                                })?)?;
+                            let out = tensor_sgd_step_value(param, grad, lr, weight_decay)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(out);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.sgd_step_multi" {
+                            let params = tensor_values_from_value(
+                                args.first().ok_or_else(|| {
+                                    RuntimeError::new("tensor.sgd_step_multi expects params")
+                                })?,
+                                "tensor.sgd_step_multi params",
+                            )?;
+                            let grads = tensor_values_from_value(
+                                args.get(1).ok_or_else(|| {
+                                    RuntimeError::new("tensor.sgd_step_multi expects grads")
+                                })?,
+                                "tensor.sgd_step_multi grads",
+                            )?;
+                            let lr = value_as_float_like(args.get(2).ok_or_else(|| {
+                                RuntimeError::new("tensor.sgd_step_multi expects lr")
+                            })?)?;
+                            let weight_decay =
+                                value_as_float_like(args.get(3).ok_or_else(|| {
+                                    RuntimeError::new("tensor.sgd_step_multi expects weight_decay")
+                                })?)?;
+                            let out =
+                                tensor_sgd_step_multi_value(&params, &grads, lr, weight_decay)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(out);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.clip_grad_norm" {
+                            let params = tensor_values_from_value(
+                                args.first().ok_or_else(|| {
+                                    RuntimeError::new("tensor.clip_grad_norm expects params")
+                                })?,
+                                "tensor.clip_grad_norm params",
+                            )?;
+                            let max_norm = value_as_float_like(args.get(1).ok_or_else(|| {
+                                RuntimeError::new("tensor.clip_grad_norm expects max_norm")
+                            })?)?;
+                            let eps = value_as_float_like(args.get(2).ok_or_else(|| {
+                                RuntimeError::new("tensor.clip_grad_norm expects eps")
+                            })?)?;
+                            let out = tensor_clip_grad_norm_value(&params, max_norm, eps)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(out);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.zero_grad_multi" {
+                            let params = tensor_values_from_value(
+                                args.first().ok_or_else(|| {
+                                    RuntimeError::new("tensor.zero_grad_multi expects params")
+                                })?,
+                                "tensor.zero_grad_multi params",
+                            )?;
+                            let out = tensor_zero_grad_multi_value(&params)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(out);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.memory_current" {
+                            self.stack.truncate(callee_index);
+                            self.stack
+                                .push(Value::Int(tensor_memory_current_bytes() as i64));
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.memory_peak" {
+                            self.stack.truncate(callee_index);
+                            self.stack
+                                .push(Value::Int(tensor_memory_peak_bytes() as i64));
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.memory_limit" {
+                            self.stack.truncate(callee_index);
+                            self.stack.push(
+                                tensor_memory_limit_bytes()
+                                    .map(|value| Value::Int(value as i64))
+                                    .unwrap_or(Value::Int(-1)),
+                            );
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.memory_set_limit" {
+                            let limit = value_as_non_negative_int(
+                                args.first().ok_or_else(|| {
+                                    RuntimeError::new("tensor.memory_set_limit expects bytes")
+                                })?,
+                                "tensor.memory_set_limit expects bytes >= 0",
+                            )? as u64;
+                            let previous = tensor_memory_set_limit_bytes(Some(limit));
+                            self.stack.truncate(callee_index);
+                            self.stack.push(
+                                previous
+                                    .map(|value| Value::Int(value as i64))
+                                    .unwrap_or(Value::Int(-1)),
+                            );
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.memory_clear_limit" {
+                            let previous = tensor_memory_set_limit_bytes(None);
+                            self.stack.truncate(callee_index);
+                            self.stack.push(
+                                previous
+                                    .map(|value| Value::Int(value as i64))
+                                    .unwrap_or(Value::Int(-1)),
+                            );
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.memory_reset_peak" {
+                            tensor_memory_reset_peak_bytes();
+                            self.stack.truncate(callee_index);
+                            self.stack.push(Value::Int(0));
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.adamw_state" {
+                            self.stack.truncate(callee_index);
+                            self.stack.push(Value::Null);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.adamw_step" {
+                            let param = args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.adamw_step expects param Tensor")
+                            })?;
+                            let grad = tensor_state(args.get(1).ok_or_else(|| {
+                                RuntimeError::new("tensor.adamw_step expects grad Tensor")
+                            })?)?;
+                            let state = args.get(2).ok_or_else(|| {
+                                RuntimeError::new("tensor.adamw_step expects optimizer state")
+                            })?;
+                            let lr = value_as_float_like(args.get(3).ok_or_else(|| {
+                                RuntimeError::new("tensor.adamw_step expects lr")
+                            })?)?;
+                            let beta1 = value_as_float_like(args.get(4).ok_or_else(|| {
+                                RuntimeError::new("tensor.adamw_step expects beta1")
+                            })?)?;
+                            let beta2 = value_as_float_like(args.get(5).ok_or_else(|| {
+                                RuntimeError::new("tensor.adamw_step expects beta2")
+                            })?)?;
+                            let eps = value_as_float_like(args.get(6).ok_or_else(|| {
+                                RuntimeError::new("tensor.adamw_step expects eps")
+                            })?)?;
+                            let weight_decay =
+                                value_as_float_like(args.get(7).ok_or_else(|| {
+                                    RuntimeError::new("tensor.adamw_step expects weight_decay")
+                                })?)?;
+                            let out = tensor_adamw_step_value(
+                                param,
+                                grad,
+                                state,
+                                lr,
+                                beta1,
+                                beta2,
+                                eps,
+                                weight_decay,
+                            )?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(out);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.adamw_step_multi" {
+                            let params = tensor_values_from_value(
+                                args.first().ok_or_else(|| {
+                                    RuntimeError::new("tensor.adamw_step_multi expects params")
+                                })?,
+                                "tensor.adamw_step_multi params",
+                            )?;
+                            let grads = tensor_values_from_value(
+                                args.get(1).ok_or_else(|| {
+                                    RuntimeError::new("tensor.adamw_step_multi expects grads")
+                                })?,
+                                "tensor.adamw_step_multi grads",
+                            )?;
+                            let state = args.get(2).ok_or_else(|| {
+                                RuntimeError::new("tensor.adamw_step_multi expects optimizer state")
+                            })?;
+                            let lr = value_as_float_like(args.get(3).ok_or_else(|| {
+                                RuntimeError::new("tensor.adamw_step_multi expects lr")
+                            })?)?;
+                            let beta1 = value_as_float_like(args.get(4).ok_or_else(|| {
+                                RuntimeError::new("tensor.adamw_step_multi expects beta1")
+                            })?)?;
+                            let beta2 = value_as_float_like(args.get(5).ok_or_else(|| {
+                                RuntimeError::new("tensor.adamw_step_multi expects beta2")
+                            })?)?;
+                            let eps = value_as_float_like(args.get(6).ok_or_else(|| {
+                                RuntimeError::new("tensor.adamw_step_multi expects eps")
+                            })?)?;
+                            let weight_decay =
+                                value_as_float_like(args.get(7).ok_or_else(|| {
+                                    RuntimeError::new(
+                                        "tensor.adamw_step_multi expects weight_decay",
+                                    )
+                                })?)?;
+                            let out = tensor_adamw_step_multi_value(
+                                &params,
+                                &grads,
+                                state,
+                                lr,
+                                beta1,
+                                beta2,
+                                eps,
+                                weight_decay,
+                            )?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(out);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.no_grad" {
+                            let enabled = value_as_bool(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.no_grad expects Bool")
+                            })?)?;
+                            let previous = TENSOR_NO_GRAD.with(|flag| {
+                                let previous = flag.get();
+                                flag.set(enabled);
+                                previous
+                            });
+                            self.stack.truncate(callee_index);
+                            self.stack.push(Value::Bool(previous));
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.grad_check" {
+                            let actual = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.grad_check expects actual Tensor")
+                            })?)?;
+                            let expected = tensor_state(args.get(1).ok_or_else(|| {
+                                RuntimeError::new("tensor.grad_check expects expected Tensor")
+                            })?)?;
+                            let tolerance = value_as_float_like(args.get(2).ok_or_else(|| {
+                                RuntimeError::new("tensor.grad_check expects tolerance")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack
+                                .push(tensor_grad_check(actual, expected, tolerance)?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.where" {
+                            let mask = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.where expects mask Tensor")
+                            })?)?;
+                            let yes = tensor_state(args.get(1).ok_or_else(|| {
+                                RuntimeError::new("tensor.where expects true Tensor")
+                            })?)?;
+                            let no = tensor_state(args.get(2).ok_or_else(|| {
+                                RuntimeError::new("tensor.where expects false Tensor")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(tensor_where(mask, yes, no)?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.clip" {
+                            let tensor =
+                                tensor_state(args.first().ok_or_else(|| {
+                                    RuntimeError::new("tensor.clip expects Tensor")
+                                })?)?;
+                            let min =
+                                value_as_float_like(args.get(1).ok_or_else(|| {
+                                    RuntimeError::new("tensor.clip expects min")
+                                })?)?;
+                            let max =
+                                value_as_float_like(args.get(2).ok_or_else(|| {
+                                    RuntimeError::new("tensor.clip expects max")
+                                })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(tensor_clip(tensor, min, max)?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.argmax" {
+                            let tensor = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.argmax expects Tensor")
+                            })?)?;
+                            let dim = value_as_non_negative_int(
+                                args.get(1).ok_or_else(|| {
+                                    RuntimeError::new("tensor.argmax expects dim")
+                                })?,
+                                "tensor.argmax expects dim >= 0",
+                            )? as usize;
+                            let keepdim = value_as_bool(args.get(2).ok_or_else(|| {
+                                RuntimeError::new("tensor.argmax expects keepdim")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(tensor_argmax(tensor, dim, keepdim)?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.sort" || nf.name == "tensor.topk" {
+                            let tensor = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.sort/topk expects Tensor")
+                            })?)?;
+                            if nf.name == "tensor.sort" {
+                                let dim = value_as_non_negative_int(
+                                    args.get(1).ok_or_else(|| {
+                                        RuntimeError::new("tensor.sort expects dim")
+                                    })?,
+                                    "tensor.sort expects dim >= 0",
+                                )? as usize;
+                                let descending = value_as_bool(args.get(2).ok_or_else(|| {
+                                    RuntimeError::new("tensor.sort expects descending")
+                                })?)?;
+                                self.stack.truncate(callee_index);
+                                self.stack.push(tensor_sort(tensor, dim, descending)?);
+                            } else {
+                                let k = value_as_non_negative_int(
+                                    args.get(1).ok_or_else(|| {
+                                        RuntimeError::new("tensor.topk expects k")
+                                    })?,
+                                    "tensor.topk expects k >= 0",
+                                )? as usize;
+                                let dim = value_as_non_negative_int(
+                                    args.get(2).ok_or_else(|| {
+                                        RuntimeError::new("tensor.topk expects dim")
+                                    })?,
+                                    "tensor.topk expects dim >= 0",
+                                )? as usize;
+                                self.stack.truncate(callee_index);
+                                self.stack.push(tensor_topk(tensor, k, dim)?);
+                            }
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.gather" {
+                            let tensor = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.gather expects Tensor")
+                            })?)?;
+                            let dim = value_as_non_negative_int(
+                                args.get(1).ok_or_else(|| {
+                                    RuntimeError::new("tensor.gather expects dim")
+                                })?,
+                                "tensor.gather expects dim >= 0",
+                            )? as usize;
+                            let indices = tensor_state(args.get(2).ok_or_else(|| {
+                                RuntimeError::new("tensor.gather expects indices Tensor")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(tensor_gather(tensor, dim, indices)?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.scatter" {
+                            let tensor = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.scatter expects base Tensor")
+                            })?)?;
+                            let dim = value_as_non_negative_int(
+                                args.get(1).ok_or_else(|| {
+                                    RuntimeError::new("tensor.scatter expects dim")
+                                })?,
+                                "tensor.scatter expects dim >= 0",
+                            )? as usize;
+                            let indices = tensor_state(args.get(2).ok_or_else(|| {
+                                RuntimeError::new("tensor.scatter expects indices Tensor")
+                            })?)?;
+                            let updates = tensor_state(args.get(3).ok_or_else(|| {
+                                RuntimeError::new("tensor.scatter expects updates Tensor")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack
+                                .push(tensor_scatter(tensor, dim, indices, updates)?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.masked_fill" {
+                            let tensor = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.masked_fill expects Tensor")
+                            })?)?;
+                            let mask = tensor_state(args.get(1).ok_or_else(|| {
+                                RuntimeError::new("tensor.masked_fill expects mask Tensor")
+                            })?)?;
+                            let fill = value_as_float_like(args.get(2).ok_or_else(|| {
+                                RuntimeError::new("tensor.masked_fill expects fill")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(tensor_masked_fill(tensor, mask, fill)?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.einsum" {
+                            let spec = value_as_string(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.einsum expects pattern")
+                            })?)?;
+                            let left = tensor_state(args.get(1).ok_or_else(|| {
+                                RuntimeError::new("tensor.einsum expects left Tensor")
+                            })?)?;
+                            let right = tensor_state(args.get(2).ok_or_else(|| {
+                                RuntimeError::new("tensor.einsum expects right Tensor")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(tensor_einsum(&spec, left, right)?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.conv2d" {
+                            let input = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.conv2d expects input Tensor")
+                            })?)?;
+                            let weight = tensor_state(args.get(1).ok_or_else(|| {
+                                RuntimeError::new("tensor.conv2d expects weight Tensor")
+                            })?)?;
+                            let bias = tensor_state(args.get(2).ok_or_else(|| {
+                                RuntimeError::new("tensor.conv2d expects bias Tensor")
+                            })?)?;
+                            let stride = value_as_non_negative_int(
+                                args.get(3).ok_or_else(|| {
+                                    RuntimeError::new("tensor.conv2d expects stride")
+                                })?,
+                                "tensor.conv2d expects stride >= 0",
+                            )? as usize;
+                            let padding = value_as_non_negative_int(
+                                args.get(4).ok_or_else(|| {
+                                    RuntimeError::new("tensor.conv2d expects padding")
+                                })?,
+                                "tensor.conv2d expects padding >= 0",
+                            )? as usize;
+                            self.stack.truncate(callee_index);
+                            self.stack
+                                .push(tensor_conv2d(input, weight, bias, stride, padding)?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.max_pool2d" || nf.name == "tensor.avg_pool2d" {
+                            let input = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor pool2d expects input Tensor")
+                            })?)?;
+                            let kernel = value_as_non_negative_int(
+                                args.get(1).ok_or_else(|| {
+                                    RuntimeError::new("tensor pool2d expects kernel")
+                                })?,
+                                "tensor pool2d expects kernel >= 0",
+                            )? as usize;
+                            let stride = value_as_non_negative_int(
+                                args.get(2).ok_or_else(|| {
+                                    RuntimeError::new("tensor pool2d expects stride")
+                                })?,
+                                "tensor pool2d expects stride >= 0",
+                            )? as usize;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(tensor_pool2d(
+                                input,
+                                kernel,
+                                stride,
+                                nf.name == "tensor.max_pool2d",
+                            )?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.batchnorm1d" {
+                            let input = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.batchnorm1d expects input Tensor")
+                            })?)?;
+                            let gamma = tensor_state(args.get(1).ok_or_else(|| {
+                                RuntimeError::new("tensor.batchnorm1d expects gamma Tensor")
+                            })?)?;
+                            let beta = tensor_state(args.get(2).ok_or_else(|| {
+                                RuntimeError::new("tensor.batchnorm1d expects beta Tensor")
+                            })?)?;
+                            let eps = value_as_float_like(args.get(3).ok_or_else(|| {
+                                RuntimeError::new("tensor.batchnorm1d expects eps")
+                            })?)?;
+                            let training = value_as_bool(args.get(4).ok_or_else(|| {
+                                RuntimeError::new("tensor.batchnorm1d expects training")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack
+                                .push(tensor_batchnorm1d(input, gamma, beta, eps, training)?);
+                            return Ok(());
+                        }
+                        if nf.name == "tensor.attention" {
+                            let q = tensor_state(args.first().ok_or_else(|| {
+                                RuntimeError::new("tensor.attention expects query Tensor")
+                            })?)?;
+                            let k = tensor_state(args.get(1).ok_or_else(|| {
+                                RuntimeError::new("tensor.attention expects key Tensor")
+                            })?)?;
+                            let v = tensor_state(args.get(2).ok_or_else(|| {
+                                RuntimeError::new("tensor.attention expects value Tensor")
+                            })?)?;
+                            self.stack.truncate(callee_index);
+                            self.stack.push(tensor_attention(q, k, v)?);
                             return Ok(());
                         }
                         if nf.name == "sparse.vector" {
@@ -6791,7 +8152,7 @@ impl VM {
                     context = Some(CapabilityContext::for_path(&value_as_string(path)?));
                 }
             }
-            "dataset.open" => {
+            "dataset.open" | "dataset.manifest" => {
                 capability = Some(vec!["fs".to_string(), "read".to_string()]);
                 if let Some(path) = args.first() {
                     context = Some(CapabilityContext::for_path(&value_as_string(path)?));
@@ -7058,15 +8419,13 @@ impl VM {
                 )))
             }
             "canonical_builtin_global_name" => {
-                let text = value_as_string(
-                    args.first().ok_or_else(|| {
-                        RuntimeError::new("canonical_builtin_global_name expects String")
-                    })?,
-                )?;
+                let text = value_as_string(args.first().ok_or_else(|| {
+                    RuntimeError::new("canonical_builtin_global_name expects String")
+                })?)?;
                 let candidate = text.rsplit("::").next().unwrap_or(text.as_str());
                 let canonical = match candidate {
-                    "print" | "policy" | "json" | "sparse" | "event" | "pool" | "task"
-                    | "chan" | "sim" | "spatial" | "snn" | "agent" => candidate,
+                    "print" | "policy" | "json" | "sparse" | "event" | "pool" | "task" | "chan"
+                    | "sim" | "spatial" | "snn" | "agent" => candidate,
                     _ => "",
                 };
                 Ok(Some(string_value(canonical)))
@@ -7120,27 +8479,26 @@ impl VM {
                 Ok(Some(Value::Int(stable_domain_hash(&text))))
             }
             "runtime_mix_rng_seed" => {
-                let world_seed = value_as_int(
-                    args.first()
-                        .ok_or_else(|| RuntimeError::new("runtime_mix_rng_seed expects world seed"))?,
-                )?;
-                let stream_id = value_as_int(
-                    args.get(1)
-                        .ok_or_else(|| RuntimeError::new("runtime_mix_rng_seed expects stream id"))?,
-                )?;
-                let domain_id = value_as_int(
-                    args.get(2)
-                        .ok_or_else(|| RuntimeError::new("runtime_mix_rng_seed expects domain id"))?,
-                )?;
+                let world_seed = value_as_int(args.first().ok_or_else(|| {
+                    RuntimeError::new("runtime_mix_rng_seed expects world seed")
+                })?)?;
+                let stream_id =
+                    value_as_int(args.get(1).ok_or_else(|| {
+                        RuntimeError::new("runtime_mix_rng_seed expects stream id")
+                    })?)?;
+                let domain_id =
+                    value_as_int(args.get(2).ok_or_else(|| {
+                        RuntimeError::new("runtime_mix_rng_seed expects domain id")
+                    })?)?;
                 Ok(Some(Value::Int(
                     mix_rng_seed(world_seed, stream_id, domain_id) as i64,
                 )))
             }
             "runtime_rng_next_state" => {
-                let state = value_as_int(
-                    args.first()
-                        .ok_or_else(|| RuntimeError::new("runtime_rng_next_state expects state"))?,
-                )?;
+                let state =
+                    value_as_int(args.first().ok_or_else(|| {
+                        RuntimeError::new("runtime_rng_next_state expects state")
+                    })?)?;
                 let mut state = state as u64;
                 state = state.wrapping_add(0x9e3779b97f4a7c15);
                 Ok(Some(Value::Int(state as i64)))
@@ -7159,12 +8517,14 @@ impl VM {
                 )))
             }
             "runtime_rng_state_to_int" => {
-                let state = value_as_int(args.first().ok_or_else(|| {
-                    RuntimeError::new("runtime_rng_state_to_int expects state")
-                })?)?;
-                let upper = value_as_int(args.get(1).ok_or_else(|| {
-                    RuntimeError::new("runtime_rng_state_to_int expects upper")
-                })?)?;
+                let state =
+                    value_as_int(args.first().ok_or_else(|| {
+                        RuntimeError::new("runtime_rng_state_to_int expects state")
+                    })?)?;
+                let upper =
+                    value_as_int(args.get(1).ok_or_else(|| {
+                        RuntimeError::new("runtime_rng_state_to_int expects upper")
+                    })?)?;
                 if upper <= 0 {
                     return Ok(Some(Value::Int(0)));
                 }
@@ -7174,9 +8534,10 @@ impl VM {
                 Ok(Some(Value::Int(((z ^ (z >> 31)) % upper as u64) as i64)))
             }
             "runtime_ffi_invoke" => {
-                let payload = value_as_string(args.first().ok_or_else(|| {
-                    RuntimeError::new("runtime_ffi_invoke expects String")
-                })?)?;
+                let payload = value_as_string(
+                    args.first()
+                        .ok_or_else(|| RuntimeError::new("runtime_ffi_invoke expects String"))?,
+                )?;
                 let response = self.runtime_bridge_invoke(&payload)?;
                 Ok(Some(string_value(&response.to_string())))
             }
@@ -7272,9 +8633,8 @@ impl VM {
         let signature_json = payload
             .get("signature")
             .ok_or_else(|| RuntimeError::new("runtime FFI payload missing signature"))?;
-        let args_json = runtime_bridge_args_from_list(
-            payload.get("args").unwrap_or(&serde_json::Value::Null),
-        )?;
+        let args_json =
+            runtime_bridge_args_from_list(payload.get("args").unwrap_or(&serde_json::Value::Null))?;
         let args = args_json
             .iter()
             .map(|arg| self.runtime_bridge_decode_value(arg))
@@ -7382,7 +8742,9 @@ impl VM {
         value: Value,
     ) -> Result<serde_json::Value, RuntimeError> {
         match value {
-            Value::Null => Ok(serde_json::json!({ "kind": "Null", "value": serde_json::Value::Null })),
+            Value::Null => {
+                Ok(serde_json::json!({ "kind": "Null", "value": serde_json::Value::Null }))
+            }
             Value::Bool(flag) => Ok(serde_json::json!({ "kind": "Bool", "value": flag })),
             Value::Int(inner) => Ok(serde_json::json!({ "kind": "Int", "value": inner })),
             Value::Float(inner) => Ok(serde_json::json!({ "kind": "Float", "value": inner })),
@@ -7396,7 +8758,8 @@ impl VM {
                 })),
                 Obj::NativeHandle(handle) => {
                     let key = format!("{:x}", handle.ptr as usize);
-                    self.runtime_bridge_handles.insert(key.clone(), Value::Obj(obj.clone()));
+                    self.runtime_bridge_handles
+                        .insert(key.clone(), Value::Obj(obj.clone()));
                     Ok(serde_json::json!({ "kind": "Handle", "value": key }))
                 }
                 _ => Err(RuntimeError::new(
@@ -9687,6 +11050,16 @@ impl VM {
         Ok(string_value(&text))
     }
 
+    fn tokenizer_fingerprint(&self, tokenizer: Value) -> Result<Value, RuntimeError> {
+        let tokenizer = tokenizer_from_value(tokenizer, "tokenizer.fingerprint")?;
+        Ok(string_value(&tokenizer.fingerprint()))
+    }
+
+    fn tokenizer_provenance(&self, tokenizer: Value) -> Result<Value, RuntimeError> {
+        let tokenizer = tokenizer_from_value(tokenizer, "tokenizer.provenance")?;
+        Ok(json_to_value(tokenizer.provenance()))
+    }
+
     fn dataset_open(
         &self,
         path: Value,
@@ -9694,64 +11067,8 @@ impl VM {
         config: Value,
     ) -> Result<Value, RuntimeError> {
         let path = value_as_string(&path)?;
-        let tokenizer = match tokenizer {
-            Value::Obj(obj) => match obj.as_obj() {
-                Obj::Tokenizer(tok) => tok.clone(),
-                _ => return Err(RuntimeError::new("dataset.open expects Tokenizer")),
-            },
-            _ => return Err(RuntimeError::new("dataset.open expects Tokenizer")),
-        };
-        let cfg = match config {
-            Value::Obj(obj) => match obj.as_obj() {
-                Obj::Record(map) => {
-                    let map = map.borrow();
-                    let seq_len = map
-                        .get("seq_len")
-                        .ok_or_else(|| RuntimeError::new("dataset config missing seq_len"))
-                        .and_then(value_as_int)?;
-                    let batch_size = map
-                        .get("batch_size")
-                        .ok_or_else(|| RuntimeError::new("dataset config missing batch_size"))
-                        .and_then(value_as_int)?;
-                    if seq_len <= 0 || batch_size <= 0 {
-                        return Err(RuntimeError::new("seq_len and batch_size must be > 0"));
-                    }
-                    let mut cfg = DatasetConfig::new(seq_len as usize, batch_size as usize);
-                    if let Some(value) = map.get("add_eos") {
-                        cfg.add_eos = value_as_bool(value)?;
-                    }
-                    if let Some(value) = map.get("drop_remainder") {
-                        cfg.drop_remainder = value_as_bool(value)?;
-                    }
-                    if let Some(value) = map.get("pad_id") {
-                        let id = value_as_int(value)?;
-                        if id >= 0 {
-                            cfg.pad_id = id as u32;
-                        }
-                    }
-                    if let Some(value) = map.get("seed") {
-                        let seed = value_as_int(value)?;
-                        if seed < 0 {
-                            return Err(RuntimeError::new("dataset seed must be >= 0"));
-                        }
-                        cfg.seed = Some(seed as u64);
-                    }
-                    if let Some(value) = map.get("shuffle") {
-                        cfg.shuffle = value_as_bool(value)?;
-                    }
-                    if let Some(value) = map.get("prefetch_batches") {
-                        let count = value_as_int(value)?;
-                        if count < 0 {
-                            return Err(RuntimeError::new("dataset prefetch_batches must be >= 0"));
-                        }
-                        cfg.prefetch_batches = count as usize;
-                    }
-                    cfg
-                }
-                _ => return Err(RuntimeError::new("dataset.open expects config record")),
-            },
-            _ => return Err(RuntimeError::new("dataset.open expects config record")),
-        };
+        let tokenizer = tokenizer_from_value(tokenizer, "dataset.open")?;
+        let cfg = dataset_config_from_value(config, "dataset.open")?;
         let paths = resolve_dataset_paths(&path)
             .map_err(|err| RuntimeError::new(&format!("dataset.open failed: {}", err)))?;
         let stream = DatasetStream::new(paths, tokenizer, cfg)
@@ -9775,6 +11092,40 @@ impl VM {
             .next_batch()
             .map_err(|err| RuntimeError::new(&err))?;
         Ok(batch.map(batch_to_value))
+    }
+
+    fn dataset_cursor(&self, stream: Value) -> Result<Value, RuntimeError> {
+        let stream = dataset_stream_from_value(&stream, "dataset.cursor")?;
+        let cursor = stream
+            .borrow()
+            .cursor()
+            .map_err(|err| RuntimeError::new(&err))?;
+        Ok(dataset_cursor_to_value(cursor))
+    }
+
+    fn dataset_restore(&self, stream: Value, cursor: Value) -> Result<(), RuntimeError> {
+        let stream = dataset_stream_from_value(&stream, "dataset.restore")?;
+        let cursor = dataset_cursor_from_value(cursor)?;
+        stream
+            .borrow_mut()
+            .restore_cursor(cursor)
+            .map_err(|err| RuntimeError::new(&err))
+    }
+
+    fn dataset_manifest(
+        &self,
+        path: Value,
+        tokenizer: Value,
+        config: Value,
+    ) -> Result<Value, RuntimeError> {
+        let path = value_as_string(&path)?;
+        let tokenizer = tokenizer_from_value(tokenizer, "dataset.manifest")?;
+        let cfg = dataset_config_from_value(config, "dataset.manifest")?;
+        let paths = resolve_dataset_paths(&path)
+            .map_err(|err| RuntimeError::new(&format!("dataset.manifest failed: {}", err)))?;
+        let manifest = dataset_pipeline_manifest(&paths, &tokenizer, &cfg)
+            .map_err(|err| RuntimeError::new(&format!("dataset.manifest failed: {}", err)))?;
+        Ok(json_to_value(manifest))
     }
 
     fn checkpoint_save(&self, dir: Value, state: Value) -> Result<(), RuntimeError> {
@@ -12499,6 +13850,27 @@ impl VM {
                 Obj::Buffer(bytes) => Ok(serde_json::Value::String(
                     String::from_utf8_lossy(bytes).to_string(),
                 )),
+                Obj::Vector(inner) => Ok(serde_json::Value::Array(
+                    inner
+                        .borrow()
+                        .data
+                        .iter()
+                        .map(|value| {
+                            serde_json::Number::from_f64(*value)
+                                .map(serde_json::Value::Number)
+                                .unwrap_or(serde_json::Value::Null)
+                        })
+                        .collect(),
+                )),
+                Obj::Tensor(inner) => {
+                    let tensor = inner.borrow();
+                    Ok(serde_json::json!({
+                        "kind": "Tensor",
+                        "dtype": tensor.dtype.clone(),
+                        "shape": tensor.shape.clone(),
+                        "data": tensor.data.clone(),
+                    }))
+                }
                 Obj::List(items) => {
                     let items = items.borrow();
                     let mut out = Vec::with_capacity(items.len());
@@ -12594,6 +13966,9 @@ impl VM {
 }
 
 fn builtin_native_std_function(decl: &NativeFunctionDecl) -> Option<NativeFunction> {
+    if decl.library == "enkai_tensor" {
+        return builtin_enkai_tensor_function(decl);
+    }
     if decl.library != "enkai_native" {
         return None;
     }
@@ -12649,6 +14024,902 @@ fn builtin_native_std_function(decl: &NativeFunctionDecl) -> Option<NativeFuncti
         })),
         bound: None,
     })
+}
+
+fn builtin_enkai_tensor_function(decl: &NativeFunctionDecl) -> Option<NativeFunction> {
+    let supported = matches!(
+        decl.name.as_str(),
+        "enkai_tensor_device"
+            | "enkai_tensor_free"
+            | "enkai_tensor_device_free"
+            | "enkai_tensor_from_array"
+            | "enkai_tensor_to_array"
+            | "enkai_tensor_rank"
+            | "enkai_tensor_len"
+            | "enkai_tensor_get_flat"
+            | "enkai_tensor_zeros"
+            | "enkai_tensor_randn"
+            | "enkai_tensor_shape"
+            | "enkai_tensor_add"
+            | "enkai_tensor_sub"
+            | "enkai_tensor_mul"
+            | "enkai_tensor_div"
+            | "enkai_tensor_scale"
+            | "enkai_tensor_broadcast_to"
+            | "enkai_tensor_matmul"
+            | "enkai_tensor_reshape"
+            | "enkai_tensor_view"
+            | "enkai_tensor_transpose"
+            | "enkai_tensor_slice"
+            | "enkai_tensor_concat"
+            | "enkai_tensor_sum"
+            | "enkai_tensor_mean"
+            | "enkai_tensor_softmax"
+            | "enkai_tensor_relu"
+            | "enkai_tensor_sigmoid"
+            | "enkai_tensor_gelu"
+            | "enkai_tensor_exp"
+            | "enkai_tensor_log"
+            | "enkai_tensor_sqrt"
+            | "enkai_tensor_tanh"
+            | "enkai_tensor_dropout"
+            | "enkai_tensor_linear"
+            | "enkai_tensor_layernorm"
+            | "enkai_tensor_embedding"
+            | "enkai_tensor_cross_entropy"
+            | "enkai_tensor_to_device"
+            | "enkai_tensor_to_dtype"
+            | "enkai_tensor_require_grad"
+            | "enkai_tensor_detach"
+            | "enkai_tensor_backward"
+            | "enkai_tensor_grad"
+            | "enkai_tensor_zero_grad"
+            | "enkai_tensor_zero_grad_multi"
+            | "enkai_tensor_sgd_step"
+            | "enkai_tensor_sgd_step_multi"
+            | "enkai_tensor_clip_grad_norm"
+            | "enkai_tensor_memory_current"
+            | "enkai_tensor_memory_peak"
+            | "enkai_tensor_memory_limit"
+            | "enkai_tensor_memory_set_limit"
+            | "enkai_tensor_memory_clear_limit"
+            | "enkai_tensor_memory_reset_peak"
+            | "enkai_tensor_adamw_state"
+            | "enkai_tensor_adamw_step"
+            | "enkai_tensor_adamw_step_multi"
+            | "enkai_tensor_no_grad"
+            | "enkai_tensor_grad_check"
+            | "enkai_tensor_where"
+            | "enkai_tensor_clip"
+            | "enkai_tensor_argmax"
+            | "enkai_tensor_sort"
+            | "enkai_tensor_topk"
+            | "enkai_tensor_gather"
+            | "enkai_tensor_scatter"
+            | "enkai_tensor_masked_fill"
+            | "enkai_tensor_einsum"
+            | "enkai_tensor_conv2d"
+            | "enkai_tensor_max_pool2d"
+            | "enkai_tensor_avg_pool2d"
+            | "enkai_tensor_batchnorm1d"
+            | "enkai_tensor_attention"
+    );
+    if !supported {
+        return None;
+    }
+    let name = decl.name.clone();
+    Some(NativeFunction {
+        name: name.clone(),
+        arity: decl.signature.params.len() as u16,
+        kind: NativeImpl::Rust(std::rc::Rc::new(move |_, args| {
+            dispatch_builtin_enkai_tensor(&name, args)
+        })),
+        bound: None,
+    })
+}
+
+fn dispatch_builtin_enkai_tensor(name: &str, args: &[Value]) -> Result<Value, RuntimeError> {
+    match name {
+        "enkai_tensor_device" => Ok(Value::Int(0)),
+        "enkai_tensor_free" | "enkai_tensor_device_free" => Ok(Value::Int(0)),
+        "enkai_tensor_from_array" => {
+            let data_json = value_as_string(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_from_array expects data"))?,
+            )?;
+            let shape_json = value_as_string(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_from_array expects shape"))?,
+            )?;
+            let dtype = value_as_string(
+                args.get(2)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_from_array expects dtype"))?,
+            )?;
+            let data = parse_f64_json_array(&data_json, "enkai_tensor_from_array data")?;
+            let shape = parse_shape_json(&shape_json)?;
+            ensure_tensor_size(&shape, data.len())?;
+            checked_tensor_value(shape, data, dtype, "enkai_tensor_from_array")
+        }
+        "enkai_tensor_to_array" => {
+            let tensor = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_to_array expects tensor"))?,
+            )?;
+            serde_json::to_string(&tensor.data)
+                .map(|json| string_value(&json))
+                .map_err(|err| RuntimeError::new(&err.to_string()))
+        }
+        "enkai_tensor_rank" => {
+            let tensor = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_rank expects tensor"))?,
+            )?;
+            Ok(Value::Int(tensor.shape.len() as i64))
+        }
+        "enkai_tensor_len" => {
+            let tensor = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_len expects tensor"))?,
+            )?;
+            Ok(Value::Int(tensor.data.len() as i64))
+        }
+        "enkai_tensor_get_flat" => {
+            let tensor = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_get_flat expects tensor"))?,
+            )?;
+            let index = value_as_non_negative_int(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_get_flat expects index"))?,
+                "enkai_tensor_get_flat expects index >= 0",
+            )? as usize;
+            tensor
+                .data
+                .get(index)
+                .copied()
+                .map(Value::Float)
+                .ok_or_else(|| RuntimeError::new("enkai_tensor_get_flat index out of bounds"))
+        }
+        "enkai_tensor_zeros" => {
+            let shape_json = value_as_string(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_zeros expects shape"))?,
+            )?;
+            let dtype = value_as_string(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_zeros expects dtype"))?,
+            )?;
+            let shape = parse_shape_json(&shape_json)?;
+            let len = tensor_len_from_shape(&shape)?;
+            checked_tensor_value(shape, vec![0.0; len], dtype, "enkai_tensor_zeros")
+        }
+        "enkai_tensor_randn" => {
+            let shape_json = value_as_string(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_randn expects shape"))?,
+            )?;
+            let dtype = value_as_string(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_randn expects dtype"))?,
+            )?;
+            let shape = parse_shape_json(&shape_json)?;
+            let len = tensor_len_from_shape(&shape)?;
+            let data = (0..len)
+                .map(|idx| (((idx as u64 * 6364136223846793005 + 1) % 10_000) as f64) / 10_000.0)
+                .collect();
+            checked_tensor_value(shape, data, dtype, "enkai_tensor_randn")
+        }
+        "enkai_tensor_shape" => {
+            let tensor = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_shape expects tensor"))?,
+            )?;
+            serde_json::to_string(&tensor.shape)
+                .map(|json| string_value(&json))
+                .map_err(|err| RuntimeError::new(&err.to_string()))
+        }
+        "enkai_tensor_add" | "enkai_tensor_sub" | "enkai_tensor_mul" | "enkai_tensor_div" => {
+            let left = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("tensor binary op expects left tensor"))?,
+            )?;
+            let right = tensor_state(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("tensor binary op expects right tensor"))?,
+            )?;
+            tensor_binary(left, right, name)
+        }
+        "enkai_tensor_scale" => {
+            let tensor = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_scale expects tensor"))?,
+            )?;
+            let scale = value_as_float_like(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_scale expects scale"))?,
+            )?;
+            tensor_scale(tensor, scale)
+        }
+        "enkai_tensor_broadcast_to" => {
+            let tensor =
+                tensor_state(args.first().ok_or_else(|| {
+                    RuntimeError::new("enkai_tensor_broadcast_to expects tensor")
+                })?)?;
+            let shape_json =
+                value_as_string(args.get(1).ok_or_else(|| {
+                    RuntimeError::new("enkai_tensor_broadcast_to expects shape")
+                })?)?;
+            let shape = parse_shape_json(&shape_json)?;
+            tensor_broadcast_to(tensor, &shape)
+        }
+        "enkai_tensor_matmul" => {
+            let left =
+                tensor_state(args.first().ok_or_else(|| {
+                    RuntimeError::new("enkai_tensor_matmul expects left tensor")
+                })?)?;
+            let right =
+                tensor_state(args.get(1).ok_or_else(|| {
+                    RuntimeError::new("enkai_tensor_matmul expects right tensor")
+                })?)?;
+            tensor_matmul(left, right)
+        }
+        "enkai_tensor_reshape" | "enkai_tensor_view" => {
+            let tensor = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_reshape expects tensor"))?,
+            )?;
+            let shape_json = value_as_string(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_reshape expects shape"))?,
+            )?;
+            let shape = parse_shape_json(&shape_json)?;
+            ensure_tensor_size(&shape, tensor.data.len())?;
+            Ok(tensor_value(shape, tensor.data, tensor.dtype))
+        }
+        "enkai_tensor_transpose" => {
+            let tensor = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_transpose expects tensor"))?,
+            )?;
+            let dim0 = value_as_non_negative_int(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_transpose expects dim0"))?,
+                "enkai_tensor_transpose expects dim0 >= 0",
+            )? as usize;
+            let dim1 = value_as_non_negative_int(
+                args.get(2)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_transpose expects dim1"))?,
+                "enkai_tensor_transpose expects dim1 >= 0",
+            )? as usize;
+            tensor_transpose(tensor, dim0, dim1)
+        }
+        "enkai_tensor_slice" => {
+            let tensor = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_slice expects tensor"))?,
+            )?;
+            let dim = value_as_non_negative_int(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_slice expects dim"))?,
+                "enkai_tensor_slice expects dim >= 0",
+            )? as usize;
+            let start = value_as_int(
+                args.get(2)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_slice expects start"))?,
+            )?;
+            let end = value_as_int(
+                args.get(3)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_slice expects end"))?,
+            )?;
+            let step = value_as_int(
+                args.get(4)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_slice expects step"))?,
+            )?;
+            tensor_slice(tensor, dim, start, end, step)
+        }
+        "enkai_tensor_concat" => {
+            let raw =
+                value_as_string(args.first().ok_or_else(|| {
+                    RuntimeError::new("enkai_tensor_concat expects handles JSON")
+                })?)?;
+            let dim = value_as_non_negative_int(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_concat expects dim"))?,
+                "enkai_tensor_concat expects dim >= 0",
+            )? as usize;
+            let tensors = parse_tensor_json_array(&raw)?;
+            tensor_concat(tensors, dim)
+        }
+        "enkai_tensor_sum" | "enkai_tensor_mean" => {
+            let tensor = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("tensor reduction expects tensor"))?,
+            )?;
+            let dim = value_as_non_negative_int(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("tensor reduction expects dim"))?,
+                "tensor reduction expects dim >= 0",
+            )? as usize;
+            let keepdim = value_as_int(
+                args.get(2)
+                    .ok_or_else(|| RuntimeError::new("tensor reduction expects keepdim"))?,
+            )? != 0;
+            tensor_reduce(tensor, dim, keepdim, name == "enkai_tensor_mean")
+        }
+        "enkai_tensor_softmax" => {
+            let tensor = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_softmax expects tensor"))?,
+            )?;
+            let dim = value_as_non_negative_int(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_softmax expects dim"))?,
+                "enkai_tensor_softmax expects dim >= 0",
+            )? as usize;
+            tensor_softmax(tensor, dim)
+        }
+        "enkai_tensor_relu"
+        | "enkai_tensor_sigmoid"
+        | "enkai_tensor_gelu"
+        | "enkai_tensor_exp"
+        | "enkai_tensor_log"
+        | "enkai_tensor_sqrt"
+        | "enkai_tensor_tanh" => {
+            let tensor = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("tensor unary op expects tensor"))?,
+            )?;
+            tensor_unary(tensor, name)
+        }
+        "enkai_tensor_dropout" => {
+            let tensor = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_dropout expects tensor"))?,
+            )?;
+            let p = value_as_float_like(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_dropout expects p"))?,
+            )?;
+            let train =
+                value_as_int(args.get(2).ok_or_else(|| {
+                    RuntimeError::new("enkai_tensor_dropout expects train flag")
+                })?)?
+                    != 0;
+            tensor_dropout(tensor, p, train)
+        }
+        "enkai_tensor_linear" => {
+            let x = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_linear expects input"))?,
+            )?;
+            let w = tensor_state(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_linear expects weight"))?,
+            )?;
+            let b = tensor_state(
+                args.get(2)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_linear expects bias"))?,
+            )?;
+            tensor_linear(x, w, b)
+        }
+        "enkai_tensor_layernorm" => {
+            let x = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_layernorm expects input"))?,
+            )?;
+            let w = tensor_state(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_layernorm expects weight"))?,
+            )?;
+            let b = tensor_state(
+                args.get(2)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_layernorm expects bias"))?,
+            )?;
+            let eps = value_as_float_like(
+                args.get(3)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_layernorm expects eps"))?,
+            )?;
+            tensor_layernorm(x, w, b, eps)
+        }
+        "enkai_tensor_embedding" => {
+            let w = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_embedding expects weights"))?,
+            )?;
+            let ids = tensor_state(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_embedding expects ids"))?,
+            )?;
+            tensor_embedding(w, ids)
+        }
+        "enkai_tensor_cross_entropy" => {
+            let logits =
+                tensor_state(args.first().ok_or_else(|| {
+                    RuntimeError::new("enkai_tensor_cross_entropy expects logits")
+                })?)?;
+            let targets =
+                tensor_state(args.get(1).ok_or_else(|| {
+                    RuntimeError::new("enkai_tensor_cross_entropy expects targets")
+                })?)?;
+            tensor_cross_entropy(logits, targets)
+        }
+        "enkai_tensor_to_dtype" => {
+            let tensor = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_to_dtype expects tensor"))?,
+            )?;
+            let dtype = value_as_string(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_to_dtype expects dtype"))?,
+            )?;
+            Ok(tensor_value(tensor.shape, tensor.data, dtype))
+        }
+        "enkai_tensor_to_device" => {
+            let tensor = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_to_device expects tensor"))?,
+            )?;
+            Ok(tensor_value(tensor.shape, tensor.data, tensor.dtype))
+        }
+        "enkai_tensor_require_grad" => {
+            let tensor =
+                tensor_state(args.first().ok_or_else(|| {
+                    RuntimeError::new("enkai_tensor_require_grad expects tensor")
+                })?)?;
+            tensor_leaf_with_grad(tensor)
+        }
+        "enkai_tensor_detach" => {
+            let tensor = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_detach expects tensor"))?,
+            )?;
+            Ok(tensor_detached_value(tensor))
+        }
+        "enkai_tensor_backward" => {
+            let tensor = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_backward expects tensor"))?,
+            )?;
+            tensor_backward(tensor)?;
+            Ok(Value::Int(0))
+        }
+        "enkai_tensor_grad" => {
+            let tensor = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_grad expects tensor"))?,
+            )?;
+            Ok(tensor_grad_value(tensor))
+        }
+        "enkai_tensor_zero_grad" => {
+            let tensor = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_zero_grad expects tensor"))?,
+            )?;
+            tensor_zero_grad(tensor);
+            Ok(Value::Int(0))
+        }
+        "enkai_tensor_zero_grad_multi" => {
+            let values = tensor_values_from_value(
+                args.first().ok_or_else(|| {
+                    RuntimeError::new("enkai_tensor_zero_grad_multi expects tensors")
+                })?,
+                "enkai_tensor_zero_grad_multi",
+            )?;
+            tensor_zero_grad_multi_value(&values)
+        }
+        "enkai_tensor_sgd_step" => {
+            let param = args
+                .first()
+                .ok_or_else(|| RuntimeError::new("enkai_tensor_sgd_step expects param"))?;
+            let grad = tensor_state(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_sgd_step expects grad"))?,
+            )?;
+            let lr = value_as_float_like(
+                args.get(2)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_sgd_step expects lr"))?,
+            )?;
+            let weight_decay =
+                value_as_float_like(args.get(3).ok_or_else(|| {
+                    RuntimeError::new("enkai_tensor_sgd_step expects weight_decay")
+                })?)?;
+            tensor_sgd_step_value(param, grad, lr, weight_decay)
+        }
+        "enkai_tensor_sgd_step_multi" => {
+            let params = tensor_values_from_value(
+                args.first().ok_or_else(|| {
+                    RuntimeError::new("enkai_tensor_sgd_step_multi expects params")
+                })?,
+                "enkai_tensor_sgd_step_multi params",
+            )?;
+            let grads = tensor_values_from_value(
+                args.get(1).ok_or_else(|| {
+                    RuntimeError::new("enkai_tensor_sgd_step_multi expects grads")
+                })?,
+                "enkai_tensor_sgd_step_multi grads",
+            )?;
+            let lr = value_as_float_like(
+                args.get(2)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_sgd_step_multi expects lr"))?,
+            )?;
+            let weight_decay = value_as_float_like(args.get(3).ok_or_else(|| {
+                RuntimeError::new("enkai_tensor_sgd_step_multi expects weight_decay")
+            })?)?;
+            tensor_sgd_step_multi_value(&params, &grads, lr, weight_decay)
+        }
+        "enkai_tensor_clip_grad_norm" => {
+            let params = tensor_values_from_value(
+                args.first().ok_or_else(|| {
+                    RuntimeError::new("enkai_tensor_clip_grad_norm expects params")
+                })?,
+                "enkai_tensor_clip_grad_norm params",
+            )?;
+            let max_norm = value_as_float_like(args.get(1).ok_or_else(|| {
+                RuntimeError::new("enkai_tensor_clip_grad_norm expects max_norm")
+            })?)?;
+            let eps =
+                value_as_float_like(args.get(2).ok_or_else(|| {
+                    RuntimeError::new("enkai_tensor_clip_grad_norm expects eps")
+                })?)?;
+            tensor_clip_grad_norm_value(&params, max_norm, eps)
+        }
+        "enkai_tensor_memory_current" => Ok(Value::Int(tensor_memory_current_bytes() as i64)),
+        "enkai_tensor_memory_peak" => Ok(Value::Int(tensor_memory_peak_bytes() as i64)),
+        "enkai_tensor_memory_limit" => Ok(tensor_memory_limit_bytes()
+            .map(|value| Value::Int(value as i64))
+            .unwrap_or(Value::Int(-1))),
+        "enkai_tensor_memory_set_limit" => {
+            let limit = value_as_non_negative_int(
+                args.first().ok_or_else(|| {
+                    RuntimeError::new("enkai_tensor_memory_set_limit expects bytes")
+                })?,
+                "enkai_tensor_memory_set_limit expects bytes >= 0",
+            )? as u64;
+            Ok(tensor_memory_set_limit_bytes(Some(limit))
+                .map(|value| Value::Int(value as i64))
+                .unwrap_or(Value::Int(-1)))
+        }
+        "enkai_tensor_memory_clear_limit" => Ok(tensor_memory_set_limit_bytes(None)
+            .map(|value| Value::Int(value as i64))
+            .unwrap_or(Value::Int(-1))),
+        "enkai_tensor_memory_reset_peak" => {
+            tensor_memory_reset_peak_bytes();
+            Ok(Value::Int(0))
+        }
+        "enkai_tensor_adamw_state" => Ok(Value::Null),
+        "enkai_tensor_adamw_step" => {
+            let param = args
+                .first()
+                .ok_or_else(|| RuntimeError::new("enkai_tensor_adamw_step expects param"))?;
+            let grad = tensor_state(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_adamw_step expects grad"))?,
+            )?;
+            let state = args
+                .get(2)
+                .ok_or_else(|| RuntimeError::new("enkai_tensor_adamw_step expects state"))?;
+            let lr = value_as_float_like(
+                args.get(3)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_adamw_step expects lr"))?,
+            )?;
+            let beta1 = value_as_float_like(
+                args.get(4)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_adamw_step expects beta1"))?,
+            )?;
+            let beta2 = value_as_float_like(
+                args.get(5)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_adamw_step expects beta2"))?,
+            )?;
+            let eps = value_as_float_like(
+                args.get(6)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_adamw_step expects eps"))?,
+            )?;
+            let weight_decay = value_as_float_like(args.get(7).ok_or_else(|| {
+                RuntimeError::new("enkai_tensor_adamw_step expects weight_decay")
+            })?)?;
+            tensor_adamw_step_value(param, grad, state, lr, beta1, beta2, eps, weight_decay)
+        }
+        "enkai_tensor_adamw_step_multi" => {
+            let params = tensor_values_from_value(
+                args.first().ok_or_else(|| {
+                    RuntimeError::new("enkai_tensor_adamw_step_multi expects params")
+                })?,
+                "enkai_tensor_adamw_step_multi params",
+            )?;
+            let grads = tensor_values_from_value(
+                args.get(1).ok_or_else(|| {
+                    RuntimeError::new("enkai_tensor_adamw_step_multi expects grads")
+                })?,
+                "enkai_tensor_adamw_step_multi grads",
+            )?;
+            let state = args
+                .get(2)
+                .ok_or_else(|| RuntimeError::new("enkai_tensor_adamw_step_multi expects state"))?;
+            let lr =
+                value_as_float_like(args.get(3).ok_or_else(|| {
+                    RuntimeError::new("enkai_tensor_adamw_step_multi expects lr")
+                })?)?;
+            let beta1 = value_as_float_like(args.get(4).ok_or_else(|| {
+                RuntimeError::new("enkai_tensor_adamw_step_multi expects beta1")
+            })?)?;
+            let beta2 = value_as_float_like(args.get(5).ok_or_else(|| {
+                RuntimeError::new("enkai_tensor_adamw_step_multi expects beta2")
+            })?)?;
+            let eps =
+                value_as_float_like(args.get(6).ok_or_else(|| {
+                    RuntimeError::new("enkai_tensor_adamw_step_multi expects eps")
+                })?)?;
+            let weight_decay = value_as_float_like(args.get(7).ok_or_else(|| {
+                RuntimeError::new("enkai_tensor_adamw_step_multi expects weight_decay")
+            })?)?;
+            tensor_adamw_step_multi_value(
+                &params,
+                &grads,
+                state,
+                lr,
+                beta1,
+                beta2,
+                eps,
+                weight_decay,
+            )
+        }
+        "enkai_tensor_no_grad" => {
+            let enabled = value_as_int(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_no_grad expects flag"))?,
+            )? != 0;
+            let previous = TENSOR_NO_GRAD.with(|flag| {
+                let previous = flag.get();
+                flag.set(enabled);
+                previous
+            });
+            Ok(Value::Bool(previous))
+        }
+        "enkai_tensor_grad_check" => {
+            let actual = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_grad_check expects actual"))?,
+            )?;
+            let expected =
+                tensor_state(args.get(1).ok_or_else(|| {
+                    RuntimeError::new("enkai_tensor_grad_check expects expected")
+                })?)?;
+            let tolerance =
+                value_as_float_like(args.get(2).ok_or_else(|| {
+                    RuntimeError::new("enkai_tensor_grad_check expects tolerance")
+                })?)?;
+            tensor_grad_check(actual, expected, tolerance)
+        }
+        "enkai_tensor_where" => {
+            let mask = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_where expects mask"))?,
+            )?;
+            let yes = tensor_state(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_where expects true tensor"))?,
+            )?;
+            let no =
+                tensor_state(args.get(2).ok_or_else(|| {
+                    RuntimeError::new("enkai_tensor_where expects false tensor")
+                })?)?;
+            tensor_where(mask, yes, no)
+        }
+        "enkai_tensor_clip" => {
+            let tensor = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_clip expects tensor"))?,
+            )?;
+            let min = value_as_float_like(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_clip expects min"))?,
+            )?;
+            let max = value_as_float_like(
+                args.get(2)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_clip expects max"))?,
+            )?;
+            tensor_clip(tensor, min, max)
+        }
+        "enkai_tensor_argmax" => {
+            let tensor = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_argmax expects tensor"))?,
+            )?;
+            let dim = value_as_non_negative_int(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_argmax expects dim"))?,
+                "enkai_tensor_argmax expects dim >= 0",
+            )? as usize;
+            let keepdim = value_as_int(
+                args.get(2)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_argmax expects keepdim"))?,
+            )? != 0;
+            tensor_argmax(tensor, dim, keepdim)
+        }
+        "enkai_tensor_sort" => {
+            let tensor = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_sort expects tensor"))?,
+            )?;
+            let dim = value_as_non_negative_int(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_sort expects dim"))?,
+                "enkai_tensor_sort expects dim >= 0",
+            )? as usize;
+            let descending = value_as_int(
+                args.get(2)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_sort expects descending"))?,
+            )? != 0;
+            tensor_sort(tensor, dim, descending)
+        }
+        "enkai_tensor_topk" => {
+            let tensor = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_topk expects tensor"))?,
+            )?;
+            let k = value_as_non_negative_int(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_topk expects k"))?,
+                "enkai_tensor_topk expects k >= 0",
+            )? as usize;
+            let dim = value_as_non_negative_int(
+                args.get(2)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_topk expects dim"))?,
+                "enkai_tensor_topk expects dim >= 0",
+            )? as usize;
+            tensor_topk(tensor, k, dim)
+        }
+        "enkai_tensor_gather" => {
+            let tensor = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_gather expects tensor"))?,
+            )?;
+            let dim = value_as_non_negative_int(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_gather expects dim"))?,
+                "enkai_tensor_gather expects dim >= 0",
+            )? as usize;
+            let indices = tensor_state(
+                args.get(2)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_gather expects indices"))?,
+            )?;
+            tensor_gather(tensor, dim, indices)
+        }
+        "enkai_tensor_scatter" => {
+            let tensor = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_scatter expects base"))?,
+            )?;
+            let dim = value_as_non_negative_int(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_scatter expects dim"))?,
+                "enkai_tensor_scatter expects dim >= 0",
+            )? as usize;
+            let indices = tensor_state(
+                args.get(2)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_scatter expects indices"))?,
+            )?;
+            let updates = tensor_state(
+                args.get(3)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_scatter expects updates"))?,
+            )?;
+            tensor_scatter(tensor, dim, indices, updates)
+        }
+        "enkai_tensor_masked_fill" => {
+            let tensor =
+                tensor_state(args.first().ok_or_else(|| {
+                    RuntimeError::new("enkai_tensor_masked_fill expects tensor")
+                })?)?;
+            let mask = tensor_state(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_masked_fill expects mask"))?,
+            )?;
+            let fill = value_as_float_like(
+                args.get(2)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_masked_fill expects fill"))?,
+            )?;
+            tensor_masked_fill(tensor, mask, fill)
+        }
+        "enkai_tensor_einsum" => {
+            let spec = value_as_string(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_einsum expects pattern"))?,
+            )?;
+            let left = tensor_state(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_einsum expects left"))?,
+            )?;
+            let right = tensor_state(
+                args.get(2)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_einsum expects right"))?,
+            )?;
+            tensor_einsum(&spec, left, right)
+        }
+        "enkai_tensor_conv2d" => {
+            let input = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_conv2d expects input"))?,
+            )?;
+            let weight = tensor_state(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_conv2d expects weight"))?,
+            )?;
+            let bias = tensor_state(
+                args.get(2)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_conv2d expects bias"))?,
+            )?;
+            let stride = value_as_non_negative_int(
+                args.get(3)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_conv2d expects stride"))?,
+                "enkai_tensor_conv2d expects stride >= 0",
+            )? as usize;
+            let padding = value_as_non_negative_int(
+                args.get(4)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_conv2d expects padding"))?,
+                "enkai_tensor_conv2d expects padding >= 0",
+            )? as usize;
+            tensor_conv2d(input, weight, bias, stride, padding)
+        }
+        "enkai_tensor_max_pool2d" | "enkai_tensor_avg_pool2d" => {
+            let input = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("tensor pool2d expects input"))?,
+            )?;
+            let kernel = value_as_non_negative_int(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("tensor pool2d expects kernel"))?,
+                "tensor pool2d expects kernel >= 0",
+            )? as usize;
+            let stride = value_as_non_negative_int(
+                args.get(2)
+                    .ok_or_else(|| RuntimeError::new("tensor pool2d expects stride"))?,
+                "tensor pool2d expects stride >= 0",
+            )? as usize;
+            tensor_pool2d(input, kernel, stride, name == "enkai_tensor_max_pool2d")
+        }
+        "enkai_tensor_batchnorm1d" => {
+            let input = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_batchnorm1d expects input"))?,
+            )?;
+            let gamma = tensor_state(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_batchnorm1d expects gamma"))?,
+            )?;
+            let beta = tensor_state(
+                args.get(2)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_batchnorm1d expects beta"))?,
+            )?;
+            let eps = value_as_float_like(
+                args.get(3)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_batchnorm1d expects eps"))?,
+            )?;
+            let training =
+                value_as_int(args.get(4).ok_or_else(|| {
+                    RuntimeError::new("enkai_tensor_batchnorm1d expects training")
+                })?)?
+                    != 0;
+            tensor_batchnorm1d(input, gamma, beta, eps, training)
+        }
+        "enkai_tensor_attention" => {
+            let q = tensor_state(
+                args.first()
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_attention expects query"))?,
+            )?;
+            let k = tensor_state(
+                args.get(1)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_attention expects key"))?,
+            )?;
+            let v = tensor_state(
+                args.get(2)
+                    .ok_or_else(|| RuntimeError::new("enkai_tensor_attention expects value"))?,
+            )?;
+            tensor_attention(q, k, v)
+        }
+        _ => Err(RuntimeError::new(
+            "unsupported builtin enkai_tensor function",
+        )),
+    }
 }
 
 fn encode_f64_buffer(values: &[f64]) -> Value {
@@ -12839,9 +15110,7 @@ fn runtime_json_list_to_raw_json(node: &serde_json::Value) -> Result<serde_json:
     Ok(serde_json::Value::Array(out))
 }
 
-fn runtime_json_record_to_raw_json(
-    node: &serde_json::Value,
-) -> Result<serde_json::Value, String> {
+fn runtime_json_record_to_raw_json(node: &serde_json::Value) -> Result<serde_json::Value, String> {
     let mut cursor = node;
     let mut out = serde_json::Map::new();
     while !cursor.is_null() {
@@ -12885,13 +15154,15 @@ fn runtime_json_to_raw_json(value: &serde_json::Value) -> Result<serde_json::Val
             .and_then(serde_json::Value::as_str)
             .map(|inner| serde_json::Value::String(inner.to_string()))
             .ok_or_else(|| "runtime String is missing string value".to_string()),
-        "List" => runtime_json_list_to_raw_json(
-            value.get("items").unwrap_or(&serde_json::Value::Null),
-        ),
-        "Record" => runtime_json_record_to_raw_json(
-            value.get("fields").unwrap_or(&serde_json::Value::Null),
-        ),
-        other => Err(format!("cannot stringify runtime value kind {other} as JSON")),
+        "List" => {
+            runtime_json_list_to_raw_json(value.get("items").unwrap_or(&serde_json::Value::Null))
+        }
+        "Record" => {
+            runtime_json_record_to_raw_json(value.get("fields").unwrap_or(&serde_json::Value::Null))
+        }
+        other => Err(format!(
+            "cannot stringify runtime value kind {other} as JSON"
+        )),
     }
 }
 
@@ -14019,6 +16290,81 @@ fn value_as_bool(value: &Value) -> Result<bool, RuntimeError> {
     }
 }
 
+fn tokenizer_from_value(value: Value, name: &str) -> Result<Tokenizer, RuntimeError> {
+    match value {
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::Tokenizer(tok) => Ok(tok.clone()),
+            _ => Err(RuntimeError::new(&format!("{name} expects Tokenizer"))),
+        },
+        _ => Err(RuntimeError::new(&format!("{name} expects Tokenizer"))),
+    }
+}
+
+fn dataset_stream_from_value<'a>(
+    value: &'a Value,
+    name: &str,
+) -> Result<&'a RefCell<DatasetStream>, RuntimeError> {
+    match value {
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::DatasetStream(inner) => Ok(inner.as_ref()),
+            _ => Err(RuntimeError::new(&format!("{name} expects DatasetStream"))),
+        },
+        _ => Err(RuntimeError::new(&format!("{name} expects DatasetStream"))),
+    }
+}
+
+fn dataset_config_from_value(value: Value, name: &str) -> Result<DatasetConfig, RuntimeError> {
+    let map = match value {
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::Record(map) => map.borrow().clone(),
+            _ => return Err(RuntimeError::new(&format!("{name} expects config record"))),
+        },
+        _ => return Err(RuntimeError::new(&format!("{name} expects config record"))),
+    };
+    let seq_len = map
+        .get("seq_len")
+        .ok_or_else(|| RuntimeError::new("dataset config missing seq_len"))
+        .and_then(value_as_int)?;
+    let batch_size = map
+        .get("batch_size")
+        .ok_or_else(|| RuntimeError::new("dataset config missing batch_size"))
+        .and_then(value_as_int)?;
+    if seq_len <= 0 || batch_size <= 0 {
+        return Err(RuntimeError::new("seq_len and batch_size must be > 0"));
+    }
+    let mut cfg = DatasetConfig::new(seq_len as usize, batch_size as usize);
+    if let Some(value) = map.get("add_eos") {
+        cfg.add_eos = value_as_bool(value)?;
+    }
+    if let Some(value) = map.get("drop_remainder") {
+        cfg.drop_remainder = value_as_bool(value)?;
+    }
+    if let Some(value) = map.get("pad_id") {
+        let id = value_as_int(value)?;
+        if id >= 0 {
+            cfg.pad_id = id as u32;
+        }
+    }
+    if let Some(value) = map.get("seed") {
+        let seed = value_as_int(value)?;
+        if seed < 0 {
+            return Err(RuntimeError::new("dataset seed must be >= 0"));
+        }
+        cfg.seed = Some(seed as u64);
+    }
+    if let Some(value) = map.get("shuffle") {
+        cfg.shuffle = value_as_bool(value)?;
+    }
+    if let Some(value) = map.get("prefetch_batches") {
+        let count = value_as_int(value)?;
+        if count < 0 {
+            return Err(RuntimeError::new("dataset prefetch_batches must be >= 0"));
+        }
+        cfg.prefetch_batches = count as usize;
+    }
+    Ok(cfg)
+}
+
 fn value_as_list(value: &Value) -> Result<Vec<Value>, RuntimeError> {
     match value {
         Value::Obj(obj) => match obj.as_obj() {
@@ -14026,6 +16372,2543 @@ fn value_as_list(value: &Value) -> Result<Vec<Value>, RuntimeError> {
             _ => Err(RuntimeError::new("Expected List value")),
         },
         _ => Err(RuntimeError::new("Expected List value")),
+    }
+}
+
+fn numeric_values_from_list(value: &Value) -> Result<Vec<f64>, RuntimeError> {
+    let data = value_as_list(value)?
+        .iter()
+        .map(value_as_float_like)
+        .collect::<Result<Vec<_>, _>>()?;
+    validate_tensor_data(&data, "numeric array")?;
+    Ok(data)
+}
+
+fn vector_data(value: &Value) -> Result<Vec<f64>, RuntimeError> {
+    match value {
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::Vector(inner) => Ok(inner.borrow().data.clone()),
+            Obj::List(_) => numeric_values_from_list(value),
+            _ => Err(RuntimeError::new("Expected Vector value")),
+        },
+        _ => Err(RuntimeError::new("Expected Vector value")),
+    }
+}
+
+fn tensor_state(value: &Value) -> Result<TensorState, RuntimeError> {
+    match value {
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::Tensor(inner) => Ok(inner.borrow().clone()),
+            _ => Err(RuntimeError::new("Expected Tensor value")),
+        },
+        _ => Err(RuntimeError::new("Expected Tensor value")),
+    }
+}
+
+#[derive(Clone)]
+enum TensorBackward {
+    Leaf,
+    Add {
+        left: TensorState,
+        right: TensorState,
+        subtract: bool,
+    },
+    Mul {
+        left: TensorState,
+        right: TensorState,
+    },
+    Div {
+        left: TensorState,
+        right: TensorState,
+    },
+    Scale {
+        parent: TensorState,
+        scale: f64,
+    },
+    Matmul {
+        left: TensorState,
+        right: TensorState,
+    },
+    Unary {
+        parent: TensorState,
+        op: String,
+    },
+    Reduce {
+        parent: TensorState,
+        dim: usize,
+        keepdim: bool,
+        mean: bool,
+    },
+    Softmax {
+        parent: TensorState,
+        dim: usize,
+    },
+    Linear {
+        x: TensorState,
+        w: TensorState,
+        b: TensorState,
+    },
+    Embedding {
+        weight: TensorState,
+        ids: TensorState,
+    },
+    LayerNorm {
+        x: TensorState,
+        w: TensorState,
+        b: TensorState,
+        eps: f64,
+    },
+    CrossEntropy {
+        logits: TensorState,
+        targets: TensorState,
+    },
+    Conv2d {
+        input: TensorState,
+        weight: TensorState,
+        bias: TensorState,
+        stride: usize,
+        padding: usize,
+    },
+    Pool2d {
+        input: TensorState,
+        kernel: usize,
+        stride: usize,
+        max_pool: bool,
+    },
+    Attention {
+        q: TensorState,
+        k: TensorState,
+        v: TensorState,
+    },
+}
+
+#[derive(Clone)]
+struct TensorAutogradNode {
+    shape: Vec<usize>,
+    data: Vec<f64>,
+    requires_grad: bool,
+    grad: Option<Vec<f64>>,
+    backward: TensorBackward,
+}
+
+thread_local! {
+    static TENSOR_AUTOGRAD: RefCell<HashMap<u64, TensorAutogradNode>> = RefCell::new(HashMap::new());
+    static TENSOR_NO_GRAD: Cell<bool> = const { Cell::new(false) };
+}
+
+fn tensor_requires_grad(id: u64) -> bool {
+    TENSOR_AUTOGRAD.with(|tape| {
+        tape.borrow()
+            .get(&id)
+            .map(|node| node.requires_grad)
+            .unwrap_or(false)
+    })
+}
+
+fn any_tensor_requires_grad(tensors: &[&TensorState]) -> bool {
+    tensors.iter().any(|tensor| tensor_requires_grad(tensor.id))
+}
+
+fn register_autograd_node(tensor: &TensorState, requires_grad: bool, backward: TensorBackward) {
+    if !requires_grad {
+        return;
+    }
+    TENSOR_AUTOGRAD.with(|tape| {
+        tape.borrow_mut().insert(
+            tensor.id,
+            TensorAutogradNode {
+                shape: tensor.shape.clone(),
+                data: tensor.data.clone(),
+                requires_grad,
+                grad: None,
+                backward,
+            },
+        );
+    });
+}
+
+fn tensor_value_with_autograd(
+    shape: Vec<usize>,
+    data: Vec<f64>,
+    dtype: impl Into<String>,
+    requires_grad: bool,
+    backward: TensorBackward,
+) -> Result<Value, RuntimeError> {
+    let value = checked_tensor_value(shape, data, dtype, "tensor autograd allocation")?;
+    if let Value::Obj(obj) = &value {
+        if let Obj::Tensor(inner) = obj.as_obj() {
+            let tensor = inner.borrow().clone();
+            let enabled = TENSOR_NO_GRAD.with(|flag| !flag.get());
+            register_autograd_node(&tensor, requires_grad && enabled, backward);
+        }
+    }
+    Ok(value)
+}
+
+fn tensor_leaf_with_grad(tensor: TensorState) -> Result<Value, RuntimeError> {
+    tensor_value_with_autograd(
+        tensor.shape,
+        tensor.data,
+        tensor.dtype,
+        true,
+        TensorBackward::Leaf,
+    )
+}
+
+fn tensor_detached_value(tensor: TensorState) -> Value {
+    tensor_value(tensor.shape, tensor.data, tensor.dtype)
+}
+
+fn tensor_add_grad(id: u64, grad: Vec<f64>) {
+    TENSOR_AUTOGRAD.with(|tape| {
+        if let Some(node) = tape.borrow_mut().get_mut(&id) {
+            match &mut node.grad {
+                Some(existing) => {
+                    for (dst, src) in existing.iter_mut().zip(grad.iter()) {
+                        *dst += src;
+                    }
+                }
+                None => node.grad = Some(grad),
+            }
+        }
+    });
+}
+
+fn tensor_parents(backward: &TensorBackward) -> Vec<u64> {
+    match backward {
+        TensorBackward::Leaf => Vec::new(),
+        TensorBackward::Add { left, right, .. }
+        | TensorBackward::Mul { left, right }
+        | TensorBackward::Div { left, right }
+        | TensorBackward::Matmul { left, right } => vec![left.id, right.id],
+        TensorBackward::Scale { parent, .. }
+        | TensorBackward::Unary { parent, .. }
+        | TensorBackward::Reduce { parent, .. }
+        | TensorBackward::Softmax { parent, .. } => {
+            vec![parent.id]
+        }
+        TensorBackward::Linear { x, w, b } => vec![x.id, w.id, b.id],
+        TensorBackward::Embedding { weight, .. } => vec![weight.id],
+        TensorBackward::LayerNorm { x, w, b, .. } => vec![x.id, w.id, b.id],
+        TensorBackward::CrossEntropy { logits, .. } => vec![logits.id],
+        TensorBackward::Conv2d {
+            input,
+            weight,
+            bias,
+            ..
+        } => vec![input.id, weight.id, bias.id],
+        TensorBackward::Pool2d { input, .. } => vec![input.id],
+        TensorBackward::Attention { q, k, v } => vec![q.id, k.id, v.id],
+    }
+}
+
+fn tensor_build_topo(id: u64, seen: &mut std::collections::HashSet<u64>, out: &mut Vec<u64>) {
+    if !seen.insert(id) {
+        return;
+    }
+    let parents = TENSOR_AUTOGRAD.with(|tape| {
+        tape.borrow()
+            .get(&id)
+            .map(|node| tensor_parents(&node.backward))
+            .unwrap_or_default()
+    });
+    for parent in parents {
+        tensor_build_topo(parent, seen, out);
+    }
+    out.push(id);
+}
+
+fn tensor_unbroadcast_grad(
+    grad: &[f64],
+    out_shape: &[usize],
+    src_shape: &[usize],
+) -> Result<Vec<f64>, RuntimeError> {
+    let src_len = tensor_len_from_shape(src_shape)?;
+    let out_strides = tensor_strides(out_shape);
+    let src_strides = tensor_strides(src_shape);
+    let mut out = vec![0.0; src_len];
+    for (flat, value) in grad.iter().enumerate() {
+        let indices = tensor_indices_from_flat(flat, out_shape, &out_strides);
+        let src = tensor_broadcast_source_index(&indices, out_shape.len(), src_shape, &src_strides);
+        out[src] += value;
+    }
+    Ok(out)
+}
+
+fn tensor_apply_backward(id: u64) -> Result<(), RuntimeError> {
+    let node = TENSOR_AUTOGRAD.with(|tape| tape.borrow().get(&id).cloned());
+    let Some(node) = node else {
+        return Ok(());
+    };
+    let Some(grad) = node.grad.clone() else {
+        return Ok(());
+    };
+    match node.backward.clone() {
+        TensorBackward::Leaf => {}
+        TensorBackward::Add {
+            left,
+            right,
+            subtract,
+        } => {
+            if tensor_requires_grad(left.id) {
+                tensor_add_grad(
+                    left.id,
+                    tensor_unbroadcast_grad(&grad, &node.shape, &left.shape)?,
+                );
+            }
+            if tensor_requires_grad(right.id) {
+                let mut rg = tensor_unbroadcast_grad(&grad, &node.shape, &right.shape)?;
+                if subtract {
+                    for value in &mut rg {
+                        *value = -*value;
+                    }
+                }
+                tensor_add_grad(right.id, rg);
+            }
+        }
+        TensorBackward::Mul { left, right } | TensorBackward::Div { left, right } => {
+            let out_strides = tensor_strides(&node.shape);
+            let mut left_grad_full = vec![0.0; node.data.len()];
+            let mut right_grad_full = vec![0.0; node.data.len()];
+            for flat in 0..node.data.len() {
+                let indices = tensor_indices_from_flat(flat, &node.shape, &out_strides);
+                let l = broadcast_value_at(&left, &indices, node.shape.len());
+                let r = broadcast_value_at(&right, &indices, node.shape.len());
+                match &node.backward {
+                    TensorBackward::Mul { .. } => {
+                        left_grad_full[flat] = grad[flat] * r;
+                        right_grad_full[flat] = grad[flat] * l;
+                    }
+                    TensorBackward::Div { .. } => {
+                        left_grad_full[flat] = grad[flat] / r;
+                        right_grad_full[flat] = -grad[flat] * l / (r * r);
+                    }
+                    _ => {}
+                }
+            }
+            if tensor_requires_grad(left.id) {
+                tensor_add_grad(
+                    left.id,
+                    tensor_unbroadcast_grad(&left_grad_full, &node.shape, &left.shape)?,
+                );
+            }
+            if tensor_requires_grad(right.id) {
+                tensor_add_grad(
+                    right.id,
+                    tensor_unbroadcast_grad(&right_grad_full, &node.shape, &right.shape)?,
+                );
+            }
+        }
+        TensorBackward::Scale { parent, scale } => {
+            if tensor_requires_grad(parent.id) {
+                tensor_add_grad(parent.id, grad.iter().map(|value| value * scale).collect());
+            }
+        }
+        TensorBackward::Matmul { left, right } => {
+            if left.shape.len() != 2 || right.shape.len() != 2 || node.shape.len() != 2 {
+                return Err(RuntimeError::new("autograd matmul requires rank-2 tensors"));
+            }
+            let m = left.shape[0];
+            let k = left.shape[1];
+            let n = right.shape[1];
+            if tensor_requires_grad(left.id) {
+                let mut lg = vec![0.0; left.data.len()];
+                for row in 0..m {
+                    for col in 0..k {
+                        let mut sum = 0.0;
+                        for out_col in 0..n {
+                            sum += grad[row * n + out_col] * right.data[col * n + out_col];
+                        }
+                        lg[row * k + col] = sum;
+                    }
+                }
+                tensor_add_grad(left.id, lg);
+            }
+            if tensor_requires_grad(right.id) {
+                let mut rg = vec![0.0; right.data.len()];
+                for row in 0..k {
+                    for col in 0..n {
+                        let mut sum = 0.0;
+                        for batch in 0..m {
+                            sum += left.data[batch * k + row] * grad[batch * n + col];
+                        }
+                        rg[row * n + col] = sum;
+                    }
+                }
+                tensor_add_grad(right.id, rg);
+            }
+        }
+        TensorBackward::Unary { parent, op } => {
+            if !tensor_requires_grad(parent.id) {
+                return Ok(());
+            }
+            let mut pg = vec![0.0; parent.data.len()];
+            for idx in 0..parent.data.len() {
+                let x = parent.data[idx];
+                let derivative = match op.as_str() {
+                    "tensor.relu" | "enkai_tensor_relu" => {
+                        if x > 0.0 {
+                            1.0
+                        } else {
+                            0.0
+                        }
+                    }
+                    "tensor.sigmoid" | "enkai_tensor_sigmoid" => {
+                        let s = 1.0 / (1.0 + (-x).exp());
+                        s * (1.0 - s)
+                    }
+                    "tensor.tanh" | "enkai_tensor_tanh" => 1.0 - x.tanh().powi(2),
+                    "tensor.gelu" | "enkai_tensor_gelu" => {
+                        let c = (2.0 / std::f64::consts::PI).sqrt();
+                        let inner = c * (x + 0.044_715 * x.powi(3));
+                        let t = inner.tanh();
+                        0.5 * (1.0 + t)
+                            + 0.5 * x * (1.0 - t * t) * c * (1.0 + 3.0 * 0.044_715 * x * x)
+                    }
+                    "tensor.exp" | "enkai_tensor_exp" => x.exp(),
+                    "tensor.log" | "enkai_tensor_log" => 1.0 / x,
+                    "tensor.sqrt" | "enkai_tensor_sqrt" => 0.5 / x.sqrt(),
+                    _ => 0.0,
+                };
+                pg[idx] = grad[idx] * derivative;
+            }
+            tensor_add_grad(parent.id, pg);
+        }
+        TensorBackward::Reduce {
+            parent,
+            dim,
+            keepdim,
+            mean,
+        } => {
+            if !tensor_requires_grad(parent.id) {
+                return Ok(());
+            }
+            let parent_strides = tensor_strides(&parent.shape);
+            let grad_strides = tensor_strides(&node.shape);
+            let scale = if mean {
+                1.0 / parent.shape[dim] as f64
+            } else {
+                1.0
+            };
+            let mut pg = vec![0.0; parent.data.len()];
+            for (flat, slot) in pg.iter_mut().enumerate() {
+                let mut indices = tensor_indices_from_flat(flat, &parent.shape, &parent_strides);
+                if keepdim {
+                    indices[dim] = 0;
+                } else {
+                    indices.remove(dim);
+                    if indices.is_empty() {
+                        indices.push(0);
+                    }
+                }
+                *slot = grad[tensor_flat_index(&indices, &grad_strides)] * scale;
+            }
+            tensor_add_grad(parent.id, pg);
+        }
+        TensorBackward::Softmax { parent, dim } => {
+            if !tensor_requires_grad(parent.id) {
+                return Ok(());
+            }
+            let strides = tensor_strides(&node.shape);
+            let dim_len = node.shape[dim];
+            let mut pg = vec![0.0; parent.data.len()];
+            for flat in 0..node.data.len() {
+                let mut base = tensor_indices_from_flat(flat, &node.shape, &strides);
+                if base[dim] != 0 {
+                    continue;
+                }
+                let mut dot = 0.0;
+                for idx in 0..dim_len {
+                    base[dim] = idx;
+                    let pos = tensor_flat_index(&base, &strides);
+                    dot += grad[pos] * node.data[pos];
+                }
+                for idx in 0..dim_len {
+                    base[dim] = idx;
+                    let pos = tensor_flat_index(&base, &strides);
+                    pg[pos] = node.data[pos] * (grad[pos] - dot);
+                }
+            }
+            tensor_add_grad(parent.id, pg);
+        }
+        TensorBackward::Linear { x, w, b } => {
+            if x.shape.len() != 2 || w.shape.len() != 2 || node.shape.len() != 2 {
+                return Err(RuntimeError::new("autograd linear requires rank-2 tensors"));
+            }
+            let batch = x.shape[0];
+            let in_features = x.shape[1];
+            let out_features = w.shape[0];
+            if tensor_requires_grad(x.id) {
+                let mut xg = vec![0.0; x.data.len()];
+                for row in 0..batch {
+                    for in_col in 0..in_features {
+                        let mut sum = 0.0;
+                        for out_col in 0..out_features {
+                            sum += grad[row * out_features + out_col]
+                                * w.data[out_col * in_features + in_col];
+                        }
+                        xg[row * in_features + in_col] = sum;
+                    }
+                }
+                tensor_add_grad(x.id, xg);
+            }
+            if tensor_requires_grad(w.id) {
+                let mut wg = vec![0.0; w.data.len()];
+                for out_col in 0..out_features {
+                    for in_col in 0..in_features {
+                        let mut sum = 0.0;
+                        for row in 0..batch {
+                            sum += grad[row * out_features + out_col]
+                                * x.data[row * in_features + in_col];
+                        }
+                        wg[out_col * in_features + in_col] = sum;
+                    }
+                }
+                tensor_add_grad(w.id, wg);
+            }
+            if tensor_requires_grad(b.id) {
+                let mut bg = vec![0.0; b.data.len()];
+                for row in 0..batch {
+                    for out_col in 0..out_features {
+                        bg[out_col] += grad[row * out_features + out_col];
+                    }
+                }
+                tensor_add_grad(b.id, bg);
+            }
+        }
+        TensorBackward::Embedding { weight, ids } => {
+            if !tensor_requires_grad(weight.id) {
+                return Ok(());
+            }
+            if weight.shape.len() != 2 {
+                return Err(RuntimeError::new(
+                    "autograd embedding weights must be rank-2",
+                ));
+            }
+            let vocab = weight.shape[0];
+            let dim = weight.shape[1];
+            let mut wg = vec![0.0; weight.data.len()];
+            for (pos, raw) in ids.data.iter().enumerate() {
+                let id = *raw as i64;
+                if (id as f64 - raw).abs() > 1e-9 || id < 0 || id as usize >= vocab {
+                    return Err(RuntimeError::new("autograd embedding id out of range"));
+                }
+                for channel in 0..dim {
+                    wg[id as usize * dim + channel] += grad[pos * dim + channel];
+                }
+            }
+            tensor_add_grad(weight.id, wg);
+        }
+        TensorBackward::LayerNorm { x, w, b, eps } => {
+            let last = *x
+                .shape
+                .last()
+                .ok_or_else(|| RuntimeError::new("autograd layernorm requires non-empty shape"))?;
+            let outer = x.data.len() / last;
+            if tensor_requires_grad(w.id)
+                || tensor_requires_grad(b.id)
+                || tensor_requires_grad(x.id)
+            {
+                let mut xg = vec![0.0; x.data.len()];
+                let mut wg = vec![0.0; w.data.len()];
+                let mut bg = vec![0.0; b.data.len()];
+                for row in 0..outer {
+                    let start = row * last;
+                    let slice = &x.data[start..start + last];
+                    let mean = slice.iter().sum::<f64>() / last as f64;
+                    let var = slice
+                        .iter()
+                        .map(|value| {
+                            let d = value - mean;
+                            d * d
+                        })
+                        .sum::<f64>()
+                        / last as f64;
+                    let inv = 1.0 / (var + eps).sqrt();
+                    let mut xhat = vec![0.0; last];
+                    let mut dhat = vec![0.0; last];
+                    let mut sum_dhat = 0.0;
+                    let mut sum_dhat_xhat = 0.0;
+                    for idx in 0..last {
+                        xhat[idx] = (slice[idx] - mean) * inv;
+                        let gy = grad[start + idx];
+                        wg[idx] += gy * xhat[idx];
+                        bg[idx] += gy;
+                        dhat[idx] = gy * w.data[idx];
+                        sum_dhat += dhat[idx];
+                        sum_dhat_xhat += dhat[idx] * xhat[idx];
+                    }
+                    for idx in 0..last {
+                        xg[start + idx] = inv / last as f64
+                            * (last as f64 * dhat[idx] - sum_dhat - xhat[idx] * sum_dhat_xhat);
+                    }
+                }
+                if tensor_requires_grad(x.id) {
+                    tensor_add_grad(x.id, xg);
+                }
+                if tensor_requires_grad(w.id) {
+                    tensor_add_grad(w.id, wg);
+                }
+                if tensor_requires_grad(b.id) {
+                    tensor_add_grad(b.id, bg);
+                }
+            }
+        }
+        TensorBackward::CrossEntropy { logits, targets } => {
+            if !tensor_requires_grad(logits.id) {
+                return Ok(());
+            }
+            if logits.shape.len() != 2 || grad.len() != 1 {
+                return Err(RuntimeError::new(
+                    "autograd cross_entropy requires scalar loss from rank-2 logits",
+                ));
+            }
+            let batch = logits.shape[0];
+            let classes = logits.shape[1];
+            let mut lg = vec![0.0; logits.data.len()];
+            for row in 0..batch {
+                let start = row * classes;
+                let slice = &logits.data[start..start + classes];
+                let max_value = slice.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                let denom = slice
+                    .iter()
+                    .map(|value| (value - max_value).exp())
+                    .sum::<f64>();
+                let target = targets.data[row] as i64;
+                if (target as f64 - targets.data[row]).abs() > 1e-9
+                    || target < 0
+                    || target as usize >= classes
+                {
+                    return Err(RuntimeError::new(
+                        "autograd cross_entropy target out of range",
+                    ));
+                }
+                for class in 0..classes {
+                    let prob = (slice[class] - max_value).exp() / denom;
+                    let indicator = if class == target as usize { 1.0 } else { 0.0 };
+                    lg[start + class] = grad[0] * (prob - indicator) / batch as f64;
+                }
+            }
+            tensor_add_grad(logits.id, lg);
+        }
+        TensorBackward::Conv2d {
+            input,
+            weight,
+            bias,
+            stride,
+            padding,
+        } => {
+            if input.shape.len() != 4 || weight.shape.len() != 4 || node.shape.len() != 4 {
+                return Err(RuntimeError::new("autograd conv2d requires rank-4 tensors"));
+            }
+            let (n, c, h, w_in) = (
+                input.shape[0],
+                input.shape[1],
+                input.shape[2],
+                input.shape[3],
+            );
+            let (f, _, kh, kw) = (
+                weight.shape[0],
+                weight.shape[1],
+                weight.shape[2],
+                weight.shape[3],
+            );
+            let (out_h, out_w) = (node.shape[2], node.shape[3]);
+            let mut ig = vec![0.0; input.data.len()];
+            let mut wg = vec![0.0; weight.data.len()];
+            let mut bg = vec![0.0; bias.data.len()];
+            for batch in 0..n {
+                for out_c in 0..f {
+                    for oy in 0..out_h {
+                        for ox in 0..out_w {
+                            let g = grad[((batch * f + out_c) * out_h + oy) * out_w + ox];
+                            bg[out_c] += g;
+                            for in_c in 0..c {
+                                for ky in 0..kh {
+                                    for kx in 0..kw {
+                                        let iy = oy * stride + ky;
+                                        let ix = ox * stride + kx;
+                                        if iy < padding || ix < padding {
+                                            continue;
+                                        }
+                                        let sy = iy - padding;
+                                        let sx = ix - padding;
+                                        if sy >= h || sx >= w_in {
+                                            continue;
+                                        }
+                                        let in_idx = ((batch * c + in_c) * h + sy) * w_in + sx;
+                                        let wt_idx = ((out_c * c + in_c) * kh + ky) * kw + kx;
+                                        ig[in_idx] += g * weight.data[wt_idx];
+                                        wg[wt_idx] += g * input.data[in_idx];
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if tensor_requires_grad(input.id) {
+                tensor_add_grad(input.id, ig);
+            }
+            if tensor_requires_grad(weight.id) {
+                tensor_add_grad(weight.id, wg);
+            }
+            if tensor_requires_grad(bias.id) {
+                tensor_add_grad(bias.id, bg);
+            }
+        }
+        TensorBackward::Pool2d {
+            input,
+            kernel,
+            stride,
+            max_pool,
+        } => {
+            if !tensor_requires_grad(input.id) {
+                return Ok(());
+            }
+            if input.shape.len() != 4 || node.shape.len() != 4 {
+                return Err(RuntimeError::new("autograd pool2d requires rank-4 tensors"));
+            }
+            let (n, c, h, w_in) = (
+                input.shape[0],
+                input.shape[1],
+                input.shape[2],
+                input.shape[3],
+            );
+            let (out_h, out_w) = (node.shape[2], node.shape[3]);
+            let mut ig = vec![0.0; input.data.len()];
+            for batch in 0..n {
+                for channel in 0..c {
+                    for oy in 0..out_h {
+                        for ox in 0..out_w {
+                            let g = grad[((batch * c + channel) * out_h + oy) * out_w + ox];
+                            if max_pool {
+                                let mut best = f64::NEG_INFINITY;
+                                let mut best_idx = 0usize;
+                                for ky in 0..kernel {
+                                    for kx in 0..kernel {
+                                        let iy = oy * stride + ky;
+                                        let ix = ox * stride + kx;
+                                        let idx = ((batch * c + channel) * h + iy) * w_in + ix;
+                                        if input.data[idx] > best {
+                                            best = input.data[idx];
+                                            best_idx = idx;
+                                        }
+                                    }
+                                }
+                                ig[best_idx] += g;
+                            } else {
+                                let share = g / (kernel * kernel) as f64;
+                                for ky in 0..kernel {
+                                    for kx in 0..kernel {
+                                        let iy = oy * stride + ky;
+                                        let ix = ox * stride + kx;
+                                        let idx = ((batch * c + channel) * h + iy) * w_in + ix;
+                                        ig[idx] += share;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            tensor_add_grad(input.id, ig);
+        }
+        TensorBackward::Attention { q, k, v } => {
+            if q.shape.len() != 3
+                || k.shape.len() != 3
+                || v.shape.len() != 3
+                || node.shape.len() != 3
+            {
+                return Err(RuntimeError::new(
+                    "autograd attention requires rank-3 tensors",
+                ));
+            }
+            let (batches, tq, d) = (q.shape[0], q.shape[1], q.shape[2]);
+            let tk = k.shape[1];
+            let dv = v.shape[2];
+            let scale = (d as f64).sqrt();
+            let mut qg = vec![0.0; q.data.len()];
+            let mut kg = vec![0.0; k.data.len()];
+            let mut vg = vec![0.0; v.data.len()];
+            for batch in 0..batches {
+                for qi in 0..tq {
+                    let mut scores = vec![0.0; tk];
+                    for ki in 0..tk {
+                        let mut score = 0.0;
+                        for di in 0..d {
+                            score += q.data[(batch * tq + qi) * d + di]
+                                * k.data[(batch * tk + ki) * d + di];
+                        }
+                        scores[ki] = score / scale;
+                    }
+                    let max_score = scores.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                    let denom = scores
+                        .iter()
+                        .map(|score| (score - max_score).exp())
+                        .sum::<f64>();
+                    let probs = scores
+                        .iter()
+                        .map(|score| (score - max_score).exp() / denom)
+                        .collect::<Vec<_>>();
+                    let mut dprob = vec![0.0; tk];
+                    for ki in 0..tk {
+                        for di in 0..dv {
+                            let go = grad[(batch * tq + qi) * dv + di];
+                            dprob[ki] += go * v.data[(batch * tk + ki) * dv + di];
+                            vg[(batch * tk + ki) * dv + di] += go * probs[ki];
+                        }
+                    }
+                    let dot = dprob
+                        .iter()
+                        .zip(probs.iter())
+                        .map(|(a, p)| a * p)
+                        .sum::<f64>();
+                    for ki in 0..tk {
+                        let ds = probs[ki] * (dprob[ki] - dot) / scale;
+                        for di in 0..d {
+                            qg[(batch * tq + qi) * d + di] +=
+                                ds * k.data[(batch * tk + ki) * d + di];
+                            kg[(batch * tk + ki) * d + di] +=
+                                ds * q.data[(batch * tq + qi) * d + di];
+                        }
+                    }
+                }
+            }
+            if tensor_requires_grad(q.id) {
+                tensor_add_grad(q.id, qg);
+            }
+            if tensor_requires_grad(k.id) {
+                tensor_add_grad(k.id, kg);
+            }
+            if tensor_requires_grad(v.id) {
+                tensor_add_grad(v.id, vg);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn tensor_backward(loss: TensorState) -> Result<(), RuntimeError> {
+    if loss.data.len() != 1 {
+        return Err(RuntimeError::new(
+            "tensor.backward requires scalar loss tensor",
+        ));
+    }
+    if !tensor_requires_grad(loss.id) {
+        return Err(RuntimeError::new(
+            "tensor.backward called on tensor without gradient graph",
+        ));
+    }
+    tensor_add_grad(loss.id, vec![1.0]);
+    let mut topo = Vec::new();
+    tensor_build_topo(loss.id, &mut std::collections::HashSet::new(), &mut topo);
+    for id in topo.into_iter().rev() {
+        tensor_apply_backward(id)?;
+    }
+    Ok(())
+}
+
+fn tensor_grad_value(tensor: TensorState) -> Value {
+    let grad = TENSOR_AUTOGRAD.with(|tape| {
+        tape.borrow()
+            .get(&tensor.id)
+            .and_then(|node| node.grad.clone())
+            .unwrap_or_else(|| vec![0.0; tensor.data.len()])
+    });
+    tensor_value(tensor.shape, grad, tensor.dtype)
+}
+
+fn tensor_zero_grad(tensor: TensorState) {
+    TENSOR_AUTOGRAD.with(|tape| {
+        if let Some(node) = tape.borrow_mut().get_mut(&tensor.id) {
+            node.grad = None;
+        }
+    });
+}
+
+fn tensor_assign_data(target: &Value, data: Vec<f64>, label: &str) -> Result<(), RuntimeError> {
+    validate_tensor_data(&data, label)?;
+    match target {
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::Tensor(inner) => {
+                let mut tensor = inner.borrow_mut();
+                if tensor.data.len() != data.len() {
+                    return Err(RuntimeError::new(&format!(
+                        "{label} update length does not match tensor length"
+                    )));
+                }
+                tensor.data = data.clone();
+                TENSOR_AUTOGRAD.with(|tape| {
+                    if let Some(node) = tape.borrow_mut().get_mut(&tensor.id) {
+                        node.data = data;
+                    }
+                });
+                Ok(())
+            }
+            _ => Err(RuntimeError::new(&format!(
+                "{label} expects mutable tensor"
+            ))),
+        },
+        _ => Err(RuntimeError::new(&format!(
+            "{label} expects mutable tensor"
+        ))),
+    }
+}
+
+fn tensor_zero_grad_value(value: &Value) -> Result<(), RuntimeError> {
+    tensor_zero_grad(tensor_state(value)?);
+    Ok(())
+}
+
+fn tensor_values_from_value(value: &Value, label: &str) -> Result<Vec<Value>, RuntimeError> {
+    value_as_list(value).map_err(|_| RuntimeError::new(&format!("{label} expects tensor list")))
+}
+
+fn tensor_zero_grad_multi_value(values: &[Value]) -> Result<Value, RuntimeError> {
+    for value in values {
+        tensor_zero_grad_value(value)?;
+    }
+    Ok(Value::Int(0))
+}
+
+fn tensor_sgd_step_multi_value(
+    params: &[Value],
+    grads: &[Value],
+    lr: f64,
+    weight_decay: f64,
+) -> Result<Value, RuntimeError> {
+    if params.len() != grads.len() {
+        return Err(RuntimeError::new(
+            "tensor.sgd_step_multi requires matching params/grads lengths",
+        ));
+    }
+    for (param, grad) in params.iter().zip(grads.iter()) {
+        tensor_sgd_step_value(param, tensor_state(grad)?, lr, weight_decay)?;
+    }
+    Ok(Value::Int(0))
+}
+
+fn optimizer_state_list(state: &Value, len: usize) -> Result<Vec<Value>, RuntimeError> {
+    match state {
+        Value::Null | Value::Int(0) => Ok(vec![Value::Null; len]),
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::Record(fields) => {
+                let fields = fields.borrow();
+                let Some(states) = fields.get("states") else {
+                    return Ok(vec![state.clone(); len]);
+                };
+                let values = value_as_list(states)?;
+                if values.len() != len {
+                    return Err(RuntimeError::new(
+                        "tensor.adamw_step_multi optimizer state length mismatch",
+                    ));
+                }
+                Ok(values)
+            }
+            _ => Err(RuntimeError::new(
+                "tensor.adamw_step_multi expects optimizer state record, 0, or none",
+            )),
+        },
+        _ => Err(RuntimeError::new(
+            "tensor.adamw_step_multi expects optimizer state record, 0, or none",
+        )),
+    }
+}
+
+fn optimizer_multi_state_value(states: Vec<Value>) -> Value {
+    let mut fields = HashMap::new();
+    fields.insert(
+        "states".to_string(),
+        Value::Obj(ObjRef::new(Obj::List(RefCell::new(states)))),
+    );
+    record_value(fields)
+}
+
+fn tensor_adamw_step_multi_value(
+    params: &[Value],
+    grads: &[Value],
+    state: &Value,
+    lr: f64,
+    beta1: f64,
+    beta2: f64,
+    eps: f64,
+    weight_decay: f64,
+) -> Result<Value, RuntimeError> {
+    if params.len() != grads.len() {
+        return Err(RuntimeError::new(
+            "tensor.adamw_step_multi requires matching params/grads lengths",
+        ));
+    }
+    let states = optimizer_state_list(state, params.len())?;
+    let mut next_states = Vec::with_capacity(params.len());
+    for ((param, grad), param_state) in params.iter().zip(grads.iter()).zip(states.iter()) {
+        next_states.push(tensor_adamw_step_value(
+            param,
+            tensor_state(grad)?,
+            param_state,
+            lr,
+            beta1,
+            beta2,
+            eps,
+            weight_decay,
+        )?);
+    }
+    Ok(optimizer_multi_state_value(next_states))
+}
+
+fn tensor_clip_grad_norm_value(
+    params: &[Value],
+    max_norm: f64,
+    eps: f64,
+) -> Result<Value, RuntimeError> {
+    if max_norm <= 0.0 || !max_norm.is_finite() || eps <= 0.0 || !eps.is_finite() {
+        return Err(RuntimeError::new(
+            "tensor.clip_grad_norm requires finite max_norm > 0 and eps > 0",
+        ));
+    }
+    let mut ids = Vec::with_capacity(params.len());
+    for value in params {
+        ids.push(tensor_state(value)?.id);
+    }
+    let total_sq = TENSOR_AUTOGRAD.with(|tape| {
+        let tape = tape.borrow();
+        ids.iter()
+            .filter_map(|id| tape.get(id).and_then(|node| node.grad.as_ref()))
+            .flat_map(|grad| grad.iter())
+            .map(|value| value * value)
+            .sum::<f64>()
+    });
+    let norm = total_sq.sqrt();
+    if norm.is_finite() && norm > max_norm {
+        let scale = max_norm / (norm + eps);
+        TENSOR_AUTOGRAD.with(|tape| {
+            let mut tape = tape.borrow_mut();
+            for id in &ids {
+                if let Some(node) = tape.get_mut(id) {
+                    if let Some(grad) = &mut node.grad {
+                        for value in grad {
+                            *value *= scale;
+                        }
+                    }
+                }
+            }
+        });
+    }
+    Ok(Value::Float(norm))
+}
+
+fn optimizer_state_parts(
+    state: &Value,
+    len: usize,
+) -> Result<(i64, Vec<f64>, Vec<f64>), RuntimeError> {
+    match state {
+        Value::Null | Value::Int(0) => Ok((0, vec![0.0; len], vec![0.0; len])),
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::Record(fields) => {
+                let fields = fields.borrow();
+                let step = fields
+                    .get("step")
+                    .map(value_as_int)
+                    .transpose()?
+                    .unwrap_or(0);
+                let m = fields
+                    .get("m")
+                    .map(tensor_state)
+                    .transpose()?
+                    .map(|tensor| tensor.data)
+                    .unwrap_or_else(|| vec![0.0; len]);
+                let v = fields
+                    .get("v")
+                    .map(tensor_state)
+                    .transpose()?
+                    .map(|tensor| tensor.data)
+                    .unwrap_or_else(|| vec![0.0; len]);
+                if m.len() != len || v.len() != len {
+                    return Err(RuntimeError::new(
+                        "tensor.adamw_step optimizer state shape mismatch",
+                    ));
+                }
+                Ok((step, m, v))
+            }
+            _ => Err(RuntimeError::new(
+                "tensor.adamw_step expects optimizer state record, 0, or none",
+            )),
+        },
+        _ => Err(RuntimeError::new(
+            "tensor.adamw_step expects optimizer state record, 0, or none",
+        )),
+    }
+}
+
+fn optimizer_state_value(
+    step: i64,
+    m: Vec<f64>,
+    v: Vec<f64>,
+    shape: &[usize],
+    dtype: &str,
+) -> Value {
+    let mut fields = HashMap::new();
+    fields.insert("step".to_string(), Value::Int(step));
+    fields.insert("m".to_string(), tensor_value(shape.to_vec(), m, dtype));
+    fields.insert("v".to_string(), tensor_value(shape.to_vec(), v, dtype));
+    record_value(fields)
+}
+
+fn tensor_sgd_step_value(
+    param_value: &Value,
+    grad: TensorState,
+    lr: f64,
+    weight_decay: f64,
+) -> Result<Value, RuntimeError> {
+    if lr <= 0.0 || !lr.is_finite() {
+        return Err(RuntimeError::new("tensor.sgd_step requires finite lr > 0"));
+    }
+    if weight_decay < 0.0 || !weight_decay.is_finite() {
+        return Err(RuntimeError::new(
+            "tensor.sgd_step requires finite weight_decay >= 0",
+        ));
+    }
+    let param = tensor_state(param_value)?;
+    if param.shape != grad.shape {
+        return Err(RuntimeError::new(
+            "tensor.sgd_step param/grad shape mismatch",
+        ));
+    }
+    let updated = param
+        .data
+        .iter()
+        .zip(grad.data.iter())
+        .map(|(p, g)| p - lr * (g + weight_decay * p))
+        .collect::<Vec<_>>();
+    tensor_assign_data(param_value, updated, "tensor.sgd_step")?;
+    Ok(Value::Int(0))
+}
+
+fn tensor_adamw_step_value(
+    param_value: &Value,
+    grad: TensorState,
+    state: &Value,
+    lr: f64,
+    beta1: f64,
+    beta2: f64,
+    eps: f64,
+    weight_decay: f64,
+) -> Result<Value, RuntimeError> {
+    if lr <= 0.0 || !lr.is_finite() {
+        return Err(RuntimeError::new(
+            "tensor.adamw_step requires finite lr > 0",
+        ));
+    }
+    if !(0.0..1.0).contains(&beta1) || !(0.0..1.0).contains(&beta2) {
+        return Err(RuntimeError::new(
+            "tensor.adamw_step requires 0 <= beta < 1",
+        ));
+    }
+    if eps <= 0.0 || !eps.is_finite() || weight_decay < 0.0 || !weight_decay.is_finite() {
+        return Err(RuntimeError::new(
+            "tensor.adamw_step requires finite eps > 0 and weight_decay >= 0",
+        ));
+    }
+    let param = tensor_state(param_value)?;
+    if param.shape != grad.shape {
+        return Err(RuntimeError::new(
+            "tensor.adamw_step param/grad shape mismatch",
+        ));
+    }
+    let (step, mut m, mut v) = optimizer_state_parts(state, param.data.len())?;
+    let next_step = step + 1;
+    let b1_corr = 1.0 - beta1.powi(next_step as i32);
+    let b2_corr = 1.0 - beta2.powi(next_step as i32);
+    let mut updated = vec![0.0; param.data.len()];
+    for idx in 0..param.data.len() {
+        m[idx] = beta1 * m[idx] + (1.0 - beta1) * grad.data[idx];
+        v[idx] = beta2 * v[idx] + (1.0 - beta2) * grad.data[idx] * grad.data[idx];
+        let m_hat = m[idx] / b1_corr;
+        let v_hat = v[idx] / b2_corr;
+        updated[idx] =
+            param.data[idx] - lr * (m_hat / (v_hat.sqrt() + eps) + weight_decay * param.data[idx]);
+    }
+    tensor_assign_data(param_value, updated, "tensor.adamw_step")?;
+    Ok(optimizer_state_value(
+        next_step,
+        m,
+        v,
+        &param.shape,
+        &param.dtype,
+    ))
+}
+
+fn tensor_grad_check(
+    actual: TensorState,
+    expected: TensorState,
+    tolerance: f64,
+) -> Result<Value, RuntimeError> {
+    if actual.shape != expected.shape {
+        return Err(RuntimeError::new(
+            "tensor.grad_check requires matching shapes",
+        ));
+    }
+    if tolerance < 0.0 || !tolerance.is_finite() {
+        return Err(RuntimeError::new(
+            "tensor.grad_check requires finite tolerance >= 0",
+        ));
+    }
+    let ok = actual
+        .data
+        .iter()
+        .zip(expected.data.iter())
+        .all(|(a, b)| (a - b).abs() <= tolerance);
+    Ok(Value::Bool(ok))
+}
+
+fn parse_shape_json(raw: &str) -> Result<Vec<usize>, RuntimeError> {
+    let value: serde_json::Value = serde_json::from_str(raw)
+        .map_err(|err| RuntimeError::new(&format!("tensor shape is invalid JSON: {err}")))?;
+    let values = value
+        .as_array()
+        .ok_or_else(|| RuntimeError::new("tensor shape must be an array"))?;
+    let mut shape = Vec::with_capacity(values.len());
+    for item in values {
+        let dim = item
+            .as_i64()
+            .ok_or_else(|| RuntimeError::new("tensor shape dimensions must be integers"))?;
+        if dim <= 0 {
+            return Err(RuntimeError::new("tensor shape dimensions must be > 0"));
+        }
+        shape.push(dim as usize);
+    }
+    Ok(shape)
+}
+
+fn shape_from_value(value: &Value) -> Result<Vec<usize>, RuntimeError> {
+    let values = value_as_list(value)?;
+    let mut shape = Vec::with_capacity(values.len());
+    for item in values {
+        let dim = value_as_int(&item)?;
+        if dim <= 0 {
+            return Err(RuntimeError::new("tensor shape dimensions must be > 0"));
+        }
+        shape.push(dim as usize);
+    }
+    Ok(shape)
+}
+
+fn parse_f64_json_array(raw: &str, label: &str) -> Result<Vec<f64>, RuntimeError> {
+    let value: serde_json::Value = serde_json::from_str(raw)
+        .map_err(|err| RuntimeError::new(&format!("{label} is invalid JSON: {err}")))?;
+    let values = value
+        .as_array()
+        .ok_or_else(|| RuntimeError::new(&format!("{label} must be an array")))?;
+    let data = values
+        .iter()
+        .map(|value| {
+            value
+                .as_f64()
+                .ok_or_else(|| RuntimeError::new(&format!("{label} must contain numbers")))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    validate_tensor_data(&data, label)?;
+    Ok(data)
+}
+
+fn tensor_len_from_shape(shape: &[usize]) -> Result<usize, RuntimeError> {
+    shape.iter().try_fold(1usize, |acc, dim| {
+        acc.checked_mul(*dim)
+            .ok_or_else(|| RuntimeError::new("tensor shape is too large"))
+    })
+}
+
+fn tensor_memory_check_allocation_len(len: usize, label: &str) -> Result<(), RuntimeError> {
+    let bytes = tensor_memory_bytes_for_len(len);
+    if tensor_memory_can_allocate(bytes) {
+        Ok(())
+    } else {
+        Err(RuntimeError::new(&format!(
+            "{label} would exceed tensor memory limit"
+        )))
+    }
+}
+
+fn checked_tensor_value(
+    shape: Vec<usize>,
+    data: Vec<f64>,
+    dtype: impl Into<String>,
+    label: &str,
+) -> Result<Value, RuntimeError> {
+    tensor_memory_check_allocation_len(data.len(), label)?;
+    Ok(tensor_value(shape, data, dtype))
+}
+
+fn ensure_tensor_size(shape: &[usize], len: usize) -> Result<(), RuntimeError> {
+    let expected = tensor_len_from_shape(shape)?;
+    if expected != len {
+        return Err(RuntimeError::new(&format!(
+            "tensor data length {} does not match shape element count {}",
+            len, expected
+        )));
+    }
+    Ok(())
+}
+
+fn validate_tensor_data(data: &[f64], label: &str) -> Result<(), RuntimeError> {
+    if data.iter().any(|value| !value.is_finite()) {
+        return Err(RuntimeError::new(&format!(
+            "{label} contains non-finite tensor values"
+        )));
+    }
+    Ok(())
+}
+
+fn tensor_strides(shape: &[usize]) -> Vec<usize> {
+    let mut strides = vec![1; shape.len()];
+    let mut stride = 1usize;
+    for idx in (0..shape.len()).rev() {
+        strides[idx] = stride;
+        stride = stride.saturating_mul(shape[idx]);
+    }
+    strides
+}
+
+fn tensor_flat_index(indices: &[usize], strides: &[usize]) -> usize {
+    indices
+        .iter()
+        .zip(strides.iter())
+        .map(|(index, stride)| index * stride)
+        .sum()
+}
+
+fn tensor_indices_from_flat(mut flat: usize, shape: &[usize], strides: &[usize]) -> Vec<usize> {
+    let mut indices = vec![0usize; shape.len()];
+    for dim in 0..shape.len() {
+        indices[dim] = flat / strides[dim];
+        flat %= strides[dim];
+    }
+    indices
+}
+
+fn check_tensor_dim(shape: &[usize], dim: usize, op: &str) -> Result<(), RuntimeError> {
+    if dim >= shape.len() {
+        return Err(RuntimeError::new(&format!(
+            "{op} dimension {} out of bounds for rank {}",
+            dim,
+            shape.len()
+        )));
+    }
+    Ok(())
+}
+
+fn tensor_list(value: &Value) -> Result<Vec<TensorState>, RuntimeError> {
+    let values = value_as_list(value)?;
+    if values.is_empty() {
+        return Err(RuntimeError::new(
+            "tensor.concat expects at least one tensor",
+        ));
+    }
+    values.iter().map(tensor_state).collect()
+}
+
+fn parse_tensor_json_array(raw: &str) -> Result<Vec<TensorState>, RuntimeError> {
+    let value: serde_json::Value = serde_json::from_str(raw)
+        .map_err(|err| RuntimeError::new(&format!("tensor array JSON is invalid: {err}")))?;
+    let items = value
+        .as_array()
+        .ok_or_else(|| RuntimeError::new("tensor array JSON must be an array"))?;
+    if items.is_empty() {
+        return Err(RuntimeError::new(
+            "tensor.concat expects at least one tensor",
+        ));
+    }
+    items
+        .iter()
+        .map(|item| {
+            let object = item
+                .as_object()
+                .ok_or_else(|| RuntimeError::new("tensor array items must be tensor objects"))?;
+            if object.get("kind").and_then(|v| v.as_str()) != Some("Tensor") {
+                return Err(RuntimeError::new("tensor array item kind must be Tensor"));
+            }
+            let dtype = object
+                .get("dtype")
+                .and_then(|v| v.as_str())
+                .unwrap_or("f64")
+                .to_string();
+            let shape = object
+                .get("shape")
+                .ok_or_else(|| RuntimeError::new("tensor JSON missing shape"))
+                .and_then(|shape| {
+                    serde_json::to_string(shape).map_err(|err| RuntimeError::new(&err.to_string()))
+                })
+                .and_then(|raw| parse_shape_json(&raw))?;
+            let data = object
+                .get("data")
+                .ok_or_else(|| RuntimeError::new("tensor JSON missing data"))
+                .and_then(|data| {
+                    serde_json::to_string(data).map_err(|err| RuntimeError::new(&err.to_string()))
+                })
+                .and_then(|raw| parse_f64_json_array(&raw, "tensor JSON data"))?;
+            ensure_tensor_size(&shape, data.len())?;
+            validate_tensor_data(&data, "tensor JSON data")?;
+            Ok(TensorState {
+                id: 0,
+                shape,
+                data,
+                dtype,
+            })
+        })
+        .collect()
+}
+
+fn tensor_unary(tensor: TensorState, op: &str) -> Result<Value, RuntimeError> {
+    validate_tensor_data(&tensor.data, "tensor unary input")?;
+    let data = tensor
+        .data
+        .iter()
+        .map(|value| match op {
+            "tensor.relu" | "enkai_tensor_relu" => value.max(0.0),
+            "tensor.sigmoid" | "enkai_tensor_sigmoid" => 1.0 / (1.0 + (-value).exp()),
+            "tensor.gelu" | "enkai_tensor_gelu" => {
+                0.5 * value
+                    * (1.0
+                        + ((2.0 / std::f64::consts::PI).sqrt()
+                            * (value + 0.044_715 * value.powi(3)))
+                        .tanh())
+            }
+            "tensor.exp" | "enkai_tensor_exp" => value.exp(),
+            "tensor.log" | "enkai_tensor_log" => value.ln(),
+            "tensor.sqrt" | "enkai_tensor_sqrt" => value.sqrt(),
+            "tensor.tanh" | "enkai_tensor_tanh" => value.tanh(),
+            _ => *value,
+        })
+        .collect::<Vec<_>>();
+    validate_tensor_data(&data, "tensor unary output")?;
+    let requires_grad = tensor_requires_grad(tensor.id);
+    let dtype = tensor.dtype.clone();
+    let shape = tensor.shape.clone();
+    tensor_value_with_autograd(
+        shape,
+        data,
+        dtype,
+        requires_grad,
+        TensorBackward::Unary {
+            parent: tensor,
+            op: op.to_string(),
+        },
+    )
+}
+
+fn tensor_transpose(tensor: TensorState, dim0: usize, dim1: usize) -> Result<Value, RuntimeError> {
+    check_tensor_dim(&tensor.shape, dim0, "tensor.transpose")?;
+    check_tensor_dim(&tensor.shape, dim1, "tensor.transpose")?;
+    if dim0 == dim1 {
+        return Ok(tensor_value(tensor.shape, tensor.data, tensor.dtype));
+    }
+    let old_shape = tensor.shape;
+    let old_strides = tensor_strides(&old_shape);
+    let mut new_shape = old_shape.clone();
+    new_shape.swap(dim0, dim1);
+    let new_strides = tensor_strides(&new_shape);
+    let mut out = vec![0.0; tensor.data.len()];
+    for (new_flat, slot) in out.iter_mut().enumerate() {
+        let mut indices = tensor_indices_from_flat(new_flat, &new_shape, &new_strides);
+        indices.swap(dim0, dim1);
+        *slot = tensor.data[tensor_flat_index(&indices, &old_strides)];
+    }
+    Ok(tensor_value(new_shape, out, tensor.dtype))
+}
+
+fn tensor_slice(
+    tensor: TensorState,
+    dim: usize,
+    start: i64,
+    end: i64,
+    step: i64,
+) -> Result<Value, RuntimeError> {
+    check_tensor_dim(&tensor.shape, dim, "tensor.slice")?;
+    if step <= 0 {
+        return Err(RuntimeError::new("tensor.slice requires step > 0"));
+    }
+    let dim_len = tensor.shape[dim] as i64;
+    let start = start.clamp(0, dim_len);
+    let end = end.clamp(start, dim_len);
+    let mut selected = Vec::new();
+    let mut cursor = start;
+    while cursor < end {
+        selected.push(cursor as usize);
+        cursor += step;
+    }
+    let mut out_shape = tensor.shape.clone();
+    out_shape[dim] = selected.len();
+    let out_len = tensor_len_from_shape(&out_shape)?;
+    let old_strides = tensor_strides(&tensor.shape);
+    let out_strides = tensor_strides(&out_shape);
+    let mut out = vec![0.0; out_len];
+    for (flat, slot) in out.iter_mut().enumerate() {
+        let mut indices = tensor_indices_from_flat(flat, &out_shape, &out_strides);
+        indices[dim] = selected[indices[dim]];
+        *slot = tensor.data[tensor_flat_index(&indices, &old_strides)];
+    }
+    Ok(tensor_value(out_shape, out, tensor.dtype))
+}
+
+fn tensor_concat(tensors: Vec<TensorState>, dim: usize) -> Result<Value, RuntimeError> {
+    let first = tensors
+        .first()
+        .ok_or_else(|| RuntimeError::new("tensor.concat expects at least one tensor"))?;
+    check_tensor_dim(&first.shape, dim, "tensor.concat")?;
+    let rank = first.shape.len();
+    let dtype = first.dtype.clone();
+    let mut out_shape = first.shape.clone();
+    out_shape[dim] = 0;
+    for tensor in &tensors {
+        if tensor.shape.len() != rank {
+            return Err(RuntimeError::new("tensor.concat requires equal ranks"));
+        }
+        if tensor.dtype != dtype {
+            return Err(RuntimeError::new("tensor.concat requires matching dtypes"));
+        }
+        for axis in 0..rank {
+            if axis != dim && tensor.shape[axis] != first.shape[axis] {
+                return Err(RuntimeError::new(
+                    "tensor.concat requires matching non-concat dimensions",
+                ));
+            }
+        }
+        out_shape[dim] += tensor.shape[dim];
+    }
+    let out_len = tensor_len_from_shape(&out_shape)?;
+    let out_strides = tensor_strides(&out_shape);
+    let mut out = vec![0.0; out_len];
+    let mut offset = 0usize;
+    for tensor in tensors {
+        let src_strides = tensor_strides(&tensor.shape);
+        for src_flat in 0..tensor.data.len() {
+            let mut indices = tensor_indices_from_flat(src_flat, &tensor.shape, &src_strides);
+            indices[dim] += offset;
+            out[tensor_flat_index(&indices, &out_strides)] = tensor.data[src_flat];
+        }
+        offset += tensor.shape[dim];
+    }
+    Ok(tensor_value(out_shape, out, dtype))
+}
+
+fn tensor_reduce(
+    tensor: TensorState,
+    dim: usize,
+    keepdim: bool,
+    mean: bool,
+) -> Result<Value, RuntimeError> {
+    check_tensor_dim(&tensor.shape, dim, "tensor reduction")?;
+    let reduced = tensor.shape[dim];
+    let mut out_shape = tensor.shape.clone();
+    if keepdim {
+        out_shape[dim] = 1;
+    } else {
+        out_shape.remove(dim);
+        if out_shape.is_empty() {
+            out_shape.push(1);
+        }
+    }
+    let out_len = tensor_len_from_shape(&out_shape)?;
+    let in_strides = tensor_strides(&tensor.shape);
+    let out_strides = tensor_strides(&out_shape);
+    let mut out = vec![0.0; out_len];
+    for flat in 0..tensor.data.len() {
+        let indices = tensor_indices_from_flat(flat, &tensor.shape, &in_strides);
+        let mut out_indices = indices.clone();
+        if keepdim {
+            out_indices[dim] = 0;
+        } else {
+            out_indices.remove(dim);
+            if out_indices.is_empty() {
+                out_indices.push(0);
+            }
+        }
+        out[tensor_flat_index(&out_indices, &out_strides)] += tensor.data[flat];
+    }
+    if mean {
+        for value in &mut out {
+            *value /= reduced as f64;
+        }
+    }
+    let requires_grad = tensor_requires_grad(tensor.id);
+    let dtype = tensor.dtype.clone();
+    tensor_value_with_autograd(
+        out_shape,
+        out,
+        dtype,
+        requires_grad,
+        TensorBackward::Reduce {
+            parent: tensor,
+            dim,
+            keepdim,
+            mean,
+        },
+    )
+}
+
+fn tensor_softmax(tensor: TensorState, dim: usize) -> Result<Value, RuntimeError> {
+    check_tensor_dim(&tensor.shape, dim, "tensor.softmax")?;
+    validate_tensor_data(&tensor.data, "tensor.softmax input")?;
+    let strides = tensor_strides(&tensor.shape);
+    let dim_len = tensor.shape[dim];
+    let mut out = vec![0.0; tensor.data.len()];
+    for flat in 0..tensor.data.len() {
+        let mut base = tensor_indices_from_flat(flat, &tensor.shape, &strides);
+        if base[dim] != 0 {
+            continue;
+        }
+        let mut max_value = f64::NEG_INFINITY;
+        for idx in 0..dim_len {
+            base[dim] = idx;
+            max_value = max_value.max(tensor.data[tensor_flat_index(&base, &strides)]);
+        }
+        let mut denom = 0.0;
+        for idx in 0..dim_len {
+            base[dim] = idx;
+            denom += (tensor.data[tensor_flat_index(&base, &strides)] - max_value).exp();
+        }
+        for idx in 0..dim_len {
+            base[dim] = idx;
+            let src = tensor_flat_index(&base, &strides);
+            out[src] = (tensor.data[src] - max_value).exp() / denom;
+        }
+    }
+    validate_tensor_data(&out, "tensor.softmax output")?;
+    let requires_grad = tensor_requires_grad(tensor.id);
+    let dtype = tensor.dtype.clone();
+    let shape = tensor.shape.clone();
+    tensor_value_with_autograd(
+        shape,
+        out,
+        dtype,
+        requires_grad,
+        TensorBackward::Softmax {
+            parent: tensor,
+            dim,
+        },
+    )
+}
+
+fn tensor_broadcast_shape(left: &[usize], right: &[usize]) -> Result<Vec<usize>, RuntimeError> {
+    let rank = left.len().max(right.len());
+    let mut out = vec![1usize; rank];
+    for idx in 0..rank {
+        let left_dim = if rank - idx > left.len() {
+            1
+        } else {
+            left[idx + left.len() - rank]
+        };
+        let right_dim = if rank - idx > right.len() {
+            1
+        } else {
+            right[idx + right.len() - rank]
+        };
+        out[idx] = if left_dim == right_dim {
+            left_dim
+        } else if left_dim == 1 {
+            right_dim
+        } else if right_dim == 1 {
+            left_dim
+        } else {
+            return Err(RuntimeError::new("tensor broadcasting shape mismatch"));
+        };
+    }
+    Ok(out)
+}
+
+fn tensor_broadcast_source_index(
+    out_indices: &[usize],
+    out_rank: usize,
+    src_shape: &[usize],
+    src_strides: &[usize],
+) -> usize {
+    let rank_delta = out_rank - src_shape.len();
+    let mut src_indices = vec![0usize; src_shape.len()];
+    for axis in 0..src_shape.len() {
+        src_indices[axis] = if src_shape[axis] == 1 {
+            0
+        } else {
+            out_indices[axis + rank_delta]
+        };
+    }
+    tensor_flat_index(&src_indices, src_strides)
+}
+
+fn tensor_broadcast_to(tensor: TensorState, shape: &[usize]) -> Result<Value, RuntimeError> {
+    let broadcast = tensor_broadcast_shape(&tensor.shape, shape)?;
+    if broadcast != shape {
+        return Err(RuntimeError::new(
+            "tensor.broadcast_to target shape is not broadcast-compatible",
+        ));
+    }
+    let out_len = tensor_len_from_shape(shape)?;
+    let out_strides = tensor_strides(shape);
+    let src_strides = tensor_strides(&tensor.shape);
+    let mut out = vec![0.0; out_len];
+    for (flat, slot) in out.iter_mut().enumerate() {
+        let indices = tensor_indices_from_flat(flat, shape, &out_strides);
+        let src = tensor_broadcast_source_index(&indices, shape.len(), &tensor.shape, &src_strides);
+        *slot = tensor.data[src];
+    }
+    Ok(tensor_value(shape.to_vec(), out, tensor.dtype))
+}
+
+fn tensor_binary(left: TensorState, right: TensorState, op: &str) -> Result<Value, RuntimeError> {
+    if left.dtype != right.dtype {
+        return Err(RuntimeError::new(
+            "tensor binary op requires matching dtypes",
+        ));
+    }
+    validate_tensor_data(&left.data, "tensor binary left")?;
+    validate_tensor_data(&right.data, "tensor binary right")?;
+    let shape = tensor_broadcast_shape(&left.shape, &right.shape)?;
+    let out_len = tensor_len_from_shape(&shape)?;
+    let out_strides = tensor_strides(&shape);
+    let left_strides = tensor_strides(&left.shape);
+    let right_strides = tensor_strides(&right.shape);
+    let mut out = vec![0.0; out_len];
+    for (flat, slot) in out.iter_mut().enumerate() {
+        let indices = tensor_indices_from_flat(flat, &shape, &out_strides);
+        let l = left.data
+            [tensor_broadcast_source_index(&indices, shape.len(), &left.shape, &left_strides)];
+        let r = right.data
+            [tensor_broadcast_source_index(&indices, shape.len(), &right.shape, &right_strides)];
+        *slot = match op {
+            "tensor.add" | "enkai_tensor_add" => l + r,
+            "tensor.sub" | "enkai_tensor_sub" => l - r,
+            "tensor.mul" | "enkai_tensor_mul" => l * r,
+            "tensor.div" | "enkai_tensor_div" => l / r,
+            _ => return Err(RuntimeError::new("unsupported tensor binary op")),
+        };
+    }
+    validate_tensor_data(&out, "tensor binary output")?;
+    let requires_grad = any_tensor_requires_grad(&[&left, &right]);
+    let backward = match op {
+        "tensor.add" | "enkai_tensor_add" => TensorBackward::Add {
+            left: left.clone(),
+            right: right.clone(),
+            subtract: false,
+        },
+        "tensor.sub" | "enkai_tensor_sub" => TensorBackward::Add {
+            left: left.clone(),
+            right: right.clone(),
+            subtract: true,
+        },
+        "tensor.mul" | "enkai_tensor_mul" => TensorBackward::Mul {
+            left: left.clone(),
+            right: right.clone(),
+        },
+        "tensor.div" | "enkai_tensor_div" => TensorBackward::Div {
+            left: left.clone(),
+            right: right.clone(),
+        },
+        _ => TensorBackward::Leaf,
+    };
+    let dtype = left.dtype.clone();
+    tensor_value_with_autograd(shape, out, dtype, requires_grad, backward)
+}
+
+fn tensor_scale(tensor: TensorState, scale: f64) -> Result<Value, RuntimeError> {
+    if !scale.is_finite() {
+        return Err(RuntimeError::new("tensor.scale requires finite scale"));
+    }
+    let data = tensor
+        .data
+        .iter()
+        .map(|value| value * scale)
+        .collect::<Vec<_>>();
+    validate_tensor_data(&data, "tensor.scale output")?;
+    let requires_grad = tensor_requires_grad(tensor.id);
+    let dtype = tensor.dtype.clone();
+    let shape = tensor.shape.clone();
+    tensor_value_with_autograd(
+        shape,
+        data,
+        dtype,
+        requires_grad,
+        TensorBackward::Scale {
+            parent: tensor,
+            scale,
+        },
+    )
+}
+
+fn tensor_dropout(tensor: TensorState, p: f64, train: bool) -> Result<Value, RuntimeError> {
+    if !(0.0..1.0).contains(&p) {
+        return Err(RuntimeError::new("tensor.dropout requires 0.0 <= p < 1.0"));
+    }
+    if !train || p == 0.0 {
+        return Ok(tensor_value(tensor.shape, tensor.data, tensor.dtype));
+    }
+    let keep_scale = 1.0 / (1.0 - p);
+    let data = tensor
+        .data
+        .iter()
+        .enumerate()
+        .map(|(idx, value)| {
+            let bucket = ((idx as u64)
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1)
+                % 10_000) as f64
+                / 10_000.0;
+            if bucket < p {
+                0.0
+            } else {
+                value * keep_scale
+            }
+        })
+        .collect::<Vec<_>>();
+    validate_tensor_data(&data, "tensor.dropout output")?;
+    Ok(tensor_value(tensor.shape, data, tensor.dtype))
+}
+
+fn tensor_linear(x: TensorState, w: TensorState, b: TensorState) -> Result<Value, RuntimeError> {
+    if x.shape.len() != 2 || w.shape.len() != 2 {
+        return Err(RuntimeError::new(
+            "tensor.linear requires rank-2 input and weight",
+        ));
+    }
+    let batch = x.shape[0];
+    let in_features = x.shape[1];
+    let out_features = w.shape[0];
+    if w.shape[1] != in_features {
+        return Err(RuntimeError::new(
+            "tensor.linear input/weight shape mismatch",
+        ));
+    }
+    if b.data.len() != out_features {
+        return Err(RuntimeError::new("tensor.linear bias length mismatch"));
+    }
+    let mut out = vec![0.0; batch * out_features];
+    for row in 0..batch {
+        for out_col in 0..out_features {
+            let mut sum = b.data[out_col];
+            for in_col in 0..in_features {
+                sum += x.data[row * in_features + in_col] * w.data[out_col * in_features + in_col];
+            }
+            out[row * out_features + out_col] = sum;
+        }
+    }
+    validate_tensor_data(&out, "tensor.linear output")?;
+    let requires_grad = any_tensor_requires_grad(&[&x, &w, &b]);
+    let dtype = x.dtype.clone();
+    tensor_value_with_autograd(
+        vec![batch, out_features],
+        out,
+        dtype,
+        requires_grad,
+        TensorBackward::Linear { x, w, b },
+    )
+}
+
+fn tensor_layernorm(
+    x: TensorState,
+    w: TensorState,
+    b: TensorState,
+    eps: f64,
+) -> Result<Value, RuntimeError> {
+    if eps <= 0.0 || !eps.is_finite() {
+        return Err(RuntimeError::new(
+            "tensor.layernorm requires finite eps > 0",
+        ));
+    }
+    let last = *x
+        .shape
+        .last()
+        .ok_or_else(|| RuntimeError::new("tensor.layernorm requires non-empty shape"))?;
+    if w.data.len() != last || b.data.len() != last {
+        return Err(RuntimeError::new(
+            "tensor.layernorm weight/bias length mismatch",
+        ));
+    }
+    let outer = x.data.len() / last;
+    let mut out = vec![0.0; x.data.len()];
+    for row in 0..outer {
+        let start = row * last;
+        let slice = &x.data[start..start + last];
+        let mean = slice.iter().sum::<f64>() / last as f64;
+        let var = slice
+            .iter()
+            .map(|value| {
+                let d = value - mean;
+                d * d
+            })
+            .sum::<f64>()
+            / last as f64;
+        let denom = (var + eps).sqrt();
+        for idx in 0..last {
+            out[start + idx] = ((slice[idx] - mean) / denom) * w.data[idx] + b.data[idx];
+        }
+    }
+    validate_tensor_data(&out, "tensor.layernorm output")?;
+    let requires_grad = any_tensor_requires_grad(&[&x, &w, &b]);
+    let dtype = x.dtype.clone();
+    let shape = x.shape.clone();
+    tensor_value_with_autograd(
+        shape,
+        out,
+        dtype,
+        requires_grad,
+        TensorBackward::LayerNorm { x, w, b, eps },
+    )
+}
+
+fn tensor_embedding(w: TensorState, ids: TensorState) -> Result<Value, RuntimeError> {
+    if w.shape.len() != 2 {
+        return Err(RuntimeError::new("tensor.embedding weights must be rank-2"));
+    }
+    let vocab = w.shape[0];
+    let dim = w.shape[1];
+    let mut out_shape = ids.shape.clone();
+    out_shape.push(dim);
+    let mut out = Vec::with_capacity(ids.data.len() * dim);
+    for raw in &ids.data {
+        let id = *raw as i64;
+        if (id as f64 - raw).abs() > 1e-9 || id < 0 || id as usize >= vocab {
+            return Err(RuntimeError::new("tensor.embedding id out of range"));
+        }
+        let start = id as usize * dim;
+        out.extend_from_slice(&w.data[start..start + dim]);
+    }
+    let requires_grad = tensor_requires_grad(w.id);
+    let dtype = w.dtype.clone();
+    tensor_value_with_autograd(
+        out_shape,
+        out,
+        dtype,
+        requires_grad,
+        TensorBackward::Embedding { weight: w, ids },
+    )
+}
+
+fn tensor_cross_entropy(logits: TensorState, targets: TensorState) -> Result<Value, RuntimeError> {
+    if logits.shape.len() != 2 {
+        return Err(RuntimeError::new(
+            "tensor.cross_entropy logits must be rank-2",
+        ));
+    }
+    let batch = logits.shape[0];
+    let classes = logits.shape[1];
+    if targets.data.len() != batch {
+        return Err(RuntimeError::new(
+            "tensor.cross_entropy target length mismatch",
+        ));
+    }
+    let mut loss = 0.0;
+    for row in 0..batch {
+        let start = row * classes;
+        let slice = &logits.data[start..start + classes];
+        let max_value = slice.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let denom = slice
+            .iter()
+            .map(|value| (value - max_value).exp())
+            .sum::<f64>();
+        let target = targets.data[row] as i64;
+        if (target as f64 - targets.data[row]).abs() > 1e-9
+            || target < 0
+            || target as usize >= classes
+        {
+            return Err(RuntimeError::new(
+                "tensor.cross_entropy target out of range",
+            ));
+        }
+        let log_prob = slice[target as usize] - max_value - denom.ln();
+        loss -= log_prob;
+    }
+    let requires_grad = tensor_requires_grad(logits.id);
+    let dtype = logits.dtype.clone();
+    tensor_value_with_autograd(
+        vec![1],
+        vec![loss / batch as f64],
+        dtype,
+        requires_grad,
+        TensorBackward::CrossEntropy { logits, targets },
+    )
+}
+
+fn broadcast_value_at(tensor: &TensorState, out_indices: &[usize], out_rank: usize) -> f64 {
+    let strides = tensor_strides(&tensor.shape);
+    tensor.data[tensor_broadcast_source_index(out_indices, out_rank, &tensor.shape, &strides)]
+}
+
+fn tensor_broadcast_shape3(
+    a: &[usize],
+    b: &[usize],
+    c: &[usize],
+) -> Result<Vec<usize>, RuntimeError> {
+    let ab = tensor_broadcast_shape(a, b)?;
+    tensor_broadcast_shape(&ab, c)
+}
+
+fn tensor_where(
+    mask: TensorState,
+    yes: TensorState,
+    no: TensorState,
+) -> Result<Value, RuntimeError> {
+    if yes.dtype != no.dtype {
+        return Err(RuntimeError::new(
+            "tensor.where requires matching branch dtypes",
+        ));
+    }
+    let shape = tensor_broadcast_shape3(&mask.shape, &yes.shape, &no.shape)?;
+    let out_len = tensor_len_from_shape(&shape)?;
+    let out_strides = tensor_strides(&shape);
+    let mut out = vec![0.0; out_len];
+    for (flat, slot) in out.iter_mut().enumerate() {
+        let indices = tensor_indices_from_flat(flat, &shape, &out_strides);
+        *slot = if broadcast_value_at(&mask, &indices, shape.len()) != 0.0 {
+            broadcast_value_at(&yes, &indices, shape.len())
+        } else {
+            broadcast_value_at(&no, &indices, shape.len())
+        };
+    }
+    Ok(tensor_value(shape, out, yes.dtype))
+}
+
+fn tensor_clip(tensor: TensorState, min: f64, max: f64) -> Result<Value, RuntimeError> {
+    if !min.is_finite() || !max.is_finite() || min > max {
+        return Err(RuntimeError::new("tensor.clip requires finite min <= max"));
+    }
+    let data = tensor
+        .data
+        .iter()
+        .map(|value| value.clamp(min, max))
+        .collect::<Vec<_>>();
+    Ok(tensor_value(tensor.shape, data, tensor.dtype))
+}
+
+fn reduced_shape(shape: &[usize], dim: usize, keepdim: bool) -> Vec<usize> {
+    let mut out = shape.to_vec();
+    if keepdim {
+        out[dim] = 1;
+    } else {
+        out.remove(dim);
+        if out.is_empty() {
+            out.push(1);
+        }
+    }
+    out
+}
+
+fn tensor_argmax(tensor: TensorState, dim: usize, keepdim: bool) -> Result<Value, RuntimeError> {
+    check_tensor_dim(&tensor.shape, dim, "tensor.argmax")?;
+    let out_shape = reduced_shape(&tensor.shape, dim, keepdim);
+    let out_len = tensor_len_from_shape(&out_shape)?;
+    let out_strides = tensor_strides(&out_shape);
+    let in_strides = tensor_strides(&tensor.shape);
+    let mut out = vec![0.0; out_len];
+    for (out_flat, slot) in out.iter_mut().enumerate() {
+        let out_indices = tensor_indices_from_flat(out_flat, &out_shape, &out_strides);
+        let mut in_indices = out_indices.clone();
+        if keepdim {
+            in_indices[dim] = 0;
+        } else {
+            in_indices.insert(dim, 0);
+        }
+        let mut best_idx = 0usize;
+        let mut best = f64::NEG_INFINITY;
+        for idx in 0..tensor.shape[dim] {
+            in_indices[dim] = idx;
+            let value = tensor.data[tensor_flat_index(&in_indices, &in_strides)];
+            if value > best {
+                best = value;
+                best_idx = idx;
+            }
+        }
+        *slot = best_idx as f64;
+    }
+    Ok(tensor_value(out_shape, out, "i64"))
+}
+
+fn tensor_sort(tensor: TensorState, dim: usize, descending: bool) -> Result<Value, RuntimeError> {
+    check_tensor_dim(&tensor.shape, dim, "tensor.sort")?;
+    let mut out = vec![0.0; tensor.data.len()];
+    let strides = tensor_strides(&tensor.shape);
+    for flat in 0..tensor.data.len() {
+        let mut base = tensor_indices_from_flat(flat, &tensor.shape, &strides);
+        if base[dim] != 0 {
+            continue;
+        }
+        let mut values = Vec::with_capacity(tensor.shape[dim]);
+        for idx in 0..tensor.shape[dim] {
+            base[dim] = idx;
+            values.push(tensor.data[tensor_flat_index(&base, &strides)]);
+        }
+        values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        if descending {
+            values.reverse();
+        }
+        for (idx, value) in values.into_iter().enumerate() {
+            base[dim] = idx;
+            out[tensor_flat_index(&base, &strides)] = value;
+        }
+    }
+    Ok(tensor_value(tensor.shape, out, tensor.dtype))
+}
+
+fn tensor_topk(tensor: TensorState, k: usize, dim: usize) -> Result<Value, RuntimeError> {
+    check_tensor_dim(&tensor.shape, dim, "tensor.topk")?;
+    if k == 0 || k > tensor.shape[dim] {
+        return Err(RuntimeError::new(
+            "tensor.topk requires 0 < k <= dimension length",
+        ));
+    }
+    let mut out_shape = tensor.shape.clone();
+    out_shape[dim] = k;
+    let out_len = tensor_len_from_shape(&out_shape)?;
+    let in_strides = tensor_strides(&tensor.shape);
+    let out_strides = tensor_strides(&out_shape);
+    let mut out = vec![0.0; out_len];
+    for out_flat in 0..out_len {
+        let mut out_indices = tensor_indices_from_flat(out_flat, &out_shape, &out_strides);
+        if out_indices[dim] != 0 {
+            continue;
+        }
+        let mut in_indices = out_indices.clone();
+        let mut values = Vec::with_capacity(tensor.shape[dim]);
+        for idx in 0..tensor.shape[dim] {
+            in_indices[dim] = idx;
+            values.push(tensor.data[tensor_flat_index(&in_indices, &in_strides)]);
+        }
+        values.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+        for (idx, value) in values.into_iter().take(k).enumerate() {
+            out_indices[dim] = idx;
+            out[tensor_flat_index(&out_indices, &out_strides)] = value;
+        }
+    }
+    Ok(tensor_value(out_shape, out, tensor.dtype))
+}
+
+fn tensor_index_value(value: f64, upper: usize, label: &str) -> Result<usize, RuntimeError> {
+    let idx = value as i64;
+    if (idx as f64 - value).abs() > 1e-9 || idx < 0 || idx as usize >= upper {
+        return Err(RuntimeError::new(&format!("{label} index out of range")));
+    }
+    Ok(idx as usize)
+}
+
+fn tensor_gather(
+    tensor: TensorState,
+    dim: usize,
+    indices: TensorState,
+) -> Result<Value, RuntimeError> {
+    check_tensor_dim(&tensor.shape, dim, "tensor.gather")?;
+    if tensor.shape.len() != indices.shape.len() {
+        return Err(RuntimeError::new(
+            "tensor.gather requires indices rank to match input",
+        ));
+    }
+    for axis in 0..tensor.shape.len() {
+        if axis != dim && tensor.shape[axis] != indices.shape[axis] {
+            return Err(RuntimeError::new(
+                "tensor.gather requires matching non-gather dimensions",
+            ));
+        }
+    }
+    let in_strides = tensor_strides(&tensor.shape);
+    let idx_strides = tensor_strides(&indices.shape);
+    let mut out = vec![0.0; indices.data.len()];
+    for (flat, slot) in out.iter_mut().enumerate() {
+        let mut coord = tensor_indices_from_flat(flat, &indices.shape, &idx_strides);
+        coord[dim] = tensor_index_value(indices.data[flat], tensor.shape[dim], "tensor.gather")?;
+        *slot = tensor.data[tensor_flat_index(&coord, &in_strides)];
+    }
+    Ok(tensor_value(indices.shape, out, tensor.dtype))
+}
+
+fn tensor_scatter(
+    tensor: TensorState,
+    dim: usize,
+    indices: TensorState,
+    updates: TensorState,
+) -> Result<Value, RuntimeError> {
+    check_tensor_dim(&tensor.shape, dim, "tensor.scatter")?;
+    if indices.shape != updates.shape || tensor.shape.len() != indices.shape.len() {
+        return Err(RuntimeError::new(
+            "tensor.scatter requires matching indices/update ranks",
+        ));
+    }
+    for axis in 0..tensor.shape.len() {
+        if axis != dim && tensor.shape[axis] != indices.shape[axis] {
+            return Err(RuntimeError::new(
+                "tensor.scatter requires matching non-scatter dimensions",
+            ));
+        }
+    }
+    let target_strides = tensor_strides(&tensor.shape);
+    let idx_strides = tensor_strides(&indices.shape);
+    let mut out = tensor.data;
+    for flat in 0..updates.data.len() {
+        let mut coord = tensor_indices_from_flat(flat, &indices.shape, &idx_strides);
+        coord[dim] = tensor_index_value(indices.data[flat], tensor.shape[dim], "tensor.scatter")?;
+        out[tensor_flat_index(&coord, &target_strides)] = updates.data[flat];
+    }
+    Ok(tensor_value(tensor.shape, out, updates.dtype))
+}
+
+fn tensor_masked_fill(
+    tensor: TensorState,
+    mask: TensorState,
+    fill: f64,
+) -> Result<Value, RuntimeError> {
+    if !fill.is_finite() {
+        return Err(RuntimeError::new(
+            "tensor.masked_fill requires finite fill value",
+        ));
+    }
+    let shape = tensor_broadcast_shape(&tensor.shape, &mask.shape)?;
+    if shape != tensor.shape {
+        return Err(RuntimeError::new(
+            "tensor.masked_fill mask must broadcast to tensor shape",
+        ));
+    }
+    let strides = tensor_strides(&tensor.shape);
+    let mut out = tensor.data.clone();
+    for (flat, slot) in out.iter_mut().enumerate() {
+        let indices = tensor_indices_from_flat(flat, &tensor.shape, &strides);
+        if broadcast_value_at(&mask, &indices, tensor.shape.len()) != 0.0 {
+            *slot = fill;
+        }
+    }
+    Ok(tensor_value(tensor.shape, out, tensor.dtype))
+}
+
+fn tensor_einsum(spec: &str, left: TensorState, right: TensorState) -> Result<Value, RuntimeError> {
+    match spec.replace(' ', "").as_str() {
+        "ij,jk->ik" => tensor_matmul(left, right),
+        "ij,ij->ij" => tensor_binary(left, right, "tensor.mul"),
+        "ij,ij->" => {
+            let product = tensor_binary(left, right, "tensor.mul")?;
+            let tensor = tensor_state(&product)?;
+            Ok(tensor_value(
+                vec![1],
+                vec![tensor.data.iter().sum()],
+                tensor.dtype,
+            ))
+        }
+        _ => Err(RuntimeError::new("tensor.einsum unsupported pattern")),
+    }
+}
+
+fn tensor_conv2d(
+    input: TensorState,
+    weight: TensorState,
+    bias: TensorState,
+    stride: usize,
+    padding: usize,
+) -> Result<Value, RuntimeError> {
+    if stride == 0 {
+        return Err(RuntimeError::new("tensor.conv2d requires stride > 0"));
+    }
+    if input.shape.len() != 4 || weight.shape.len() != 4 {
+        return Err(RuntimeError::new(
+            "tensor.conv2d requires input [N,C,H,W] and weight [F,C,KH,KW]",
+        ));
+    }
+    let (n, c, h, w) = (
+        input.shape[0],
+        input.shape[1],
+        input.shape[2],
+        input.shape[3],
+    );
+    let (f, wc, kh, kw) = (
+        weight.shape[0],
+        weight.shape[1],
+        weight.shape[2],
+        weight.shape[3],
+    );
+    if c != wc || bias.data.len() != f {
+        return Err(RuntimeError::new(
+            "tensor.conv2d channel/bias shape mismatch",
+        ));
+    }
+    let out_h = (h + 2 * padding)
+        .checked_sub(kh)
+        .ok_or_else(|| RuntimeError::new("tensor.conv2d kernel larger than padded input"))?
+        / stride
+        + 1;
+    let out_w = (w + 2 * padding)
+        .checked_sub(kw)
+        .ok_or_else(|| RuntimeError::new("tensor.conv2d kernel larger than padded input"))?
+        / stride
+        + 1;
+    let mut out = vec![0.0; n * f * out_h * out_w];
+    for batch in 0..n {
+        for out_c in 0..f {
+            for oy in 0..out_h {
+                for ox in 0..out_w {
+                    let mut sum = bias.data[out_c];
+                    for in_c in 0..c {
+                        for ky in 0..kh {
+                            for kx in 0..kw {
+                                let iy = oy * stride + ky;
+                                let ix = ox * stride + kx;
+                                if iy < padding || ix < padding {
+                                    continue;
+                                }
+                                let sy = iy - padding;
+                                let sx = ix - padding;
+                                if sy >= h || sx >= w {
+                                    continue;
+                                }
+                                let in_idx = ((batch * c + in_c) * h + sy) * w + sx;
+                                let wt_idx = ((out_c * c + in_c) * kh + ky) * kw + kx;
+                                sum += input.data[in_idx] * weight.data[wt_idx];
+                            }
+                        }
+                    }
+                    out[((batch * f + out_c) * out_h + oy) * out_w + ox] = sum;
+                }
+            }
+        }
+    }
+    let requires_grad = any_tensor_requires_grad(&[&input, &weight, &bias]);
+    let dtype = input.dtype.clone();
+    tensor_value_with_autograd(
+        vec![n, f, out_h, out_w],
+        out,
+        dtype,
+        requires_grad,
+        TensorBackward::Conv2d {
+            input,
+            weight,
+            bias,
+            stride,
+            padding,
+        },
+    )
+}
+
+fn tensor_pool2d(
+    input: TensorState,
+    kernel: usize,
+    stride: usize,
+    max_pool: bool,
+) -> Result<Value, RuntimeError> {
+    if input.shape.len() != 4 || kernel == 0 || stride == 0 {
+        return Err(RuntimeError::new(
+            "tensor pool2d requires [N,C,H,W], kernel > 0, stride > 0",
+        ));
+    }
+    let (n, c, h, w) = (
+        input.shape[0],
+        input.shape[1],
+        input.shape[2],
+        input.shape[3],
+    );
+    if kernel > h || kernel > w {
+        return Err(RuntimeError::new("tensor pool2d kernel larger than input"));
+    }
+    let out_h = (h - kernel) / stride + 1;
+    let out_w = (w - kernel) / stride + 1;
+    let mut out = vec![0.0; n * c * out_h * out_w];
+    for batch in 0..n {
+        for channel in 0..c {
+            for oy in 0..out_h {
+                for ox in 0..out_w {
+                    let mut acc = if max_pool { f64::NEG_INFINITY } else { 0.0 };
+                    for ky in 0..kernel {
+                        for kx in 0..kernel {
+                            let iy = oy * stride + ky;
+                            let ix = ox * stride + kx;
+                            let value = input.data[((batch * c + channel) * h + iy) * w + ix];
+                            if max_pool {
+                                acc = acc.max(value);
+                            } else {
+                                acc += value;
+                            }
+                        }
+                    }
+                    if !max_pool {
+                        acc /= (kernel * kernel) as f64;
+                    }
+                    out[((batch * c + channel) * out_h + oy) * out_w + ox] = acc;
+                }
+            }
+        }
+    }
+    let requires_grad = tensor_requires_grad(input.id);
+    let dtype = input.dtype.clone();
+    tensor_value_with_autograd(
+        vec![n, c, out_h, out_w],
+        out,
+        dtype,
+        requires_grad,
+        TensorBackward::Pool2d {
+            input,
+            kernel,
+            stride,
+            max_pool,
+        },
+    )
+}
+
+fn tensor_batchnorm1d(
+    input: TensorState,
+    gamma: TensorState,
+    beta: TensorState,
+    eps: f64,
+    _training: bool,
+) -> Result<Value, RuntimeError> {
+    if input.shape.len() != 2
+        || gamma.data.len() != input.shape[1]
+        || beta.data.len() != input.shape[1]
+    {
+        return Err(RuntimeError::new(
+            "tensor.batchnorm1d requires input [N,C] and gamma/beta [C]",
+        ));
+    }
+    if eps <= 0.0 || !eps.is_finite() {
+        return Err(RuntimeError::new(
+            "tensor.batchnorm1d requires finite eps > 0",
+        ));
+    }
+    let (n, c) = (input.shape[0], input.shape[1]);
+    let mut mean = vec![0.0; c];
+    for row in 0..n {
+        for col in 0..c {
+            mean[col] += input.data[row * c + col];
+        }
+    }
+    for value in &mut mean {
+        *value /= n as f64;
+    }
+    let mut var = vec![0.0; c];
+    for row in 0..n {
+        for col in 0..c {
+            let d = input.data[row * c + col] - mean[col];
+            var[col] += d * d;
+        }
+    }
+    for value in &mut var {
+        *value /= n as f64;
+    }
+    let mut out = vec![0.0; input.data.len()];
+    for row in 0..n {
+        for col in 0..c {
+            out[row * c + col] = ((input.data[row * c + col] - mean[col])
+                / (var[col] + eps).sqrt())
+                * gamma.data[col]
+                + beta.data[col];
+        }
+    }
+    Ok(tensor_value(input.shape, out, input.dtype))
+}
+
+fn tensor_attention(q: TensorState, k: TensorState, v: TensorState) -> Result<Value, RuntimeError> {
+    if q.shape.len() != 3 || k.shape.len() != 3 || v.shape.len() != 3 {
+        return Err(RuntimeError::new(
+            "tensor.attention requires [B,T,D] tensors",
+        ));
+    }
+    let (b, tq, d) = (q.shape[0], q.shape[1], q.shape[2]);
+    let (bk, tk, dk) = (k.shape[0], k.shape[1], k.shape[2]);
+    let (bv, tv, dv) = (v.shape[0], v.shape[1], v.shape[2]);
+    if b != bk || b != bv || d != dk || tk != tv {
+        return Err(RuntimeError::new("tensor.attention shape mismatch"));
+    }
+    let mut out = vec![0.0; b * tq * dv];
+    let scale = (d as f64).sqrt();
+    for batch in 0..b {
+        for qi in 0..tq {
+            let mut scores = vec![0.0; tk];
+            for ki in 0..tk {
+                let mut score = 0.0;
+                for di in 0..d {
+                    score +=
+                        q.data[(batch * tq + qi) * d + di] * k.data[(batch * tk + ki) * d + di];
+                }
+                scores[ki] = score / scale;
+            }
+            let max_score = scores.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            let denom = scores
+                .iter()
+                .map(|score| (score - max_score).exp())
+                .sum::<f64>();
+            for vi in 0..tk {
+                let weight = (scores[vi] - max_score).exp() / denom;
+                for di in 0..dv {
+                    out[(batch * tq + qi) * dv + di] +=
+                        weight * v.data[(batch * tv + vi) * dv + di];
+                }
+            }
+        }
+    }
+    let requires_grad = any_tensor_requires_grad(&[&q, &k, &v]);
+    let dtype = q.dtype.clone();
+    tensor_value_with_autograd(
+        vec![b, tq, dv],
+        out,
+        dtype,
+        requires_grad,
+        TensorBackward::Attention { q, k, v },
+    )
+}
+
+fn tensor_matmul(left: TensorState, right: TensorState) -> Result<Value, RuntimeError> {
+    if left.shape.len() != 2 || right.shape.len() != 2 {
+        return Err(RuntimeError::new(
+            "enkai_tensor_matmul requires rank-2 tensors",
+        ));
+    }
+    let m = left.shape[0];
+    let k = left.shape[1];
+    let right_k = right.shape[0];
+    let n = right.shape[1];
+    if k != right_k {
+        return Err(RuntimeError::new("enkai_tensor_matmul shape mismatch"));
+    }
+    let mut out = vec![0.0; m * n];
+    for row in 0..m {
+        for col in 0..n {
+            let mut sum = 0.0;
+            for idx in 0..k {
+                sum += left.data[row * k + idx] * right.data[idx * n + col];
+            }
+            out[row * n + col] = sum;
+        }
+    }
+    let requires_grad = any_tensor_requires_grad(&[&left, &right]);
+    let dtype = left.dtype.clone();
+    tensor_value_with_autograd(
+        vec![m, n],
+        out,
+        dtype,
+        requires_grad,
+        TensorBackward::Matmul { left, right },
+    )
+}
+
+fn list_from_f64(values: Vec<f64>) -> Value {
+    Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+        values.into_iter().map(Value::Float).collect(),
+    ))))
+}
+
+fn runtime_array_element_type(values: &[Value]) -> String {
+    let Some(first) = values.first() else {
+        return "Empty".to_string();
+    };
+    let first = runtime_value_kind(first);
+    if values
+        .iter()
+        .skip(1)
+        .all(|value| runtime_value_kind(value) == first)
+    {
+        first
+    } else {
+        "Mixed".to_string()
+    }
+}
+
+fn runtime_value_kind(value: &Value) -> String {
+    match value {
+        Value::Null => "None".to_string(),
+        Value::Bool(_) => "Bool".to_string(),
+        Value::Int(_) => "Int".to_string(),
+        Value::Float(_) => "Float".to_string(),
+        Value::Obj(obj) => obj.as_obj().type_name().to_string(),
     }
 }
 
@@ -14075,6 +18958,15 @@ fn value_as_dense_f64(value: &Value) -> Result<Vec<f64>, RuntimeError> {
         },
         _ => Err(RuntimeError::new("Expected dense List or Buffer value")),
     }
+}
+
+fn native_placeholder(name: &str, arity: u16) -> Value {
+    Value::Obj(ObjRef::new(Obj::NativeFunction(NativeFunction {
+        name: name.to_string(),
+        arity,
+        kind: NativeImpl::Rust(std::rc::Rc::new(|_, _| Ok(Value::Null))),
+        bound: None,
+    })))
 }
 
 fn event_record_value(event: crate::object::ScheduledEvent) -> Value {
@@ -14229,6 +19121,77 @@ fn batch_to_value(batch: Batch) -> Value {
         Value::Float(batch.packing_efficiency as f64),
     );
     record_value(map)
+}
+
+fn dataset_cursor_to_value(cursor: DatasetCursor) -> Value {
+    let mut map = HashMap::new();
+    map.insert(
+        "current_file_index".to_string(),
+        Value::Int(cursor.current_file_index as i64),
+    );
+    map.insert(
+        "current_line".to_string(),
+        Value::Int(cursor.current_line as i64),
+    );
+    map.insert(
+        "token_buffer".to_string(),
+        Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+            cursor
+                .token_buffer
+                .into_iter()
+                .map(|id| Value::Int(id as i64))
+                .collect(),
+        )))),
+    );
+    map.insert("exhausted".to_string(), Value::Bool(cursor.exhausted));
+    map.insert(
+        "emitted_batches".to_string(),
+        Value::Int(cursor.emitted_batches as i64),
+    );
+    record_value(map)
+}
+
+fn dataset_cursor_from_value(value: Value) -> Result<DatasetCursor, RuntimeError> {
+    let map = match value {
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::Record(map) => map.borrow().clone(),
+            _ => return Err(RuntimeError::new("dataset.restore expects cursor record")),
+        },
+        _ => return Err(RuntimeError::new("dataset.restore expects cursor record")),
+    };
+    let current_file_index = map
+        .get("current_file_index")
+        .ok_or_else(|| RuntimeError::new("dataset cursor missing current_file_index"))
+        .and_then(|value| {
+            value_as_non_negative_int(value, "dataset cursor current_file_index must be >= 0")
+        })? as usize;
+    let current_line = map
+        .get("current_line")
+        .ok_or_else(|| RuntimeError::new("dataset cursor missing current_line"))
+        .and_then(|value| {
+            value_as_non_negative_int(value, "dataset cursor current_line must be >= 0")
+        })? as u64;
+    let emitted_batches = map
+        .get("emitted_batches")
+        .ok_or_else(|| RuntimeError::new("dataset cursor missing emitted_batches"))
+        .and_then(|value| {
+            value_as_non_negative_int(value, "dataset cursor emitted_batches must be >= 0")
+        })? as u64;
+    let exhausted = map
+        .get("exhausted")
+        .ok_or_else(|| RuntimeError::new("dataset cursor missing exhausted"))
+        .and_then(value_as_bool)?;
+    let token_buffer_value = map
+        .get("token_buffer")
+        .ok_or_else(|| RuntimeError::new("dataset cursor missing token_buffer"))?;
+    let token_buffer = value_to_token_ids(token_buffer_value)?;
+    Ok(DatasetCursor {
+        current_file_index,
+        current_line,
+        token_buffer,
+        exhausted,
+        emitted_batches,
+    })
 }
 
 fn f32_to_bytes(values: &[f32]) -> Vec<u8> {
@@ -15605,10 +20568,14 @@ fn describe_subset_stmt_value(stmt: &Stmt) -> Value {
             name,
             type_ann,
             expr,
+            mutable,
+            constant,
             ..
         } => {
             map.insert("kind".to_string(), string_value("Let"));
             map.insert("name".to_string(), string_value(name));
+            map.insert("mutable".to_string(), Value::Bool(*mutable));
+            map.insert("constant".to_string(), Value::Bool(*constant));
             map.insert(
                 "type_ref".to_string(),
                 describe_optional_subset_type_ref_value(type_ann.as_ref()),
@@ -16171,6 +21138,11 @@ fn display_value(v: &Value) -> String {
             Obj::BoundFunction(_) => "<bound_fn>".to_string(),
             Obj::NativeFunction(n) => format!("<native {}>", n.name),
             Obj::NativeHandle(_) => "<handle>".to_string(),
+            Obj::Vector(inner) => format!("<vector {}>", inner.borrow().data.len()),
+            Obj::Tensor(inner) => {
+                let tensor = inner.borrow();
+                format!("<tensor {:?} {}>", tensor.shape, tensor.dtype)
+            }
             Obj::SparseVector(inner) => format!("<sparse_vector {}>", inner.borrow().data.len()),
             Obj::SparseMatrix(inner) => format!("<sparse_matrix {}>", inner.borrow().data.len()),
             Obj::EventQueue(inner) => format!("<event_queue {}>", inner.borrow().items.len()),

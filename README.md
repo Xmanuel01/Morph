@@ -4,7 +4,10 @@ ENKAI PROGRAMMING LANGUAGE
 Overview
 Enkai is a programming language with block structure defined by :: tokens, a clean
 assignment operator (:=), and an AI-native roadmap (tools, agents, memory, policy).
-This repository contains the v3.8.0 active release line in Rust.
+This repository contains the v3.8.0 closed release line and the active v3.9.0
+CUDA-first proof work. The implementation repository still contains Rust/native
+components; installed release binaries are intended for users who do not install
+Rust.
 
 Strict self-host transition:
 - the `v3.1.0 -> v4.0.0` zero-Rust program is frozen in:
@@ -21,6 +24,8 @@ Strict self-host transition:
 Status (v3.8.0)
 - Release line: `v3.8.0`
 - Release state: closed
+- Next line: v3.9.0 CUDA-first production LLM runtime foundation
+- v3.9.0 starts the production LLM runtime line by freezing a CUDA-first small-transformer train/eval/checkpoint benchmark contract against PyTorch. Production performance claims require the hardware verifier to archive at least `1.50x` PyTorch train/eval/checkpoint-write throughput while staying within memory and resume-latency bounds; ROCm, Metal, distributed closure, and full PyTorch parity remain gated follow-up claims until their own hardware-backed verifier evidence exists.
 - Worker lifecycle and checkpoint sharding tranche (closed):
   - worker lifecycle proof archived under `artifacts/readiness/v3_8_0_worker_lifecycle.json`
   - worker persistence/scheduling proof archived under `artifacts/readiness/v3_8_0_worker_persistence_scheduling.json`
@@ -255,8 +260,14 @@ Workspace structure
 - enkairt: bytecode VM runtime (production) + legacy tree-walk interpreter (non-production/reference)
 - enkai: CLI wrapper
 
-Spec
-See docs/Enkai.spec for the grammar, keywords, and :: block rules.
+Spec and learning docs
+- Start here if you are learning the language: `docs/53_language_handbook.md`.
+- Fast first-run guide: `docs/00_getting_started.md`.
+- Syntax guide: `docs/01_syntax.md`.
+- Types and AI-native collections: `docs/02_types.md` and `docs/tensor_api.md`.
+- CLI and official style: `docs/52_cli_and_style.md`.
+- Normative reference: `docs/Enkai.spec`.
+- Documentation map: `docs/README.md`.
 
 Official CLI
 - `enkai run <file.enkai>` executes Enkai source.
@@ -269,12 +280,36 @@ Official CLI
 - `enkai safari` is reserved for a future interactive workspace; use `enkai run` for normal execution.
 
 Quick example
+```enkai
+import std::io
+
+policy default ::
+    allow io.write
+::policy
+
 fn greet(name: String) -> String ::
     return "Hello " + name
 ::fn
 
-let msg := greet("Enkai")
-print(msg)
+fn main() ::
+    let msg := greet("Enkai")
+    let _ := io.stdout_write_text(msg + "\n")
+::fn
+```
+
+Run it:
+
+```powershell
+enkai run hello.enkai
+```
+
+Recommended local loop:
+
+```powershell
+enkai fmt --check hello.enkai
+enkai check hello.enkai
+enkai run hello.enkai
+```
 
 Install (users, no Rust required)
 - Option A: one-line installer (recommended)
@@ -300,9 +335,9 @@ Container image
 
 Developer install (requires Rust)
 - `cargo build -p enkai --release`
-- `cargo run -p enkai -- run path\\to\\file.enk`
-- `cargo run -p enkai -- run examples\\project_v02`
-- `cargo run -p enkai -- fmt --check examples\\project_v02\\src\\main.enk`
+- `cargo run -p enkai -- run path\to\file.enk`
+- `cargo run -p enkai -- run examples\project_v02`
+- `cargo run -p enkai -- fmt --check examples\project_v02\src\main.enk`
 - `cargo test`
 
 Tensor/FFI features (current)

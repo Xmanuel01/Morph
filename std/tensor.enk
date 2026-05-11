@@ -5,11 +5,20 @@ native::import "enkai_tensor" ::
     fn enkai_tensor_device(spec: String) -> Int
     fn enkai_tensor_free(handle: Int) -> Int
     fn enkai_tensor_device_free(handle: Int) -> Int
+    fn enkai_tensor_from_array(data_json: String, shape_json: String, dtype: String) -> Int
+    fn enkai_tensor_to_array(handle: Int) -> String
+    fn enkai_tensor_rank(handle: Int) -> Int
+    fn enkai_tensor_len(handle: Int) -> Int
+    fn enkai_tensor_get_flat(handle: Int, index: Int) -> Float
     fn enkai_tensor_randn(shape_json: String, dtype: String, device: Int) -> Int
     fn enkai_tensor_zeros(shape_json: String, dtype: String, device: Int) -> Int
     fn enkai_tensor_matmul(a: Int, b: Int) -> Int
     fn enkai_tensor_add(a: Int, b: Int) -> Int
+    fn enkai_tensor_sub(a: Int, b: Int) -> Int
     fn enkai_tensor_mul(a: Int, b: Int) -> Int
+    fn enkai_tensor_div(a: Int, b: Int) -> Int
+    fn enkai_tensor_scale(x: Int, scale: Float) -> Int
+    fn enkai_tensor_broadcast_to(x: Int, shape_json: String) -> Int
     fn enkai_tensor_reshape(x: Int, shape_json: String) -> Int
     fn enkai_tensor_transpose(x: Int, dim0: Int, dim1: Int) -> Int
     fn enkai_tensor_concat(handles_json: String, dim: Int) -> Int
@@ -20,6 +29,10 @@ native::import "enkai_tensor" ::
     fn enkai_tensor_masked_softmax_backward(grad_output: Int, output: Int, mask: Int, dim: Int) -> Int
     fn enkai_tensor_relu(x: Int) -> Int
     fn enkai_tensor_sigmoid(x: Int) -> Int
+    fn enkai_tensor_exp(x: Int) -> Int
+    fn enkai_tensor_log(x: Int) -> Int
+    fn enkai_tensor_sqrt(x: Int) -> Int
+    fn enkai_tensor_tanh(x: Int) -> Int
     fn enkai_tensor_dropout(x: Int, p: Float, train: Int) -> Int
     fn enkai_tensor_slice(x: Int, dim: Int, start: Int, end: Int, step: Int) -> Int
     fn enkai_tensor_view(x: Int, shape_json: String) -> Int
@@ -30,14 +43,42 @@ native::import "enkai_tensor" ::
     fn enkai_tensor_gelu(x: Int) -> Int
     fn enkai_tensor_to_device(x: Int, device: Int) -> Int
     fn enkai_tensor_to_dtype(x: Int, dtype: String) -> Int
+    fn enkai_tensor_where(mask: Int, yes: Int, no: Int) -> Int
+    fn enkai_tensor_clip(x: Int, min: Float, max: Float) -> Int
+    fn enkai_tensor_argmax(x: Int, dim: Int, keepdim: Int) -> Int
+    fn enkai_tensor_sort(x: Int, dim: Int, descending: Int) -> Int
+    fn enkai_tensor_topk(x: Int, k: Int, dim: Int) -> Int
+    fn enkai_tensor_gather(x: Int, dim: Int, indices: Int) -> Int
+    fn enkai_tensor_scatter(x: Int, dim: Int, indices: Int, updates: Int) -> Int
+    fn enkai_tensor_masked_fill(x: Int, mask: Int, fill: Float) -> Int
+    fn enkai_tensor_einsum(pattern: String, a: Int, b: Int) -> Int
+    fn enkai_tensor_conv2d(input: Int, weight: Int, bias: Int, stride: Int, padding: Int) -> Int
+    fn enkai_tensor_max_pool2d(input: Int, kernel: Int, stride: Int) -> Int
+    fn enkai_tensor_avg_pool2d(input: Int, kernel: Int, stride: Int) -> Int
+    fn enkai_tensor_batchnorm1d(input: Int, gamma: Int, beta: Int, eps: Float, training: Int) -> Int
+    fn enkai_tensor_attention(q: Int, k: Int, v: Int) -> Int
     fn enkai_tensor_shape(x: Int) -> String
     fn enkai_tensor_cross_entropy(logits: Int, targets: Int) -> Int
     fn enkai_tensor_backward(loss: Int) -> Int
     fn enkai_tensor_require_grad(handle: Int) -> Int
+    fn enkai_tensor_detach(handle: Int) -> Int
+    fn enkai_tensor_grad(handle: Int) -> Int
     fn enkai_tensor_zero_grad(handle: Int) -> Int
-    fn enkai_tensor_zero_grad_multi(handles_json: String) -> Int
+    fn enkai_tensor_no_grad(enabled: Int) -> Bool
+    fn enkai_tensor_grad_check(actual: Int, expected: Int, tolerance: Float) -> Bool
+    fn enkai_tensor_zero_grad_multi(handles: Int) -> Int
+    fn enkai_tensor_sgd_step(param: Int, grad: Int, lr: Float, wd: Float) -> Int
+    fn enkai_tensor_sgd_step_multi(params: Int, grads: Int, lr: Float, wd: Float) -> Int
+    fn enkai_tensor_clip_grad_norm(params: Int, max_norm: Float, eps: Float) -> Float
+    fn enkai_tensor_memory_current() -> Int
+    fn enkai_tensor_memory_peak() -> Int
+    fn enkai_tensor_memory_limit() -> Int
+    fn enkai_tensor_memory_set_limit(bytes: Int) -> Int
+    fn enkai_tensor_memory_clear_limit() -> Int
+    fn enkai_tensor_memory_reset_peak() -> Int
+    fn enkai_tensor_adamw_state() -> Int
     fn enkai_tensor_adamw_step(param: Int, grad: Int, state: Int, lr: Float, beta1: Float, beta2: Float, eps: Float, wd: Float) -> Int
-    fn enkai_tensor_adamw_step_multi(params_json: String, grads_json: String, state: Int, lr: Float, beta1: Float, beta2: Float, eps: Float, wd: Float) -> Int
+    fn enkai_tensor_adamw_step_multi(params: Int, grads: Int, state: Int, lr: Float, beta1: Float, beta2: Float, eps: Float, wd: Float) -> Int
     fn enkai_tensor_save_sharded(dir: String, param: Int, opt_state: Int, meta_json: String) -> Int
     fn enkai_tensor_save_sharded_multi(dir: String, params_json: String, opt_state: Int, meta_json: String) -> Int
     fn enkai_tensor_load_sharded(dir: String) -> Int
@@ -49,6 +90,27 @@ native::import "enkai_tensor" ::
 
 pub fn device(spec: String) -> Device ::
     return enkai_tensor_device(spec)
+::
+
+pub fn from_array(values: Array[Float], shape: Array[Int]) -> Tensor ::
+    return enkai_tensor_from_array(json.stringify(values), json.stringify(shape), "f64")
+::
+
+pub fn to_array(x: Tensor) -> Array[Float] ::
+    let raw := enkai_tensor_to_array(x)
+    return json.parse(raw)
+::
+
+pub fn rank(x: Tensor) -> Int ::
+    return enkai_tensor_rank(x)
+::
+
+pub fn len(x: Tensor) -> Int ::
+    return enkai_tensor_len(x)
+::
+
+pub fn get_flat(x: Tensor, index: Int) -> Float ::
+    return enkai_tensor_get_flat(x, index)
 ::
 
 pub fn randn(shape, dtype: DType, device: Device) -> Tensor ::
@@ -67,8 +129,24 @@ pub fn add(a: Tensor, b: Tensor) -> Tensor ::
     return enkai_tensor_add(a, b)
 ::
 
+pub fn sub(a: Tensor, b: Tensor) -> Tensor ::
+    return enkai_tensor_sub(a, b)
+::
+
 pub fn mul(a: Tensor, b: Tensor) -> Tensor ::
     return enkai_tensor_mul(a, b)
+::
+
+pub fn div(a: Tensor, b: Tensor) -> Tensor ::
+    return enkai_tensor_div(a, b)
+::
+
+pub fn scale(x: Tensor, factor: Float) -> Tensor ::
+    return enkai_tensor_scale(x, factor)
+::
+
+pub fn broadcast_to(x: Tensor, shape) -> Tensor ::
+    return enkai_tensor_broadcast_to(x, json.stringify(shape))
 ::
 
 pub fn reshape(x: Tensor, shape) -> Tensor ::
@@ -84,7 +162,7 @@ pub fn concat(handles, dim: Int) -> Tensor ::
 ::
 
 pub fn sum(x: Tensor, dim: Int, keepdim: Bool) -> Tensor ::
-    let keep := 0
+    mut keep := 0
     if keepdim ::
         keep := 1
     ::
@@ -92,7 +170,7 @@ pub fn sum(x: Tensor, dim: Int, keepdim: Bool) -> Tensor ::
 ::
 
 pub fn mean(x: Tensor, dim: Int, keepdim: Bool) -> Tensor ::
-    let keep := 0
+    mut keep := 0
     if keepdim ::
         keep := 1
     ::
@@ -119,8 +197,24 @@ pub fn sigmoid(x: Tensor) -> Tensor ::
     return enkai_tensor_sigmoid(x)
 ::
 
+pub fn exp(x: Tensor) -> Tensor ::
+    return enkai_tensor_exp(x)
+::
+
+pub fn log(x: Tensor) -> Tensor ::
+    return enkai_tensor_log(x)
+::
+
+pub fn sqrt(x: Tensor) -> Tensor ::
+    return enkai_tensor_sqrt(x)
+::
+
+pub fn tanh(x: Tensor) -> Tensor ::
+    return enkai_tensor_tanh(x)
+::
+
 pub fn dropout(x: Tensor, p: Float, train: Bool) -> Tensor ::
-    let train_flag := 0
+    mut train_flag := 0
     if train ::
         train_flag := 1
     ::
@@ -169,7 +263,75 @@ pub fn to_dtype(x: Tensor, dtype: DType) -> Tensor ::
     return enkai_tensor_to_dtype(x, dtype)
 ::
 
-pub fn shape(x: Int) ::
+pub fn where(mask: Tensor, yes: Tensor, no: Tensor) -> Tensor ::
+    return enkai_tensor_where(mask, yes, no)
+::
+
+pub fn clip(x: Tensor, min: Float, max: Float) -> Tensor ::
+    return enkai_tensor_clip(x, min, max)
+::
+
+pub fn argmax(x: Tensor, dim: Int, keepdim: Bool) -> Tensor ::
+    mut keep := 0
+    if keepdim ::
+        keep := 1
+    ::
+    return enkai_tensor_argmax(x, dim, keep)
+::
+
+pub fn sort(x: Tensor, dim: Int, descending: Bool) -> Tensor ::
+    mut desc := 0
+    if descending ::
+        desc := 1
+    ::
+    return enkai_tensor_sort(x, dim, desc)
+::
+
+pub fn topk(x: Tensor, k: Int, dim: Int) -> Tensor ::
+    return enkai_tensor_topk(x, k, dim)
+::
+
+pub fn gather(x: Tensor, dim: Int, indices: Tensor) -> Tensor ::
+    return enkai_tensor_gather(x, dim, indices)
+::
+
+pub fn scatter(x: Tensor, dim: Int, indices: Tensor, updates: Tensor) -> Tensor ::
+    return enkai_tensor_scatter(x, dim, indices, updates)
+::
+
+pub fn masked_fill(x: Tensor, mask: Tensor, fill: Float) -> Tensor ::
+    return enkai_tensor_masked_fill(x, mask, fill)
+::
+
+pub fn einsum(pattern: String, a: Tensor, b: Tensor) -> Tensor ::
+    return enkai_tensor_einsum(pattern, a, b)
+::
+
+pub fn conv2d(input: Tensor, weight: Tensor, bias: Tensor, stride: Int, padding: Int) -> Tensor ::
+    return enkai_tensor_conv2d(input, weight, bias, stride, padding)
+::
+
+pub fn max_pool2d(input: Tensor, kernel: Int, stride: Int) -> Tensor ::
+    return enkai_tensor_max_pool2d(input, kernel, stride)
+::
+
+pub fn avg_pool2d(input: Tensor, kernel: Int, stride: Int) -> Tensor ::
+    return enkai_tensor_avg_pool2d(input, kernel, stride)
+::
+
+pub fn batchnorm1d(input: Tensor, gamma: Tensor, beta: Tensor, eps: Float, training: Bool) -> Tensor ::
+    mut train := 0
+    if training ::
+        train := 1
+    ::
+    return enkai_tensor_batchnorm1d(input, gamma, beta, eps, train)
+::
+
+pub fn attention(q: Tensor, k: Tensor, v: Tensor) -> Tensor ::
+    return enkai_tensor_attention(q, k, v)
+::
+
+pub fn shape(x: Tensor) ::
     let raw := enkai_tensor_shape(x)
     return json.parse(raw)
 ::
@@ -186,12 +348,76 @@ pub fn require_grad(x: Tensor) -> Tensor ::
     return enkai_tensor_require_grad(x)
 ::
 
+pub fn requires_grad(x: Tensor) -> Tensor ::
+    return enkai_tensor_require_grad(x)
+::
+
+pub fn detach(x: Tensor) -> Tensor ::
+    return enkai_tensor_detach(x)
+::
+
+pub fn grad(x: Tensor) -> Tensor ::
+    return enkai_tensor_grad(x)
+::
+
 pub fn zero_grad(x: Tensor) -> Int ::
     return enkai_tensor_zero_grad(x)
 ::
 
+pub fn no_grad(enabled: Bool) -> Bool ::
+    mut flag := 0
+    if enabled ::
+        flag := 1
+    ::
+    return enkai_tensor_no_grad(flag)
+::
+
+pub fn grad_check(actual: Tensor, expected: Tensor, tolerance: Float) -> Bool ::
+    return enkai_tensor_grad_check(actual, expected, tolerance)
+::
+
 pub fn zero_grad_multi(handles) -> Int ::
-    return enkai_tensor_zero_grad_multi(json.stringify(handles))
+    return enkai_tensor_zero_grad_multi(handles)
+::
+
+pub fn sgd_step(param: Tensor, grad: Tensor, lr: Float, wd: Float) -> Int ::
+    return enkai_tensor_sgd_step(param, grad, lr, wd)
+::
+
+pub fn sgd_step_multi(params, grads, lr: Float, wd: Float) -> Int ::
+    return enkai_tensor_sgd_step_multi(params, grads, lr, wd)
+::
+
+pub fn clip_grad_norm(params, max_norm: Float, eps: Float) -> Float ::
+    return enkai_tensor_clip_grad_norm(params, max_norm, eps)
+::
+
+pub fn memory_current() -> Int ::
+    return enkai_tensor_memory_current()
+::
+
+pub fn memory_peak() -> Int ::
+    return enkai_tensor_memory_peak()
+::
+
+pub fn memory_limit() -> Int ::
+    return enkai_tensor_memory_limit()
+::
+
+pub fn memory_set_limit(bytes: Int) -> Int ::
+    return enkai_tensor_memory_set_limit(bytes)
+::
+
+pub fn memory_clear_limit() -> Int ::
+    return enkai_tensor_memory_clear_limit()
+::
+
+pub fn memory_reset_peak() -> Int ::
+    return enkai_tensor_memory_reset_peak()
+::
+
+pub fn adamw_state() -> OptimizerState ::
+    return enkai_tensor_adamw_state()
 ::
 
 pub fn adamw_step(param: Tensor, grad: Tensor, state: OptimizerState, lr: Float, beta1: Float, beta2: Float, eps: Float, wd: Float) -> OptimizerState ::
@@ -199,7 +425,7 @@ pub fn adamw_step(param: Tensor, grad: Tensor, state: OptimizerState, lr: Float,
 ::
 
 pub fn adamw_step_multi(params, grads, state: OptimizerState, lr: Float, beta1: Float, beta2: Float, eps: Float, wd: Float) -> OptimizerState ::
-    return enkai_tensor_adamw_step_multi(json.stringify(params), json.stringify(grads), state, lr, beta1, beta2, eps, wd)
+    return enkai_tensor_adamw_step_multi(params, grads, state, lr, beta1, beta2, eps, wd)
 ::
 
 pub fn param_group(params, grads) ::

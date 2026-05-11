@@ -1832,13 +1832,11 @@ fn networked_barrier(
             }
             if peer_payload.rank == 0 || peer_payload.rank >= config.world_size {
                 return Err(
-                    "E_DIST_RENDEZVOUS_MISMATCH: barrier peer rank out of range".to_string(),
+                    "E_DIST_RENDEZVOUS_MISMATCH: barrier peer rank out of range".to_string()
                 );
             }
             if !peer_ranks.insert(peer_payload.rank) {
-                return Err(
-                    "E_DIST_RENDEZVOUS_MISMATCH: duplicate barrier peer rank".to_string(),
-                );
+                return Err("E_DIST_RENDEZVOUS_MISMATCH: duplicate barrier peer rank".to_string());
             }
             if peer_payload.group_id != group_id {
                 group_mismatch = true;
@@ -2046,7 +2044,11 @@ fn json_payload_bytes<T: Serialize>(payload: &T) -> Result<u64, String> {
         .map_err(|err| format!("E_DIST_SYNC_JSON: {}", err))
 }
 
-fn connect_networked_grad_peer(host: &str, port: u16, timeout_ms: u64) -> Result<TcpStream, String> {
+fn connect_networked_grad_peer(
+    host: &str,
+    port: u16,
+    timeout_ms: u64,
+) -> Result<TcpStream, String> {
     let start = Instant::now();
     let mut last_err = None;
     while start.elapsed().as_millis() as u64 <= timeout_ms {
@@ -2112,18 +2114,21 @@ fn synchronize_networked_gradients(
                         .set_read_timeout(Some(std::time::Duration::from_millis(timeout_ms.max(1))))
                         .map_err(|err| format!("E_DIST_SYNC_IO: {}", err))?;
                     stream
-                        .set_write_timeout(Some(std::time::Duration::from_millis(timeout_ms.max(1))))
+                        .set_write_timeout(Some(std::time::Duration::from_millis(
+                            timeout_ms.max(1),
+                        )))
                         .map_err(|err| format!("E_DIST_SYNC_IO: {}", err))?;
                     let peer_payload: GradSyncPayload = read_json_line(&stream)?;
-                    exchanged_bytes = exchanged_bytes.saturating_add(json_payload_bytes(&peer_payload)?);
+                    exchanged_bytes =
+                        exchanged_bytes.saturating_add(json_payload_bytes(&peer_payload)?);
                     if peer_payload.rank == 0 || peer_payload.rank >= config.world_size {
                         return Err(
-                            "E_DIST_SYNC_MISMATCH: gradient peer rank out of range".to_string(),
+                            "E_DIST_SYNC_MISMATCH: gradient peer rank out of range".to_string()
                         );
                     }
                     if !peer_ranks.insert(peer_payload.rank) {
                         return Err(
-                            "E_DIST_SYNC_MISMATCH: duplicate gradient peer rank".to_string(),
+                            "E_DIST_SYNC_MISMATCH: duplicate gradient peer rank".to_string()
                         );
                     }
                     if peer_payload.config_hash != group_id
@@ -2131,7 +2136,7 @@ fn synchronize_networked_gradients(
                         || peer_payload.world_size != config.world_size
                     {
                         return Err(
-                            "E_DIST_SYNC_MISMATCH: gradient payload metadata mismatch".to_string(),
+                            "E_DIST_SYNC_MISMATCH: gradient payload metadata mismatch".to_string()
                         );
                     }
                     vectors.push(peer_payload.grads);
@@ -2201,7 +2206,9 @@ fn synchronize_networked_gradients(
             || merged_payload.step != step
             || merged_payload.world_size != config.world_size
         {
-            return Err("E_DIST_SYNC_MISMATCH: merged gradient payload metadata mismatch".to_string());
+            return Err(
+                "E_DIST_SYNC_MISMATCH: merged gradient payload metadata mismatch".to_string(),
+            );
         }
         if merged_payload.grads.len() != grads.len() {
             return Err("E_DIST_SYNC_SHAPE: merged gradient vector length mismatch".to_string());

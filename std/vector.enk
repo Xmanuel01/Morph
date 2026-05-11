@@ -1,0 +1,29 @@
+// std::vector dense numeric vector helpers
+
+pub fn from_array(values: Array[Float]) -> Vector[Float] ::
+    return vector.from_array(values)
+::
+
+pub fn len(values: Vector[Float]) -> Int ::
+    return vector.len(values)
+::
+
+pub fn get(values: Vector[Float], index: Int) -> Float ::
+    return vector.get(values, index)
+::
+
+pub fn dot(left: Vector[Float], right: Vector[Float]) -> Float ::
+    return vector.dot(left, right)
+::
+
+pub fn add(left: Vector[Float], right: Vector[Float]) -> Vector[Float] ::
+    return vector.add(left, right)
+::
+
+pub fn scale(values: Vector[Float], factor: Float) -> Vector[Float] ::
+    return vector.scale(values, factor)
+::
+
+pub fn to_array(values: Vector[Float]) -> Array[Float] ::
+    return vector.to_array(values)
+::

@@ -1,10 +1,11 @@
-# Sharded Checkpoints (v0.9)
+# Sharded Checkpoints
 
-The GPU backend supports a future-proof sharded checkpoint format.
+The tensor/checkpoint runtime supports sharded checkpoint helpers for bounded
+training and compatibility with future multi-rank layouts.
 
 ## Format
 
-```
+```text
 checkpoint/step_00001/
   model_rank0.bin
   optim_rank0.bin
@@ -27,14 +28,18 @@ checkpoint/step_00001/
 
 ## API
 
-```
+```enkai
+import std::tensor
+
 tensor.save_sharded(dir, param, opt_state, meta)
 let bundle := tensor.load_sharded(dir)
 ```
 
 Multi-parameter:
 
-```
+```enkai
+import std::tensor
+
 tensor.save_sharded_multi(dir, params, opt_state, meta)
 let bundle := tensor.load_sharded_multi(dir)
 ```
@@ -51,6 +56,7 @@ let bundle := tensor.load_sharded_multi(dir)
 
 ## Notes
 
-- v0.9 uses `world_size=1`.
-- v0.10+ will add multi-GPU sharding and tensor parallel layouts.
+- Single-rank sharded helpers are available for bounded proof workloads.
+- Broader multi-rank checkpoint merge/replay requires green distributed
+  verifier evidence before production claims.
 

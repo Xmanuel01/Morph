@@ -19,7 +19,9 @@ use std::sync::atomic::{AtomicI64, Ordering};
 #[cfg(feature = "torch")]
 use std::sync::Mutex;
 
+mod accelerator_kernels;
 mod backend;
+mod cuda_kernels;
 #[cfg_attr(not(feature = "torch"), allow(unused_imports))]
 use backend::{backend_is_cpu, backend_is_torch, current_backend, set_backend, BackendKind};
 #[cfg(feature = "torch")]
@@ -158,6 +160,59 @@ fn require_tch_backend() -> bool {
 }
 
 #[cfg(feature = "torch")]
+fn cuda_available() -> bool {
+    tch::Cuda::is_available() && tch::Cuda::device_count() > 0
+}
+
+#[cfg(not(feature = "torch"))]
+fn cuda_available() -> bool {
+    false
+}
+
+fn rocm_available() -> bool {
+    accelerator_kernels::rocm_available()
+}
+
+fn metal_available() -> bool {
+    accelerator_kernels::metal_available()
+}
+
+fn backend_catalog_json() -> Result<String, serde_json::Error> {
+    serde_json::to_string(&serde_json::json!([
+        {
+            "name": "cpu",
+            "status": "available",
+            "role": "deterministic_fallback",
+            "production_claim": "bounded_cpu_runtime"
+        },
+        {
+            "name": "torch",
+            "status": if cfg!(feature = "torch") { "available" } else { "feature_missing" },
+            "role": "compatibility_reference",
+            "production_claim": "comparison_backend"
+        },
+        {
+            "name": "cuda",
+            "status": if cuda_available() { "available" } else { "unavailable" },
+            "role": "primary_accelerated_target",
+            "production_claim": "requires_cuda_hardware_proof"
+        },
+        {
+            "name": "rocm",
+            "status": if rocm_available() { "available" } else if cfg!(feature = "rocm-kernels") { "unavailable" } else { "feature_missing" },
+            "role": "secondary_accelerated_target",
+            "production_claim": "requires_rocm_hardware_proof"
+        },
+        {
+            "name": "metal",
+            "status": if metal_available() { "available" } else if cfg!(feature = "metal-kernels") { "unavailable" } else { "feature_missing" },
+            "role": "secondary_accelerated_target",
+            "production_claim": "requires_metal_hardware_proof"
+        }
+    ]))
+}
+
+#[cfg(feature = "torch")]
 macro_rules! guard_backend {
     ($default:expr) => {
         if !require_tch_backend() {
@@ -204,7 +259,10 @@ pub unsafe extern "C" fn enkai_backend_list(
 ) -> c_int {
     ffi_guard(1, || {
         clear_error();
-        let list = vec!["torch", "cpu"];
+        let mut list = vec!["torch", "cpu"];
+        if cuda_available() {
+            list.push("cuda");
+        }
         let json = match serde_json::to_string(&list) {
             Ok(s) => s,
             Err(err) => {
@@ -229,6 +287,441 @@ pub unsafe extern "C" fn enkai_backend_list(
 }
 
 #[no_mangle]
+/// # Safety
+/// `out_json` and `out_len` must be valid writable pointers for this call.
+pub unsafe extern "C" fn enkai_backend_catalog(
+    out_json: *mut *mut c_char,
+    out_len: *mut usize,
+) -> c_int {
+    ffi_guard(1, || {
+        clear_error();
+        let json = match backend_catalog_json() {
+            Ok(s) => s,
+            Err(err) => {
+                set_error(err.to_string());
+                return 1;
+            }
+        };
+        unsafe {
+            *out_len = json.len();
+            match CString::new(json) {
+                Ok(c) => {
+                    *out_json = c.into_raw();
+                    0
+                }
+                Err(_) => {
+                    set_error("backend catalog contained null byte");
+                    1
+                }
+            }
+        }
+    })
+}
+
+#[no_mangle]
+/// # Safety
+/// `out_json` and `out_len` must be valid writable pointers for this call.
+pub unsafe extern "C" fn enkai_cuda_kernel_manifest(
+    out_json: *mut *mut c_char,
+    out_len: *mut usize,
+) -> c_int {
+    ffi_guard(1, || {
+        clear_error();
+        let json = match serde_json::to_string(&cuda_kernels::kernel_manifest()) {
+            Ok(s) => s,
+            Err(err) => {
+                set_error(err.to_string());
+                return 1;
+            }
+        };
+        unsafe {
+            *out_len = json.len();
+            match CString::new(json) {
+                Ok(c) => {
+                    *out_json = c.into_raw();
+                    0
+                }
+                Err(_) => {
+                    set_error("cuda kernel manifest contained null byte");
+                    1
+                }
+            }
+        }
+    })
+}
+
+#[no_mangle]
+/// # Safety
+/// `out_json` and `out_len` must be valid writable pointers for this call.
+pub unsafe extern "C" fn enkai_rocm_kernel_manifest(
+    out_json: *mut *mut c_char,
+    out_len: *mut usize,
+) -> c_int {
+    ffi_guard(1, || {
+        clear_error();
+        let json = match serde_json::to_string(&accelerator_kernels::rocm_kernel_manifest()) {
+            Ok(s) => s,
+            Err(err) => {
+                set_error(err.to_string());
+                return 1;
+            }
+        };
+        write_json_output(json, out_json, out_len, "rocm kernel manifest")
+    })
+}
+
+#[no_mangle]
+/// # Safety
+/// `out_json` and `out_len` must be valid writable pointers for this call.
+pub unsafe extern "C" fn enkai_metal_kernel_manifest(
+    out_json: *mut *mut c_char,
+    out_len: *mut usize,
+) -> c_int {
+    ffi_guard(1, || {
+        clear_error();
+        let json = match serde_json::to_string(&accelerator_kernels::metal_kernel_manifest()) {
+            Ok(s) => s,
+            Err(err) => {
+                set_error(err.to_string());
+                return 1;
+            }
+        };
+        write_json_output(json, out_json, out_len, "metal kernel manifest")
+    })
+}
+
+#[no_mangle]
+/// # Safety
+/// `out_json` and `out_len` must be valid writable pointers for this call.
+pub unsafe extern "C" fn enkai_mixed_precision_policy(
+    out_json: *mut *mut c_char,
+    out_len: *mut usize,
+) -> c_int {
+    ffi_guard(1, || {
+        clear_error();
+        let json = match serde_json::to_string(&cuda_kernels::mixed_precision_policy()) {
+            Ok(s) => s,
+            Err(err) => {
+                set_error(err.to_string());
+                return 1;
+            }
+        };
+        unsafe {
+            *out_len = json.len();
+            match CString::new(json) {
+                Ok(c) => {
+                    *out_json = c.into_raw();
+                    0
+                }
+                Err(_) => {
+                    set_error("mixed precision policy contained null byte");
+                    1
+                }
+            }
+        }
+    })
+}
+
+#[no_mangle]
+/// # Safety
+/// `out_json` and `out_len` must be valid writable pointers for this call.
+pub unsafe extern "C" fn enkai_gpu_memory_planner_policy(
+    out_json: *mut *mut c_char,
+    out_len: *mut usize,
+) -> c_int {
+    ffi_guard(1, || {
+        clear_error();
+        let json = match serde_json::to_string(&cuda_kernels::memory_planner_policy()) {
+            Ok(s) => s,
+            Err(err) => {
+                set_error(err.to_string());
+                return 1;
+            }
+        };
+        unsafe {
+            *out_len = json.len();
+            match CString::new(json) {
+                Ok(c) => {
+                    *out_json = c.into_raw();
+                    0
+                }
+                Err(_) => {
+                    set_error("gpu memory planner policy contained null byte");
+                    1
+                }
+            }
+        }
+    })
+}
+
+#[no_mangle]
+/// # Safety
+/// `spec_json`, `out_json`, and `out_len` must be valid pointers for this call.
+pub unsafe extern "C" fn enkai_gpu_memory_plan(
+    spec_json: *const c_char,
+    out_json: *mut *mut c_char,
+    out_len: *mut usize,
+) -> c_int {
+    ffi_guard(1, || {
+        clear_error();
+        let spec_json = match cstr_to_string(spec_json) {
+            Ok(s) => s,
+            Err(err) => {
+                set_error(err);
+                return 1;
+            }
+        };
+        let plan = match cuda_kernels::memory_plan_from_json(&spec_json) {
+            Ok(plan) => plan,
+            Err(err) => {
+                set_error(err);
+                return 1;
+            }
+        };
+        let json = match serde_json::to_string(&plan) {
+            Ok(s) => s,
+            Err(err) => {
+                set_error(err.to_string());
+                return 1;
+            }
+        };
+        unsafe {
+            *out_len = json.len();
+            match CString::new(json) {
+                Ok(c) => {
+                    *out_json = c.into_raw();
+                    0
+                }
+                Err(_) => {
+                    set_error("gpu memory plan contained null byte");
+                    1
+                }
+            }
+        }
+    })
+}
+
+#[no_mangle]
+/// # Safety
+/// `out_json` and `out_len` must be valid writable pointers for this call.
+pub unsafe extern "C" fn enkai_kv_cache_attention_policy(
+    out_json: *mut *mut c_char,
+    out_len: *mut usize,
+) -> c_int {
+    ffi_guard(1, || {
+        clear_error();
+        let json = match serde_json::to_string(&cuda_kernels::kv_cache_attention_policy()) {
+            Ok(s) => s,
+            Err(err) => {
+                set_error(err.to_string());
+                return 1;
+            }
+        };
+        write_json_output(json, out_json, out_len, "kv cache attention policy")
+    })
+}
+
+#[no_mangle]
+/// # Safety
+/// `spec_json`, `out_json`, and `out_len` must be valid pointers for this call.
+pub unsafe extern "C" fn enkai_kv_cache_plan(
+    spec_json: *const c_char,
+    out_json: *mut *mut c_char,
+    out_len: *mut usize,
+) -> c_int {
+    ffi_guard(1, || {
+        clear_error();
+        let spec_json = match cstr_to_string(spec_json) {
+            Ok(s) => s,
+            Err(err) => {
+                set_error(err);
+                return 1;
+            }
+        };
+        let plan = match cuda_kernels::kv_cache_plan_from_json(&spec_json) {
+            Ok(plan) => plan,
+            Err(err) => {
+                set_error(err);
+                return 1;
+            }
+        };
+        let json = match serde_json::to_string(&plan) {
+            Ok(s) => s,
+            Err(err) => {
+                set_error(err.to_string());
+                return 1;
+            }
+        };
+        write_json_output(json, out_json, out_len, "kv cache plan")
+    })
+}
+
+#[no_mangle]
+/// # Safety
+/// `out_json` and `out_len` must be valid writable pointers for this call.
+pub unsafe extern "C" fn enkai_large_checkpoint_format_policy(
+    out_json: *mut *mut c_char,
+    out_len: *mut usize,
+) -> c_int {
+    ffi_guard(1, || {
+        clear_error();
+        let json = match serde_json::to_string(&cuda_kernels::large_checkpoint_format_policy()) {
+            Ok(s) => s,
+            Err(err) => {
+                set_error(err.to_string());
+                return 1;
+            }
+        };
+        write_json_output(json, out_json, out_len, "large checkpoint format policy")
+    })
+}
+
+#[no_mangle]
+/// # Safety
+/// `spec_json`, `out_json`, and `out_len` must be valid pointers for this call.
+pub unsafe extern "C" fn enkai_large_checkpoint_plan(
+    spec_json: *const c_char,
+    out_json: *mut *mut c_char,
+    out_len: *mut usize,
+) -> c_int {
+    ffi_guard(1, || {
+        clear_error();
+        let spec_json = match cstr_to_string(spec_json) {
+            Ok(s) => s,
+            Err(err) => {
+                set_error(err);
+                return 1;
+            }
+        };
+        let plan = match cuda_kernels::large_checkpoint_plan_from_json(&spec_json) {
+            Ok(plan) => plan,
+            Err(err) => {
+                set_error(err);
+                return 1;
+            }
+        };
+        let json = match serde_json::to_string(&plan) {
+            Ok(s) => s,
+            Err(err) => {
+                set_error(err.to_string());
+                return 1;
+            }
+        };
+        write_json_output(json, out_json, out_len, "large checkpoint plan")
+    })
+}
+
+#[no_mangle]
+/// # Safety
+/// `out_json` and `out_len` must be valid writable pointers for this call.
+pub unsafe extern "C" fn enkai_distributed_training_policy(
+    out_json: *mut *mut c_char,
+    out_len: *mut usize,
+) -> c_int {
+    ffi_guard(1, || {
+        clear_error();
+        let json = match serde_json::to_string(&cuda_kernels::distributed_training_policy()) {
+            Ok(s) => s,
+            Err(err) => {
+                set_error(err.to_string());
+                return 1;
+            }
+        };
+        write_json_output(json, out_json, out_len, "distributed training policy")
+    })
+}
+
+#[no_mangle]
+/// # Safety
+/// `spec_json`, `out_json`, and `out_len` must be valid pointers for this call.
+pub unsafe extern "C" fn enkai_distributed_training_plan(
+    spec_json: *const c_char,
+    out_json: *mut *mut c_char,
+    out_len: *mut usize,
+) -> c_int {
+    ffi_guard(1, || {
+        clear_error();
+        let spec_json = match cstr_to_string(spec_json) {
+            Ok(s) => s,
+            Err(err) => {
+                set_error(err);
+                return 1;
+            }
+        };
+        let plan = match cuda_kernels::distributed_training_plan_from_json(&spec_json) {
+            Ok(plan) => plan,
+            Err(err) => {
+                set_error(err);
+                return 1;
+            }
+        };
+        let json = match serde_json::to_string(&plan) {
+            Ok(s) => s,
+            Err(err) => {
+                set_error(err.to_string());
+                return 1;
+            }
+        };
+        write_json_output(json, out_json, out_len, "distributed training plan")
+    })
+}
+
+#[no_mangle]
+/// # Safety
+/// `out_json` and `out_len` must be valid writable pointers for this call.
+pub unsafe extern "C" fn enkai_accelerator_backend_policy(
+    out_json: *mut *mut c_char,
+    out_len: *mut usize,
+) -> c_int {
+    ffi_guard(1, || {
+        clear_error();
+        let json = match serde_json::to_string(&cuda_kernels::accelerator_backend_policy()) {
+            Ok(s) => s,
+            Err(err) => {
+                set_error(err.to_string());
+                return 1;
+            }
+        };
+        write_json_output(json, out_json, out_len, "accelerator backend policy")
+    })
+}
+
+#[no_mangle]
+/// # Safety
+/// `spec_json`, `out_json`, and `out_len` must be valid pointers for this call.
+pub unsafe extern "C" fn enkai_accelerator_backend_plan(
+    spec_json: *const c_char,
+    out_json: *mut *mut c_char,
+    out_len: *mut usize,
+) -> c_int {
+    ffi_guard(1, || {
+        clear_error();
+        let spec_json = match cstr_to_string(spec_json) {
+            Ok(s) => s,
+            Err(err) => {
+                set_error(err);
+                return 1;
+            }
+        };
+        let plan = match cuda_kernels::accelerator_backend_plan_from_json(&spec_json) {
+            Ok(plan) => plan,
+            Err(err) => {
+                set_error(err);
+                return 1;
+            }
+        };
+        let json = match serde_json::to_string(&plan) {
+            Ok(s) => s,
+            Err(err) => {
+                set_error(err.to_string());
+                return 1;
+            }
+        };
+        write_json_output(json, out_json, out_len, "accelerator backend plan")
+    })
+}
+
+#[no_mangle]
 pub extern "C" fn enkai_backend_set(name: *const c_char) -> c_int {
     ffi_guard(1, || {
         clear_error();
@@ -247,7 +740,61 @@ pub extern "C" fn enkai_backend_set(name: *const c_char) -> c_int {
             set_backend(BackendKind::Cpu);
             return 0;
         }
-        set_error("unknown backend");
+        if name == "cuda" {
+            if !cfg!(feature = "torch") {
+                set_error_code(
+                    "E_BACKEND_FEATURE_MISSING",
+                    "cuda backend requires enkai_tensor built with the torch feature",
+                );
+                return 1;
+            }
+            if !cuda_available() {
+                set_error_code(
+                    "E_BACKEND_UNAVAILABLE",
+                    "cuda backend requires an available CUDA device and CUDA-enabled libtorch",
+                );
+                return 1;
+            }
+            set_backend(BackendKind::Cuda);
+            return 0;
+        }
+        if name == "rocm" {
+            if !cfg!(feature = "rocm-kernels") {
+                set_error_code(
+                    "E_BACKEND_FEATURE_MISSING",
+                    "rocm backend requires enkai_tensor built with the rocm-kernels feature",
+                );
+                return 1;
+            }
+            if !rocm_available() {
+                set_error_code(
+                    "E_BACKEND_UNAVAILABLE",
+                    "rocm backend requires available ROCm hardware/runtime",
+                );
+                return 1;
+            }
+            set_backend(BackendKind::Rocm);
+            return 0;
+        }
+        if name == "metal" {
+            if !cfg!(feature = "metal-kernels") {
+                set_error_code(
+                    "E_BACKEND_FEATURE_MISSING",
+                    "metal backend requires enkai_tensor built with the metal-kernels feature",
+                );
+                return 1;
+            }
+            if !metal_available() {
+                set_error_code(
+                    "E_BACKEND_UNAVAILABLE",
+                    "metal backend requires available Apple Metal hardware/runtime",
+                );
+                return 1;
+            }
+            set_backend(BackendKind::Metal);
+            return 0;
+        }
+        set_error_code("E_BACKEND_UNKNOWN", format!("unknown backend `{name}`"));
         1
     })
 }
@@ -264,6 +811,9 @@ pub unsafe extern "C" fn enkai_backend_current(
         let name = match current_backend() {
             BackendKind::Torch => "torch",
             BackendKind::Cpu => "cpu",
+            BackendKind::Cuda => "cuda",
+            BackendKind::Rocm => "rocm",
+            BackendKind::Metal => "metal",
         };
         let s = name.to_string();
         unsafe {
@@ -544,6 +1094,31 @@ fn cstr_to_string(ptr: *const c_char) -> Result<String, String> {
     cstr.to_str()
         .map(|s| s.to_string())
         .map_err(|_| "Invalid UTF-8 string".to_string())
+}
+
+fn write_json_output(
+    json: String,
+    out_json: *mut *mut c_char,
+    out_len: *mut usize,
+    context: &str,
+) -> c_int {
+    if out_json.is_null() || out_len.is_null() {
+        set_error(format!("{context}: null output pointer"));
+        return 1;
+    }
+    unsafe {
+        *out_len = json.len();
+        match CString::new(json) {
+            Ok(c) => {
+                *out_json = c.into_raw();
+                0
+            }
+            Err(_) => {
+                set_error(format!("{context} contained null byte"));
+                1
+            }
+        }
+    }
 }
 
 #[cfg(feature = "torch")]
@@ -3825,6 +4400,35 @@ pub extern "C" fn enkai_amp_scaler_create(
         clear_error();
         #[cfg(feature = "torch")]
         {
+            if !initial_scale.is_finite() || !(1.0..=281_474_976_710_656.0).contains(&initial_scale)
+            {
+                set_error_code(
+                    "E_AMP_INVALID_SCALE",
+                    "initial scale must be finite and in [1, 2^48]",
+                );
+                return 0;
+            }
+            if !growth_factor.is_finite() || growth_factor <= 1.0 {
+                set_error_code(
+                    "E_AMP_INVALID_GROWTH_FACTOR",
+                    "growth factor must be finite and greater than 1",
+                );
+                return 0;
+            }
+            if !backoff_factor.is_finite() || backoff_factor <= 0.0 || backoff_factor >= 1.0 {
+                set_error_code(
+                    "E_AMP_INVALID_BACKOFF_FACTOR",
+                    "backoff factor must be finite and in (0, 1)",
+                );
+                return 0;
+            }
+            if growth_interval < 1 {
+                set_error_code(
+                    "E_AMP_INVALID_GROWTH_INTERVAL",
+                    "growth interval must be at least 1",
+                );
+                return 0;
+            }
             let state = GradScalerState {
                 scale: initial_scale,
                 growth_factor,
@@ -3981,6 +4585,13 @@ pub extern "C" fn enkai_amp_unscale_grads(
                     return 1;
                 }
             };
+            if !state.scale.is_finite() || state.scale <= 0.0 {
+                set_error_code(
+                    "E_AMP_INVALID_SCALE",
+                    "active scaler scale must be finite and positive",
+                );
+                return 1;
+            }
             let mut found_inf = false;
             for h in handles {
                 if h == 0 {
@@ -3999,8 +4610,18 @@ pub extern "C" fn enkai_amp_unscale_grads(
                 let unscaled = &grad / state.scale;
                 update_tensor(h, unscaled);
             }
+            if out_found_inf.is_null() {
+                set_error("enkai_amp_unscale_grads expects out_found_inf pointer");
+                return 1;
+            }
             unsafe {
                 *out_found_inf = if found_inf { 1 } else { 0 };
+            }
+            if found_inf {
+                set_error_code(
+                    "E_AMP_NONFINITE_GRADIENT",
+                    "non-finite gradient detected; optimizer step must be skipped",
+                );
             }
             update_scaler(scaler, state);
             0
@@ -4039,6 +4660,14 @@ pub extern "C" fn enkai_amp_scaler_update(scaler: i64, found_inf: c_int) -> c_in
                     state.growth_tracker = 0;
                 }
             }
+            if !state.scale.is_finite() || state.scale <= 0.0 {
+                set_error_code(
+                    "E_AMP_INVALID_SCALE",
+                    "scaler update produced a non-finite or non-positive scale",
+                );
+                return 1;
+            }
+            state.scale = state.scale.clamp(1.0, 281_474_976_710_656.0);
             update_scaler(scaler, state);
             0
         }

@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.9.0",
+  "scope": "distributed_gpu_execution",
+  "status": "hardware_required_contract",
+  "purpose": "Require executable multi-rank GPU training evidence before any v3.9 distributed production claim.",
+  "required_gates": [
+    "single_gpu_cuda_llm_foundation_green",
+    "two_rank_data_parallel_execution",
+    "distributed_gradient_parity",
+    "distributed_loss_parity",
+    "rank_artifact_archival",
+    "four_rank_soak_when_claiming_4gpu_production"
+  ],
+  "two_rank_requirements": {
+    "world_size": 2,
+    "requires_cuda_devices": 2,
+    "requires_features": ["torch", "dist"],
+    "requires_env": ["ENKAI_ENABLE_DIST=1", "ENKAI_RUN_MULTI_GPU_TESTS=1", "ENKAI_SINGLE_GPU_GREEN=1"],
+    "required_artifact": "artifacts/gpu/multi_gpu_evidence.json",
+    "required_status": "PASS",
+    "required_checks": ["loss_parity", "grad_parity"]
+  },
+  "four_rank_soak_requirements": {
+    "world_size": 4,
+    "requires_cuda_devices": 4,
+    "required_artifact": "artifacts/gpu/soak_4gpu_evidence.json",
+    "required_status": "PASS",
+    "minimum_hours_default": 3.0
+  },
+  "production_gate_policy": {
+    "cuda_unavailable": "blocked_not_passed",
+    "torch_unavailable": "blocked_not_passed",
+    "fewer_than_two_gpus": "blocked_not_passed",
+    "missing_two_rank_artifact": "blocked_not_passed",
+    "four_gpu_claim_without_soak": "blocked_not_passed"
+  },
+  "output_report": "artifacts/readiness/v3_9_0_distributed_gpu_execution.json",
+  "verify_report": "artifacts/readiness/v3_9_0_distributed_gpu_execution_verify.json"
+}

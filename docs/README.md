@@ -1,34 +1,73 @@
 # Enkai Docs
 
-## Versioning policy
+This directory contains both learner documentation and release/proof documentation.
+If you are new to Enkai, start with the learner path below before reading the
+release ledgers.
 
-- Current release line: `v3.8.0`.
-- The closed worker lifecycle and checkpoint sharding line for `v3.8.0` extends the global self-host AI runtime line with:
-  - networked `world_size = 4` worker baseline/fault/recovery execution
-  - checkpoint shard archive and merge/replay evidence
-  - corrupted shard rejection and shard-copy throughput gates
-- `docs/Enkai.spec` is the normative language reference for `v3.8.0`.
-- Known limits and partial features are tracked inside `docs/Enkai.spec` under `Known Limits in v3.8.0`.
-- `docs/40_registry_convergence.md` defines the registry convergence contract for checkpoint, simulation, environment, and native-extension artifacts.
-- `docs/41_scale_reliability.md` defines the `v3.0.0` scale/reliability contract for supervised simulation clusters and degraded registry fallback.
-- `VALIDATION.md` defines the strict CPU/GPU validation matrix for release claims.
-- `bench/machines/` and `bench/baselines/validation_cpu_v3_0_0.json` define the local/reference CPU validation envelopes and regression baselines.
-- `docs/47_gpu_operator_preflight.md` defines the operator preflight path for real GPU sign-off hosts.
-- `docs/42_agi_runbook.md`, `docs/43_llm_runbook.md`, `docs/44_native_extension_abi_policy.md`, `docs/45_deployment_rollback_runbook.md`, and `docs/46_benchmark_profiling_guide.md` are the v3.0.0 publication assets for the final stability cut.
-- `docs/49_v3_0_0_quality_assurance.md` records the final CPU-side QA results and the remaining GPU evidence blocker.
-- `docs/50_strict_selfhost_contract.md` freezes the `v3.1.0 -> v4.0.0` zero-Rust self-host dependency boundary and blocker inventory.
-- `docs/51_full_frontend_frontier.md` records the current measurable gap between the bootstrap subset and a full-language self-host frontend.
-- VM bytecode runtime behavior is the production contract; the legacy tree-walk interpreter is non-production/reference only.
-- Spec updates are implementation-first (update docs after code + tests land).
-- Full-platform readiness gating for the v2.5+ program is tracked by:
-  - `enkai/contracts/readiness_full_platform_v2_5_0.json`
-  - `enkai/contracts/full_platform_release_blockers_v2_5_0.json`
-- Historical implementation snapshots remain in `docs/v0.1-status.md`, `docs/v0.2-status.md`, and `docs/v0.3-plan.md`.
+## Learner Reading Order
 
-## Reading order
+1. `docs/53_language_handbook.md` - one-stop learner handbook for syntax, CLI, policies, stdlib, tensors, training, and proof boundaries.
+2. `docs/00_getting_started.md` - install check, first program, CLI basics, and learning path.
+3. `docs/01_syntax.md` - blocks, variables, imports, policies, arrays, and complete examples.
+4. `docs/02_types.md` - primitives, arrays, vectors, tensors, constants, and inference rules.
+5. `docs/03_functions.md` - function syntax, parameters, returns, and mutation patterns.
+6. `docs/04_scopes.md` - function scope, block scope, shadowing, and mutation scope.
+7. `docs/05_globals.md` - top-level bindings and global API guidance.
+8. `docs/06_logic_ops.md` - arithmetic, comparison, boolean logic, and strings.
+9. `docs/08_errors.md` - syntax/type/import/policy/runtime diagnostics.
+10. `docs/09_modules.md` - standard-library and local module imports.
+11. `docs/10_visibility.md` - public exports and private helpers.
+12. `docs/11_formatter.md` - `enkai fmt` and official tagged-closer style.
+13. `docs/12_testing.md` - `enkai test` and recommended local validation loop.
+14. `docs/20_json.md` - `std::json`, `json.enkai`, parsing, and import rules.
+15. `docs/52_cli_and_style.md` - complete official CLI/style summary.
+16. `docs/tensor_api.md` - AI-native tensor API, current acceleration boundaries, and proof gates.
+17. `docs/Enkai.spec` - normative language reference.
 
-1. `docs/Enkai.spec` (language reference)
-2. `docs/roadmap.md`, `docs/30_v1_release_audit.md`, `docs/31_v2_rc_notes.md`, `docs/32_v2_migration_guide.md` (delivery direction + release ledger + RC/migration policy)
-3. `docs/07_bytecode_vm.md`, `docs/09_modules.md`, `docs/13_ffi.md` (core implementation topics)
-4. `docs/18_http_server.md`, `docs/26_serve_cli.md`, `docs/27_frontend_stack.md`, `docs/bootstrap_subset.md`, `docs/bootstrap_core.md`, `docs/28_selfhost_workflow.md`, `docs/29_compatibility_policy.md`, `docs/tensor_api.md`, `docs/gpu_backend.md`, `docs/checkpoints_sharded.md` (serving + frontend + bootstrap + compatibility + tensor/training stack)
-5. `docs/33_benchmark_suite.md`, `docs/34_model_lifecycle.md`, `docs/35_data_algo_stack.md`, `docs/36_capability_complete_report.md`, `docs/37_readiness_matrix.md`, `docs/39_adam0_reference_stack.md`, `VALIDATION.md`, `docs/42_agi_runbook.md`, `docs/43_llm_runbook.md`, `docs/44_native_extension_abi_policy.md`, `docs/45_deployment_rollback_runbook.md`, `docs/46_benchmark_profiling_guide.md`, `docs/48_release_dashboard.md`, `docs/49_v3_0_0_quality_assurance.md`, `docs/50_strict_selfhost_contract.md`, `docs/51_full_frontend_frontier.md` (benchmark policy + model lifecycle + data/algo foundation + release evidence sign-off + production readiness gates + Adam-0 bounded reference suite + explicit validation matrix + v3.0.0 runbooks/policy guides + final QA findings + strict self-host boundary + full frontend frontier/negative audit coverage)
+## Official CLI For Users
+
+```text
+enkai run <file.enkai>      Run an Enkai file or project.
+enkai check <file.enkai>    Check syntax, types, imports, and policies.
+enkai fmt <file.enkai>      Format source.
+enkai build [dir]           Build/check a project.
+enkai test [dir]            Run project tests.
+enkai help                  Show the full CLI.
+enkai version               Print the version.
+```
+
+`enkai safari` is reserved for a future interactive workspace. Use `enkai run`
+for normal execution.
+
+## Documentation Status Rule
+
+Learner docs describe how to write Enkai code. Release and readiness docs
+describe what has been proven. If a GPU, distributed, security, or production
+claim does not have a green verifier artifact under `artifacts/readiness/`, treat
+it as planned or proof-ready, not closed.
+
+## Current Release / Proof Context
+
+- Current closed release line: `v3.8.0`.
+- Next active proof line: `v3.9.0` CUDA-first production LLM runtime foundation.
+- `docs/Enkai.spec` is the normative language reference for the closed `v3.8.0` line.
+- `docs/roadmap.md` tracks release direction and proof status.
+- `VALIDATION.md` defines strict CPU/GPU validation matrices for release claims.
+- GPU production claims require archived hardware evidence; proof-ready code is not the same as green hardware sign-off.
+
+## Release / Engineering Reading Order
+
+1. `docs/roadmap.md`, `docs/30_v1_release_audit.md`, `docs/31_v2_rc_notes.md`, `docs/32_v2_migration_guide.md`.
+2. `docs/07_bytecode_vm.md`, `docs/13_ffi.md`, `docs/14_native_modules.md`.
+3. `docs/18_http_server.md`, `docs/19_http_client.md`, `docs/26_serve_cli.md`, `docs/27_frontend_stack.md`.
+4. `docs/bootstrap_subset.md`, `docs/bootstrap_core.md`, `docs/28_selfhost_workflow.md`, `docs/29_compatibility_policy.md`.
+5. `docs/33_benchmark_suite.md`, `docs/34_model_lifecycle.md`, `docs/35_data_algo_stack.md`, `docs/37_readiness_matrix.md`.
+6. `docs/39_adam0_reference_stack.md`, `docs/42_agi_runbook.md`, `docs/43_llm_runbook.md`.
+7. `docs/44_native_extension_abi_policy.md`, `docs/45_deployment_rollback_runbook.md`, `docs/46_benchmark_profiling_guide.md`, `docs/47_gpu_operator_preflight.md`.
+8. `docs/48_release_dashboard.md`, `docs/49_v3_0_0_quality_assurance.md`, `docs/50_strict_selfhost_contract.md`, `docs/51_full_frontend_frontier.md`.
+
+## Historical Docs
+
+`docs/v0.1-status.md`, `docs/v0.2-status.md`, and `docs/v0.3-plan.md` are
+historical snapshots. They preserve old milestone language and should not be read
+as the current user-facing syntax guide.

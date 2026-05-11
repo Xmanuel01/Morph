@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.9.0",
+  "scope": "release_closure",
+  "status": "closure_contract",
+  "requires": [
+    "cargo build -p enkai",
+    "cargo test --workspace -- --test-threads=1",
+    "v3_9_0_cuda_llm_runtime_foundation source checks",
+    "v3_9_0_package_model_api_lock verification",
+    "no unsupported ROCm/Metal production claim",
+    "release readiness report archived"
+  ],
+  "hardware_gates": [
+    "CUDA/PyTorch benchmark evidence",
+    "ROCm hardware evidence before ROCm production",
+    "Metal hardware evidence before Metal production",
+    "multi-rank distributed hardware evidence before distributed production"
+  ],
+  "output_report": "artifacts/readiness/v3_9_0_release_closure.json",
+  "verify_report": "artifacts/readiness/v3_9_0_release_closure_verify.json"
+}

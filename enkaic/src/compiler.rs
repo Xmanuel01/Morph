@@ -58,6 +58,7 @@ enum ResolvedVar {
 struct LocalBinding {
     slot: u16,
     mutable: bool,
+    constant: bool,
 }
 
 pub fn compile_module(module: &Module) -> Result<Program, CompileError> {
@@ -129,6 +130,7 @@ struct ProgramBuilder<'a> {
     global_names: Vec<String>,
     global_inits: Vec<Option<Constant>>,
     global_mutability: HashMap<String, bool>,
+    global_constness: HashMap<String, bool>,
     functions: Vec<ByteFunction>,
     method_tables: HashSet<String>,
     tool_namespaces: HashSet<String>,
@@ -153,6 +155,7 @@ impl<'a> ProgramBuilder<'a> {
             global_names: Vec::new(),
             global_inits: Vec::new(),
             global_mutability: HashMap::new(),
+            global_constness: HashMap::new(),
             functions: Vec::new(),
             method_tables: HashSet::new(),
             tool_namespaces: HashSet::new(),
@@ -169,6 +172,9 @@ impl<'a> ProgramBuilder<'a> {
         let _ = self.ensure_global("tool");
         let _ = self.ensure_global("policy");
         let _ = self.ensure_global("json");
+        let _ = self.ensure_global("array");
+        let _ = self.ensure_global("vector");
+        let _ = self.ensure_global("tensor");
         let _ = self.ensure_global("bootstrap");
         let _ = self.ensure_global("compiler");
         let _ = self.ensure_global("tokenizer");
@@ -806,19 +812,31 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
                 name,
                 expr,
                 mutable,
+                constant,
+                name_span,
                 ..
             } => {
+                if *constant && !self.is_compile_time_const_expr(expr) {
+                    return Err(CompileError::new(&format!(
+                        "TypeError: const binding `{}` requires a compile-time constant expression.",
+                        name
+                    ))
+                    .with_span(name_span.clone()));
+                }
                 if self.is_root {
                     let global_name = mangle_symbol(&self.module.prefix, name);
                     let g = self.enclosing.ensure_global(&global_name);
                     self.enclosing
                         .global_mutability
-                        .insert(global_name, *mutable);
+                        .insert(global_name.clone(), *mutable);
+                    self.enclosing
+                        .global_constness
+                        .insert(global_name, *constant);
                     self.compile_expr(expr)?;
                     self.chunk
                         .write(Instruction::DefineGlobal(g), line_of_expr(expr));
                 } else {
-                    let idx = self.add_local(name, *mutable);
+                    let idx = self.add_local_with_const(name, *mutable, *constant);
                     self.compile_expr(expr)?;
                     self.chunk
                         .write(Instruction::StoreLocal(idx), line_of_expr(expr));
@@ -1279,6 +1297,10 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
     }
 
     fn define_local(&mut self, name: &str, mutable: bool) -> u16 {
+        self.define_local_with_const(name, mutable, false)
+    }
+
+    fn define_local_with_const(&mut self, name: &str, mutable: bool, constant: bool) -> u16 {
         let next = self.next_local.last_mut().unwrap();
         let slot = *next;
         *next += 1;
@@ -1287,6 +1309,7 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
             LocalBinding {
                 slot,
                 mutable,
+                constant,
             },
         );
         slot
@@ -1294,6 +1317,10 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
 
     fn add_local(&mut self, name: &str, mutable: bool) -> u16 {
         self.define_local(name, mutable)
+    }
+
+    fn add_local_with_const(&mut self, name: &str, mutable: bool, constant: bool) -> u16 {
+        self.define_local_with_const(name, mutable, constant)
     }
 
     fn is_local_name(&self, name: &str) -> bool {
@@ -1344,6 +1371,37 @@ impl<'a, 'p> FunctionBuilder<'a, 'p> {
             return Err(immutable_assignment_error(name).with_span(span));
         }
         Ok(())
+    }
+
+    fn is_compile_time_const_expr(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Literal { .. } => true,
+            Expr::Ident { name, .. } => {
+                for scope in self.scopes.iter().rev() {
+                    if let Some(binding) = scope.get(name) {
+                        return binding.constant;
+                    }
+                }
+                let key = mangle_symbol(&self.module.prefix, name);
+                self.enclosing
+                    .global_constness
+                    .get(&key)
+                    .or_else(|| self.enclosing.global_constness.get(name))
+                    .copied()
+                    .unwrap_or(false)
+            }
+            Expr::Unary { op, expr, .. } => {
+                matches!(op, UnaryOp::Negate | UnaryOp::Not)
+                    && self.is_compile_time_const_expr(expr)
+            }
+            Expr::Binary { left, right, .. } => {
+                self.is_compile_time_const_expr(left) && self.is_compile_time_const_expr(right)
+            }
+            Expr::List { items, .. } => items
+                .iter()
+                .all(|item| self.is_compile_time_const_expr(item)),
+            _ => false,
+        }
     }
 
     fn finish(self) -> ByteFunction {

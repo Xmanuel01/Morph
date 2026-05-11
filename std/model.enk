@@ -1,0 +1,37 @@
+import std::json
+import std::tensor
+// std::model (v1.0 locked package API)
+
+pub fn spec(name: String, family: String, config) ::
+    let out := json.parse("{\"name\":\"\",\"family\":\"\",\"config\":null}")
+    out.name := name
+    out.family := family
+    out.config := config
+    return out
+::
+
+pub fn parameters(value) ::
+    return value.parameters
+::
+
+pub fn forward(mdl, input) ::
+    return mdl.forward(input)
+::
+
+pub fn eval(mdl) ::
+    mdl.training := false
+    return mdl
+::
+
+pub fn train(mdl) ::
+    mdl.training := true
+    return mdl
+::
+
+pub fn save(dir: String, mdl, opt_state, meta) ::
+    return tensor.save_sharded_multi(dir, mdl.parameters, opt_state, meta)
+::
+
+pub fn load(dir: String) ::
+    return tensor.load_sharded_multi(dir)
+::

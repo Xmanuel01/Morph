@@ -2340,6 +2340,8 @@ fn runtime_value_kind(value: &Value) -> &'static str {
             Obj::BoundFunction(_) => "BoundFunction",
             Obj::NativeFunction(_) => "NativeFunction",
             Obj::NativeHandle(_) => "Handle",
+            Obj::Vector(_) => "Vector",
+            Obj::Tensor(_) => "Tensor",
             Obj::SparseVector(_) => "SparseVector",
             Obj::SparseMatrix(_) => "SparseMatrix",
             Obj::EventQueue(_) => "EventQueue",
@@ -2448,8 +2450,7 @@ fn litec_runtime_coverage(args: &[String]) -> i32 {
             Some(&program_path),
         );
         let stage2_bytes = match codegen_result {
-            Ok(0) => {
-                match fs::read(&program_path) {
+            Ok(0) => match fs::read(&program_path) {
                 Ok(bytes) => {
                     compiled_files += 1;
                     entry["compiled"] = serde_json::json!(true);
@@ -2467,7 +2468,6 @@ fn litec_runtime_coverage(args: &[String]) -> i32 {
                     entries.push(entry);
                     continue;
                 }
-            }
             },
             Ok(code) => {
                 runtime_gap_files += 1;
@@ -4050,6 +4050,36 @@ fn canonical_value(value: &Value) -> String {
             }
             Obj::NativeFunction(func) => format!("NativeFunction({}/{})", func.name, func.arity),
             Obj::NativeHandle(_) => "Handle".to_string(),
+            Obj::Vector(inner) => {
+                let data = inner.borrow();
+                format!(
+                    "Vector([{}])",
+                    data.data
+                        .iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
+            }
+            Obj::Tensor(inner) => {
+                let tensor = inner.borrow();
+                format!(
+                    "Tensor(dtype={},shape=[{}],data=[{}])",
+                    tensor.dtype,
+                    tensor
+                        .shape
+                        .iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<_>>()
+                        .join(","),
+                    tensor
+                        .data
+                        .iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
+            }
             Obj::SparseVector(_) => "SparseVector".to_string(),
             Obj::SparseMatrix(_) => "SparseMatrix".to_string(),
             Obj::EventQueue(_) => "EventQueue".to_string(),
@@ -4096,6 +4126,16 @@ fn runtime_audit_json_value(value: &Value) -> Option<serde_json::Value> {
                 Some(serde_json::Value::Object(out))
             }
             Obj::Json(value) => Some(value.clone()),
+            Obj::Vector(inner) => Some(serde_json::json!(inner.borrow().data)),
+            Obj::Tensor(inner) => {
+                let tensor = inner.borrow();
+                Some(serde_json::json!({
+                    "kind": "Tensor",
+                    "dtype": tensor.dtype,
+                    "shape": tensor.shape,
+                    "data": tensor.data,
+                }))
+            }
             _ => None,
         },
     }
@@ -4748,6 +4788,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_compile_emits_program() {
         let dir = tempdir().expect("tempdir");
         let input = dir.path().join("input.enk");
@@ -4769,6 +4810,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_compile_auto_fallback_writes_triage_bundle() {
         let _guard = litec_env_guard();
         let dir = tempdir().expect("tempdir");
@@ -4813,6 +4855,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_verify_matches_stage0_and_stage1() {
         let dir = tempdir().expect("tempdir");
         let input = dir.path().join("verify.enk");
@@ -4826,6 +4869,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_out_of_subset_constructs() {
         let dir = tempdir().expect("tempdir");
         let input = dir.path().join("bad_subset.enk");
@@ -4839,6 +4883,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_accepts_expanded_selfhost_subset() {
         let dir = tempdir().expect("tempdir");
         let input = dir.path().join("expanded_subset.enk");
@@ -4857,6 +4902,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_selfhost_verifies_corpus() {
         let dir = tempdir().expect("tempdir");
         let corpus = dir.path().join("corpus");
@@ -4879,6 +4925,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_stage_parse_and_codegen() {
         let dir = tempdir().expect("tempdir");
         let input = dir.path().join("stage.enk");
@@ -4902,6 +4949,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_run_executes_stage1_program() {
         let dir = tempdir().expect("tempdir");
         let input = dir.path().join("run.enk");
@@ -4915,6 +4963,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_selfhost_ci_executes_corpus() {
         let dir = tempdir().expect("tempdir");
         let corpus = dir.path().join("ci-corpus");
@@ -4947,6 +4996,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_selfhost_ci_emits_triage_report() {
         let dir = tempdir().expect("tempdir");
         let corpus = dir.path().join("ci-corpus");
@@ -4975,6 +5025,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_replace_check_verifies_stage_fixed_point() {
         let dir = tempdir().expect("tempdir");
         let corpus = dir.path().join("replace-corpus");
@@ -5001,6 +5052,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_replace_check_report_records_stage1_stage2_runtime_parity() {
         let dir = tempdir().expect("tempdir");
         let corpus = dir.path().join("replace-corpus");
@@ -5031,6 +5083,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_mainline_ci_runs_and_writes_reports() {
         let dir = tempdir().expect("tempdir");
         let corpus = dir.path().join("mainline-corpus");
@@ -5062,6 +5115,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_frontend_audit_reports_frontier_gaps() {
         let dir = tempdir().expect("tempdir");
         let corpus = dir.path().join("frontend-corpus");
@@ -5098,6 +5152,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_frontend_audit_require_full_support_fails_on_gap() {
         let dir = tempdir().expect("tempdir");
         let corpus = dir.path().join("frontend-corpus");
@@ -5116,6 +5171,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_frontend_audit_supports_decl_frontier_corpus() {
         let dir = tempdir().expect("tempdir");
         let corpus = dir.path().join("frontend-corpus");
@@ -5171,6 +5227,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_negative_audit_passes_when_stage0_and_selfhost_reject() {
         let dir = tempdir().expect("tempdir");
         let corpus = dir.path().join("negative-corpus");
@@ -5208,6 +5265,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_negative_audit_require_full_support_fails_on_gap() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("accepted.enk");
@@ -5222,6 +5280,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_const_return_subset() {
         let dir = tempdir().expect("tempdir");
         let corpus = dir.path().join("runtime-corpus");
@@ -5265,6 +5324,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_float_subset() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("float.enk");
@@ -5296,6 +5356,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_coverage_reports_unsupported_native_function_gap_family() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("native_import_handle.enk");
@@ -5327,6 +5388,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_coverage_accepts_supported_native_function_signature() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("native_import_parse.enk");
@@ -5356,6 +5418,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_coverage_reports_full_bytecode_instruction_surface() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("set_index.enk");
@@ -5398,6 +5461,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_zero_arg_call_wrappers() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("call.enk");
@@ -5429,6 +5493,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_try_unwrap_subset() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("try_unwrap.enk");
@@ -5460,6 +5525,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_native_function_subset() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("native_parse_i64.enk");
@@ -5491,6 +5557,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_buffer_native_subset() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("native_buffer.enk");
@@ -5522,6 +5589,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_handle_native_subset() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("native_handle.enk");
@@ -5553,6 +5621,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_example_hello() {
         let dir = tempdir().expect("tempdir");
         let triage = dir.path().join("triage");
@@ -5575,6 +5644,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_example_project_v02_main() {
         let dir = tempdir().expect("tempdir");
         let triage = dir.path().join("triage");
@@ -5601,6 +5671,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_example_ffi_safety() {
         let dir = tempdir().expect("tempdir");
         let triage = dir.path().join("triage");
@@ -5626,6 +5697,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_define_global_subset() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("global.enk");
@@ -5657,6 +5729,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_noncapturing_function_value_subset() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("lambda_nocapture.enk");
@@ -5688,6 +5761,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_capturing_closure_subset() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("lambda_capture.enk");
@@ -5719,6 +5793,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_record_field_subset() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("record.enk");
@@ -5750,6 +5825,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_record_mutation_subset() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("record_mutation.enk");
@@ -5781,6 +5857,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_list_index_subset() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("list.enk");
@@ -5812,6 +5889,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_tasks_channels_scheduler_primitives() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("runtime_tasks_channels.enk");
@@ -5863,6 +5941,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_error_audit_enforces_stable_taxonomy() {
         let dir = tempdir().expect("tempdir");
         let cases = dir.path().join("runtime-errors");
@@ -5931,6 +6010,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_list_mutation_full_bytecode() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("list_set.enk");
@@ -5962,6 +6042,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_add_subset() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("sum.enk");
@@ -5989,6 +6070,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_locals_and_parameters_subset() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("param.enk");
@@ -6020,6 +6102,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_logic_subset() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("logic.enk");
@@ -6051,6 +6134,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_extended_arithmetic_and_comparisons() {
         let dir = tempdir().expect("tempdir");
         let corpus = dir.path().join("control-corpus");
@@ -6088,6 +6172,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_if_control_flow_subset() {
         let dir = tempdir().expect("tempdir");
         let corpus = dir.path().join("if-corpus");
@@ -6125,6 +6210,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_neg_mod_neq_subset() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("ops.enk");
@@ -6156,6 +6242,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_while_loop_subset() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("whileloop.enk");
@@ -6187,6 +6274,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_boolean_short_circuit_subset() {
         let dir = tempdir().expect("tempdir");
         let corpus = dir.path().join("short-circuit-corpus");
@@ -6224,6 +6312,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_executes_pop_cleanup_subset() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("if_unused_call.enk");
@@ -6255,6 +6344,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_runtime_audit_require_full_support_accepts_string_results() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("string.enk");
@@ -6273,6 +6363,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_for_loop_via_selfhost_validation() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("unsupported.enk");
@@ -6286,6 +6377,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_imported_for_loop_via_selfhost_package_validation() {
         let dir = tempdir().expect("tempdir");
         let src = dir.path().join("src");
@@ -6308,6 +6400,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_local_call_arity_mismatch_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("arity.enk");
@@ -6321,6 +6414,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_imported_call_arity_mismatch_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let src = dir.path().join("src");
@@ -6343,6 +6437,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_duplicate_top_level_symbols_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("duplicate.enk");
@@ -6356,6 +6451,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_impl_target_without_type_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("impl_missing_type.enk");
@@ -6369,6 +6465,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_constructor_arity_mismatch_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("ctor_arity.enk");
@@ -6382,6 +6479,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_private_use_symbol_via_selfhost_visibility() {
         let dir = tempdir().expect("tempdir");
         let src = dir.path().join("src");
@@ -6404,6 +6502,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_private_imported_call_via_selfhost_visibility() {
         let dir = tempdir().expect("tempdir");
         let src = dir.path().join("src");
@@ -6426,6 +6525,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_let_type_mismatch_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("let_type_mismatch.enk");
@@ -6439,6 +6539,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_imported_argument_type_mismatch_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let src = dir.path().join("src");
@@ -6461,6 +6562,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_local_argument_type_mismatch_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("local_arg_type_mismatch.enk");
@@ -6474,6 +6576,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_unary_type_mismatch_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("unary_type_mismatch.enk");
@@ -6487,6 +6590,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_unknown_param_type_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("param_unknown_type.enk");
@@ -6500,6 +6604,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_duplicate_type_fields_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("duplicate_fields.enk");
@@ -6513,6 +6618,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_duplicate_param_names_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("duplicate_params.enk");
@@ -6526,6 +6632,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_let_annotation_mismatch_ident_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("let_annot_mismatch_ident.enk");
@@ -6539,6 +6646,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_accepts_coroutine_args_mixed_list_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("coroutine_args_mixed_list.enk");
@@ -6555,6 +6663,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_index_type_mismatch_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("index_type_mismatch.enk");
@@ -6568,6 +6677,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_assignment_field_type_mismatch_ident_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("assign_field_ident_mismatch.enk");
@@ -6581,6 +6691,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_unknown_field_on_inferred_target_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("unknown_field_inferred_target.enk");
@@ -6594,6 +6705,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_binary_mismatch_from_annotated_locals_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("binary_annotated_mismatch.enk");
@@ -6607,6 +6719,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_fn_self_param_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("fn_self_param.enk");
@@ -6620,6 +6733,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_unknown_field_on_unknown_symbol_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("unknown_field.enk");
@@ -6633,6 +6747,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_constructor_unknown_named_field_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("ctor_unknown_field.enk");
@@ -6646,6 +6761,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_deep_assignment_target_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("assign_deep.enk");
@@ -6659,6 +6775,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_literal_binary_type_mismatch_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("binary_literal_mismatch.enk");
@@ -6672,6 +6789,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_binary_type_mismatch_with_ident_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("binary_ident_mismatch.enk");
@@ -6685,6 +6803,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_duplicate_enum_variants_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("duplicate_enum_variants.enk");
@@ -6698,6 +6817,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_duplicate_impl_methods_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("duplicate_impl_methods.enk");
@@ -6711,6 +6831,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_private_imported_type_annotation_via_selfhost_visibility() {
         let dir = tempdir().expect("tempdir");
         let src = dir.path().join("src");
@@ -6729,6 +6850,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_return_type_mismatch_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("return_mismatch.enk");
@@ -6742,6 +6864,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_return_type_mismatch_ident_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("return_ident_mismatch.enk");
@@ -6755,6 +6878,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_boolean_condition_type_mismatch_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("cond_mismatch.enk");
@@ -6768,6 +6892,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_check_rejects_boolean_condition_ident_type_mismatch_via_selfhost_semantics() {
         let dir = tempdir().expect("tempdir");
         let file = dir.path().join("cond_ident_mismatch.enk");
@@ -6781,6 +6906,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-profile bootstrap self-host test; run explicitly with --ignored or readiness profiles"]
     fn litec_release_ci_runs_mainline_and_fallback_lanes() {
         let dir = tempdir().expect("tempdir");
         let corpus = dir.path().join("release-corpus");

@@ -4,6 +4,8 @@ Status: stable.
 Grammar and CLI contracts are frozen at the v0.9.3 baseline for the v1.x/v2.x line.
 This document is the normative language and runtime surface for Enkai v3.0.0,
 including compatibility constraints carried from v0.1 onward.
+For a learner-oriented explanation of the same surface, see
+`docs/53_language_handbook.md`.
 
 -------------------------------------------------------------------------------
 1. Scope
@@ -57,7 +59,8 @@ Compatibility baseline:
 - v1.9-v3.0.0: stage1 execution command (`enkai litec run`), unified master pipeline smoke test, GPU evidence verification scripts for operator-run soak gates, frontend/serve contract snapshot freeze with persisted conversation schema v1, deterministic packaging/checksum/SBOM release gates, RC evidence-archive tooling, capability-complete release reporting from archived evidence manifests, additive multi-node orchestration controls (`dist.topology`, `dist.rendezvous`, `dist.retry_budget`, `dist.device_map`) plus `enkai cluster validate|plan|run`, additive readiness filtering via `--skip-check <id>`, archived simulation std/runtime plus native FFI smoke evidence for the `enkai sim` command line, coroutine-facing `std::sim` APIs, Adam-0 smoke/profile evidence for the 100-agent deterministic baseline, the bounded Adam-0 reference suite with archived 100 / 1000 / 10000 agent evidence, and signed registry convergence across checkpoint, simulation, environment, and native-extension artifacts.
 
 Compatibility policy:
-- `.enk` and `.en` are primary source extensions.
+- `.enk` and `.enkai` are primary source extensions. `.en` is a legacy
+  compatibility extension where still accepted.
 - Legacy compatibility paths may exist in runtime/FFI loaders, but are not the
   primary contract unless listed explicitly.
 
@@ -137,7 +140,7 @@ Operators and punctuation:
 - Postfix: `.`, `()`, `[]`, `?`
 
 Keywords:
-`agent allow and as async await break catch continue deny else enum false fn for if impl import in let match memory model mut none not or policy prompt pub return spawn tool true try type use while`
+`agent allow and as async await break catch const continue deny else enum false fn for if impl import in let match memory model mut none not or policy prompt pub return spawn tool true try type use while`
 
 -------------------------------------------------------------------------------
 3. Block Model (`::`)
@@ -288,7 +291,9 @@ Runtime semantics (v1.1):
 Statements:
 - Immutable `let` bindings: `let x := expr` or `let x: Type := expr`
 - Mutable bindings: `mut x := expr`, `mut x: Type := expr`, or `let mut x := expr`
+- Compile-time constants: `const NAME := expr` or `const NAME: Type := expr`; the initializer must be a compile-time constant expression.
 - Assignment statement: `target := expr`; direct reassignment requires a `mut` binding.
+- Static policy checking: known standard-library side-effect calls require an explicit matching `policy default` allow rule; deny rules override allow rules. Supported static filters are `path_prefix` for filesystem paths and `domain` for network/TLS domains.
 - `if` / `else`
 - `while`
 - `for x in expr`
@@ -333,6 +338,34 @@ Collection inference:
 - `[0.7, 0.8, 1]` infers `Array[Float]`
 - `[]` requires an explicit annotation such as `Array[String]`
 - mixed-type array bindings require an explicit dynamic annotation such as `Array[Any]`
+
+Runtime collection/numeric modules:
+- `std::array`: `len`, `element_type`, `is_homogeneous`
+- `std::vector`: `from_array`, `len`, `get`, `dot`, `add`, `scale`, `to_array`
+- `std::tensor`: deterministic bounded tensor construction and execution with
+  `from_array`, `to_array`, `rank`, `len`, `get_flat`, `zeros`, `randn`,
+  `shape`, `add`, `sub`, `mul`, `div`, `scale`, `broadcast_to`, `matmul`,
+  `reshape`, `transpose`, `slice`, `concat`, `sum`, `mean`, `softmax`,
+  `relu`, `sigmoid`, `gelu`, `exp`, `log`, `sqrt`, `tanh`, `dropout`,
+  `linear`, `embedding`, `layernorm`, `cross_entropy`, `to_dtype`, and
+  `to_device`, `where`, `clip`, `argmax`, `sort`, `topk`, `gather`,
+  `scatter`, `masked_fill`, `einsum`, `conv2d`, `max_pool2d`, `avg_pool2d`,
+  `batchnorm1d`, and `attention`
+- autodiff controls: `requires_grad`, `require_grad`, `backward`, `grad`,
+  `zero_grad`, `detach`, `no_grad`, and `grad_check`
+
+The runtime/stdlib surface must preserve the same type contracts exposed by the
+typechecker. The bounded tensor runtime is first-party Enkai-owned execution with
+NumPy-style broadcasting for elementwise arithmetic, deterministic shape checks,
+finite-value validation, stable indexing/masking semantics, and stable error
+paths. The autodiff surface is tape-backed with deterministic gradient
+accumulation for the covered differentiable ops, including linear, embedding,
+layernorm, cross-entropy, softmax, conv2d, pool2d, and attention. It has explicit
+failure for non-scalar backward roots or detached/no-grad graphs. First-party
+SGD and AdamW single- and multi-parameter steps plus gradient clipping are
+available for bounded CPU training;
+broader native acceleration remains a backend implementation detail and must not
+be required for these core operations.
 
 Typechecking behavior (production):
 - Function arity/type checks for declared function signatures.
@@ -417,8 +450,8 @@ HTTP server/client:
 JSON:
 - requires `import std::json`
 - `json.parse(text)`
-- `json.stringify(value)`
-- `json.enkai(value)` as the Enkai-preferred alias for `json.stringify(value)`
+- `json.enkai(value)` is the Enkai-preferred encoder spelling
+- `json.stringify(value)` remains a compatibility alias
 
 Bootstrap:
 - `bootstrap.format(source)` -> canonical formatted source text
@@ -709,6 +742,13 @@ Commands:
 - `enkai migrate checkpoint-meta-v1 <checkpoint_dir> [--dry-run] [--verify] [--strict-contracts]`
 - `enkai doctor [path] [--json] [--strict-contracts|--lenient]`
 
+User-facing command rule:
+- `enkai run` is the official command for executing source files.
+- `enkai check` is the official command for syntax/type/import/policy checking
+  without executing side effects.
+- `enkai safari` is reserved for a future interactive workspace and is not the
+  normal execution command.
+
 Contract enforcement note:
 - In v3.0.0, train/eval run strict contracts by default.
 - `--lenient-contracts` requires `ENKAI_ALLOW_LEGACY_CONTRACTS=1`.
@@ -902,6 +942,10 @@ The following are intentionally not fully implemented yet:
 - Engine-level checkpoint helpers exist, but full train-loop orchestration and multi-rank resume policy are constrained to currently integrated paths.
 - Training metrics include best-effort GPU memory/utilization sampling via `nvidia-smi` for CUDA devices.
   On hosts without `nvidia-smi` or compatible drivers these fields remain `null`.
+- v3.9.0 CUDA-first LLM runtime work is hardware-proof-gated. First-party
+  accelerator source and verifiers may be present before CUDA/PyTorch benchmark
+  evidence is green. Do not claim CUDA, distributed GPU, ROCm, Metal, or full
+  PyTorch parity closure without green archived verifier artifacts.
 - `enkai litec` is intentionally subset-scoped; unsupported subset constructs
   (for/match/try/break/continue and `match` expressions) are rejected by
   bootstrap-core validation.

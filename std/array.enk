@@ -1,0 +1,13 @@
+// std::array runtime introspection helpers
+
+pub fn len(values: Array[Any]) -> Int ::
+    return array.len(values)
+::
+
+pub fn element_type(values: Array[Any]) -> String ::
+    return array.element_type(values)
+::
+
+pub fn is_homogeneous(values: Array[Any]) -> Bool ::
+    return array.is_homogeneous(values)
+::

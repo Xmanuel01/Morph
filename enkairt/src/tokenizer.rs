@@ -3,6 +3,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use sha1::{Digest, Sha1};
+
+const TOKENIZER_FORMAT_VERSION: u32 = 2;
 
 #[derive(Debug, Clone)]
 pub struct Tokenizer {
@@ -33,9 +36,15 @@ impl Default for TrainConfig {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct TokenizerFile {
+    #[serde(default)]
+    format_version: u32,
     vocab: Vec<String>,
     unk_id: u32,
     eos_id: u32,
+    #[serde(default)]
+    vocab_sha1: Option<String>,
+    #[serde(default)]
+    provenance: Option<serde_json::Value>,
 }
 
 impl Tokenizer {
@@ -129,9 +138,12 @@ impl Tokenizer {
 
     pub fn save(&self, path: &Path) -> Result<(), String> {
         let file = TokenizerFile {
+            format_version: TOKENIZER_FORMAT_VERSION,
             vocab: self.vocab.clone(),
             unk_id: self.unk_id,
             eos_id: self.eos_id,
+            vocab_sha1: Some(self.fingerprint()),
+            provenance: Some(self.provenance()),
         };
         let text = serde_json::to_string_pretty(&file)
             .map_err(|err| format!("Failed to serialize tokenizer: {}", err))?;
@@ -145,11 +157,39 @@ impl Tokenizer {
             .map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
         let file: TokenizerFile = serde_json::from_str(&contents)
             .map_err(|err| format!("Failed to parse tokenizer: {}", err))?;
+        if let Some(expected) = file.vocab_sha1.as_deref() {
+            let actual = tokenizer_fingerprint(&file.vocab, file.unk_id, file.eos_id);
+            if expected != actual {
+                return Err(format!(
+                    "Tokenizer fingerprint mismatch: expected {expected}, computed {actual}"
+                ));
+            }
+        }
         Self::from_vocab(file.vocab, file.unk_id, file.eos_id)
     }
 
     pub fn vocab_size(&self) -> usize {
         self.vocab.len()
+    }
+
+    pub fn fingerprint(&self) -> String {
+        tokenizer_fingerprint(&self.vocab, self.unk_id, self.eos_id)
+    }
+
+    pub fn provenance(&self) -> serde_json::Value {
+        serde_json::json!({
+            "schema_version": TOKENIZER_FORMAT_VERSION,
+            "tokenizer": "enkai_whitespace_v1",
+            "vocab_size": self.vocab.len(),
+            "unk_id": self.unk_id,
+            "eos_id": self.eos_id,
+            "vocab_sha1": self.fingerprint(),
+            "deterministic_replay": true
+        })
+    }
+
+    pub fn vocab_tokens(&self) -> &[String] {
+        &self.vocab
     }
 }
 
@@ -207,4 +247,15 @@ fn seeded_hash(seed: u64, text: &str) -> u64 {
         hash = hash.wrapping_mul(1099511628211);
     }
     hash
+}
+
+fn tokenizer_fingerprint(vocab: &[String], unk_id: u32, eos_id: u32) -> String {
+    let mut hasher = Sha1::new();
+    hasher.update(unk_id.to_le_bytes());
+    hasher.update(eos_id.to_le_bytes());
+    for token in vocab {
+        hasher.update((token.len() as u64).to_le_bytes());
+        hasher.update(token.as_bytes());
+    }
+    format!("{:x}", hasher.finalize())
 }

@@ -1,10 +1,12 @@
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::thread;
 
 use crate::tokenizer::Tokenizer;
+use serde::{Deserialize, Serialize};
+use sha1::{Digest, Sha1};
 
 #[derive(Debug, Clone)]
 pub struct DatasetConfig {
@@ -44,6 +46,15 @@ pub struct Batch {
     pub packing_efficiency: f32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DatasetCursor {
+    pub current_file_index: usize,
+    pub current_line: u64,
+    pub token_buffer: Vec<u32>,
+    pub exhausted: bool,
+    pub emitted_batches: u64,
+}
+
 #[derive(Debug)]
 pub struct DatasetStream {
     inner: Option<DatasetStreamInner>,
@@ -59,6 +70,8 @@ struct DatasetStreamInner {
     config: DatasetConfig,
     token_buffer: Vec<u32>,
     exhausted: bool,
+    current_line: u64,
+    emitted_batches: u64,
 }
 
 struct PrefetchState {
@@ -118,6 +131,32 @@ impl DatasetStream {
             Ok(None)
         }
     }
+
+    pub fn cursor(&self) -> Result<DatasetCursor, String> {
+        if self.prefetch.is_some() {
+            return Err(
+                "Dataset cursor snapshots require prefetch_batches = 0 for deterministic replay"
+                    .to_string(),
+            );
+        }
+        self.inner
+            .as_ref()
+            .map(DatasetStreamInner::cursor)
+            .ok_or_else(|| "Dataset stream is not cursor-addressable".to_string())
+    }
+
+    pub fn restore_cursor(&mut self, cursor: DatasetCursor) -> Result<(), String> {
+        if self.prefetch.is_some() {
+            return Err(
+                "Dataset cursor restore requires prefetch_batches = 0 for deterministic replay"
+                    .to_string(),
+            );
+        }
+        self.inner
+            .as_mut()
+            .ok_or_else(|| "Dataset stream is not cursor-addressable".to_string())?
+            .restore_cursor(cursor)
+    }
 }
 
 impl Drop for DatasetStream {
@@ -153,6 +192,8 @@ impl DatasetStreamInner {
             config,
             token_buffer: Vec::new(),
             exhausted: false,
+            current_line: 0,
+            emitted_batches: 0,
         })
     }
 
@@ -225,6 +266,7 @@ impl DatasetStreamInner {
         } else {
             token_count as f32 / total as f32
         };
+        self.emitted_batches += 1;
         Ok(Some(Batch {
             input_ids,
             target_ids,
@@ -265,6 +307,7 @@ impl DatasetStreamInner {
                     )
                 })?;
                 self.reader = Some(BufReader::new(file));
+                self.current_line = 0;
             }
             let mut line = String::new();
             let read = match self.reader.as_mut() {
@@ -276,8 +319,10 @@ impl DatasetStreamInner {
             if read == 0 {
                 self.reader = None;
                 self.current += 1;
+                self.current_line = 0;
                 continue;
             }
+            self.current_line += 1;
             if line.ends_with('\n') {
                 line.pop();
                 if line.ends_with('\r') {
@@ -286,6 +331,54 @@ impl DatasetStreamInner {
             }
             return Ok(Some(line));
         }
+    }
+
+    fn cursor(&self) -> DatasetCursor {
+        DatasetCursor {
+            current_file_index: self.current,
+            current_line: self.current_line,
+            token_buffer: self.token_buffer.clone(),
+            exhausted: self.exhausted,
+            emitted_batches: self.emitted_batches,
+        }
+    }
+
+    fn restore_cursor(&mut self, cursor: DatasetCursor) -> Result<(), String> {
+        if cursor.current_file_index > self.files.len() {
+            return Err("Dataset cursor current_file_index is out of range".to_string());
+        }
+        self.current = cursor.current_file_index;
+        self.current_line = cursor.current_line;
+        self.token_buffer = cursor.token_buffer;
+        self.exhausted = cursor.exhausted;
+        self.emitted_batches = cursor.emitted_batches;
+        self.reader = None;
+        if self.current < self.files.len() {
+            self.open_reader_at_current_line()?;
+        }
+        Ok(())
+    }
+
+    fn open_reader_at_current_line(&mut self) -> Result<(), String> {
+        let file = File::open(&self.files[self.current]).map_err(|err| {
+            format!(
+                "Failed to open {}: {}",
+                self.files[self.current].display(),
+                err
+            )
+        })?;
+        let mut reader = BufReader::new(file);
+        for _ in 0..self.current_line {
+            let mut discarded = String::new();
+            let read = reader
+                .read_line(&mut discarded)
+                .map_err(|err| format!("Failed to restore dataset cursor: {}", err))?;
+            if read == 0 {
+                return Err("Dataset cursor line offset is beyond end of file".to_string());
+            }
+        }
+        self.reader = Some(reader);
+        Ok(())
     }
 }
 
@@ -324,8 +417,8 @@ pub fn resolve_dataset_paths(path: &str) -> Result<Vec<PathBuf>, String> {
 }
 
 fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
-    let entries = std::fs::read_dir(dir)
-        .map_err(|err| format!("Failed to read {}: {}", dir.display(), err))?;
+    let entries =
+        fs::read_dir(dir).map_err(|err| format!("Failed to read {}: {}", dir.display(), err))?;
     for entry in entries {
         let entry = entry.map_err(|err| err.to_string())?;
         let path = entry.path();
@@ -336,6 +429,58 @@ fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+pub fn dataset_pipeline_manifest(
+    files: &[PathBuf],
+    tokenizer: &Tokenizer,
+    config: &DatasetConfig,
+) -> Result<serde_json::Value, String> {
+    let mut file_entries = Vec::new();
+    let mut dataset_hasher = Sha1::new();
+    for path in files {
+        let bytes =
+            fs::read(path).map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
+        let file_sha1 = format!("{:x}", Sha1::digest(&bytes));
+        dataset_hasher.update(path.to_string_lossy().as_bytes());
+        dataset_hasher.update((bytes.len() as u64).to_le_bytes());
+        dataset_hasher.update(file_sha1.as_bytes());
+        file_entries.push(serde_json::json!({
+            "path": path.to_string_lossy(),
+            "bytes": bytes.len(),
+            "sha1": file_sha1
+        }));
+    }
+    Ok(serde_json::json!({
+        "schema_version": 1,
+        "pipeline": "enkai_dataset_stream_v1",
+        "dataset_sha1": format!("{:x}", dataset_hasher.finalize()),
+        "tokenizer_sha1": tokenizer.fingerprint(),
+        "files": file_entries,
+        "config": {
+            "seq_len": config.seq_len,
+            "batch_size": config.batch_size,
+            "add_eos": config.add_eos,
+            "drop_remainder": config.drop_remainder,
+            "pad_id": config.pad_id,
+            "seed": config.seed,
+            "shuffle": config.shuffle,
+            "prefetch_batches": config.prefetch_batches
+        },
+        "features": {
+            "streaming_reader": true,
+            "deterministic_shuffle": config.shuffle,
+            "packed_sequences": true,
+            "checkpointable_cursor": config.prefetch_batches == 0,
+            "tokenizer_fingerprint_required": true,
+            "deterministic_replay": true
+        },
+        "deterministic_errors": [
+            "Dataset shuffle requires seed",
+            "Dataset cursor snapshots require prefetch_batches = 0 for deterministic replay",
+            "Dataset cursor line offset is beyond end of file"
+        ]
+    }))
 }
 
 fn shuffle_paths(paths: &mut [PathBuf], seed: u64) {

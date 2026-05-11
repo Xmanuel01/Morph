@@ -1,6 +1,7 @@
 use enkaic::compiler::compile_module;
 use enkaic::parser::parse_module;
 use enkairt::error::RuntimeError;
+use enkairt::object::Obj;
 use enkairt::{Value, VM};
 use std::sync::{Mutex, OnceLock};
 
@@ -125,6 +126,459 @@ fn list_literal_and_index() {
 fn list_index_assignment() {
     let result = run_value("let xs := [1, 2]\nxs[0] := 5\nxs[0]");
     assert_eq!(result, Value::Int(5));
+}
+
+#[test]
+fn array_runtime_introspection_reports_element_type() {
+    let result = run_value(
+        "import std::array\n\
+         let names := [\"Nairobi\", \"Mombasa\"]\n\
+         if array.is_homogeneous(names) ::\n\
+             return array.element_type(names)\n\
+         ::\n\
+         return \"bad\"\n",
+    );
+    match result {
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::String(value) => assert_eq!(value, "String"),
+            other => panic!("expected String object, got {other:?}"),
+        },
+        other => panic!("expected String value, got {other:?}"),
+    }
+}
+
+#[test]
+fn dense_vector_runtime_ops_work() {
+    let result = run_value(
+        "import std::vector\n\
+         let a := vector.from_array([1.0, 2.0, 3.0])\n\
+         let b := vector.scale(a, 2.0)\n\
+         vector.dot(a, b) + vector.get(b, 1) + vector.len(a)\n",
+    );
+    assert_eq!(result, Value::Float(35.0));
+}
+
+#[test]
+fn tensor_runtime_shape_and_matmul_work() {
+    let result = run_value(
+        "import std::tensor\n\
+         let a := tensor.from_array([1.0, 2.0, 3.0, 4.0], [2, 2])\n\
+         let b := tensor.from_array([5.0, 6.0, 7.0, 8.0], [2, 2])\n\
+         let c := tensor.matmul(a, b)\n\
+         let s := tensor.shape(c)\n\
+         tensor.get_flat(c, 0) + tensor.get_flat(c, 3) + s[0] + s[1]\n",
+    );
+    assert_eq!(result, Value::Float(73.0));
+}
+
+#[test]
+fn tensor_runtime_rejects_shape_mismatch() {
+    let err = run_result(
+        "import std::tensor\n\
+         let a := tensor.from_array([1.0, 2.0], [2])\n\
+         let b := tensor.from_array([1.0, 2.0, 3.0], [3])\n\
+         tensor.add(a, b)\n",
+    )
+    .expect_err("shape mismatch should fail");
+    assert!(
+        err.message.contains("broadcasting shape mismatch"),
+        "{}",
+        err.message
+    );
+}
+
+#[test]
+fn tensor_runtime_broader_ops_are_deterministic() {
+    let result = run_value(
+        "import std::tensor\n\
+         let a := tensor.from_array([1.0, 2.0, 3.0, 4.0], [2, 2])\n\
+         let transposed := tensor.transpose(a, 0, 1)\n\
+         let row_sum := tensor.sum(a, 1, false)\n\
+         let row_mean := tensor.mean(a, 1, false)\n\
+         let sliced := tensor.slice(a, 0, 1, 2, 1)\n\
+         let joined := tensor.concat([sliced, sliced], 0)\n\
+         tensor.get_flat(transposed, 1) + tensor.get_flat(row_sum, 1) + tensor.get_flat(row_mean, 0) + tensor.get_flat(joined, 3)\n",
+    );
+    assert_eq!(result, Value::Float(15.5));
+}
+
+#[test]
+fn tensor_runtime_activation_ops_work() {
+    let result = run_value(
+        "import std::tensor\n\
+         let a := tensor.from_array([-1.0, 0.0, 1.0, 2.0], [2, 2])\n\
+         let r := tensor.relu(a)\n\
+         let s := tensor.sigmoid(a)\n\
+         let p := tensor.softmax(a, 1)\n\
+         tensor.get_flat(r, 0) + tensor.get_flat(r, 3) + tensor.get_flat(s, 1) + tensor.get_flat(p, 0) + tensor.get_flat(p, 1)\n",
+    );
+    match result {
+        Value::Float(value) => assert!((value - 3.5).abs() < 1e-9, "{value}"),
+        other => panic!("expected Float value, got {other:?}"),
+    }
+}
+
+#[test]
+fn tensor_runtime_rejects_invalid_dimensions() {
+    let err = run_result(
+        "import std::tensor\n\
+         let a := tensor.from_array([1.0, 2.0, 3.0, 4.0], [2, 2])\n\
+         tensor.transpose(a, 0, 3)\n",
+    )
+    .expect_err("invalid dimension should fail");
+    assert!(
+        err.message.contains("out of bounds for rank 2"),
+        "{}",
+        err.message
+    );
+}
+
+#[test]
+fn tensor_runtime_broadcasting_and_scalar_style_ops_work() {
+    let result = run_value(
+        "import std::tensor\n\
+         let a := tensor.from_array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], [2, 3])\n\
+         let b := tensor.from_array([10.0, 20.0, 30.0], [1, 3])\n\
+         let added := tensor.add(a, b)\n\
+         let scaled := tensor.scale(added, 0.5)\n\
+         let broadcasted := tensor.broadcast_to(tensor.from_array([1.0, 2.0, 3.0], [1, 3]), [2, 3])\n\
+         tensor.get_flat(scaled, 0) + tensor.get_flat(scaled, 5) + tensor.get_flat(broadcasted, 3)\n",
+    );
+    assert_eq!(result, Value::Float(24.5));
+}
+
+#[test]
+fn tensor_runtime_ai_core_fallbacks_work() {
+    let result = run_value(
+        "import std::tensor\n\
+         let x := tensor.from_array([1.0, 2.0, 3.0, 4.0], [2, 2])\n\
+         let w := tensor.from_array([1.0, 0.0, 0.0, 1.0], [2, 2])\n\
+         let b := tensor.from_array([0.5, -0.5], [2])\n\
+         let projected := tensor.linear(x, w, b)\n\
+         let normalized := tensor.layernorm(projected, tensor.from_array([1.0, 1.0], [2]), tensor.from_array([0.0, 0.0], [2]), 0.00001)\n\
+         let embedded := tensor.embedding(tensor.from_array([1.0, 2.0, 3.0, 4.0], [2, 2]), tensor.from_array([1.0, 0.0], [2]))\n\
+         let loss := tensor.cross_entropy(tensor.from_array([3.0, 1.0, 1.0, 3.0], [2, 2]), tensor.from_array([0.0, 1.0], [2]))\n\
+         tensor.get_flat(projected, 0) + tensor.get_flat(normalized, 0) + tensor.get_flat(embedded, 0) + tensor.get_flat(loss, 0)\n",
+    );
+    match result {
+        Value::Float(value) => assert!((value - 4.626_928).abs() < 1e-5, "{value}"),
+        other => panic!("expected Float value, got {other:?}"),
+    }
+}
+
+#[test]
+fn tensor_runtime_rejects_broadcast_shape_mismatch() {
+    let err = run_result(
+        "import std::tensor\n\
+         let a := tensor.from_array([1.0, 2.0], [2])\n\
+         let b := tensor.from_array([1.0, 2.0, 3.0], [3])\n\
+         tensor.add(a, b)\n",
+    )
+    .expect_err("broadcast mismatch should fail");
+    assert!(
+        err.message.contains("broadcasting shape mismatch"),
+        "{}",
+        err.message
+    );
+}
+
+#[test]
+fn tensor_runtime_indexing_selection_and_mask_ops_work() {
+    let result = run_value(
+        "import std::tensor\n\
+         let x := tensor.from_array([1.0, 4.0, 3.0, 2.0], [2, 2])\n\
+         let mask := tensor.from_array([1.0, 0.0], [1, 2])\n\
+         let filled := tensor.masked_fill(x, mask, -1.0)\n\
+         let chosen := tensor.where(mask, x, filled)\n\
+         let clipped := tensor.clip(chosen, 0.0, 3.0)\n\
+         let sorted := tensor.sort(clipped, 1, true)\n\
+         let top := tensor.topk(clipped, 1, 1)\n\
+         let arg := tensor.argmax(clipped, 1, false)\n\
+         let gathered := tensor.gather(clipped, 1, tensor.from_array([0.0, 1.0, 1.0, 0.0], [2, 2]))\n\
+         let scattered := tensor.scatter(clipped, 1, tensor.from_array([1.0, 0.0, 1.0, 0.0], [2, 2]), tensor.from_array([8.0, 9.0, 7.0, 6.0], [2, 2]))\n\
+         tensor.get_flat(sorted, 0) + tensor.get_flat(top, 1) + tensor.get_flat(arg, 0) + tensor.get_flat(gathered, 2) + tensor.get_flat(scattered, 0)\n",
+    );
+    assert_eq!(result, Value::Float(18.0));
+}
+
+#[test]
+fn tensor_runtime_conv_pool_batchnorm_einsum_attention_work() {
+    let result = run_value(
+        "import std::tensor\n\
+         let image := tensor.from_array([1.0, 2.0, 3.0, 4.0], [1, 1, 2, 2])\n\
+         let kernel := tensor.from_array([1.0], [1, 1, 1, 1])\n\
+         let conv := tensor.conv2d(image, kernel, tensor.from_array([0.5], [1]), 1, 0)\n\
+         let maxp := tensor.max_pool2d(image, 2, 1)\n\
+         let avgp := tensor.avg_pool2d(image, 2, 1)\n\
+         let mat := tensor.einsum(\"ij,jk->ik\", tensor.from_array([1.0, 2.0, 3.0, 4.0], [2, 2]), tensor.from_array([1.0, 0.0, 0.0, 1.0], [2, 2]))\n\
+         let bn := tensor.batchnorm1d(tensor.from_array([1.0, 2.0, 3.0, 4.0], [2, 2]), tensor.from_array([1.0, 1.0], [2]), tensor.from_array([0.0, 0.0], [2]), 0.00001, true)\n\
+         let attn := tensor.attention(tensor.from_array([1.0, 0.0, 0.0, 1.0], [1, 2, 2]), tensor.from_array([1.0, 0.0, 0.0, 1.0], [1, 2, 2]), tensor.from_array([1.0, 2.0, 3.0, 4.0], [1, 2, 2]))\n\
+         tensor.get_flat(conv, 0) + tensor.get_flat(maxp, 0) + tensor.get_flat(avgp, 0) + tensor.get_flat(mat, 3) + tensor.get_flat(bn, 0) + tensor.get_flat(attn, 0)\n",
+    );
+    match result {
+        Value::Float(value) => assert!((value - 12.660_482).abs() < 1e-5, "{value}"),
+        other => panic!("expected Float value, got {other:?}"),
+    }
+}
+
+#[test]
+fn tensor_runtime_autodiff_accumulates_gradients() {
+    let result = run_value(
+        "import std::tensor\n\
+         let x := tensor.requires_grad(tensor.from_array([2.0, 3.0], [2]))\n\
+         let y := tensor.mul(x, x)\n\
+         let loss := tensor.sum(y, 0, false)\n\
+         tensor.backward(loss)\n\
+         let gx := tensor.grad(x)\n\
+         let expected := tensor.from_array([4.0, 6.0], [2])\n\
+         if tensor.grad_check(gx, expected, 0.00001) ::\n\
+             return tensor.get_flat(gx, 0) + tensor.get_flat(gx, 1)\n\
+         ::\n\
+         return -1.0\n",
+    );
+    assert_eq!(result, Value::Float(10.0));
+}
+
+#[test]
+fn tensor_runtime_autodiff_matmul_backward_works() {
+    let result = run_value(
+        "import std::tensor\n\
+         let x := tensor.requires_grad(tensor.from_array([1.0, 2.0], [1, 2]))\n\
+         let w := tensor.requires_grad(tensor.from_array([3.0, 4.0], [2, 1]))\n\
+         let y := tensor.matmul(x, w)\n\
+         tensor.backward(y)\n\
+         let gx := tensor.grad(x)\n\
+         let gw := tensor.grad(w)\n\
+         tensor.get_flat(gx, 0) + tensor.get_flat(gx, 1) + tensor.get_flat(gw, 0) + tensor.get_flat(gw, 1)\n",
+    );
+    assert_eq!(result, Value::Float(10.0));
+}
+
+#[test]
+fn tensor_runtime_autodiff_model_ops_backward_work() {
+    let result = run_value(
+        "import std::tensor\n\
+         let x := tensor.requires_grad(tensor.from_array([1.0, 2.0], [1, 2]))\n\
+         let w := tensor.requires_grad(tensor.from_array([3.0, 4.0, 5.0, 6.0], [2, 2]))\n\
+         let b := tensor.requires_grad(tensor.from_array([0.5, -0.5], [2]))\n\
+         let y := tensor.linear(x, w, b)\n\
+         let loss := tensor.sum(y, 1, false)\n\
+         tensor.backward(loss)\n\
+         let gx := tensor.grad(x)\n\
+         let gw := tensor.grad(w)\n\
+         let gb := tensor.grad(b)\n\
+         tensor.get_flat(gx, 0) + tensor.get_flat(gx, 1) + tensor.get_flat(gw, 0) + tensor.get_flat(gw, 1) + tensor.get_flat(gw, 2) + tensor.get_flat(gw, 3) + tensor.get_flat(gb, 0) + tensor.get_flat(gb, 1)\n",
+    );
+    assert_eq!(result, Value::Float(26.0));
+}
+
+#[test]
+fn tensor_runtime_autodiff_cross_entropy_embedding_and_layernorm_work() {
+    let ce = run_value(
+        "import std::tensor\n\
+         let logits := tensor.requires_grad(tensor.from_array([0.0, 0.0, 0.0, 0.0], [2, 2]))\n\
+         let loss := tensor.cross_entropy(logits, tensor.from_array([0.0, 1.0], [2]))\n\
+         tensor.backward(loss)\n\
+         let grad := tensor.grad(logits)\n\
+         tensor.get_flat(grad, 0) + tensor.get_flat(grad, 1) * 10.0 + tensor.get_flat(grad, 2) * 100.0 + tensor.get_flat(grad, 3) * 1000.0\n",
+    );
+    assert_eq!(ce, Value::Float(-222.75));
+
+    let embedding = run_value(
+        "import std::tensor\n\
+         let weights := tensor.requires_grad(tensor.from_array([1.0, 2.0, 3.0, 4.0], [2, 2]))\n\
+         let out := tensor.embedding(weights, tensor.from_array([1.0, 0.0, 1.0], [3]))\n\
+         let loss := tensor.sum(out, 0, false)\n\
+         let loss2 := tensor.sum(loss, 0, false)\n\
+         tensor.backward(loss2)\n\
+         let grad := tensor.grad(weights)\n\
+         tensor.get_flat(grad, 0) + tensor.get_flat(grad, 1) + tensor.get_flat(grad, 2) + tensor.get_flat(grad, 3)\n",
+    );
+    assert_eq!(embedding, Value::Float(6.0));
+
+    let layernorm = run_value(
+        "import std::tensor\n\
+         let x := tensor.requires_grad(tensor.from_array([1.0, 3.0], [1, 2]))\n\
+         let w := tensor.requires_grad(tensor.from_array([1.0, 1.0], [2]))\n\
+         let b := tensor.requires_grad(tensor.from_array([0.0, 0.0], [2]))\n\
+         let y := tensor.layernorm(x, w, b, 0.000001)\n\
+         let loss := tensor.sum(y, 1, false)\n\
+         tensor.backward(loss)\n\
+         let gw := tensor.grad(w)\n\
+         let gb := tensor.grad(b)\n\
+         tensor.get_flat(gw, 0) + tensor.get_flat(gw, 1) + tensor.get_flat(gb, 0) + tensor.get_flat(gb, 1)\n",
+    );
+    match layernorm {
+        Value::Float(value) => assert!((value - 2.0).abs() < 1e-6, "{value}"),
+        other => panic!("expected Float value, got {other:?}"),
+    }
+}
+
+#[test]
+fn tensor_runtime_autodiff_conv_pool_attention_and_optimizer_work() {
+    let conv = run_value(
+        "import std::tensor\n\
+         let image := tensor.requires_grad(tensor.from_array([1.0, 2.0, 3.0, 4.0], [1, 1, 2, 2]))\n\
+         let kernel := tensor.requires_grad(tensor.from_array([2.0], [1, 1, 1, 1]))\n\
+         let bias := tensor.requires_grad(tensor.from_array([0.5], [1]))\n\
+         let out := tensor.conv2d(image, kernel, bias, 1, 0)\n\
+         let loss := tensor.sum(tensor.sum(tensor.sum(out, 3, false), 2, false), 1, false)\n\
+         tensor.backward(loss)\n\
+         let gi := tensor.grad(image)\n\
+         let gw := tensor.grad(kernel)\n\
+         let gb := tensor.grad(bias)\n\
+         tensor.get_flat(gi, 0) + tensor.get_flat(gi, 1) + tensor.get_flat(gi, 2) + tensor.get_flat(gi, 3) + tensor.get_flat(gw, 0) + tensor.get_flat(gb, 0)\n",
+    );
+    assert_eq!(conv, Value::Float(22.0));
+
+    let pool = run_value(
+        "import std::tensor\n\
+         let image := tensor.requires_grad(tensor.from_array([1.0, 2.0, 3.0, 4.0], [1, 1, 2, 2]))\n\
+         let avg := tensor.avg_pool2d(image, 2, 1)\n\
+         tensor.backward(tensor.sum(tensor.sum(tensor.sum(avg, 3, false), 2, false), 1, false))\n\
+         let ga := tensor.grad(image)\n\
+         tensor.zero_grad(image)\n\
+         let maxp := tensor.max_pool2d(image, 2, 1)\n\
+         tensor.backward(tensor.sum(tensor.sum(tensor.sum(maxp, 3, false), 2, false), 1, false))\n\
+         let gm := tensor.grad(image)\n\
+         tensor.get_flat(ga, 0) + tensor.get_flat(ga, 1) + tensor.get_flat(ga, 2) + tensor.get_flat(ga, 3) + tensor.get_flat(gm, 3)\n",
+    );
+    assert_eq!(pool, Value::Float(2.0));
+
+    let attention = run_value(
+        "import std::tensor\n\
+         let q := tensor.requires_grad(tensor.from_array([1.0, 0.0, 0.0, 1.0], [1, 2, 2]))\n\
+         let k := tensor.requires_grad(tensor.from_array([1.0, 0.0, 0.0, 1.0], [1, 2, 2]))\n\
+         let v := tensor.requires_grad(tensor.from_array([1.0, 2.0, 3.0, 4.0], [1, 2, 2]))\n\
+         let out := tensor.attention(q, k, v)\n\
+         let loss := tensor.sum(tensor.sum(out, 2, false), 1, false)\n\
+         tensor.backward(loss)\n\
+         let gv := tensor.grad(v)\n\
+         tensor.get_flat(gv, 0) + tensor.get_flat(gv, 1) + tensor.get_flat(gv, 2) + tensor.get_flat(gv, 3)\n",
+    );
+    match attention {
+        Value::Float(value) => assert!((value - 4.0).abs() < 1e-6, "{value}"),
+        other => panic!("expected Float value, got {other:?}"),
+    }
+
+    let opt = run_value(
+        "import std::tensor\n\
+         let p := tensor.from_array([1.0, 2.0], [2])\n\
+         let g := tensor.from_array([0.1, 0.2], [2])\n\
+         tensor.sgd_step(p, g, 0.5, 0.0)\n\
+         tensor.get_flat(p, 0) + tensor.get_flat(p, 1)\n",
+    );
+    match opt {
+        Value::Float(value) => assert!((value - 2.85).abs() < 1e-9, "{value}"),
+        other => panic!("expected Float value, got {other:?}"),
+    }
+}
+
+#[test]
+fn tensor_runtime_memory_accounting_and_limits_work() {
+    let result = run_value(
+        "import std::tensor\n\
+         tensor.memory_clear_limit()\n\
+         tensor.memory_reset_peak()\n\
+         let before := tensor.memory_current()\n\
+         let t := tensor.from_array([1.0, 2.0, 3.0, 4.0], [2, 2])\n\
+         let after := tensor.memory_current()\n\
+         let peak := tensor.memory_peak()\n\
+         if peak < after ::\n\
+             return -1\n\
+         ::\n\
+         after - before\n",
+    );
+    assert_eq!(result, Value::Int(32));
+
+    let err = run_result(
+        "import std::tensor\n\
+         let base := tensor.memory_current()\n\
+         tensor.memory_set_limit(base + 8)\n\
+         tensor.from_array([1.0, 2.0], [2])\n",
+    )
+    .expect_err("memory limit should reject allocation");
+    assert!(
+        err.message
+            .contains("tensor.from_array would exceed tensor memory limit"),
+        "{}",
+        err.message
+    );
+    let _ = run_value("import std::tensor\ntensor.memory_clear_limit()\n");
+}
+
+#[test]
+fn tensor_runtime_multi_optimizer_and_grad_clipping_work() {
+    let result = run_value(
+        "import std::tensor\n\
+         let p1 := tensor.requires_grad(tensor.from_array([1.0, 2.0], [2]))\n\
+         let p2 := tensor.requires_grad(tensor.from_array([3.0], [1]))\n\
+         let l1 := tensor.sum(tensor.mul(p1, p1), 0, false)\n\
+         let l2 := tensor.sum(tensor.mul(p2, p2), 0, false)\n\
+         let loss := tensor.add(l1, l2)\n\
+         tensor.backward(loss)\n\
+         let before_norm := tensor.clip_grad_norm([p1, p2], 1.0, 0.000000001)\n\
+         let g1 := tensor.grad(p1)\n\
+         let g2 := tensor.grad(p2)\n\
+         mut state := tensor.adamw_state()\n\
+         state := tensor.adamw_step_multi([p1, p2], [g1, g2], state, 0.01, 0.9, 0.999, 0.00000001, 0.0)\n\
+         tensor.zero_grad_multi([p1, p2])\n\
+         let zg1 := tensor.grad(p1)\n\
+         let zg2 := tensor.grad(p2)\n\
+         before_norm + tensor.get_flat(zg1, 0) + tensor.get_flat(zg1, 1) + tensor.get_flat(zg2, 0)\n",
+    );
+    match result {
+        Value::Float(value) => assert!((value - 7.483_314_773_547883).abs() < 1e-6, "{value}"),
+        other => panic!("expected Float value, got {other:?}"),
+    }
+}
+
+#[test]
+fn tensor_runtime_multi_optimizer_errors_are_deterministic() {
+    let err = run_result(
+        "import std::tensor\n\
+         let p := tensor.from_array([1.0], [1])\n\
+         let g := tensor.from_array([0.1], [1])\n\
+         tensor.sgd_step_multi([p], [g, g], 0.1, 0.0)\n",
+    )
+    .expect_err("mismatched optimizer inputs should fail");
+    assert!(
+        err.message.contains("matching params/grads lengths"),
+        "{}",
+        err.message
+    );
+}
+
+#[test]
+fn tensor_runtime_autodiff_detach_and_no_grad_are_deterministic() {
+    let detached = run_result(
+        "import std::tensor\n\
+         let x := tensor.requires_grad(tensor.from_array([2.0], [1]))\n\
+         let y := tensor.detach(x)\n\
+         let loss := tensor.sum(tensor.mul(y, y), 0, false)\n\
+         tensor.backward(loss)\n",
+    )
+    .expect_err("detached graph should not backpropagate");
+    assert!(
+        detached.message.contains("tensor without gradient graph"),
+        "{}",
+        detached.message
+    );
+
+    let no_grad = run_result(
+        "import std::tensor\n\
+         let _prev := tensor.no_grad(true)\n\
+         let x := tensor.requires_grad(tensor.from_array([2.0], [1]))\n\
+         let y := tensor.mul(x, x)\n\
+         let _restore := tensor.no_grad(false)\n\
+         tensor.backward(y)\n",
+    )
+    .expect_err("no_grad graph should not backpropagate");
+    assert!(
+        no_grad.message.contains("tensor without gradient graph"),
+        "{}",
+        no_grad.message
+    );
 }
 
 #[test]

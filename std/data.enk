@@ -1,0 +1,54 @@
+import std::json
+// std::data (v1.0 locked package API)
+
+pub fn tokenizer_train(cfg) ::
+    return cfg
+::
+
+pub fn tokenizer_load(path: String) ::
+    let out := json.parse("{\"path\":\"\",\"kind\":\"tokenizer\"}")
+    out.path := path
+    return out
+::
+
+pub fn tokenizer_fingerprint(tok) -> String ::
+    return tok.fingerprint
+::
+
+pub fn tokenizer_provenance(tok) ::
+    return tok.provenance
+::
+
+pub fn dataset_open(path: String, tok, cfg) ::
+    let out := json.parse("{\"path\":\"\",\"tokenizer\":null,\"config\":null}")
+    out.path := path
+    out.tokenizer := tok
+    out.config := cfg
+    return out
+::
+
+pub fn next_batch(stream) ::
+    return stream.next_batch
+::
+
+pub fn cursor(stream) ::
+    return stream.cursor
+::
+
+pub fn restore(stream, cursor_state) ::
+    stream.cursor := cursor_state
+    return stream
+::
+
+pub fn manifest(path: String, tok, cfg) ::
+    let out := json.parse("{\"path\":\"\",\"tokenizer\":null,\"config\":null,\"replay\":true}")
+    out.path := path
+    out.tokenizer := tok
+    out.config := cfg
+    return out
+::
+
+pub fn replay(path: String, tok, cfg, cursor_state) ::
+    let stream := dataset_open(path, tok, cfg)
+    return restore(stream, cursor_state)
+::

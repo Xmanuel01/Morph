@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.9.0",
+  "scope": "stable_package_model_api_lock",
+  "status": "api_locked_foundation",
+  "locked_modules": {
+    "std::tensor": {
+      "stability": "locked_additive_only",
+      "required_symbols": ["device", "randn", "zeros", "matmul", "softmax", "attention", "cross_entropy", "backward", "grad", "adamw_step", "memory_peak"]
+    },
+    "std::nn": {
+      "stability": "locked_additive_only",
+      "required_symbols": ["linear", "embedding", "layernorm", "gelu", "cross_entropy"]
+    },
+    "std::optim": {
+      "stability": "locked_additive_only",
+      "required_symbols": ["adamw", "sgd", "clip_grad_norm"]
+    },
+    "std::data": {
+      "stability": "locked_additive_only",
+      "required_symbols": ["tokenizer", "dataset", "cursor", "manifest", "replay"]
+    },
+    "std::checkpoint": {
+      "stability": "locked_additive_only",
+      "required_symbols": ["save", "load", "manifest", "shards", "rng_state", "data_cursor", "hashes"]
+    },
+    "std::model": {
+      "stability": "locked_additive_only",
+      "required_symbols": ["spec", "parameters", "forward", "eval", "train", "save", "load"]
+    }
+  },
+  "compatibility_rules": [
+    "no removal or rename of locked symbols within v3.x",
+    "new symbols must be additive",
+    "behavioral changes require a new contract version and migration note",
+    "hardware backend production claims require backend-specific verifier evidence"
+  ],
+  "non_claims": [
+    "not full PyTorch package parity",
+    "not ROCm production support without hardware evidence",
+    "not Metal production support without hardware evidence"
+  ]
+}

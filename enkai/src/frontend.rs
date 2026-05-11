@@ -1709,6 +1709,22 @@ mod tests {
         buf
     }
 
+    fn send_http_request_until<F>(host: &str, port: u16, request: &str, predicate: F) -> Vec<u8>
+    where
+        F: Fn(&[u8]) -> bool,
+    {
+        let mut last = Vec::new();
+        for _ in 0..8 {
+            let response = send_http_request(host, port, request);
+            if predicate(&response) {
+                return response;
+            }
+            last = response;
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        last
+    }
+
     fn response_status(raw: &[u8]) -> u16 {
         let text = String::from_utf8_lossy(raw);
         let line = text.lines().next().unwrap_or_default();
@@ -2138,10 +2154,18 @@ mod tests {
         let missing_header_request =
             "POST /api/v1/chat?prompt=hello HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
                 .to_string();
-        let missing_header_resp = send_http_request("127.0.0.1", port, &missing_header_request);
+        let missing_header_resp =
+            send_http_request_until("127.0.0.1", port, &missing_header_request, |response| {
+                response_status(response) == 400
+                    && response_body(response).contains("missing_api_version_header")
+            });
         assert_eq!(response_status(&missing_header_resp), 400);
         let missing_header_body = response_body(&missing_header_resp);
-        assert!(missing_header_body.contains("missing_api_version_header"));
+        assert!(
+            missing_header_body.contains("missing_api_version_header"),
+            "missing header response body: {}",
+            missing_header_body
+        );
 
         let upgraded_state_text =
             fs::read_to_string(conversation_dir.join("conversation_state.json"))

@@ -1,33 +1,37 @@
-# Testing (Enkai test)
+# Testing
 
-Enkai can run test programs in `/tests`.
+Use `enkai test` to run project tests.
 
-## Usage
+## Run Tests
 
-```
-Enkai test
-```
-
-Optionally pass a project root:
-
-```
-Enkai test ./my_project
+```powershell
+enkai test
 ```
 
-## Conventions
+Run tests for a specific project directory:
 
-- Tests are `.enk` files in `./tests/`.
-- Each test runs: `check -> compile -> VM`.
-- A test passes if it exits without errors.
-- A test fails if type-checking or runtime fails.
-
-## Example
-
-```
-// tests/smoke.enk
-fn main() -> Int ::
-    return 0
-::
+```powershell
+enkai test .\my_project
 ```
 
+## Recommended Local Loop
 
+```powershell
+enkai fmt --check .
+enkai check .
+enkai test .
+```
+
+Then run the program:
+
+```powershell
+enkai run .\my_project\main.enkai
+```
+
+## What To Test
+
+- public functions
+- policy-denied paths
+- import errors for missing modules
+- tensor/data/checkpoint deterministic behavior when using AI-native modules
+- CLI entry points for real projects

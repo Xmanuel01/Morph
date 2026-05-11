@@ -4,20 +4,29 @@ Enkai includes a production-oriented HTTP runtime with routing, middleware, and 
 
 ## Usage
 
-```
+```enkai
+import std::http
+
+policy default ::
+    allow net.serve
+    allow net.http
+::policy
+
 fn handler(req: Request) -> Response ::
     return http.ok("hello")
-::
+::fn
 
 http.serve("127.0.0.1", 8080, handler)
 ```
 
 Routed server:
 
-```
+```enkai
+import std::http
+
 fn get_item(req: Request) -> Response ::
     return http.ok(req.params.id)
-::
+::fn
 
 let routes := [http.route("GET", "/items/:id", get_item)]
 http.serve_with("127.0.0.1", 8080, routes, none)
@@ -25,7 +34,10 @@ http.serve_with("127.0.0.1", 8080, routes, none)
 
 Middleware server:
 
-```
+```enkai
+import std::http
+import std::json
+
 let auth := json.parse("{\"tokens\":[{\"token\":\"secret\",\"tenant\":\"acme\"}]}")
 let middlewares := [http.middleware("auth", auth)]
 http.serve_with("127.0.0.1", 8080, routes, middlewares)
@@ -33,7 +45,10 @@ http.serve_with("127.0.0.1", 8080, routes, middlewares)
 
 Backpressure middleware:
 
-```
+```enkai
+import std::http
+import std::json
+
 let middlewares := [http.middleware("backpressure", json.parse("{\"max_inflight\":64}"))]
 http.serve_with("127.0.0.1", 8080, routes, middlewares)
 ```
@@ -92,6 +107,14 @@ WebSocket helpers (server-side):
   - `model`
   - `tenant_model`
 - `backpressure` middleware uses `max_inflight` (`Int >= 0`), where `0` disables the cap.
+
+## Learner Notes
+
+- Import `std::http` before using `http.*`.
+- Import `std::json` before using JSON middleware configs.
+- Add explicit policy permissions for serving/network behavior.
+- Use `enkai check` before `enkai serve` to catch missing imports and policy
+  errors before opening a listener.
 
 ## Observability headers
 

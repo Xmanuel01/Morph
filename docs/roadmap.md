@@ -8,6 +8,26 @@ Note:
 - v2.6.x remains additive/integration work (no contract-breaking removals).
 - Use `docs/Enkai.spec` as the source of truth for current language behavior.
 
+v3.9.0 (in progress)
+- CUDA-first production LLM runtime foundation:
+  - freezes the next global self-host AI runtime frontier as a CUDA-first, PyTorch-referenced small-transformer train/eval/checkpoint proof
+  - adds the stable backend catalog surface for:
+    - `cpu` deterministic fallback
+    - `torch` compatibility/reference execution
+    - `cuda` primary accelerated target
+    - `rocm` and `metal` catalog-reserved future targets
+  - emits:
+    - `bench/suites/v3_9_0_cuda_llm_runtime_foundation.json`
+    - `enkai/contracts/v3_9_0_cuda_llm_runtime_foundation.json`
+    - `scripts/readiness_v3_9_0_cuda_llm_runtime_foundation.py`
+    - `scripts/verify_v3_9_0_cuda_llm_runtime_foundation.py`
+  - exit state for this tranche:
+    - CUDA production claims require hardware-backed PyTorch comparison evidence
+    - the bounded CUDA benchmark verifier now blocks production performance claims unless Enkai reaches `1.50x` PyTorch train/eval/checkpoint-write throughput and stays within memory/resume-latency bounds on the frozen suite
+    - ROCm and Metal now have locked backend feature surfaces and deterministic feature/hardware-gated errors, but production support still requires separate hardware verifier evidence
+    - `std::tensor`, `std::nn`, `std::optim`, `std::data`, `std::checkpoint`, and `std::model` have a v3.9.0 additive-only package/model API lock
+    - full PyTorch parity and distributed hardware closure remain later tranches until verifier evidence is archived
+
 v3.8.0 (done)
 - Worker lifecycle and checkpoint sharding tranche (done):
   - advances the global self-host AI runtime line beyond v3.7.0 closure without widening claims outside the bounded networked runtime surface

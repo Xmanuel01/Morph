@@ -1,30 +1,49 @@
 # JSON
 
-Enkai includes JSON parsing and serialization via `std::json`.
-JSON is not a core implicit namespace; source files must import it explicitly.
-
-## Usage
+`std::json` provides JSON parsing and encoding. Import it explicitly before using
+`json.*`.
 
 ```enkai
 import std::json
 
-let v := json.parse("{\"a\":1,\"b\":[true,null]}")
-let out := json.stringify(v)
-let native := json.enkai(v)
+let value := json.parse("{\"ok\":true}")
+let text := json.enkai(value)
 ```
 
-## Notes
+## Encoding
 
-- `json.*` requires `import std::json`.
-- `json.parse` returns Records or Lists for objects/arrays.
-- `json.stringify` accepts primitives, JSON values, and Records (mapped to JSON objects).
-- `json.enkai` is the Enkai-preferred alias for `json.stringify`.
-- `json.stringify` remains supported for compatibility with existing Enkai code.
+`json.enkai(value)` is the preferred Enkai spelling for converting a value to
+JSON text:
 
-## Common errors
+```enkai
+let payload := json.enkai({"county": "Nairobi", "score": 0.92})
+```
 
-- Invalid JSON strings return a runtime error.
-- `json.stringify` fails on unsupported values.
-- Missing `import std::json` is a check-time import error:
-  `ImportError: json.parse requires import std::json`.
+`json.stringify(value)` remains available as a compatibility alias for older
+code, but new code should use `json.enkai(value)`.
 
+## Parsing
+
+```enkai
+let parsed := json.parse("[1, 2, 3]")
+```
+
+Invalid JSON produces a deterministic runtime error.
+
+## Import Rule
+
+Using JSON without importing the module is an error:
+
+```enkai
+let text := json.enkai("hello")
+```
+
+```text
+ImportError: `json.enkai` requires `import std::json`
+```
+
+## Supported Values
+
+JSON encoding supports primitives, arrays, JSON values, and records/objects that
+map cleanly to JSON objects. Unsupported values fail with a clear error instead
+of silently producing invalid JSON.

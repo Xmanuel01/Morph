@@ -194,6 +194,7 @@ pub enum Stmt {
         type_ann: Option<TypeRef>,
         expr: Expr,
         mutable: bool,
+        constant: bool,
     },
     Assign {
         target: LValue,

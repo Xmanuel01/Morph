@@ -1,6 +1,6 @@
-# 35. Data + Algorithm Stack (v2.3.0)
+# 35. Data + Algorithm Stack
 
-Enkai ships additive std modules for data analysis and algorithm development.
+Enkai ships additive `std::analysis` and `std::algo` modules for data analysis and algorithm development. Import modules explicitly before use.
 
 ## std::analysis
 

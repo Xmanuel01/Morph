@@ -1,0 +1,44 @@
+import std::tensor
+import std::json
+// std::checkpoint (v1.0 locked package API)
+
+pub fn save(dir: String, params, opt_state, meta) ::
+    return tensor.save_sharded_multi(dir, params, opt_state, meta)
+::
+
+pub fn load(dir: String) ::
+    return tensor.load_sharded_multi(dir)
+::
+
+pub fn manifest(format_version: Int, model_shards: Int, optimizer_shards: Int, rng_state, data_cursor, hashes) ::
+    let out := json.parse("{\"format_version\":0,\"model_shards\":0,\"optimizer_shards\":0,\"rng_state\":null,\"data_cursor\":null,\"hashes\":null}")
+    out.format_version := format_version
+    out.model_shards := model_shards
+    out.optimizer_shards := optimizer_shards
+    out.rng_state := rng_state
+    out.data_cursor := data_cursor
+    out.hashes := hashes
+    return out
+::
+
+pub fn shards(model_shards: Int, optimizer_shards: Int) ::
+    let out := json.parse("{\"model\":0,\"optimizer\":0}")
+    out.model := model_shards
+    out.optimizer := optimizer_shards
+    return out
+::
+
+pub fn rng_state(seed: Int, step: Int) ::
+    let out := json.parse("{\"seed\":0,\"step\":0}")
+    out.seed := seed
+    out.step := step
+    return out
+::
+
+pub fn data_cursor(cursor_state) ::
+    return cursor_state
+::
+
+pub fn hashes(value) ::
+    return value
+::

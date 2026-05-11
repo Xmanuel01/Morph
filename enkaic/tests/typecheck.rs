@@ -15,9 +15,7 @@ fn type_err(src: &str) -> String {
 
 fn compile_err(src: &str) -> String {
     let m = parse_module(src).expect("parse");
-    enkaic::compiler::compile_module(&m)
-        .unwrap_err()
-        .message
+    enkaic::compiler::compile_module(&m).unwrap_err().message
 }
 
 #[test]
@@ -49,9 +47,46 @@ fn mut_binding_allows_reassignment() {
 }
 
 #[test]
+fn const_binding_accepts_compile_time_expression() {
+    assert!(type_ok(
+        "const BASE := 40\n\
+         const ANSWER: Int := BASE + 2\n\
+         let value := ANSWER\n"
+    ));
+    assert!(type_ok("const FLAGS: Array[Bool] := [true, false]\n"));
+}
+
+#[test]
+fn const_binding_rejects_runtime_expression() {
+    let msg = type_err(
+        "fn answer() -> Int ::\n    return 42\n::fn\n\
+         const VALUE := answer()\n",
+    );
+    assert!(msg.contains("const binding `VALUE` requires a compile-time constant expression"));
+}
+
+#[test]
+fn const_binding_cannot_depend_on_let_binding() {
+    let msg = type_err("let base := 40\nconst VALUE := base + 2\n");
+    assert!(msg.contains("const binding `VALUE` requires a compile-time constant expression"));
+}
+
+#[test]
+fn const_binding_is_immutable() {
+    let msg = type_err("const LIMIT := 6\nLIMIT := 7\n");
+    assert!(msg.contains("cannot assign to immutable variable `LIMIT`"));
+}
+
+#[test]
 fn compiler_rejects_immutable_reassignment_without_typecheck() {
     let msg = compile_err("let count := 6\ncount := 7\n");
     assert!(msg.contains("cannot assign to immutable variable `count`"));
+}
+
+#[test]
+fn compiler_rejects_runtime_const_initializer_without_typecheck() {
+    let msg = compile_err("fn answer() -> Int ::\n    return 42\n::fn\nconst VALUE := answer()\n");
+    assert!(msg.contains("const binding `VALUE` requires a compile-time constant expression"));
 }
 
 #[test]
@@ -70,8 +105,65 @@ fn std_json_import_enables_json_namespace() {
 }
 
 #[test]
+fn policy_static_check_allows_io_write() {
+    assert!(type_ok(
+        "import std::io\n\
+         policy default ::\n    allow io.write\n::policy\n\
+         let _ := io.stdout_write_text(\"hello\")\n"
+    ));
+}
+
+#[test]
+fn policy_static_check_rejects_missing_allow() {
+    let msg = type_err(
+        "import std::io\n\
+         policy default ::\n    allow fs.read\n::policy\n\
+         let _ := io.stdout_write_text(\"hello\")\n",
+    );
+    assert!(msg.contains("PolicyError: io.write is not allowed by policy `default`"));
+}
+
+#[test]
+fn policy_static_check_rejects_explicit_deny() {
+    let msg = type_err(
+        "import std::io\n\
+         policy default ::\n    allow io\n    deny io.write\n::policy\n\
+         let _ := io.stdout_write_text(\"hello\")\n",
+    );
+    assert!(msg.contains("PolicyError: io.write is denied by policy `default`"));
+}
+
+#[test]
+fn policy_static_check_rejects_missing_default_policy() {
+    let msg = type_err("import std::io\nlet _ := io.stdout_write_text(\"hello\")\n");
+    assert!(msg.contains("requires `policy default`"));
+}
+
+#[test]
+fn policy_static_check_validates_filtered_paths() {
+    assert!(type_ok(
+        "import std::io\n\
+         policy default ::\n    allow fs.read path_prefix=\"/safe/\"\n::policy\n\
+         let data := io.read_text(\"/safe/input.txt\")\n"
+    ));
+    let msg = type_err(
+        "import std::io\n\
+         policy default ::\n    allow fs.read path_prefix=\"/safe/\"\n::policy\n\
+         let data := io.read_text(\"/tmp/input.txt\")\n",
+    );
+    assert!(msg.contains("PolicyError: fs.read is not allowed by policy `default`"));
+}
+
+#[test]
+fn policy_static_check_rejects_unknown_filter() {
+    let msg = type_err("policy default ::\n    allow fs.read owner=\"me\"\n::policy\n");
+    assert!(msg.contains("unsupported policy filter `owner`"));
+}
+
+#[test]
 fn function_params_are_immutable_by_default() {
-    let msg = type_err("fn bump(count: Int) -> Int ::\n    count := count + 1\n    return count\n::\n");
+    let msg =
+        type_err("fn bump(count: Int) -> Int ::\n    count := count + 1\n    return count\n::\n");
     assert!(msg.contains("cannot assign to immutable variable `count`"));
 }
 
@@ -290,6 +382,69 @@ fn vector_sparse_vector_and_tensor_annotations_typecheck() {
          let scores: Vector[Float] := [0.75, 0.68, 0.62]\n\
          let weights: SparseVector[Float] := sparse.vector()\n\
          let matrix: Tensor[Float, 2] := 0\n"
+    ));
+}
+
+#[test]
+fn array_vector_and_tensor_stdlib_exports_typecheck() {
+    assert!(type_ok(
+        "import std::array\n\
+         import std::vector\n\
+         import std::tensor\n\
+         let kind: String := array.element_type([1, 2])\n\
+         let homogeneous: Bool := array.is_homogeneous([1.0, 2.0])\n\
+         let v: Vector[Float] := vector.from_array([1.0, 2.0])\n\
+         let dot: Float := vector.dot(v, v)\n\
+         let t: Tensor := tensor.from_array([1.0, 2.0, 3.0, 4.0], [2, 2])\n\
+         let shape: Array[Int] := tensor.shape(t)\n\
+         let first: Float := tensor.get_flat(t, 0)\n\
+         let transposed: Tensor := tensor.transpose(t, 0, 1)\n\
+         let sliced: Tensor := tensor.slice(t, 0, 0, 1, 1)\n\
+         let joined: Tensor := tensor.concat([t, t], 0)\n\
+         let reduced: Tensor := tensor.sum(t, 1, false)\n\
+         let averaged: Tensor := tensor.mean(t, 1, true)\n\
+         let probs: Tensor := tensor.softmax(t, 1)\n\
+         let activated: Tensor := tensor.gelu(t)\n\
+         let shifted: Tensor := tensor.sub(t, t)\n\
+         let divided: Tensor := tensor.div(t, t)\n\
+         let scaled: Tensor := tensor.scale(t, 0.5)\n\
+         let broadcasted: Tensor := tensor.broadcast_to(tensor.from_array([1.0, 2.0], [1, 2]), [2, 2])\n\
+         let logged: Tensor := tensor.log(t)\n\
+         let normalized: Tensor := tensor.layernorm(t, tensor.from_array([1.0, 1.0], [2]), tensor.from_array([0.0, 0.0], [2]), 0.00001)\n\
+         let projected: Tensor := tensor.linear(t, t, tensor.from_array([0.0, 0.0], [2]))\n\
+         let loss: Tensor := tensor.cross_entropy(t, tensor.from_array([0.0, 1.0], [2]))\n\
+         let chosen: Tensor := tensor.where(t, t, t)\n\
+         let clipped: Tensor := tensor.clip(t, 0.0, 1.0)\n\
+         let arg: Tensor := tensor.argmax(t, 1, false)\n\
+         let sorted: Tensor := tensor.sort(t, 1, true)\n\
+         let top: Tensor := tensor.topk(t, 1, 1)\n\
+         let gathered: Tensor := tensor.gather(t, 1, tensor.from_array([0.0, 1.0, 1.0, 0.0], [2, 2]))\n\
+         let scattered: Tensor := tensor.scatter(t, 1, tensor.from_array([0.0, 1.0, 1.0, 0.0], [2, 2]), t)\n\
+         let masked: Tensor := tensor.masked_fill(t, t, -1.0)\n\
+         let eins: Tensor := tensor.einsum(\"ij,jk->ik\", t, t)\n\
+         let image: Tensor := tensor.from_array([1.0, 2.0, 3.0, 4.0], [1, 1, 2, 2])\n\
+         let kernel: Tensor := tensor.from_array([1.0], [1, 1, 1, 1])\n\
+         let conv: Tensor := tensor.conv2d(image, kernel, tensor.from_array([0.0], [1]), 1, 0)\n\
+         let pool: Tensor := tensor.max_pool2d(image, 2, 1)\n\
+         let bn: Tensor := tensor.batchnorm1d(t, tensor.from_array([1.0, 1.0], [2]), tensor.from_array([0.0, 0.0], [2]), 0.00001, true)\n\
+         let attn: Tensor := tensor.attention(tensor.from_array([1.0, 0.0, 0.0, 1.0], [1, 2, 2]), tensor.from_array([1.0, 0.0, 0.0, 1.0], [1, 2, 2]), tensor.from_array([1.0, 2.0, 3.0, 4.0], [1, 2, 2]))\n\
+         let tracked: Tensor := tensor.requires_grad(t)\n\
+         let detached: Tensor := tensor.detach(tracked)\n\
+         let grad: Tensor := tensor.grad(tracked)\n\
+         let previous: Bool := tensor.no_grad(true)\n\
+         let grad_ok: Bool := tensor.grad_check(grad, grad, 0.00001)\n"
+    ));
+}
+
+#[test]
+fn tensor_handle_compatibility_applies_to_return_types() {
+    assert!(type_ok(
+        "fn device_handle() -> Device ::\n\
+             return 0\n\
+         ::\n\
+         fn tensor_handle() -> Tensor ::\n\
+             return 0\n\
+         ::\n"
     ));
 }
 

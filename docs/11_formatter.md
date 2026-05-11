@@ -1,32 +1,45 @@
-# Formatter (Enkai fmt)
+# Formatter
 
-Enkai includes a deterministic formatter.
+`enkai fmt` applies the official source style.
 
 ## Usage
 
-```
-Enkai fmt path/to/file.enk
-Enkai fmt ./project
+```powershell
+enkai fmt path\to\file.enk
+enkai fmt .\project
 ```
 
 Check-only mode:
 
-```
-Enkai fmt --check path/to/file.enk
+```powershell
+enkai fmt --check path\to\file.enk
 ```
 
-## What it formats
+## What It Formats
 
 - indentation inside `::` blocks
-- spacing around operators
-- consistent import and `let` layout
+- spacing around common operators
+- consistent import and binding layout
+- recognized anonymous closers upgraded to tagged closers where the style prefers it
 
-## Common error
+Example output style:
 
+```enkai
+fn example() ::
+    while condition ::
+        if ready ::
+            line("done")
+        ::if
+    ::while
+::fn
 ```
-Enkai fmt --check src/main.enk
+
+## CI Usage
+
+Use check-only mode in scripts and CI:
+
+```powershell
+enkai fmt --check src\main.enk
 ```
 
-If the file is unformatted, the command exits with a non-zero code.
-
-
+If a file is unformatted, the command exits with a non-zero status.

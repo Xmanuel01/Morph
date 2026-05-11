@@ -33,9 +33,30 @@ fn saves_and_loads_tokenizer() {
     let out = dir.path().join("tok.json");
     tok.save(&out).expect("save");
     let loaded = Tokenizer::load(&out).expect("load");
+    assert_eq!(loaded.fingerprint(), tok.fingerprint());
     let ids = loaded.encode("alpha beta", false);
     let text = loaded.decode(&ids);
     assert_eq!(text, "alpha beta");
+}
+
+#[test]
+fn tokenizer_rejects_tampered_fingerprint() {
+    let dir = tempdir().expect("tempdir");
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "alpha beta beta").expect("write");
+    let cfg = TrainConfig {
+        vocab_size: 8,
+        ..TrainConfig::default()
+    };
+    let tok = Tokenizer::train_from_path(&file, &cfg).expect("train");
+    let out = dir.path().join("tok.json");
+    tok.save(&out).expect("save");
+    let mut value: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&out).expect("read")).expect("json");
+    value["vocab_sha1"] = serde_json::Value::String("bad".to_string());
+    fs::write(&out, serde_json::to_string_pretty(&value).unwrap()).expect("tamper");
+    let err = Tokenizer::load(&out).expect_err("tampered tokenizer should fail");
+    assert!(err.contains("Tokenizer fingerprint mismatch"));
 }
 
 #[test]

@@ -1,15 +1,23 @@
 {
   "name": "enkai-language",
   "displayName": "Enkai Language Support",
-  "description": "Syntax highlighting and snippets for the Enkai language.",
-  "version": "0.1.0",
+  "description": "Syntax highlighting, snippets, indentation, and folding for the Enkai programming language.",
+  "version": "0.2.0",
   "publisher": "xmanuel01",
   "license": "Apache-2.0",
+  "icon": "images/icon.png",
   "engines": {
     "vscode": "^1.82.0"
   },
   "categories": [
     "Programming Languages"
+  ],
+  "keywords": [
+    "enkai",
+    "ai",
+    "language",
+    "syntax",
+    "highlighting"
   ],
   "repository": {
     "type": "git",
@@ -29,6 +37,7 @@
         ],
         "extensions": [
           ".enk",
+          ".enkai",
           ".en"
         ],
         "configuration": "./language-configuration.json"

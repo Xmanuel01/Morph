@@ -27,6 +27,10 @@ pub fn dropout(x: Tensor, p: Float, train: Bool) -> Tensor ::
     return tensor.dropout(x, p, train)
 ::
 
+pub fn cross_entropy(logits: Tensor, targets: Tensor) -> Tensor ::
+    return tensor.cross_entropy(logits, targets)
+::
+
 pub fn embedding_params(vocab: Int, dim: Int, dtype: DType, device: Device) ::
     let w := tensor.randn([vocab, dim], dtype, device)
     w := tensor.require_grad(w)

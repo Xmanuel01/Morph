@@ -593,10 +593,17 @@ impl Parser {
     fn parse_stmt(&mut self) -> Result<Stmt, ParseError> {
         if self.matches(TokenKind::Let) {
             let mutable = self.matches(TokenKind::Mut);
-            return self.parse_let_stmt(mutable);
+            return self.parse_let_stmt(mutable, false);
         }
         if self.matches(TokenKind::Mut) {
-            return self.parse_let_stmt(true);
+            return self.parse_let_stmt(true, false);
+        }
+        if self.matches(TokenKind::Const) {
+            if self.matches(TokenKind::Mut) {
+                let token = self.previous();
+                return Err(self.error("Const bindings cannot be mutable", &token));
+            }
+            return self.parse_let_stmt(false, true);
         }
         if self.matches(TokenKind::If) {
             return self.parse_if_stmt();
@@ -627,7 +634,7 @@ impl Parser {
         self.parse_assign_or_expr_stmt()
     }
 
-    fn parse_let_stmt(&mut self, mutable: bool) -> Result<Stmt, ParseError> {
+    fn parse_let_stmt(&mut self, mutable: bool, constant: bool) -> Result<Stmt, ParseError> {
         let (name, name_span) = self.expect_ident_with_span()?;
         let type_ann = if self.matches(TokenKind::Colon) {
             Some(self.parse_type_ref()?)
@@ -647,6 +654,7 @@ impl Parser {
             type_ann,
             expr,
             mutable,
+            constant,
         })
     }
 
@@ -1352,6 +1360,10 @@ impl Parser {
                 "agent".to_string(),
                 Span::with_length(token.line, token.col, 5),
             )),
+            TokenKind::Model => Ok((
+                "model".to_string(),
+                Span::with_length(token.line, token.col, 5),
+            )),
             _ => Err(self.error("Expected identifier", &token)),
         }
     }
@@ -1553,6 +1565,7 @@ impl Parser {
             TokenKind::Ident(name) => Ok(name),
             TokenKind::Agent => Ok("agent".to_string()),
             TokenKind::Memory => Ok("memory".to_string()),
+            TokenKind::Model => Ok("model".to_string()),
             _ => Err(self.error("Expected identifier", &token)),
         }
     }
@@ -1571,6 +1584,10 @@ impl Parser {
             TokenKind::Memory => Ok((
                 "memory".to_string(),
                 Span::with_length(token.line, token.col, 6),
+            )),
+            TokenKind::Model => Ok((
+                "model".to_string(),
+                Span::with_length(token.line, token.col, 5),
             )),
             _ => Err(self.error("Expected identifier", &token)),
         }
