@@ -207,6 +207,61 @@ def write_log(path: pathlib.Path, lines: list[str]) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def resolve_artifacts_dir() -> pathlib.Path:
+    artifacts_dir = pathlib.Path(os.environ.get("ENKAI_GPU_ARTIFACT_DIR", "artifacts/gpu"))
+    if not artifacts_dir.is_absolute():
+        artifacts_dir = (ROOT / artifacts_dir).resolve()
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    return artifacts_dir
+
+
+def write_blocked_gpu_evidence(
+    *,
+    gate: str,
+    evidence_name: str,
+    log_name: str,
+    reason: str,
+    world_size: int,
+    required_gpu_count: int,
+) -> pathlib.Path:
+    artifacts_dir = resolve_artifacts_dir()
+    detected_gpu_count = gpu_count() if shutil.which("nvidia-smi") else 0
+    report = {
+        "schema_version": 1,
+        "gate": gate,
+        "timestamp_utc": now_iso(),
+        "status": "BLOCKED",
+        "world_size": world_size,
+        "required_gpu_count": required_gpu_count,
+        "detected_gpu_count": detected_gpu_count,
+        "reason": reason,
+        "env": {
+            "ENKAI_ENABLE_DIST": os.environ.get("ENKAI_ENABLE_DIST"),
+            "ENKAI_RUN_MULTI_GPU_TESTS": os.environ.get("ENKAI_RUN_MULTI_GPU_TESTS"),
+            "ENKAI_SINGLE_GPU_GREEN": os.environ.get("ENKAI_SINGLE_GPU_GREEN"),
+        },
+        "production_claims": {
+            "distributed_gpu_execution_proven": False,
+            "claim_without_hardware_evidence": False,
+        },
+    }
+    evidence_path = artifacts_dir / evidence_name
+    write_json(evidence_path, report)
+    write_log(
+        artifacts_dir / log_name,
+        [
+            f"timestamp_utc: {report['timestamp_utc']}",
+            "status: BLOCKED",
+            f"reason: {reason}",
+            f"required_gpu_count: {required_gpu_count}",
+            f"detected_gpu_count: {detected_gpu_count}",
+            f"evidence_json: {evidence_path}",
+            "BLOCKED: executable GPU evidence is required before production claims",
+        ],
+    )
+    return evidence_path
+
+
 def migrate_base_config(enkai: pathlib.Path, base_config: pathlib.Path, out_json: pathlib.Path) -> dict[str, Any]:
     ensure_parent(out_json)
     cmd = [str(enkai), "migrate", "config-v1", str(base_config), str(out_json)]
@@ -294,21 +349,61 @@ def find_last_grad(entry: dict[str, Any]) -> float:
 
 def run_multi() -> int:
     if not env_flag("ENKAI_RUN_MULTI_GPU_TESTS"):
-        print("SKIPPED: ENKAI_RUN_MULTI_GPU_TESTS not set to 1")
-        return 0
+        path = write_blocked_gpu_evidence(
+            gate="multi_gpu_parity",
+            evidence_name="multi_gpu_evidence.json",
+            log_name="multi_gpu.log",
+            reason="ENKAI_RUN_MULTI_GPU_TESTS not set to 1",
+            world_size=2,
+            required_gpu_count=2,
+        )
+        print(f"BLOCKED: ENKAI_RUN_MULTI_GPU_TESTS not set to 1 (evidence={path})")
+        return 1
     if not env_flag("ENKAI_SINGLE_GPU_GREEN"):
-        print("SKIPPED: single-GPU gate not marked green (set ENKAI_SINGLE_GPU_GREEN=1 after soak pass)")
-        return 0
+        path = write_blocked_gpu_evidence(
+            gate="multi_gpu_parity",
+            evidence_name="multi_gpu_evidence.json",
+            log_name="multi_gpu.log",
+            reason="single-GPU gate not marked green (set ENKAI_SINGLE_GPU_GREEN=1 after soak pass)",
+            world_size=2,
+            required_gpu_count=2,
+        )
+        print(f"BLOCKED: single-GPU gate not marked green (evidence={path})")
+        return 1
     if not env_flag("ENKAI_ENABLE_DIST"):
-        print("SKIPPED: ENKAI_ENABLE_DIST not set to 1")
-        return 0
+        path = write_blocked_gpu_evidence(
+            gate="multi_gpu_parity",
+            evidence_name="multi_gpu_evidence.json",
+            log_name="multi_gpu.log",
+            reason="ENKAI_ENABLE_DIST not set to 1",
+            world_size=2,
+            required_gpu_count=2,
+        )
+        print(f"BLOCKED: ENKAI_ENABLE_DIST not set to 1 (evidence={path})")
+        return 1
     if shutil.which("nvidia-smi") is None:
-        print("SKIPPED: nvidia-smi not available")
-        return 0
+        path = write_blocked_gpu_evidence(
+            gate="multi_gpu_parity",
+            evidence_name="multi_gpu_evidence.json",
+            log_name="multi_gpu.log",
+            reason="nvidia-smi not available",
+            world_size=2,
+            required_gpu_count=2,
+        )
+        print(f"BLOCKED: nvidia-smi not available (evidence={path})")
+        return 1
     count = gpu_count()
     if count < 2:
-        print("SKIPPED: fewer than 2 GPUs detected")
-        return 0
+        path = write_blocked_gpu_evidence(
+            gate="multi_gpu_parity",
+            evidence_name="multi_gpu_evidence.json",
+            log_name="multi_gpu.log",
+            reason=f"fewer than 2 GPUs detected ({count})",
+            world_size=2,
+            required_gpu_count=2,
+        )
+        print(f"BLOCKED: fewer than 2 GPUs detected ({count}) (evidence={path})")
+        return 1
 
     enkai = resolve_enkai()
     tensor = resolve_tensor_lib()
@@ -316,6 +411,14 @@ def run_multi() -> int:
     if not base_config.is_absolute():
         base_config = (ROOT / base_config).resolve()
     if not base_config.is_file():
+        write_blocked_gpu_evidence(
+            gate="multi_gpu_parity",
+            evidence_name="multi_gpu_evidence.json",
+            log_name="multi_gpu.log",
+            reason=f"base config not found: {base_config}",
+            world_size=2,
+            required_gpu_count=2,
+        )
         print(f"FAIL: base config not found: {base_config}")
         return 1
 
@@ -517,26 +620,63 @@ def run_multi() -> int:
 
 def run_soak4() -> int:
     if not env_flag("ENKAI_RUN_MULTI_GPU_TESTS"):
-        print("SKIPPED: ENKAI_RUN_MULTI_GPU_TESTS not set to 1")
-        return 0
+        path = write_blocked_gpu_evidence(
+            gate="soak_4gpu",
+            evidence_name="soak_4gpu_evidence.json",
+            log_name="soak_4gpu.log",
+            reason="ENKAI_RUN_MULTI_GPU_TESTS not set to 1",
+            world_size=4,
+            required_gpu_count=4,
+        )
+        print(f"BLOCKED: ENKAI_RUN_MULTI_GPU_TESTS not set to 1 (evidence={path})")
+        return 1
     if not env_flag("ENKAI_SINGLE_GPU_GREEN"):
-        print("SKIPPED: single-GPU gate not marked green (set ENKAI_SINGLE_GPU_GREEN=1 after soak pass)")
-        return 0
+        path = write_blocked_gpu_evidence(
+            gate="soak_4gpu",
+            evidence_name="soak_4gpu_evidence.json",
+            log_name="soak_4gpu.log",
+            reason="single-GPU gate not marked green (set ENKAI_SINGLE_GPU_GREEN=1 after soak pass)",
+            world_size=4,
+            required_gpu_count=4,
+        )
+        print(f"BLOCKED: single-GPU gate not marked green (evidence={path})")
+        return 1
     if not env_flag("ENKAI_ENABLE_DIST"):
-        print("SKIPPED: ENKAI_ENABLE_DIST not set to 1")
-        return 0
+        path = write_blocked_gpu_evidence(
+            gate="soak_4gpu",
+            evidence_name="soak_4gpu_evidence.json",
+            log_name="soak_4gpu.log",
+            reason="ENKAI_ENABLE_DIST not set to 1",
+            world_size=4,
+            required_gpu_count=4,
+        )
+        print(f"BLOCKED: ENKAI_ENABLE_DIST not set to 1 (evidence={path})")
+        return 1
     if shutil.which("nvidia-smi") is None:
-        print("SKIPPED: nvidia-smi not available")
-        return 0
+        path = write_blocked_gpu_evidence(
+            gate="soak_4gpu",
+            evidence_name="soak_4gpu_evidence.json",
+            log_name="soak_4gpu.log",
+            reason="nvidia-smi not available",
+            world_size=4,
+            required_gpu_count=4,
+        )
+        print(f"BLOCKED: nvidia-smi not available (evidence={path})")
+        return 1
     count = gpu_count()
     if count < 4:
-        print("SKIPPED: fewer than 4 GPUs detected")
-        return 0
+        path = write_blocked_gpu_evidence(
+            gate="soak_4gpu",
+            evidence_name="soak_4gpu_evidence.json",
+            log_name="soak_4gpu.log",
+            reason=f"fewer than 4 GPUs detected ({count})",
+            world_size=4,
+            required_gpu_count=4,
+        )
+        print(f"BLOCKED: fewer than 4 GPUs detected ({count}) (evidence={path})")
+        return 1
 
-    artifacts_dir = pathlib.Path(os.environ.get("ENKAI_GPU_ARTIFACT_DIR", "artifacts/gpu"))
-    if not artifacts_dir.is_absolute():
-        artifacts_dir = (ROOT / artifacts_dir).resolve()
-    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    artifacts_dir = resolve_artifacts_dir()
 
     min_hours = float(os.environ.get("ENKAI_4GPU_MIN_HOURS", "3"))
     timeout_sec = int(os.environ.get("ENKAI_4GPU_TIMEOUT_SEC", str(max(3600, int(min_hours * 7200)))))

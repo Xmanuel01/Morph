@@ -52,7 +52,24 @@ def artifact_status(path: Path) -> dict[str, Any]:
         payload = read_json(path)
     except Exception as exc:
         return {"exists": True, "passed": False, "error": repr(exc)}
-    return {"exists": True, "passed": payload.get("status") == "PASS", "payload": payload}
+    status = payload.get("status")
+    return {
+        "exists": True,
+        "passed": status == "PASS",
+        "status": status,
+        "reason": payload.get("reason") or payload.get("failure_reason"),
+        "payload": payload,
+    }
+
+
+def failed_artifact_message(label: str, result: dict[str, Any]) -> str:
+    if result.get("error"):
+        return str(result["error"])
+    status = result.get("status") or "not PASS"
+    reason = result.get("reason")
+    if reason:
+        return f"{label} evidence {status}: {reason}"
+    return f"{label} evidence did not pass"
 
 
 def main() -> int:
@@ -87,7 +104,7 @@ def main() -> int:
 
     failures: list[str] = []
     if not multi.get("passed"):
-        failures.append(multi.get("error") or "2-rank distributed GPU evidence did not pass")
+        failures.append(failed_artifact_message("2-rank distributed GPU", multi))
     multi_payload = multi.get("payload", {}) if isinstance(multi.get("payload"), dict) else {}
     if multi_payload:
         if int(multi_payload.get("world_size", 0)) != int(contract["two_rank_requirements"]["world_size"]):
@@ -106,7 +123,7 @@ def main() -> int:
 
     if args.run_soak4 or os.environ.get("ENKAI_REQUIRE_4GPU_SOAK") == "1":
         if not soak.get("passed"):
-            failures.append(soak.get("error") or "4-GPU soak evidence did not pass")
+            failures.append(failed_artifact_message("4-GPU soak", soak))
         soak_payload = soak.get("payload", {}) if isinstance(soak.get("payload"), dict) else {}
         if soak_payload and float(soak_payload.get("runtime_hours", 0.0)) < float(contract["four_rank_soak_requirements"]["minimum_hours_default"]):
             failures.append("4-GPU soak runtime below contract minimum")
