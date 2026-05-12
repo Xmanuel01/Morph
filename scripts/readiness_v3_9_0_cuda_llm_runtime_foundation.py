@@ -282,14 +282,21 @@ if tmp_dir.exists():
 if final_dir.exists():
     shutil.rmtree(final_dir)
 tmp_dir.mkdir(parents=True, exist_ok=True)
-checkpoint = tmp_dir / "pytorch_reference.pt"
+model_path = tmp_dir / "params.pt"
+optim_path = tmp_dir / "optim_rank0.pt"
+meta_path = tmp_dir / "meta.json"
+cursor_path = tmp_dir / "data_cursor.json"
 integrity = tmp_dir / "integrity.json"
 ckpt_started = time.perf_counter()
-torch.save({"format_version": 1, "model": model.state_dict(), "optimizer": opt.state_dict(), "rng_state": torch.get_rng_state(), "cuda_rng_state": torch.cuda.get_rng_state_all(), "model_cfg": model_cfg}, checkpoint)
-with open(checkpoint, "rb") as f:
-    os.fsync(f.fileno())
-digest = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
-integrity.write_text(json.dumps({"version": 1, "checkpoint_sha256": digest}), encoding="utf-8")
+torch.save(model.state_dict(), model_path)
+torch.save(opt.state_dict(), optim_path)
+meta_path.write_text(json.dumps({"format_version": 1, "rng_state": torch.get_rng_state().tolist(), "cuda_rng_state_count": len(torch.cuda.get_rng_state_all()), "model_cfg": model_cfg}), encoding="utf-8")
+cursor_path.write_text(json.dumps({"dataset": "synthetic_bounded_transformer", "batch": 0, "seq": int(seq), "replay_seed": 1337}), encoding="utf-8")
+for path in [model_path, optim_path, meta_path, cursor_path]:
+    with open(path, "rb") as f:
+        os.fsync(f.fileno())
+hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in [model_path, optim_path, meta_path, cursor_path]}
+integrity.write_text(json.dumps({"version": 1, "files": hashes}, sort_keys=True), encoding="utf-8")
 with open(integrity, "rb") as f:
     os.fsync(f.fileno())
 dir_fd = os.open(tmp_dir, os.O_RDONLY)
@@ -304,11 +311,20 @@ try:
 finally:
     os.close(dir_fd)
 ckpt_write_elapsed = max(time.perf_counter() - ckpt_started, 1e-9)
-checkpoint = final_dir / "pytorch_reference.pt"
-ckpt_bytes = checkpoint.stat().st_size
-resume_started = time.perf_counter(); loaded = torch.load(checkpoint, map_location=device)
+ckpt_files = [p for p in final_dir.iterdir() if p.is_file()]
+ckpt_bytes = sum(p.stat().st_size for p in ckpt_files)
+resume_started = time.perf_counter()
+loaded_model = torch.load(final_dir / "params.pt", map_location=device)
+loaded_optim = torch.load(final_dir / "optim_rank0.pt", map_location=device)
+loaded_meta = json.loads((final_dir / "meta.json").read_text(encoding="utf-8"))
+loaded_integrity = json.loads((final_dir / "integrity.json").read_text(encoding="utf-8"))
+for name, expected_hash in loaded_integrity.get("files", {}).items():
+    actual_hash = hashlib.sha256((final_dir / name).read_bytes()).hexdigest()
+    if actual_hash != expected_hash:
+        raise RuntimeError(f"checkpoint hash mismatch: {name}")
 resume_elapsed_ms = max(1, int((time.perf_counter() - resume_started) * 1000))
-result.update({"passed": True, "device": torch.cuda.get_device_name(0), "metrics": {"train_tokens_per_sec": (batch*seq*train_steps)/train_elapsed, "eval_tokens_per_sec": (batch*seq*eval_steps)/eval_elapsed, "peak_memory_bytes": int(torch.cuda.max_memory_allocated(device)), "checkpoint_write_bytes_per_sec": ckpt_bytes/ckpt_write_elapsed, "checkpoint_resume_ms": resume_elapsed_ms, "loss_initial": losses[0], "loss_final": losses[-1], "eval_checksum": checksum, "checkpoint_bytes": ckpt_bytes, "checkpoint_sha256": digest, "loaded_format_version": loaded.get("format_version")}})
+digest = hashlib.sha256(json.dumps(hashes, sort_keys=True).encode("utf-8")).hexdigest()
+result.update({"passed": True, "device": torch.cuda.get_device_name(0), "metrics": {"train_tokens_per_sec": (batch*seq*train_steps)/train_elapsed, "eval_tokens_per_sec": (batch*seq*eval_steps)/eval_elapsed, "peak_memory_bytes": int(torch.cuda.max_memory_allocated(device)), "checkpoint_write_bytes_per_sec": ckpt_bytes/ckpt_write_elapsed, "checkpoint_resume_ms": resume_elapsed_ms, "loss_initial": losses[0], "loss_final": losses[-1], "eval_checksum": checksum, "checkpoint_bytes": ckpt_bytes, "checkpoint_sha256": digest, "loaded_format_version": loaded_meta.get("format_version"), "loaded_model_tensors": len(loaded_model), "loaded_optimizer_entries": len(loaded_optim)}})
 print(json.dumps(result))
 '''
     return run_python_json(py_cmd, code, cwd, timeout=600)
@@ -334,7 +350,7 @@ def run_enkai_cuda_reference(root: Path, py_info: dict[str, Any], torch_info: di
     if executable:
         conda_lib = str(Path(executable).resolve().parents[1] / "lib")
         env["LD_LIBRARY_PATH"] = f"{conda_lib}{os.pathsep}{env.get('LD_LIBRARY_PATH', '')}"
-    command = ["cargo", "test", "-p", "enkai_tensor", "--features", "torch", "--test", "cuda_llm_foundation", "--", "--nocapture"]
+    command = ["cargo", "test", "--release", "-p", "enkai_tensor", "--features", "torch", "--test", "cuda_llm_foundation", "--", "--nocapture"]
     result = run_command(command, root, env=env, timeout=900)
     metrics = parse_enkai_metrics(result.get("stdout_tail", ""))
     return {

@@ -31,9 +31,9 @@ if [ "$SKIP_PREFLIGHT" != "1" ]; then
   $PYTHON "${PREFLIGHT_ARGS[@]}"
 fi
 
-cargo build -p enkai_tensor --features "$FEATURES"
-cargo test -p enkai_tensor --features "$FEATURES" --test cuda_kernel_manifest
-cargo test -p enkai_tensor --features "$FEATURES" --test cuda_llm_foundation -- --nocapture
+cargo build --release -p enkai_tensor --features "$FEATURES"
+cargo test --release -p enkai_tensor --features "$FEATURES" --test cuda_kernel_manifest
+cargo test --release -p enkai_tensor --features "$FEATURES" --test cuda_llm_foundation -- --nocapture
 cargo build -p enkai
 $PYTHON scripts/readiness_v3_9_0_cuda_llm_runtime_foundation.py --workspace . --python "$PYTHON"
 $PYTHON scripts/verify_v3_9_0_cuda_llm_runtime_foundation.py --workspace .
