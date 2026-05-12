@@ -272,6 +272,18 @@ class TinyDecoder(nn.Module):
             x = block(x, causal_mask)
         return self.head(self.ln(x))
 model = TinyDecoder().to(device)
+with torch.no_grad():
+    for module in model.modules():
+        if isinstance(module, nn.Linear):
+            nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            if module.bias is not None:
+                nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            nn.init.normal_(module.weight, mean=0.0, std=0.02)
+        elif isinstance(module, nn.LayerNorm):
+            nn.init.ones_(module.weight)
+            nn.init.zeros_(module.bias)
+    nn.init.normal_(model.pos, mean=0.0, std=0.02)
 opt = torch.optim.AdamW(model.parameters(), lr=1e-3)
 data = torch.randint(0, vocab, (batch, seq), device=device)
 target = torch.roll(data, shifts=-1, dims=1)

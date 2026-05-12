@@ -126,6 +126,40 @@ struct GradScalerState {
     refcount: u32,
 }
 
+#[cfg(feature = "torch")]
+#[derive(Debug)]
+struct LmSession {
+    params: Vec<i64>,
+    spec: LmArchSpec,
+    input: Tensor,
+    targets: Tensor,
+    batch_size: i64,
+    seq_len: i64,
+    opt: i64,
+}
+
+#[cfg(feature = "torch")]
+impl LmSession {
+    fn shallow_clone(&self) -> Self {
+        Self {
+            params: self.params.clone(),
+            spec: self.spec.clone(),
+            input: self.input.shallow_clone(),
+            targets: self.targets.shallow_clone(),
+            batch_size: self.batch_size,
+            seq_len: self.seq_len,
+            opt: self.opt,
+        }
+    }
+}
+
+#[cfg(feature = "torch")]
+#[derive(Debug)]
+struct LmSessionEntry {
+    state: LmSession,
+    refcount: u32,
+}
+
 thread_local! {
     static LAST_ERROR: RefCell<Option<CString>> = const { RefCell::new(None) };
 }
@@ -1166,6 +1200,11 @@ static SCALERS: Lazy<Mutex<HashMap<i64, GradScalerState>>> =
 #[cfg(feature = "torch")]
 static SCALER_FREED: Lazy<Mutex<HashSet<i64>>> = Lazy::new(|| Mutex::new(HashSet::new()));
 #[cfg(feature = "torch")]
+static LM_SESSIONS: Lazy<Mutex<HashMap<i64, LmSessionEntry>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+#[cfg(feature = "torch")]
+static LM_SESSION_FREED: Lazy<Mutex<HashSet<i64>>> = Lazy::new(|| Mutex::new(HashSet::new()));
+#[cfg(feature = "torch")]
 static DIST_RANK: AtomicI64 = AtomicI64::new(0);
 #[cfg(feature = "torch")]
 static DIST_WORLD: AtomicI64 = AtomicI64::new(1);
@@ -1284,6 +1323,27 @@ fn register_scaler(state: GradScalerState) -> i64 {
 }
 
 #[cfg(feature = "torch")]
+fn register_lm_session(state: LmSession) -> i64 {
+    if !require_tch_backend() {
+        return 0;
+    }
+    match LM_SESSIONS.lock() {
+        Ok(mut guard) => {
+            let id = next_handle();
+            if let Ok(mut freed) = LM_SESSION_FREED.lock() {
+                freed.remove(&id);
+            }
+            guard.insert(id, LmSessionEntry { state, refcount: 1 });
+            id
+        }
+        Err(_) => {
+            set_error("lm session registry poisoned");
+            0
+        }
+    }
+}
+
+#[cfg(feature = "torch")]
 fn get_tensor(handle: i64) -> Result<Tensor, String> {
     if !require_tch_backend() {
         return Err("backend not supported".to_string());
@@ -1303,6 +1363,32 @@ fn get_tensor(handle: i64) -> Result<Tensor, String> {
 }
 
 #[cfg(feature = "torch")]
+fn get_tensors(handles: &[i64]) -> Result<Vec<Tensor>, String> {
+    if !require_tch_backend() {
+        return Err("backend not supported".to_string());
+    }
+    if let Ok(freed) = TENSOR_FREED.lock() {
+        for handle in handles {
+            if freed.contains(handle) {
+                return Err(format!("Stale tensor handle (freed): {}", handle));
+            }
+        }
+    }
+    let guard = TENSORS
+        .lock()
+        .map_err(|_| "tensor registry poisoned".to_string())?;
+    handles
+        .iter()
+        .map(|handle| {
+            guard
+                .get(handle)
+                .map(|entry| entry.tensor.shallow_clone())
+                .ok_or_else(|| format!("Invalid tensor handle: {}", handle))
+        })
+        .collect()
+}
+
+#[cfg(feature = "torch")]
 fn get_device(handle: i64) -> Result<Device, String> {
     if !require_tch_backend() {
         return Err("backend not supported".to_string());
@@ -1319,6 +1405,24 @@ fn get_device(handle: i64) -> Result<Device, String> {
         .get(&handle)
         .map(|entry| entry.device)
         .ok_or_else(|| "Invalid device handle".to_string())
+}
+
+#[cfg(feature = "torch")]
+fn get_lm_session(handle: i64) -> Result<LmSession, String> {
+    if !require_tch_backend() {
+        return Err("backend not supported".to_string());
+    }
+    if let Ok(freed) = LM_SESSION_FREED.lock() {
+        if freed.contains(&handle) {
+            return Err("Stale lm session handle (freed)".to_string());
+        }
+    }
+    LM_SESSIONS
+        .lock()
+        .map_err(|_| "lm session registry poisoned".to_string())?
+        .get(&handle)
+        .map(|entry| entry.state.shallow_clone())
+        .ok_or_else(|| "Invalid lm session handle".to_string())
 }
 
 #[cfg(feature = "torch")]
@@ -3634,7 +3738,7 @@ unsafe fn forward_lm_internal(
     let targets = Tensor::f_from_slice(&target_i64)
         .map_err(|err| err.to_string())?
         .view([batch_size, seq_len]);
-    forward_lm_tensors_internal(&handles, spec, input, targets, batch_size, seq_len, training)
+    forward_lm_tensors_internal(handles, spec, input, targets, batch_size, seq_len, training)
 }
 
 #[cfg(feature = "torch")]
@@ -3647,8 +3751,12 @@ unsafe fn forward_lm_tensors_internal(
     seq_len: i64,
     training: bool,
 ) -> Result<i64, String> {
-    let tok_embed = ensure_requires_grad(get_tensor(handles[0])?);
-    let pos_embed = ensure_requires_grad(get_tensor(handles[1])?);
+    if handles.len() < 6 {
+        return Err("lm_forward: params list too short".to_string());
+    }
+    let params = get_tensors(handles)?;
+    let tok_embed = ensure_requires_grad(params[0].shallow_clone());
+    let pos_embed = ensure_requires_grad(params[1].shallow_clone());
     let d_model = tok_embed.size()[1];
     if d_model != spec.d_model {
         return Err("lm_forward: d_model mismatch with model spec".to_string());
@@ -3666,10 +3774,10 @@ unsafe fn forward_lm_tensors_internal(
     if n_layers as i64 != spec.n_layers {
         return Err("lm_forward: layer count mismatch with model spec".to_string());
     }
-    let ln_f_w = ensure_requires_grad(get_tensor(handles[handles.len() - 4])?);
-    let ln_f_b = ensure_requires_grad(get_tensor(handles[handles.len() - 3])?);
-    let head_w = ensure_requires_grad(get_tensor(handles[handles.len() - 2])?);
-    let head_b = ensure_requires_grad(get_tensor(handles[handles.len() - 1])?);
+    let ln_f_w = ensure_requires_grad(params[handles.len() - 4].shallow_clone());
+    let ln_f_b = ensure_requires_grad(params[handles.len() - 3].shallow_clone());
+    let head_w = ensure_requires_grad(params[handles.len() - 2].shallow_clone());
+    let head_b = ensure_requires_grad(params[handles.len() - 1].shallow_clone());
 
     let device = tok_embed.device();
     let input = input.to_device(device).view([batch_size, seq_len]);
@@ -3692,18 +3800,18 @@ unsafe fn forward_lm_tensors_internal(
 
     for layer_idx in 0..n_layers {
         let base = 2 + layer_idx * per_layer;
-        let ln1_w = ensure_requires_grad(get_tensor(handles[base])?);
-        let ln1_b = ensure_requires_grad(get_tensor(handles[base + 1])?);
-        let qkv_w = ensure_requires_grad(get_tensor(handles[base + 2])?);
-        let qkv_b = ensure_requires_grad(get_tensor(handles[base + 3])?);
-        let proj_w = ensure_requires_grad(get_tensor(handles[base + 4])?);
-        let proj_b = ensure_requires_grad(get_tensor(handles[base + 5])?);
-        let ln2_w = ensure_requires_grad(get_tensor(handles[base + 6])?);
-        let ln2_b = ensure_requires_grad(get_tensor(handles[base + 7])?);
-        let mlp_w1 = ensure_requires_grad(get_tensor(handles[base + 8])?);
-        let mlp_b1 = ensure_requires_grad(get_tensor(handles[base + 9])?);
-        let mlp_w2 = ensure_requires_grad(get_tensor(handles[base + 10])?);
-        let mlp_b2 = ensure_requires_grad(get_tensor(handles[base + 11])?);
+        let ln1_w = ensure_requires_grad(params[base].shallow_clone());
+        let ln1_b = ensure_requires_grad(params[base + 1].shallow_clone());
+        let qkv_w = ensure_requires_grad(params[base + 2].shallow_clone());
+        let qkv_b = ensure_requires_grad(params[base + 3].shallow_clone());
+        let proj_w = ensure_requires_grad(params[base + 4].shallow_clone());
+        let proj_b = ensure_requires_grad(params[base + 5].shallow_clone());
+        let ln2_w = ensure_requires_grad(params[base + 6].shallow_clone());
+        let ln2_b = ensure_requires_grad(params[base + 7].shallow_clone());
+        let mlp_w1 = ensure_requires_grad(params[base + 8].shallow_clone());
+        let mlp_b1 = ensure_requires_grad(params[base + 9].shallow_clone());
+        let mlp_w2 = ensure_requires_grad(params[base + 10].shallow_clone());
+        let mlp_b2 = ensure_requires_grad(params[base + 11].shallow_clone());
 
         let x_norm = apply_norm(&x, &norm_kind, &ln1_w, &ln1_b, d_model);
         let qkv = x_norm.matmul(&qkv_w) + qkv_b;
@@ -3756,7 +3864,6 @@ unsafe fn forward_lm_tensors_internal(
         return Err("lm_forward: loss is NaN/Inf".to_string());
     }
     Ok(register_tensor(loss))
-
 }
 
 /// Initialize a tiny transformer language model and return parameter handles as JSON.
@@ -4253,6 +4360,252 @@ pub unsafe extern "C" fn enkai_tensor_lm_train_step_handles(
             let _ = opt;
             set_error("torch backend not enabled");
             0
+        }
+    })
+}
+
+#[no_mangle]
+/// # Safety
+/// `params_json` and `spec_json` must be valid C strings. The input/target handles
+/// must remain valid until the session is freed.
+pub unsafe extern "C" fn enkai_tensor_lm_session_create(
+    params_json: *const c_char,
+    spec_json: *const c_char,
+    input_handle: i64,
+    target_handle: i64,
+    batch_size: i64,
+    seq_len: i64,
+    opt: i64,
+) -> i64 {
+    ffi_guard(0, || {
+        clear_error();
+        #[cfg(feature = "torch")]
+        {
+            let params_json = match cstr_to_string(params_json) {
+                Ok(v) => v,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            let spec_json = match cstr_to_string(spec_json) {
+                Ok(v) => v,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            let params = match parse_handle_list(&params_json) {
+                Ok(list) if !list.is_empty() => list,
+                Ok(_) => {
+                    set_error("lm session: params list is empty");
+                    return 0;
+                }
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            let spec = match LmArchSpec::from_json(&spec_json) {
+                Ok(v) => v,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            if batch_size <= 0 || seq_len <= 0 || seq_len != spec.seq_len {
+                set_error("lm session: invalid batch or sequence dimensions");
+                return 0;
+            }
+            if get_opt_hyper(opt).is_err() {
+                set_error("lm session: invalid optimizer handle");
+                return 0;
+            }
+            let input = match get_tensor(input_handle) {
+                Ok(t) => t,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            let targets = match get_tensor(target_handle) {
+                Ok(t) => t,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            let expected_shape = [batch_size, seq_len];
+            if input.size().as_slice() != expected_shape
+                || targets.size().as_slice() != expected_shape
+            {
+                set_error("lm session: input/target tensor shape mismatch");
+                return 0;
+            }
+            register_lm_session(LmSession {
+                params,
+                spec,
+                input,
+                targets,
+                batch_size,
+                seq_len,
+                opt,
+            })
+        }
+        #[cfg(not(feature = "torch"))]
+        {
+            let _ = params_json;
+            let _ = spec_json;
+            let _ = input_handle;
+            let _ = target_handle;
+            let _ = batch_size;
+            let _ = seq_len;
+            let _ = opt;
+            set_error("torch backend not enabled");
+            0
+        }
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn enkai_tensor_lm_session_train_step(session: i64) -> i64 {
+    ffi_guard(0, || {
+        clear_error();
+        #[cfg(feature = "torch")]
+        {
+            let session = match get_lm_session(session) {
+                Ok(v) => v,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            let hyper = match get_opt_hyper(session.opt) {
+                Ok(h) => h,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            let loss = match forward_lm_tensors_internal(
+                &session.params,
+                &session.spec,
+                session.input,
+                session.targets,
+                session.batch_size,
+                session.seq_len,
+                true,
+            ) {
+                Ok(handle) => handle,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            if enkai_tensor_backward(loss) != 0 {
+                return 0;
+            }
+            if let Err(err) = adamw_step_params(session.opt, &session.params, hyper) {
+                set_error(err);
+                return 0;
+            }
+            if let Err(err) = zero_grad_params(&session.params) {
+                set_error(err);
+                return 0;
+            }
+            loss
+        }
+        #[cfg(not(feature = "torch"))]
+        {
+            let _ = session;
+            set_error("torch backend not enabled");
+            0
+        }
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn enkai_tensor_lm_session_eval(session: i64) -> i64 {
+    ffi_guard(0, || {
+        clear_error();
+        #[cfg(feature = "torch")]
+        {
+            let session = match get_lm_session(session) {
+                Ok(v) => v,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            match forward_lm_tensors_internal(
+                &session.params,
+                &session.spec,
+                session.input,
+                session.targets,
+                session.batch_size,
+                session.seq_len,
+                false,
+            ) {
+                Ok(handle) => handle,
+                Err(err) => {
+                    set_error(err);
+                    0
+                }
+            }
+        }
+        #[cfg(not(feature = "torch"))]
+        {
+            let _ = session;
+            set_error("torch backend not enabled");
+            0
+        }
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn enkai_tensor_lm_session_free(session: i64) -> c_int {
+    ffi_guard(1, || {
+        clear_error();
+        #[cfg(feature = "torch")]
+        {
+            if let Ok(freed) = LM_SESSION_FREED.lock() {
+                if freed.contains(&session) {
+                    set_error("lm session handle already freed");
+                    return 1;
+                }
+            }
+            match LM_SESSIONS.lock() {
+                Ok(mut guard) => match guard.get_mut(&session) {
+                    Some(entry) => {
+                        if entry.refcount == 0 {
+                            set_error("lm session handle already freed");
+                            return 1;
+                        }
+                        entry.refcount -= 1;
+                        if entry.refcount == 0 {
+                            guard.remove(&session);
+                            if let Ok(mut freed) = LM_SESSION_FREED.lock() {
+                                freed.insert(session);
+                            }
+                        }
+                        0
+                    }
+                    None => {
+                        set_error("Invalid lm session handle");
+                        1
+                    }
+                },
+                Err(_) => {
+                    set_error("lm session registry poisoned");
+                    1
+                }
+            }
+        }
+        #[cfg(not(feature = "torch"))]
+        {
+            let _ = session;
+            set_error("torch backend not enabled");
+            1
         }
     })
 }
