@@ -861,6 +861,88 @@ mod runtime {
         }
     }
 
+    pub struct CudaF32Buffer {
+        buffer: DeviceBuffer<f32>,
+    }
+
+    impl CudaF32Buffer {
+        pub fn from_host(values: &[f32]) -> Result<Self, String> {
+            Ok(Self {
+                buffer: DeviceBuffer::from_host(values)?,
+            })
+        }
+
+        pub fn zeros(len: usize) -> Result<Self, String> {
+            Ok(Self {
+                buffer: DeviceBuffer::uninit(len)?,
+            })
+        }
+
+        pub fn len(&self) -> usize {
+            self.buffer.len
+        }
+
+        pub fn to_host(&self) -> Result<Vec<f32>, String> {
+            self.buffer.to_host()
+        }
+
+        pub fn as_ptr(&self) -> *const f32 {
+            self.buffer.ptr
+        }
+
+        pub fn as_mut_ptr(&mut self) -> *mut f32 {
+            self.buffer.ptr
+        }
+    }
+
+    pub fn matmul_bias_f32_device(
+        a: &CudaF32Buffer,
+        b: &CudaF32Buffer,
+        bias: Option<&CudaF32Buffer>,
+        out: &mut CudaF32Buffer,
+        m: usize,
+        n: usize,
+        k: usize,
+    ) -> Result<(), String> {
+        if a.len() != m * k || b.len() != k * n || out.len() != m * n {
+            return Err("E_CUDA_SHAPE: resident matmul input shape mismatch".to_string());
+        }
+        if let Some(bias) = bias {
+            if bias.len() != n {
+                return Err("E_CUDA_SHAPE: resident matmul bias length mismatch".to_string());
+            }
+        }
+        let bias_ptr = bias.map(|buf| buf.as_ptr()).unwrap_or(ptr::null());
+        unsafe {
+            let cublas_status = enkai_cuda_matmul_bias_cublas_f32(
+                a.as_ptr(),
+                b.as_ptr(),
+                bias_ptr,
+                out.as_mut_ptr(),
+                m as i64,
+                n as i64,
+                k as i64,
+                ptr::null_mut(),
+            );
+            if cublas_status != 0 {
+                check(
+                    enkai_cuda_matmul_bias_f32(
+                        a.as_ptr(),
+                        b.as_ptr(),
+                        bias_ptr,
+                        out.as_mut_ptr(),
+                        m as i64,
+                        n as i64,
+                        k as i64,
+                        ptr::null_mut(),
+                    ),
+                    "enkai_cuda_matmul_bias_f32 resident fallback",
+                )?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn vec_add_f32_host(a: &[f32], b: &[f32]) -> Result<Vec<f32>, String> {
         if a.len() != b.len() {
             return Err("E_CUDA_SHAPE: vec_add input length mismatch".to_string());
@@ -1039,6 +1121,9 @@ mod runtime {
 }
 
 #[cfg(feature = "cuda-kernels")]
+pub use runtime::CudaF32Buffer;
+
+#[cfg(feature = "cuda-kernels")]
 pub fn cuda_device_count() -> Result<i32, String> {
     runtime::device_count()
 }
@@ -1136,6 +1221,19 @@ pub fn cuda_adamw_update_f32_host(
     step: i64,
 ) -> Result<(Vec<f32>, Vec<f32>, Vec<f32>), String> {
     runtime::adamw_update_f32_host(param, grad, m, v, lr, beta1, beta2, eps, wd, step)
+}
+
+#[cfg(feature = "cuda-kernels")]
+pub fn cuda_matmul_bias_f32_device(
+    a: &CudaF32Buffer,
+    b: &CudaF32Buffer,
+    bias: Option<&CudaF32Buffer>,
+    out: &mut CudaF32Buffer,
+    m: usize,
+    n: usize,
+    k: usize,
+) -> Result<(), String> {
+    runtime::matmul_bias_f32_device(a, b, bias, out, m, n, k)
 }
 
 #[cfg(not(feature = "cuda-kernels"))]

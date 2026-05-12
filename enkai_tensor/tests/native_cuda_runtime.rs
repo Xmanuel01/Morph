@@ -130,3 +130,46 @@ fn native_cuda_cublas_large_matmul_gate() {
         })
     );
 }
+
+#[cfg(feature = "cuda-kernels")]
+#[test]
+fn native_cuda_resident_cublas_matmul_gate() {
+    use enkai_tensor::cuda_kernels::{cuda_matmul_bias_f32_device, CudaF32Buffer};
+
+    if !CudaNativeBackend::available() {
+        return;
+    }
+    let n = 512usize;
+    let iters = 20usize;
+    let a = (0..n * n)
+        .map(|i| ((i % 17) as f32 - 8.0) * 0.01)
+        .collect::<Vec<_>>();
+    let b = (0..n * n)
+        .map(|i| ((i % 19) as f32 - 9.0) * 0.01)
+        .collect::<Vec<_>>();
+    let da = CudaF32Buffer::from_host(&a).unwrap();
+    let db = CudaF32Buffer::from_host(&b).unwrap();
+    let mut out = CudaF32Buffer::zeros(n * n).unwrap();
+    cuda_matmul_bias_f32_device(&da, &db, None, &mut out, n, n, n).unwrap();
+    let started = std::time::Instant::now();
+    for _ in 0..iters {
+        cuda_matmul_bias_f32_device(&da, &db, None, &mut out, n, n, n).unwrap();
+    }
+    let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
+    let host = out.to_host().unwrap();
+    let checksum = host.iter().copied().sum::<f32>();
+    println!(
+        "ENKAI_NATIVE_CUDA_RESIDENT_MATMUL={}",
+        serde_json::json!({
+            "backend": "enkai_native_cuda",
+            "kernel": "enkai_cuda_matmul_bias_cublas_f32",
+            "mode": "device_resident",
+            "shape": [n, n],
+            "iterations": iters,
+            "elapsed_ms": elapsed_ms,
+            "per_iter_ms": elapsed_ms / iters as f64,
+            "checksum": checksum,
+            "pytorch_core_execution_dependency": false
+        })
+    );
+}

@@ -30,6 +30,8 @@ def main() -> int:
         for op in ["vec_add", "matmul", "softmax", "cross_entropy"]:
             if op not in evidence.get("ops", []):
                 failures.append(f"missing CUDA op proof: {op}")
+        if not evidence.get("resident_matmul"):
+            failures.append("missing resident CUDA matmul proof")
         if not report.get("pytorch_reference_only", {}).get("available"):
             failures.append("PyTorch CUDA reference comparison missing")
     payload = {

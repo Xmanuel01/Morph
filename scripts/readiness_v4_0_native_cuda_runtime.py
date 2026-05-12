@@ -36,6 +36,10 @@ def parse_evidence(stdout: str) -> dict[str, Any]:
             if evidence.get("missing"):
                 evidence = {}
             evidence["large_matmul"] = json.loads(line.split("=", 1)[1])
+        if line.startswith("ENKAI_NATIVE_CUDA_RESIDENT_MATMUL="):
+            if evidence.get("missing"):
+                evidence = {}
+            evidence["resident_matmul"] = json.loads(line.split("=", 1)[1])
     return evidence
 
 
@@ -116,6 +120,8 @@ def main() -> int:
                 failures.append("native CUDA cuBLAS matmul proof missing")
             if not evidence.get("large_matmul"):
                 failures.append("native CUDA large matmul benchmark missing")
+            if not evidence.get("resident_matmul"):
+                failures.append("native CUDA resident matmul benchmark missing")
     elif args.require_cuda:
         failures.append("nvcc is required but was not found")
 
@@ -128,6 +134,12 @@ def main() -> int:
         if torch_large.get("elapsed_ms", 0) > 0 and native_large.get("elapsed_ms", 0) > 0:
             native_large["pytorch_eager_ms"] = torch_large["elapsed_ms"]
             native_large["speedup_vs_pytorch_eager"] = torch_large["elapsed_ms"] / native_large["elapsed_ms"]
+    if evidence.get("resident_matmul") and torch_ref.get("available"):
+        torch_large = torch_ref.get("matmul_512x512", {})
+        resident = evidence["resident_matmul"]
+        if torch_large.get("elapsed_ms", 0) > 0 and resident.get("elapsed_ms", 0) > 0:
+            resident["pytorch_eager_ms"] = torch_large["elapsed_ms"]
+            resident["speedup_vs_pytorch_eager"] = torch_large["elapsed_ms"] / resident["elapsed_ms"]
 
     payload = {
         "schema_version": 1,
