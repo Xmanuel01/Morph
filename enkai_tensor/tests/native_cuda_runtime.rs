@@ -75,7 +75,7 @@ fn native_cuda_backend_matches_cpu_for_core_training_ops() {
         serde_json::json!({
             "skipped": false,
             "backend": cuda.name(),
-            "ops": ["vec_add", "matmul", "softmax", "cross_entropy"],
+            "ops": ["vec_add", "matmul", "matmul_cublas", "softmax", "cross_entropy"],
             "cpu_ms": cpu_ms,
             "cuda_ms": cuda_ms,
             "cuda_memory": {
@@ -83,6 +83,49 @@ fn native_cuda_backend_matches_cpu_for_core_training_ops() {
                 "allocated_bytes": cuda.memory_stats().allocated_bytes,
                 "freed_bytes": cuda.memory_stats().freed_bytes
             },
+            "pytorch_core_execution_dependency": false
+        })
+    );
+}
+
+#[cfg(feature = "cuda-kernels")]
+#[test]
+fn native_cuda_cublas_large_matmul_gate() {
+    if !CudaNativeBackend::available() {
+        return;
+    }
+    let n = 512usize;
+    let iters = 5usize;
+    let a = NativeTensor::from_vec(
+        &[n, n],
+        (0..n * n).map(|i| ((i % 17) as f32 - 8.0) * 0.01).collect(),
+    )
+    .unwrap();
+    let b = NativeTensor::from_vec(
+        &[n, n],
+        (0..n * n).map(|i| ((i % 19) as f32 - 9.0) * 0.01).collect(),
+    )
+    .unwrap();
+    let mut cuda = CudaNativeBackend::new();
+    let warmup = cuda.matmul(&a, &b).unwrap();
+    cuda.release(warmup);
+    let started = std::time::Instant::now();
+    let mut checksum = 0.0f32;
+    for _ in 0..iters {
+        let out = cuda.matmul(&a, &b).unwrap();
+        checksum += out.data.iter().copied().sum::<f32>();
+        cuda.release(out);
+    }
+    let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
+    println!(
+        "ENKAI_NATIVE_CUDA_LARGE_MATMUL={}",
+        serde_json::json!({
+            "backend": cuda.name(),
+            "kernel": "enkai_cuda_matmul_bias_cublas_f32",
+            "shape": [n, n],
+            "iterations": iters,
+            "elapsed_ms": elapsed_ms,
+            "checksum": checksum,
             "pytorch_core_execution_dependency": false
         })
     );

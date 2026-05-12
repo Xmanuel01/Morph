@@ -1,9 +1,18 @@
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
+#include <cublas_v2.h>
 #include <math_constants.h>
 #include <stdint.h>
 
 extern "C" {
+
+static cublasHandle_t enkai_cublas_handle = nullptr;
+
+int enkai_cuda_cublas_ready() {
+    if (enkai_cublas_handle) return 0;
+    cublasStatus_t status = cublasCreate(&enkai_cublas_handle);
+    return status == CUBLAS_STATUS_SUCCESS ? 0 : (int)status;
+}
 
 
 __device__ float enkai_bf16_to_float(uint16_t x) {
@@ -340,6 +349,12 @@ __global__ void enkai_matmul_bias_f32_kernel(const float* a, const float* b, con
     out[row * n + col] = acc;
 }
 
+__global__ void enkai_add_bias_inplace_f32_kernel(float* out, const float* bias, int64_t rows, int64_t cols) {
+    int64_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    int64_t total = rows * cols;
+    if (i < total) out[i] += bias[i % cols];
+}
+
 __global__ void enkai_layernorm_f32_kernel(const float* x, const float* gamma, const float* beta, float* out, int64_t rows, int64_t cols, float eps) {
     int64_t row = blockIdx.x;
     if (row >= rows) return;
@@ -549,6 +564,42 @@ int enkai_cuda_matmul_bias_f32(const float* a, const float* b, const float* bias
     dim3 threads(16, 16);
     dim3 blocks((unsigned int)((n + 15) / 16), (unsigned int)((m + 15) / 16));
     enkai_matmul_bias_f32_kernel<<<blocks, threads, 0, stream>>>(a, b, bias, out, m, n, k);
+    return (int)cudaGetLastError();
+}
+
+int enkai_cuda_matmul_bias_cublas_f32(const float* a, const float* b, const float* bias, float* out, int64_t m, int64_t n, int64_t k, cudaStream_t stream) {
+    if (!a || !b || !out || m <= 0 || n <= 0 || k <= 0) return 1;
+    int ready = enkai_cuda_cublas_ready();
+    if (ready != 0) return ready;
+    cublasStatus_t s = cublasSetStream(enkai_cublas_handle, stream);
+    if (s != CUBLAS_STATUS_SUCCESS) return (int)s;
+    const float alpha = 1.0f;
+    const float beta = 0.0f;
+    // Row-major A[M,K] * B[K,N] is equivalent to column-major B^T[N,K] * A^T[K,M] -> C^T[N,M].
+    s = cublasSgemm(
+        enkai_cublas_handle,
+        CUBLAS_OP_N,
+        CUBLAS_OP_N,
+        (int)n,
+        (int)m,
+        (int)k,
+        &alpha,
+        b,
+        (int)n,
+        a,
+        (int)k,
+        &beta,
+        out,
+        (int)n
+    );
+    if (s != CUBLAS_STATUS_SUCCESS) return (int)s;
+    if (bias) {
+        int threads = 256;
+        int64_t total = m * n;
+        int64_t blocks = (total + threads - 1) / threads;
+        enkai_add_bias_inplace_f32_kernel<<<(unsigned int)blocks, threads, 0, stream>>>(out, bias, m, n);
+        return (int)cudaGetLastError();
+    }
     return (int)cudaGetLastError();
 }
 

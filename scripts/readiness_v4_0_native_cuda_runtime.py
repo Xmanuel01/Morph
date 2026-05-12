@@ -25,10 +25,15 @@ def run(command: list[str], cwd: Path, timeout: int = 900) -> dict[str, Any]:
 
 
 def parse_evidence(stdout: str) -> dict[str, Any]:
+    evidence = {"missing": True}
     for line in stdout.splitlines():
         if line.startswith("ENKAI_NATIVE_CUDA_EVIDENCE="):
-            return json.loads(line.split("=", 1)[1])
-    return {"missing": True}
+            evidence = json.loads(line.split("=", 1)[1])
+        if line.startswith("ENKAI_NATIVE_CUDA_LARGE_MATMUL="):
+            if evidence.get("missing"):
+                evidence = {}
+            evidence["large_matmul"] = json.loads(line.split("=", 1)[1])
+    return evidence
 
 
 def torch_cuda_reference() -> dict[str, Any]:
@@ -38,19 +43,25 @@ def torch_cuda_reference() -> dict[str, Any]:
         return {"available": False, "reason": f"torch import failed: {exc}"}
     if not torch.cuda.is_available():
         return {"available": False, "reason": "torch CUDA unavailable", "version": getattr(torch, "__version__", "unknown")}
-    n = 32
-    a = torch.arange(n * n, dtype=torch.float32, device="cuda").reshape(n, n).remainder(17).sub(8).mul(0.01)
-    b = torch.arange(n * n, dtype=torch.float32, device="cuda").reshape(n, n).remainder(19).sub(9).mul(0.01)
-    torch.cuda.synchronize()
-    started = time.perf_counter()
-    out = a @ b
-    torch.cuda.synchronize()
+    def matmul_case(n: int, iters: int) -> dict[str, Any]:
+        a = torch.arange(n * n, dtype=torch.float32, device="cuda").reshape(n, n).remainder(17).sub(8).mul(0.01)
+        b = torch.arange(n * n, dtype=torch.float32, device="cuda").reshape(n, n).remainder(19).sub(9).mul(0.01)
+        for _ in range(3):
+            _ = a @ b
+        torch.cuda.synchronize()
+        started = time.perf_counter()
+        checksum = 0.0
+        for _ in range(iters):
+            out = a @ b
+            checksum += float(out.sum().detach().cpu())
+        torch.cuda.synchronize()
+        return {"shape": [n, n], "iterations": iters, "elapsed_ms": (time.perf_counter() - started) * 1000.0, "checksum": checksum}
     return {
         "available": True,
         "version": getattr(torch, "__version__", "unknown"),
         "device": torch.cuda.get_device_name(0),
-        "matmul_32x32_ms": (time.perf_counter() - started) * 1000.0,
-        "checksum": float(out.sum().detach().cpu()),
+        "matmul_32x32": matmul_case(32, 10),
+        "matmul_512x512": matmul_case(512, 5),
     }
 
 
@@ -98,12 +109,22 @@ def main() -> int:
                 failures.append("native CUDA runtime has a PyTorch core execution dependency")
             if evidence.get("cuda_memory", {}).get("peak_bytes", 0) <= 0:
                 failures.append("native CUDA memory evidence missing")
+            if "matmul_cublas" not in evidence.get("ops", []):
+                failures.append("native CUDA cuBLAS matmul proof missing")
+            if not evidence.get("large_matmul"):
+                failures.append("native CUDA large matmul benchmark missing")
     elif args.require_cuda:
         failures.append("nvcc is required but was not found")
 
     torch_ref = torch_cuda_reference() if (nvcc or args.require_cuda) else {"available": False, "reason": "not requested"}
     if args.require_cuda and not torch_ref.get("available"):
         failures.append("PyTorch CUDA reference is required for comparison but unavailable")
+    if evidence.get("large_matmul") and torch_ref.get("available"):
+        torch_large = torch_ref.get("matmul_512x512", {})
+        native_large = evidence["large_matmul"]
+        if torch_large.get("elapsed_ms", 0) > 0 and native_large.get("elapsed_ms", 0) > 0:
+            native_large["pytorch_eager_ms"] = torch_large["elapsed_ms"]
+            native_large["speedup_vs_pytorch_eager"] = torch_large["elapsed_ms"] / native_large["elapsed_ms"]
 
     payload = {
         "schema_version": 1,

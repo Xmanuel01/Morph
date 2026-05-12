@@ -41,6 +41,7 @@ pub fn kernel_manifest() -> serde_json::Value {
             {"name": "bias_gelu", "symbol": "enkai_cuda_bias_gelu_f16", "dtype": "fp16", "class": "fusion"},
             {"name": "bias_gelu", "symbol": "enkai_cuda_bias_gelu_bf16", "dtype": "bf16", "class": "fusion"},
             {"name": "matmul_bias", "symbol": "enkai_cuda_matmul_bias_f32", "dtype": "fp32", "class": "fusion"},
+            {"name": "matmul_bias", "symbol": "enkai_cuda_matmul_bias_cublas_f32", "dtype": "fp32", "class": "cublas_fusion"},
             {"name": "matmul_bias", "symbol": "enkai_cuda_matmul_bias_f16", "dtype": "fp16", "class": "fusion"},
             {"name": "matmul_bias", "symbol": "enkai_cuda_matmul_bias_bf16", "dtype": "bf16", "class": "fusion"},
             {"name": "layernorm", "symbol": "enkai_cuda_layernorm_f32", "dtype": "fp32", "class": "normalization"},
@@ -587,6 +588,16 @@ extern "C" {
         k: i64,
         stream: *mut std::ffi::c_void,
     ) -> i32;
+    pub fn enkai_cuda_matmul_bias_cublas_f32(
+        a: *const f32,
+        b: *const f32,
+        bias: *const f32,
+        out: *mut f32,
+        m: i64,
+        n: i64,
+        k: i64,
+        stream: *mut std::ffi::c_void,
+    ) -> i32;
     pub fn enkai_cuda_matmul_bias_f16(
         a: *const std::ffi::c_void,
         b: *const std::ffi::c_void,
@@ -907,20 +918,33 @@ mod runtime {
             None => None,
         };
         let out = DeviceBuffer::<f32>::uninit(m * n)?;
+        let bias_ptr = dbias.as_ref().map(|buf| buf.ptr).unwrap_or(ptr::null_mut());
         unsafe {
-            check(
-                enkai_cuda_matmul_bias_f32(
-                    da.ptr,
-                    db.ptr,
-                    dbias.as_ref().map(|buf| buf.ptr).unwrap_or(ptr::null_mut()),
-                    out.ptr,
-                    m as i64,
-                    n as i64,
-                    k as i64,
-                    ptr::null_mut(),
-                ),
-                "enkai_cuda_matmul_bias_f32",
-            )?;
+            let cublas_status = enkai_cuda_matmul_bias_cublas_f32(
+                da.ptr,
+                db.ptr,
+                bias_ptr,
+                out.ptr,
+                m as i64,
+                n as i64,
+                k as i64,
+                ptr::null_mut(),
+            );
+            if cublas_status != 0 {
+                check(
+                    enkai_cuda_matmul_bias_f32(
+                        da.ptr,
+                        db.ptr,
+                        bias_ptr,
+                        out.ptr,
+                        m as i64,
+                        n as i64,
+                        k as i64,
+                        ptr::null_mut(),
+                    ),
+                    "enkai_cuda_matmul_bias_f32 fallback",
+                )?;
+            }
         }
         synchronize()?;
         out.to_host()

@@ -82,6 +82,7 @@ fn build_cuda() {
         }
     }
     println!("cargo:rustc-link-lib=dylib=cudart");
+    println!("cargo:rustc-link-lib=dylib=cublas");
 }
 
 fn build_rocm() {
