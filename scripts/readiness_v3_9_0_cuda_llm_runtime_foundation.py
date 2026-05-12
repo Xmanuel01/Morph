@@ -205,7 +205,7 @@ def torch_lib_dir(py_cmd: list[str], cwd: Path) -> dict[str, Any]:
 
 def run_pytorch_reference(py_cmd: list[str], model_cfg: dict[str, int], work_dir: Path, cwd: Path) -> dict[str, Any]:
     code = r'''
-import hashlib, json, math, time
+import hashlib, json, math, os, shutil, time
 from pathlib import Path
 result = {"available": False, "cuda_available": False, "passed": False, "error": None}
 try:
@@ -274,14 +274,40 @@ with torch.no_grad():
         checksum += float(model(data).sum().detach().cpu())
 torch.cuda.synchronize(device)
 eval_elapsed = max(time.perf_counter() - eval_start, 1e-9)
-checkpoint = work_dir / "pytorch_reference.pt"
+checkpoint_dir = work_dir / "pytorch_reference_checkpoint"
+tmp_dir = checkpoint_dir / ".tmp"
+final_dir = checkpoint_dir / "latest"
+if tmp_dir.exists():
+    shutil.rmtree(tmp_dir)
+if final_dir.exists():
+    shutil.rmtree(final_dir)
+tmp_dir.mkdir(parents=True, exist_ok=True)
+checkpoint = tmp_dir / "pytorch_reference.pt"
+integrity = tmp_dir / "integrity.json"
 ckpt_started = time.perf_counter()
 torch.save({"format_version": 1, "model": model.state_dict(), "optimizer": opt.state_dict(), "rng_state": torch.get_rng_state(), "cuda_rng_state": torch.cuda.get_rng_state_all(), "model_cfg": model_cfg}, checkpoint)
+with open(checkpoint, "rb") as f:
+    os.fsync(f.fileno())
+digest = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+integrity.write_text(json.dumps({"version": 1, "checkpoint_sha256": digest}), encoding="utf-8")
+with open(integrity, "rb") as f:
+    os.fsync(f.fileno())
+dir_fd = os.open(tmp_dir, os.O_RDONLY)
+try:
+    os.fsync(dir_fd)
+finally:
+    os.close(dir_fd)
+os.rename(tmp_dir, final_dir)
+dir_fd = os.open(checkpoint_dir, os.O_RDONLY)
+try:
+    os.fsync(dir_fd)
+finally:
+    os.close(dir_fd)
 ckpt_write_elapsed = max(time.perf_counter() - ckpt_started, 1e-9)
+checkpoint = final_dir / "pytorch_reference.pt"
 ckpt_bytes = checkpoint.stat().st_size
 resume_started = time.perf_counter(); loaded = torch.load(checkpoint, map_location=device)
 resume_elapsed_ms = max(1, int((time.perf_counter() - resume_started) * 1000))
-digest = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
 result.update({"passed": True, "device": torch.cuda.get_device_name(0), "metrics": {"train_tokens_per_sec": (batch*seq*train_steps)/train_elapsed, "eval_tokens_per_sec": (batch*seq*eval_steps)/eval_elapsed, "peak_memory_bytes": int(torch.cuda.max_memory_allocated(device)), "checkpoint_write_bytes_per_sec": ckpt_bytes/ckpt_write_elapsed, "checkpoint_resume_ms": resume_elapsed_ms, "loss_initial": losses[0], "loss_final": losses[-1], "eval_checksum": checksum, "checkpoint_bytes": ckpt_bytes, "checkpoint_sha256": digest, "loaded_format_version": loaded.get("format_version")}})
 print(json.dumps(result))
 '''

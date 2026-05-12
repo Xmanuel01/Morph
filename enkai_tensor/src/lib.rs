@@ -77,7 +77,7 @@ fn fsync_file(path: &str) -> Result<(), String> {
         .read(true)
         .open(path)
         .map_err(|err| format!("fsync open {}: {}", path, err))?;
-    file.sync_all()
+    file.sync_data()
         .map_err(|err| format!("fsync {}: {}", path, err))
 }
 
@@ -1412,6 +1412,60 @@ fn get_opt_hyper(handle: i64) -> Result<AdamWHyper, String> {
         .get(&handle)
         .copied()
         .ok_or_else(|| "Invalid optimizer handle (hyper)".to_string())
+}
+
+#[cfg(feature = "torch")]
+fn adamw_step_params(opt: i64, params: &[i64], hyper: AdamWHyper) -> Result<(), String> {
+    if params.is_empty() {
+        return Err("Params list is empty".to_string());
+    }
+    let mut state_obj = get_opt_mut(opt)?;
+    state_obj.step += 1;
+    let beta1 = hyper.beta1;
+    let beta2 = hyper.beta2;
+    let lr = hyper.lr;
+    let eps = hyper.eps;
+    let weight_decay = hyper.weight_decay;
+    for param_handle in params {
+        let param_tensor = get_tensor(*param_handle)?;
+        let grad_tensor = param_tensor.grad();
+        if !grad_tensor.defined() {
+            return Err(format!("Missing gradient for param {}", param_handle));
+        }
+        let mut slot = match state_obj.slots.remove(param_handle) {
+            Some(existing) => existing,
+            None => {
+                let zeros = Tensor::zeros_like(&param_tensor);
+                AdamWSlot {
+                    m: zeros.shallow_clone(),
+                    v: zeros,
+                }
+            }
+        };
+        slot.m = &slot.m * beta1 + grad_tensor.shallow_clone() * (1.0 - beta1);
+        slot.v = &slot.v * beta2 + grad_tensor.pow_tensor_scalar(2.0) * (1.0 - beta2);
+        let bias1 = 1.0 - beta1.powi(state_obj.step as i32);
+        let bias2 = 1.0 - beta2.powi(state_obj.step as i32);
+        let m_hat = &slot.m / bias1;
+        let v_hat = &slot.v / bias2;
+        let update = &m_hat / (v_hat.sqrt() + eps) + param_tensor.shallow_clone() * weight_decay;
+        update_tensor(*param_handle, trainable_leaf(param_tensor - update * lr));
+        state_obj.slots.insert(*param_handle, slot);
+    }
+    update_opt(opt, state_obj);
+    Ok(())
+}
+
+#[cfg(feature = "torch")]
+fn zero_grad_params(params: &[i64]) -> Result<(), String> {
+    for handle in params {
+        let tensor = get_tensor(*handle)?;
+        let mut grad = tensor.grad();
+        if grad.defined() {
+            let _ = grad.zero_();
+        }
+    }
+    Ok(())
 }
 
 #[cfg(feature = "torch")]
@@ -4001,17 +4055,20 @@ pub unsafe extern "C" fn enkai_tensor_forward_lm(
                     return 0;
                 }
             };
-            match forward_lm_internal(
-                &handles,
-                &spec,
-                input_ptr,
-                input_len,
-                target_ptr,
-                target_len,
-                batch_size,
-                seq_len,
-                training != 0,
-            ) {
+            let result = if training != 0 {
+                forward_lm_internal(
+                    &handles, &spec, input_ptr, input_len, target_ptr, target_len, batch_size,
+                    seq_len, true,
+                )
+            } else {
+                tch::no_grad(|| {
+                    forward_lm_internal(
+                        &handles, &spec, input_ptr, input_len, target_ptr, target_len, batch_size,
+                        seq_len, false,
+                    )
+                })
+            };
+            match result {
                 Ok(loss) => loss,
                 Err(err) => {
                     set_error(err);
@@ -4030,6 +4087,99 @@ pub unsafe extern "C" fn enkai_tensor_forward_lm(
             let _ = batch_size;
             let _ = seq_len;
             let _ = training;
+            set_error("torch backend not enabled");
+            0
+        }
+    })
+}
+
+#[no_mangle]
+/// # Safety
+/// `params_json`, `spec_json`, `input_ptr`, and `target_ptr` must be valid for this call.
+pub unsafe extern "C" fn enkai_tensor_lm_train_step(
+    params_json: *const c_char,
+    spec_json: *const c_char,
+    input_ptr: *const u32,
+    input_len: usize,
+    target_ptr: *const u32,
+    target_len: usize,
+    batch_size: i64,
+    seq_len: i64,
+    opt: i64,
+) -> i64 {
+    ffi_guard(0, || {
+        clear_error();
+        #[cfg(feature = "torch")]
+        {
+            let params_json = match cstr_to_string(params_json) {
+                Ok(v) => v,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            let spec_json = match cstr_to_string(spec_json) {
+                Ok(v) => v,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            let params = match parse_handle_list(&params_json) {
+                Ok(list) => list,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            let spec = match LmArchSpec::from_json(&spec_json) {
+                Ok(v) => v,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            let hyper = match get_opt_hyper(opt) {
+                Ok(h) => h,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            let loss = match forward_lm_internal(
+                &params, &spec, input_ptr, input_len, target_ptr, target_len, batch_size, seq_len,
+                true,
+            ) {
+                Ok(handle) => handle,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            if enkai_tensor_backward(loss) != 0 {
+                return 0;
+            }
+            if let Err(err) = adamw_step_params(opt, &params, hyper) {
+                set_error(err);
+                return 0;
+            }
+            if let Err(err) = zero_grad_params(&params) {
+                set_error(err);
+                return 0;
+            }
+            loss
+        }
+        #[cfg(not(feature = "torch"))]
+        {
+            let _ = params_json;
+            let _ = spec_json;
+            let _ = input_ptr;
+            let _ = input_len;
+            let _ = target_ptr;
+            let _ = target_len;
+            let _ = batch_size;
+            let _ = seq_len;
+            let _ = opt;
             set_error("torch backend not enabled");
             0
         }
@@ -4883,46 +5033,8 @@ pub extern "C" fn enkai_opt_adamw_step(opt: i64) -> c_int {
                     return 1;
                 }
             };
-            let params_json = match serde_json::to_string(&params) {
-                Ok(s) => s,
-                Err(err) => {
-                    set_error(err.to_string());
-                    return 1;
-                }
-            };
-            let grads: Vec<i64> = params.iter().map(|p| enkai_tensor_grad(*p)).collect();
-            let grads_json = match serde_json::to_string(&grads) {
-                Ok(s) => s,
-                Err(err) => {
-                    set_error(err.to_string());
-                    return 1;
-                }
-            };
-            let params_c = match CString::new(params_json) {
-                Ok(s) => s,
-                Err(_) => {
-                    set_error("params JSON contained interior null byte");
-                    return 1;
-                }
-            };
-            let grads_c = match CString::new(grads_json) {
-                Ok(s) => s,
-                Err(_) => {
-                    set_error("grads JSON contained interior null byte");
-                    return 1;
-                }
-            };
-            let handle = enkai_tensor_adamw_step_multi(
-                params_c.as_ptr(),
-                grads_c.as_ptr(),
-                opt,
-                hyper.lr,
-                hyper.beta1,
-                hyper.beta2,
-                hyper.eps,
-                hyper.weight_decay,
-            );
-            if handle == 0 {
+            if let Err(err) = adamw_step_params(opt, &params, hyper) {
+                set_error(err);
                 return 1;
             }
             return 0;

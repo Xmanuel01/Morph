@@ -74,7 +74,6 @@ fn cuda_llm_train_eval_checkpoint_foundation() {
             last_error()
         );
         let params_text = take_json(out_ptr, out_len);
-        let params: Vec<i64> = serde_json::from_str(&params_text).unwrap();
         let params_json = CString::new(params_text).unwrap();
 
         let batch_size = 2i64;
@@ -92,7 +91,7 @@ fn cuda_llm_train_eval_checkpoint_foundation() {
         let mut loss_initial = 0.0;
         let mut loss_final = 0.0;
         for step in 0..steps {
-            let loss = enkai_tensor::enkai_tensor_forward_lm(
+            let loss = enkai_tensor::enkai_tensor_lm_train_step(
                 params_json.as_ptr(),
                 spec.as_ptr(),
                 input_ids.as_ptr(),
@@ -101,27 +100,9 @@ fn cuda_llm_train_eval_checkpoint_foundation() {
                 target_ids.len(),
                 batch_size,
                 seq_len,
-                1,
+                opt,
             );
-            assert!(loss > 0, "forward train: {}", last_error());
-            assert_eq!(
-                enkai_tensor::enkai_tensor_backward(loss),
-                0,
-                "backward: {}",
-                last_error()
-            );
-            assert_eq!(
-                enkai_tensor::enkai_opt_adamw_step(opt),
-                0,
-                "adamw step: {}",
-                last_error()
-            );
-            assert_eq!(
-                enkai_tensor::enkai_tensor_zero_grad_multi(params_json.as_ptr()),
-                0,
-                "zero grad: {}",
-                last_error()
-            );
+            assert!(loss > 0, "train step: {}", last_error());
             let loss_value = enkai_tensor::enkai_tensor_item(loss);
             if step == 0 {
                 loss_initial = loss_value;
