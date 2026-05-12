@@ -261,7 +261,11 @@ train_start = time.perf_counter()
 for _ in range(train_steps):
     opt.zero_grad(set_to_none=True)
     logits = model(data)
+    if not torch.isfinite(logits).all().item():
+        raise RuntimeError("pytorch reference logits contain NaN/Inf")
     loss = F.cross_entropy(logits.reshape(-1, vocab), target.reshape(-1))
+    if not torch.isfinite(loss).all().item():
+        raise RuntimeError("pytorch reference loss is NaN/Inf")
     loss.backward()
     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
     opt.step()
@@ -271,7 +275,10 @@ train_elapsed = max(time.perf_counter() - train_start, 1e-9)
 eval_start = time.perf_counter(); checksum = 0.0
 with torch.no_grad():
     for _ in range(eval_steps):
-        checksum += float(model(data).sum().detach().cpu())
+        eval_logits = model(data)
+        if not torch.isfinite(eval_logits).all().item():
+            raise RuntimeError("pytorch reference eval logits contain NaN/Inf")
+        checksum += float(eval_logits.sum().detach().cpu())
 torch.cuda.synchronize(device)
 eval_elapsed = max(time.perf_counter() - eval_start, 1e-9)
 checkpoint_dir = work_dir / "pytorch_reference_checkpoint"
@@ -286,16 +293,20 @@ model_path = tmp_dir / "params.pt"
 optim_path = tmp_dir / "optim_rank0.pt"
 meta_path = tmp_dir / "meta.json"
 cursor_path = tmp_dir / "data_cursor.json"
+rng_path = tmp_dir / "rng_state.pt"
+cuda_rng_path = tmp_dir / "cuda_rng_state.pt"
 integrity = tmp_dir / "integrity.json"
 ckpt_started = time.perf_counter()
 torch.save(model.state_dict(), model_path)
 torch.save(opt.state_dict(), optim_path)
-meta_path.write_text(json.dumps({"format_version": 1, "rng_state": torch.get_rng_state().tolist(), "cuda_rng_state_count": len(torch.cuda.get_rng_state_all()), "model_cfg": model_cfg}), encoding="utf-8")
+torch.save(torch.get_rng_state(), rng_path)
+torch.save(torch.cuda.get_rng_state_all(), cuda_rng_path)
+meta_path.write_text(json.dumps({"format_version": 1, "rng_state_file": rng_path.name, "cuda_rng_state_file": cuda_rng_path.name, "model_cfg": model_cfg}), encoding="utf-8")
 cursor_path.write_text(json.dumps({"dataset": "synthetic_bounded_transformer", "batch": 0, "seq": int(seq), "replay_seed": 1337}), encoding="utf-8")
-for path in [model_path, optim_path, meta_path, cursor_path]:
+for path in [model_path, optim_path, rng_path, cuda_rng_path, meta_path, cursor_path]:
     with open(path, "rb") as f:
         os.fsync(f.fileno())
-hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in [model_path, optim_path, meta_path, cursor_path]}
+hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in [model_path, optim_path, rng_path, cuda_rng_path, meta_path, cursor_path]}
 integrity.write_text(json.dumps({"version": 1, "files": hashes}, sort_keys=True), encoding="utf-8")
 with open(integrity, "rb") as f:
     os.fsync(f.fileno())
@@ -316,6 +327,8 @@ ckpt_bytes = sum(p.stat().st_size for p in ckpt_files)
 resume_started = time.perf_counter()
 loaded_model = torch.load(final_dir / "params.pt", map_location=device)
 loaded_optim = torch.load(final_dir / "optim_rank0.pt", map_location=device)
+loaded_rng = torch.load(final_dir / "rng_state.pt", map_location="cpu")
+loaded_cuda_rng = torch.load(final_dir / "cuda_rng_state.pt", map_location=device)
 loaded_meta = json.loads((final_dir / "meta.json").read_text(encoding="utf-8"))
 loaded_integrity = json.loads((final_dir / "integrity.json").read_text(encoding="utf-8"))
 for name, expected_hash in loaded_integrity.get("files", {}).items():
@@ -324,7 +337,7 @@ for name, expected_hash in loaded_integrity.get("files", {}).items():
         raise RuntimeError(f"checkpoint hash mismatch: {name}")
 resume_elapsed_ms = max(1, int((time.perf_counter() - resume_started) * 1000))
 digest = hashlib.sha256(json.dumps(hashes, sort_keys=True).encode("utf-8")).hexdigest()
-result.update({"passed": True, "device": torch.cuda.get_device_name(0), "metrics": {"train_tokens_per_sec": (batch*seq*train_steps)/train_elapsed, "eval_tokens_per_sec": (batch*seq*eval_steps)/eval_elapsed, "peak_memory_bytes": int(torch.cuda.max_memory_allocated(device)), "checkpoint_write_bytes_per_sec": ckpt_bytes/ckpt_write_elapsed, "checkpoint_resume_ms": resume_elapsed_ms, "loss_initial": losses[0], "loss_final": losses[-1], "eval_checksum": checksum, "checkpoint_bytes": ckpt_bytes, "checkpoint_sha256": digest, "loaded_format_version": loaded_meta.get("format_version"), "loaded_model_tensors": len(loaded_model), "loaded_optimizer_entries": len(loaded_optim)}})
+result.update({"passed": True, "device": torch.cuda.get_device_name(0), "metrics": {"train_tokens_per_sec": (batch*seq*train_steps)/train_elapsed, "eval_tokens_per_sec": (batch*seq*eval_steps)/eval_elapsed, "peak_memory_bytes": int(torch.cuda.max_memory_allocated(device)), "checkpoint_write_bytes_per_sec": ckpt_bytes/ckpt_write_elapsed, "checkpoint_resume_ms": resume_elapsed_ms, "loss_initial": losses[0], "loss_final": losses[-1], "eval_checksum": checksum, "checkpoint_bytes": ckpt_bytes, "checkpoint_sha256": digest, "loaded_format_version": loaded_meta.get("format_version"), "loaded_model_tensors": len(loaded_model), "loaded_optimizer_entries": len(loaded_optim), "loaded_rng_bytes": int(loaded_rng.numel()), "loaded_cuda_rng_entries": len(loaded_cuda_rng)}})
 print(json.dumps(result))
 '''
     return run_python_json(py_cmd, code, cwd, timeout=600)
