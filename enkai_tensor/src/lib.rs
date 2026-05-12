@@ -1547,16 +1547,6 @@ fn adamw_step_params(opt: i64, params: &[i64], hyper: AdamWHyper) -> Result<(), 
                     }
                 }
             };
-            if try_first_party_cuda_adamw_update(
-                &param_tensor,
-                &grad_tensor,
-                &mut slot,
-                hyper,
-                state_obj.step,
-            )? {
-                state_obj.slots.insert(*param_handle, slot);
-                continue;
-            }
             slot.m = &slot.m * beta1 + grad_tensor.shallow_clone() * (1.0 - beta1);
             slot.v = &slot.v * beta2 + grad_tensor.pow_tensor_scalar(2.0) * (1.0 - beta2);
             let bias1 = 1.0 - beta1.powi(state_obj.step as i32);
@@ -1584,71 +1574,6 @@ fn zero_grad_params(params: &[i64]) -> Result<(), String> {
         }
     }
     Ok(())
-}
-
-#[cfg(all(feature = "torch", feature = "cuda-kernels"))]
-fn try_first_party_cuda_adamw_update(
-    param: &Tensor,
-    grad: &Tensor,
-    slot: &mut AdamWSlot,
-    hyper: AdamWHyper,
-    step: i64,
-) -> Result<bool, String> {
-    if param.kind() != Kind::Float
-        || grad.kind() != Kind::Float
-        || slot.m.kind() != Kind::Float
-        || slot.v.kind() != Kind::Float
-    {
-        return Ok(false);
-    }
-    if !matches!(param.device(), Device::Cuda(_)) {
-        return Ok(false);
-    }
-    if param.size() != grad.size() || param.size() != slot.m.size() || param.size() != slot.v.size()
-    {
-        return Err(
-            "adamw cuda update: parameter, gradient, and optimizer slot shapes differ".to_string(),
-        );
-    }
-    let grad = grad.contiguous();
-    let n = param.size().iter().product::<i64>();
-    if n <= 0 {
-        return Ok(true);
-    }
-    let status = unsafe {
-        cuda_kernels::enkai_cuda_adamw_update_f32(
-            param.data_ptr() as *mut f32,
-            grad.data_ptr() as *const f32,
-            slot.m.data_ptr() as *mut f32,
-            slot.v.data_ptr() as *mut f32,
-            n,
-            hyper.lr as f32,
-            hyper.beta1 as f32,
-            hyper.beta2 as f32,
-            hyper.eps as f32,
-            hyper.weight_decay as f32,
-            step,
-            std::ptr::null_mut(),
-        )
-    };
-    if status != 0 {
-        return Err(format!(
-            "adamw cuda update kernel failed with status {}",
-            status
-        ));
-    }
-    Ok(true)
-}
-
-#[cfg(all(feature = "torch", not(feature = "cuda-kernels")))]
-fn try_first_party_cuda_adamw_update(
-    _param: &Tensor,
-    _grad: &Tensor,
-    _slot: &mut AdamWSlot,
-    _hyper: AdamWHyper,
-    _step: i64,
-) -> Result<bool, String> {
-    Ok(false)
 }
 
 #[cfg(feature = "torch")]
