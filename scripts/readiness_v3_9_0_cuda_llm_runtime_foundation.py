@@ -344,6 +344,7 @@ rng_path = tmp_dir / "rng_state.pt"
 cuda_rng_path = tmp_dir / "cuda_rng_state.pt"
 integrity = tmp_dir / "integrity.json"
 tensor_index_path = tmp_dir / "tensor_index.json"
+manifest_path = tmp_dir / "manifest.json"
 ckpt_started = time.perf_counter()
 torch.save(model.state_dict(), model_path)
 torch.save(opt.state_dict(), optim_path)
@@ -369,12 +370,30 @@ for state_key, state in opt.state_dict().get("state", {}).items():
                 "sha256": hashlib.sha256(cpu_tensor.numpy().tobytes()).hexdigest(),
             })
 tensor_index_path.write_text(json.dumps({"version": 1, "entries": tensor_index}, sort_keys=True), encoding="utf-8")
+manifest_path.write_text(json.dumps({
+    "format_version": 1,
+    "checkpoint_kind": "pytorch_deterministic_reference",
+    "files": {
+        "params": model_path.name,
+        "optimizer": optim_path.name,
+        "rng": rng_path.name,
+        "cuda_rng": cuda_rng_path.name,
+        "data_cursor": cursor_path.name,
+        "tensor_index": tensor_index_path.name,
+    },
+    "compatibility": {
+        "torch_version": torch.__version__,
+        "cuda_version": torch.version.cuda,
+        "optimizer_mode": "adamw_foreach_false_fused_false",
+        "requires_tensor_hash_validation": True,
+    },
+}, sort_keys=True), encoding="utf-8")
 meta_path.write_text(json.dumps({"format_version": 1, "rng_state_file": rng_path.name, "cuda_rng_state_file": cuda_rng_path.name, "model_cfg": model_cfg, "optimizer_mode": "adamw_foreach_false_fused_false", "tensor_index_file": tensor_index_path.name}), encoding="utf-8")
 cursor_path.write_text(json.dumps({"dataset": "synthetic_bounded_transformer", "batch": 0, "seq": int(seq), "replay_seed": 1337}), encoding="utf-8")
-for path in [model_path, optim_path, rng_path, cuda_rng_path, meta_path, cursor_path, tensor_index_path]:
+for path in [model_path, optim_path, rng_path, cuda_rng_path, meta_path, cursor_path, tensor_index_path, manifest_path]:
     with open(path, "rb") as f:
         os.fsync(f.fileno())
-hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in [model_path, optim_path, rng_path, cuda_rng_path, meta_path, cursor_path, tensor_index_path]}
+hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in [model_path, optim_path, rng_path, cuda_rng_path, meta_path, cursor_path, tensor_index_path, manifest_path]}
 integrity.write_text(json.dumps({"version": 1, "files": hashes}, sort_keys=True), encoding="utf-8")
 with open(integrity, "rb") as f:
     os.fsync(f.fileno())
