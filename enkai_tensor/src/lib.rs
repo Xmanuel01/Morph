@@ -3742,7 +3742,7 @@ unsafe fn forward_lm_internal(
 }
 
 #[cfg(feature = "torch")]
-unsafe fn forward_lm_tensors_internal(
+fn forward_lm_tensors_internal(
     handles: &[i64],
     spec: &LmArchSpec,
     input: Tensor,
