@@ -1530,32 +1530,36 @@ fn adamw_step_params(opt: i64, params: &[i64], hyper: AdamWHyper) -> Result<(), 
     let lr = hyper.lr;
     let eps = hyper.eps;
     let weight_decay = hyper.weight_decay;
-    for param_handle in params {
-        let param_tensor = get_tensor(*param_handle)?;
-        let grad_tensor = param_tensor.grad();
-        if !grad_tensor.defined() {
-            return Err(format!("Missing gradient for param {}", param_handle));
-        }
-        let mut slot = match state_obj.slots.remove(param_handle) {
-            Some(existing) => existing,
-            None => {
-                let zeros = Tensor::zeros_like(&param_tensor);
-                AdamWSlot {
-                    m: zeros.shallow_clone(),
-                    v: zeros,
-                }
+    tch::no_grad(|| -> Result<(), String> {
+        for param_handle in params {
+            let param_tensor = get_tensor(*param_handle)?;
+            let grad_tensor = param_tensor.grad();
+            if !grad_tensor.defined() {
+                return Err(format!("Missing gradient for param {}", param_handle));
             }
-        };
-        slot.m = &slot.m * beta1 + grad_tensor.shallow_clone() * (1.0 - beta1);
-        slot.v = &slot.v * beta2 + grad_tensor.pow_tensor_scalar(2.0) * (1.0 - beta2);
-        let bias1 = 1.0 - beta1.powi(state_obj.step as i32);
-        let bias2 = 1.0 - beta2.powi(state_obj.step as i32);
-        let m_hat = &slot.m / bias1;
-        let v_hat = &slot.v / bias2;
-        let update = &m_hat / (v_hat.sqrt() + eps) + param_tensor.shallow_clone() * weight_decay;
-        update_tensor(*param_handle, trainable_leaf(param_tensor - update * lr));
-        state_obj.slots.insert(*param_handle, slot);
-    }
+            let mut slot = match state_obj.slots.remove(param_handle) {
+                Some(existing) => existing,
+                None => {
+                    let zeros = Tensor::zeros_like(&param_tensor);
+                    AdamWSlot {
+                        m: zeros.shallow_clone(),
+                        v: zeros,
+                    }
+                }
+            };
+            slot.m = &slot.m * beta1 + grad_tensor.shallow_clone() * (1.0 - beta1);
+            slot.v = &slot.v * beta2 + grad_tensor.pow_tensor_scalar(2.0) * (1.0 - beta2);
+            let bias1 = 1.0 - beta1.powi(state_obj.step as i32);
+            let bias2 = 1.0 - beta2.powi(state_obj.step as i32);
+            let m_hat = &slot.m / bias1;
+            let v_hat = &slot.v / bias2;
+            let update =
+                &m_hat / (v_hat.sqrt() + eps) + param_tensor.shallow_clone() * weight_decay;
+            update_tensor(*param_handle, trainable_leaf(param_tensor - update * lr));
+            state_obj.slots.insert(*param_handle, slot);
+        }
+        Ok(())
+    })?;
     update_opt(opt, state_obj);
     Ok(())
 }
