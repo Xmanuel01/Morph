@@ -2,7 +2,7 @@
   "schema_version": 1,
   "contract_version": "v4.0-native-training-runtime",
   "scope": "enkai_native_cuda_runtime",
-  "generated_at_utc": "2026-05-12T10:00:16.500811+00:00",
+  "generated_at_utc": "2026-05-12T10:51:53.838163+00:00",
   "tools": {
     "nvcc": "/usr/local/cuda/bin/nvcc",
     "nvidia_smi": "/usr/bin/nvidia-smi"
@@ -24,19 +24,19 @@
     ],
     "exit_code": 0,
     "passed": true,
-    "elapsed_ms": 4215.5870720002895,
-    "stdout_tail": "\nrunning 3 tests\nENKAI_NATIVE_CUDA_EVIDENCE={\"backend\":\"enkai_native_cuda\",\"cpu_ms\":0.103582,\"cuda_memory\":{\"allocated_bytes\":12288,\"freed_bytes\":0,\"peak_bytes\":12288},\"cuda_ms\":200.142518,\"ops\":[\"vec_add\",\"matmul\",\"matmul_cublas\",\"softmax\",\"cross_entropy\"],\"pytorch_core_execution_dependency\":false,\"skipped\":false}\ntest native_cuda_backend_matches_cpu_for_core_training_ops ... ok\nENKAI_NATIVE_CUDA_RESIDENT_MATMUL={\"backend\":\"enkai_native_cuda\",\"checksum\":0.03430052846670151,\"elapsed_ms\":3.675869,\"iterations\":20,\"kernel\":\"enkai_cuda_matmul_bias_cublas_f32\",\"mode\":\"device_resident\",\"per_iter_ms\":0.18379345,\"pytorch_core_execution_dependency\":false,\"shape\":[512,512]}\ntest native_cuda_resident_cublas_matmul_gate ... ok\nENKAI_NATIVE_CUDA_LARGE_MATMUL={\"backend\":\"enkai_native_cuda\",\"checksum\":0.17150264978408813,\"elapsed_ms\":10.061528000000001,\"iterations\":5,\"kernel\":\"enkai_cuda_matmul_bias_cublas_f32\",\"pytorch_core_execution_dependency\":false,\"shape\":[512,512]}\ntest native_cuda_cublas_large_matmul_gate ... ok\n\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.33s\n\n",
-    "stderr_tail": "warning: enkai_tensor@3.8.0: building Enkai first-party CUDA kernels with /usr/local/cuda/bin/nvcc\n   Compiling enkai_tensor v3.8.0 (/teamspace/studios/this_studio/Morph/enkai_tensor)\n    Finished `release` profile [optimized] target(s) in 3.68s\n     Running tests/native_cuda_runtime.rs (target/release/deps/native_cuda_runtime-2868d9579d696b43)\n"
+    "elapsed_ms": 651.2832529997468,
+    "stdout_tail": "\nrunning 3 tests\nENKAI_NATIVE_CUDA_EVIDENCE={\"backend\":\"enkai_native_cuda\",\"cpu_ms\":0.055756,\"cuda_memory\":{\"allocated_bytes\":12288,\"freed_bytes\":0,\"peak_bytes\":12288},\"cuda_ms\":174.325064,\"ops\":[\"vec_add\",\"matmul\",\"matmul_cublas\",\"softmax\",\"cross_entropy\"],\"pytorch_core_execution_dependency\":false,\"skipped\":false}\ntest native_cuda_backend_matches_cpu_for_core_training_ops ... ok\nENKAI_NATIVE_CUDA_LARGE_MATMUL={\"backend\":\"enkai_native_cuda\",\"checksum\":0.21842533349990845,\"elapsed_ms\":7.777061,\"iterations\":5,\"kernel\":\"enkai_cuda_matmul_bias_cublas_f32\",\"pytorch_core_execution_dependency\":false,\"shape\":[512,512]}\ntest native_cuda_cublas_large_matmul_gate ... ok\nENKAI_NATIVE_CUDA_RESIDENT_MATMUL={\"backend\":\"enkai_native_cuda\",\"checksum\":0.04368506744503975,\"cublas_baseline_elapsed_ms\":0.601649,\"cublas_baseline_per_iter_ms\":0.03008245,\"elapsed_ms\":0.267122,\"fallback_kernel\":\"enkai_cuda_matmul_bias_cublas_f32\",\"iterations\":20,\"kernel\":\"cublaslt_tensor_core_candidate\",\"mode\":\"device_resident\",\"per_iter_ms\":0.013356100000000001,\"pytorch_core_execution_dependency\":false,\"shape\":[512,512],\"speedup_vs_internal_cublas\":2.252337883064667}\ntest native_cuda_resident_cublas_matmul_gate ... ok\n\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s\n\n",
+    "stderr_tail": "warning: enkai_tensor@3.8.0: building Enkai first-party CUDA kernels with /usr/local/cuda/bin/nvcc\n    Finished `release` profile [optimized] target(s) in 0.15s\n     Running tests/native_cuda_runtime.rs (target/release/deps/native_cuda_runtime-2868d9579d696b43)\n"
   },
   "enkai_native_cuda_evidence": {
     "backend": "enkai_native_cuda",
-    "cpu_ms": 0.103582,
+    "cpu_ms": 0.055756,
     "cuda_memory": {
       "allocated_bytes": 12288,
       "freed_bytes": 0,
       "peak_bytes": 12288
     },
-    "cuda_ms": 200.142518,
+    "cuda_ms": 174.325064,
     "ops": [
       "vec_add",
       "matmul",
@@ -46,26 +46,10 @@
     ],
     "pytorch_core_execution_dependency": false,
     "skipped": false,
-    "resident_matmul": {
-      "backend": "enkai_native_cuda",
-      "checksum": 0.03430052846670151,
-      "elapsed_ms": 3.675869,
-      "iterations": 20,
-      "kernel": "enkai_cuda_matmul_bias_cublas_f32",
-      "mode": "device_resident",
-      "per_iter_ms": 0.18379345,
-      "pytorch_core_execution_dependency": false,
-      "shape": [
-        512,
-        512
-      ],
-      "pytorch_eager_ms": 0.6020259997967514,
-      "speedup_vs_pytorch_eager": 0.16377787124534401
-    },
     "large_matmul": {
       "backend": "enkai_native_cuda",
-      "checksum": 0.17150264978408813,
-      "elapsed_ms": 10.061528000000001,
+      "checksum": 0.21842533349990845,
+      "elapsed_ms": 7.777061,
       "iterations": 5,
       "kernel": "enkai_cuda_matmul_bias_cublas_f32",
       "pytorch_core_execution_dependency": false,
@@ -73,8 +57,29 @@
         512,
         512
       ],
-      "pytorch_eager_ms": 0.6020259997967514,
-      "speedup_vs_pytorch_eager": 0.05983445057219454
+      "pytorch_eager_ms": 0.5899420002606348,
+      "speedup_vs_pytorch_eager": 0.07585667648236716
+    },
+    "resident_matmul": {
+      "backend": "enkai_native_cuda",
+      "checksum": 0.04368506744503975,
+      "cublas_baseline_elapsed_ms": 0.601649,
+      "cublas_baseline_per_iter_ms": 0.03008245,
+      "elapsed_ms": 0.267122,
+      "fallback_kernel": "enkai_cuda_matmul_bias_cublas_f32",
+      "iterations": 20,
+      "kernel": "cublaslt_tensor_core_candidate",
+      "mode": "device_resident",
+      "per_iter_ms": 0.013356100000000001,
+      "pytorch_core_execution_dependency": false,
+      "shape": [
+        512,
+        512
+      ],
+      "speedup_vs_internal_cublas": 2.252337883064667,
+      "pytorch_eager_ms": 0.5899420002606348,
+      "speedup_vs_pytorch_eager": 2.208511467646374,
+      "checksum_abs_delta_vs_pytorch": 0.00945712998509407
     }
   },
   "pytorch_reference_only": {
@@ -87,8 +92,8 @@
         32
       ],
       "iterations": 10,
-      "elapsed_ms": 0.24921199974414776,
-      "per_iter_ms": 0.024921199974414776,
+      "elapsed_ms": 0.2342770003451733,
+      "per_iter_ms": 0.02342770003451733,
       "checksum": -0.024200040847063065,
       "timing_scope": "resident_loop_with_device_sync_no_host_copy"
     },
@@ -98,8 +103,8 @@
         512
       ],
       "iterations": 20,
-      "elapsed_ms": 0.6020259997967514,
-      "per_iter_ms": 0.03010129998983757,
+      "elapsed_ms": 0.5899420002606348,
+      "per_iter_ms": 0.02949710001303174,
       "checksum": 0.03422793745994568,
       "timing_scope": "resident_loop_with_device_sync_no_host_copy"
     }
