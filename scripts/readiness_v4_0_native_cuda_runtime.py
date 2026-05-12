@@ -53,22 +53,30 @@ def torch_cuda_reference() -> dict[str, Any]:
     def matmul_case(n: int, iters: int) -> dict[str, Any]:
         a = torch.arange(n * n, dtype=torch.float32, device="cuda").reshape(n, n).remainder(17).sub(8).mul(0.01)
         b = torch.arange(n * n, dtype=torch.float32, device="cuda").reshape(n, n).remainder(19).sub(9).mul(0.01)
+        out = None
         for _ in range(3):
-            _ = a @ b
+            out = a @ b
         torch.cuda.synchronize()
         started = time.perf_counter()
-        checksum = 0.0
         for _ in range(iters):
             out = a @ b
-            checksum += float(out.sum().detach().cpu())
         torch.cuda.synchronize()
-        return {"shape": [n, n], "iterations": iters, "elapsed_ms": (time.perf_counter() - started) * 1000.0, "checksum": checksum}
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        checksum = float(out.sum().detach().cpu()) if out is not None else 0.0
+        return {
+            "shape": [n, n],
+            "iterations": iters,
+            "elapsed_ms": elapsed_ms,
+            "per_iter_ms": elapsed_ms / iters,
+            "checksum": checksum,
+            "timing_scope": "resident_loop_with_device_sync_no_host_copy",
+        }
     return {
         "available": True,
         "version": getattr(torch, "__version__", "unknown"),
         "device": torch.cuda.get_device_name(0),
         "matmul_32x32": matmul_case(32, 10),
-        "matmul_512x512": matmul_case(512, 5),
+        "matmul_512x512": matmul_case(512, 20),
     }
 
 

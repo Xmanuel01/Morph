@@ -1134,6 +1134,16 @@ pub fn cuda_device_count() -> Result<i32, String> {
 }
 
 #[cfg(feature = "cuda-kernels")]
+pub fn cuda_synchronize() -> Result<(), String> {
+    runtime::synchronize()
+}
+
+#[cfg(not(feature = "cuda-kernels"))]
+pub fn cuda_synchronize() -> Result<(), String> {
+    Err("E_CUDA_UNAVAILABLE: build without cuda-kernels feature".to_string())
+}
+
+#[cfg(feature = "cuda-kernels")]
 pub fn cuda_vec_add_f32_host(a: &[f32], b: &[f32]) -> Result<Vec<f32>, String> {
     runtime::vec_add_f32_host(a, b)
 }
