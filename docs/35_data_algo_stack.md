@@ -61,3 +61,27 @@ Validation and evidence:
 - Runtime integration coverage in `enkairt/tests/ffi_modules.rs` for both baseline and golden corpus scenarios.
 - Native correctness coverage in `enkai_native/src/lib.rs` unit tests.
 - Complexity/perf baseline suite: `bench/suites/algorithm_kernels.json`.
+
+## std::spatial
+
+`std::spatial` is backed by the native spatial index in `enkai_native`.
+
+Primary APIs:
+- `make()`
+- `upsert(index, id, x, y)`
+- `remove(index, id)`
+- `radius(index, x, y, radius)`
+- `nearest(index, x, y)`
+- `occupancy(index, min_x, min_y, max_x, max_y)`
+
+Implementation notes:
+- The native backend uses a packed R-tree with deterministic node packing and entity-id tie breaks.
+- `upsert` and `remove` rebuild the bounded tree to keep query behavior deterministic and simple to audit.
+- `radius`, `nearest`, and `occupancy` traverse the R-tree and prune by node bounds rather than scanning all entities.
+- Invalid coordinates, negative radius, and inverted bounds fail deterministically.
+
+Validation and evidence:
+- `cargo test -p enkai_native sim_spatial`
+- `cargo test -p enkairt spatial`
+- `python scripts/verify_v4_0_0_spatial_rtree_native.py`
+- `artifacts/readiness/v4_0_0_spatial_rtree_native.json`

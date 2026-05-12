@@ -1,0 +1,22 @@
+﻿{
+  "schema_version": 1,
+  "contract_version": "v4.0.0",
+  "scope": "native_spatial_rtree",
+  "required_source_markers": [
+    "SpatialRTreeNode",
+    "build_packed_rtree",
+    "query_radius",
+    "query_rect",
+    "nearest"
+  ],
+  "forbidden_query_markers": [
+    ".positions\n        .iter()\n        .filter_map",
+    ".positions\n        .values()\n        .filter"
+  ],
+  "required_tests": [
+    "sim_spatial_and_rng_handles_work",
+    "sim_spatial_uses_packed_rtree_for_bounded_queries",
+    "spatial_queries_and_rng_streams_are_deterministic",
+    "spatial_rtree_frontier_is_deterministic_and_bounded"
+  ]
+}

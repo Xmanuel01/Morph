@@ -1,0 +1,48 @@
+{
+  "all_passed": true,
+  "commands": [
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "enkai_native",
+        "sim_spatial"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stderr_tail": "    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.48s\n     Running unittests src\\lib.rs (target\\debug\\deps\\enkai_native-013d29d1ccd9e7a3.exe)\n",
+      "stdout_tail": "\nrunning 2 tests\ntest tests::sim_spatial_uses_packed_rtree_for_bounded_queries ... ok\ntest tests::sim_spatial_and_rng_handles_work ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 26 filtered out; finished in 0.00s\n\n"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "enkairt",
+        "spatial"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stderr_tail": "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.56s\n     Running unittests src\\lib.rs (target\\debug\\deps\\enkairt-565467ad8974db18.exe)\n     Running tests\\ai_decls.rs (target\\debug\\deps\\ai_decls-915dec72535280a2.exe)\n     Running tests\\channels.rs (target\\debug\\deps\\channels-cba2628508aa5796.exe)\n     Running tests\\checkpoint.rs (target\\debug\\deps\\checkpoint-870f5b81d70c7671.exe)\n     Running tests\\dataset.rs (target\\debug\\deps\\dataset-354f0986dc14d1b0.exe)\n     Running tests\\ffi.rs (target\\debug\\deps\\ffi-72ed1e27990dba38.exe)\n     Running tests\\ffi_modules.rs (target\\debug\\deps\\ffi_modules-a05a013555d98b95.exe)\n     Running tests\\http.rs (target\\debug\\deps\\http-2c75fa88b7b1b032.exe)\n     Running tests\\interpreter.rs (target\\debug\\deps\\interpreter-a2ef747dd6b6d86c.exe)\n     Running tests\\json.rs (target\\debug\\deps\\json-71c1d06e794af117.exe)\n     Running tests\\modules.rs (target\\debug\\deps\\modules-1bad6335ffe48e64.exe)\n     Running tests\\net.rs (target\\debug\\deps\\net-d9c18a7cfd0487ea.exe)\n     Running tests\\policy.rs (target\\debug\\deps\\policy-ccd1f636ca8ff49d.exe)\n     Running tests\\tasks.rs (target\\debug\\deps\\tasks-09aaf93c41c8deb1.exe)\n     Running tests\\tokenizer.rs (target\\debug\\deps\\tokenizer-1db9d67bd203a87e.exe)\n",
+      "stdout_tail": "\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 17 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 17 filtered out; finished in 0.00s\n\n\nrunning 2 tests\ntest spatial_queries_and_rng_streams_are_deterministic ... ok\ntest spatial_rtree_frontier_is_deterministic_and_bounded ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 57 filtered out; finished in 0.02s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s\n\n"
+    }
+  ],
+  "contract_version": "v4.0.0",
+  "failures": [],
+  "generated_at_utc": "2026-05-12T18:15:35.474439+00:00",
+  "implementation": {
+    "index_type": "packed_rtree",
+    "linear_scan_query_backend": false,
+    "mutation_policy": "rebuild_on_upsert_remove",
+    "node_capacity": 8,
+    "query_policy": "tree_pruned_radius_rect_nearest"
+  },
+  "production_claims": {
+    "deterministic_tie_breaks": true,
+    "linear_scan_backend_removed": true,
+    "native_spatial_rtree_proven": true
+  },
+  "schema_version": 1,
+  "scope": "native_spatial_rtree"
+}

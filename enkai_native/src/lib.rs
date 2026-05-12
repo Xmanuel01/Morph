@@ -120,9 +120,302 @@ impl NativePool {
     }
 }
 
+const SPATIAL_RTREE_NODE_CAPACITY: usize = 8;
+
+#[derive(Debug, Clone, Copy)]
+struct SpatialRect {
+    min_x: f64,
+    min_y: f64,
+    max_x: f64,
+    max_y: f64,
+}
+
+impl SpatialRect {
+    fn point(x: f64, y: f64) -> Self {
+        Self {
+            min_x: x,
+            min_y: y,
+            max_x: x,
+            max_y: y,
+        }
+    }
+
+    fn union(self, other: Self) -> Self {
+        Self {
+            min_x: self.min_x.min(other.min_x),
+            min_y: self.min_y.min(other.min_y),
+            max_x: self.max_x.max(other.max_x),
+            max_y: self.max_y.max(other.max_y),
+        }
+    }
+
+    fn intersects(self, other: Self) -> bool {
+        self.min_x <= other.max_x
+            && self.max_x >= other.min_x
+            && self.min_y <= other.max_y
+            && self.max_y >= other.min_y
+    }
+
+    fn contains_point(self, x: f64, y: f64) -> bool {
+        x >= self.min_x && x <= self.max_x && y >= self.min_y && y <= self.max_y
+    }
+
+    fn distance_sq_to_point(self, x: f64, y: f64) -> f64 {
+        let dx = if x < self.min_x {
+            self.min_x - x
+        } else if x > self.max_x {
+            x - self.max_x
+        } else {
+            0.0
+        };
+        let dy = if y < self.min_y {
+            self.min_y - y
+        } else if y > self.max_y {
+            y - self.max_y
+        } else {
+            0.0
+        };
+        dx * dx + dy * dy
+    }
+}
+
+#[derive(Debug, Clone)]
+struct SpatialEntry {
+    entity_id: i64,
+    x: f64,
+    y: f64,
+}
+
+impl SpatialEntry {
+    fn rect(&self) -> SpatialRect {
+        SpatialRect::point(self.x, self.y)
+    }
+}
+
+#[derive(Debug, Clone)]
+enum SpatialRTreeNode {
+    Leaf {
+        bounds: SpatialRect,
+        entries: Vec<SpatialEntry>,
+    },
+    Branch {
+        bounds: SpatialRect,
+        children: Vec<SpatialRTreeNode>,
+    },
+}
+
+impl SpatialRTreeNode {
+    fn bounds(&self) -> SpatialRect {
+        match self {
+            SpatialRTreeNode::Leaf { bounds, .. } | SpatialRTreeNode::Branch { bounds, .. } => {
+                *bounds
+            }
+        }
+    }
+
+    fn query_rect(&self, rect: SpatialRect, out: &mut Vec<SpatialEntry>) {
+        if !self.bounds().intersects(rect) {
+            return;
+        }
+        match self {
+            SpatialRTreeNode::Leaf { entries, .. } => {
+                out.extend(
+                    entries
+                        .iter()
+                        .filter(|entry| rect.contains_point(entry.x, entry.y))
+                        .cloned(),
+                );
+            }
+            SpatialRTreeNode::Branch { children, .. } => {
+                for child in children {
+                    child.query_rect(rect, out);
+                }
+            }
+        }
+    }
+
+    fn query_radius(&self, x: f64, y: f64, radius_sq: f64, out: &mut Vec<(i64, f64)>) {
+        if self.bounds().distance_sq_to_point(x, y) > radius_sq {
+            return;
+        }
+        match self {
+            SpatialRTreeNode::Leaf { entries, .. } => {
+                for entry in entries {
+                    let dist_sq = point_distance_sq(entry.x, entry.y, x, y);
+                    if dist_sq <= radius_sq {
+                        out.push((entry.entity_id, dist_sq));
+                    }
+                }
+            }
+            SpatialRTreeNode::Branch { children, .. } => {
+                for child in children {
+                    child.query_radius(x, y, radius_sq, out);
+                }
+            }
+        }
+    }
+
+    fn nearest(&self, x: f64, y: f64, best: &mut Option<(i64, f64)>) {
+        let current_best = best.map(|(_, dist_sq)| dist_sq).unwrap_or(f64::INFINITY);
+        if self.bounds().distance_sq_to_point(x, y) > current_best {
+            return;
+        }
+        match self {
+            SpatialRTreeNode::Leaf { entries, .. } => {
+                for entry in entries {
+                    let dist_sq = point_distance_sq(entry.x, entry.y, x, y);
+                    let should_replace = match best {
+                        Some((best_id, best_dist)) => {
+                            dist_sq < *best_dist
+                                || (dist_sq == *best_dist && entry.entity_id < *best_id)
+                        }
+                        None => true,
+                    };
+                    if should_replace {
+                        *best = Some((entry.entity_id, dist_sq));
+                    }
+                }
+            }
+            SpatialRTreeNode::Branch { children, .. } => {
+                let mut ordered = children.iter().collect::<Vec<_>>();
+                ordered.sort_by(|a, b| {
+                    a.bounds()
+                        .distance_sq_to_point(x, y)
+                        .partial_cmp(&b.bounds().distance_sq_to_point(x, y))
+                        .unwrap_or(CmpOrdering::Equal)
+                });
+                for child in ordered {
+                    child.nearest(x, y, best);
+                }
+            }
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 struct NativeSpatialIndex {
     positions: BTreeMap<i64, (f64, f64)>,
+    root: Option<SpatialRTreeNode>,
+}
+
+impl NativeSpatialIndex {
+    fn upsert(&mut self, entity_id: i64, x: f64, y: f64) {
+        self.positions.insert(entity_id, (x, y));
+        self.rebuild();
+    }
+
+    fn remove(&mut self, entity_id: i64) -> bool {
+        let removed = self.positions.remove(&entity_id).is_some();
+        if removed {
+            self.rebuild();
+        }
+        removed
+    }
+
+    fn rebuild(&mut self) {
+        let entries = self
+            .positions
+            .iter()
+            .map(|(entity_id, (x, y))| SpatialEntry {
+                entity_id: *entity_id,
+                x: *x,
+                y: *y,
+            })
+            .collect::<Vec<_>>();
+        self.root = build_packed_rtree(entries);
+    }
+
+    fn query_rect(&self, rect: SpatialRect) -> Vec<SpatialEntry> {
+        let mut hits = Vec::new();
+        if let Some(root) = &self.root {
+            root.query_rect(rect, &mut hits);
+        }
+        hits
+    }
+
+    fn query_radius(&self, x: f64, y: f64, radius_sq: f64) -> Vec<(i64, f64)> {
+        let mut hits = Vec::new();
+        if let Some(root) = &self.root {
+            root.query_radius(x, y, radius_sq, &mut hits);
+        }
+        hits
+    }
+
+    fn nearest(&self, x: f64, y: f64) -> Option<i64> {
+        let mut best = None;
+        if let Some(root) = &self.root {
+            root.nearest(x, y, &mut best);
+        }
+        best.map(|(entity_id, _)| entity_id)
+    }
+}
+
+fn point_distance_sq(ax: f64, ay: f64, bx: f64, by: f64) -> f64 {
+    let dx = ax - bx;
+    let dy = ay - by;
+    dx * dx + dy * dy
+}
+
+fn rect_for_entries(entries: &[SpatialEntry]) -> SpatialRect {
+    let mut bounds = entries[0].rect();
+    for entry in &entries[1..] {
+        bounds = bounds.union(entry.rect());
+    }
+    bounds
+}
+
+fn rect_for_nodes(nodes: &[SpatialRTreeNode]) -> SpatialRect {
+    let mut bounds = nodes[0].bounds();
+    for node in &nodes[1..] {
+        bounds = bounds.union(node.bounds());
+    }
+    bounds
+}
+
+fn build_packed_rtree(mut entries: Vec<SpatialEntry>) -> Option<SpatialRTreeNode> {
+    if entries.is_empty() {
+        return None;
+    }
+    entries.sort_by(|a, b| {
+        a.x.partial_cmp(&b.x)
+            .unwrap_or(CmpOrdering::Equal)
+            .then_with(|| a.y.partial_cmp(&b.y).unwrap_or(CmpOrdering::Equal))
+            .then_with(|| a.entity_id.cmp(&b.entity_id))
+    });
+    let mut nodes = entries
+        .chunks(SPATIAL_RTREE_NODE_CAPACITY)
+        .map(|chunk| {
+            let entries = chunk.to_vec();
+            SpatialRTreeNode::Leaf {
+                bounds: rect_for_entries(&entries),
+                entries,
+            }
+        })
+        .collect::<Vec<_>>();
+    while nodes.len() > 1 {
+        nodes.sort_by(|a, b| {
+            let ab = a.bounds();
+            let bb = b.bounds();
+            let acx = (ab.min_x + ab.max_x) * 0.5;
+            let bcx = (bb.min_x + bb.max_x) * 0.5;
+            let acy = (ab.min_y + ab.max_y) * 0.5;
+            let bcy = (bb.min_y + bb.max_y) * 0.5;
+            acx.partial_cmp(&bcx)
+                .unwrap_or(CmpOrdering::Equal)
+                .then_with(|| acy.partial_cmp(&bcy).unwrap_or(CmpOrdering::Equal))
+        });
+        nodes = nodes
+            .chunks(SPATIAL_RTREE_NODE_CAPACITY)
+            .map(|chunk| {
+                let children = chunk.to_vec();
+                SpatialRTreeNode::Branch {
+                    bounds: rect_for_nodes(&children),
+                    children,
+                }
+            })
+            .collect();
+    }
+    nodes.pop()
 }
 
 #[derive(Debug)]
@@ -1865,7 +2158,7 @@ pub unsafe extern "C" fn sim_spatial_upsert(
     if entity_id < 0 || !x.is_finite() || !y.is_finite() {
         return 0;
     }
-    index.positions.insert(entity_id, (x, y));
+    index.upsert(entity_id, x, y);
     1
 }
 
@@ -1881,7 +2174,7 @@ pub unsafe extern "C" fn sim_spatial_remove(ptr: *mut c_void, entity_id: i64) ->
     if entity_id < 0 {
         return 0;
     }
-    u8::from(index.positions.remove(&entity_id).is_some())
+    u8::from(index.remove(entity_id))
 }
 
 #[no_mangle]
@@ -1902,20 +2195,7 @@ pub unsafe extern "C" fn sim_spatial_radius(
         return null_slice();
     }
     let radius_sq = radius * radius;
-    let mut hits = index
-        .positions
-        .iter()
-        .filter_map(|(entity_id, (px, py))| {
-            let dx = *px - x;
-            let dy = *py - y;
-            let dist_sq = dx * dx + dy * dy;
-            if dist_sq <= radius_sq {
-                Some((*entity_id, dist_sq))
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
+    let mut hits = index.query_radius(x, y, radius_sq);
     hits.sort_by(|a, b| {
         a.1.partial_cmp(&b.1)
             .unwrap_or(CmpOrdering::Equal)
@@ -1936,21 +2216,7 @@ pub unsafe extern "C" fn sim_spatial_nearest(ptr: *mut c_void, x: f64, y: f64) -
     if !x.is_finite() || !y.is_finite() {
         return -1;
     }
-    index
-        .positions
-        .iter()
-        .map(|(entity_id, (px, py))| {
-            let dx = *px - x;
-            let dy = *py - y;
-            (*entity_id, dx * dx + dy * dy)
-        })
-        .min_by(|a, b| {
-            a.1.partial_cmp(&b.1)
-                .unwrap_or(CmpOrdering::Equal)
-                .then_with(|| a.0.cmp(&b.0))
-        })
-        .map(|(entity_id, _)| entity_id)
-        .unwrap_or(-1)
+    index.nearest(x, y).unwrap_or(-1)
 }
 
 #[no_mangle]
@@ -1978,10 +2244,13 @@ pub unsafe extern "C" fn sim_spatial_occupancy(
         return -1;
     }
     index
-        .positions
-        .values()
-        .filter(|(x, y)| *x >= min_x && *x <= max_x && *y >= min_y && *y <= max_y)
-        .count() as i64
+        .query_rect(SpatialRect {
+            min_x,
+            min_y,
+            max_x,
+            max_y,
+        })
+        .len() as i64
 }
 
 #[no_mangle]
@@ -5876,6 +6145,60 @@ mod tests {
             enkai_handle_free(a);
             enkai_handle_free(b);
         }
+    }
+
+    #[test]
+    fn sim_spatial_uses_packed_rtree_for_bounded_queries() {
+        let _guard = native_handle_test_guard();
+        let mut index = NativeSpatialIndex::default();
+        for id in 0..64_i64 {
+            let x = (id % 8) as f64;
+            let y = (id / 8) as f64;
+            index.upsert(id, x, y);
+        }
+        assert!(
+            matches!(index.root, Some(SpatialRTreeNode::Branch { .. })),
+            "more than one leaf worth of points must build a real tree"
+        );
+
+        let mut radius_hits = index.query_radius(0.0, 0.0, 2.25);
+        radius_hits.sort_by(|a, b| {
+            a.1.partial_cmp(&b.1)
+                .unwrap_or(CmpOrdering::Equal)
+                .then_with(|| a.0.cmp(&b.0))
+        });
+        let mut brute_hits = index
+            .positions
+            .iter()
+            .filter_map(|(entity_id, (x, y))| {
+                let dist_sq = point_distance_sq(*x, *y, 0.0, 0.0);
+                if dist_sq <= 2.25 {
+                    Some((*entity_id, dist_sq))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        brute_hits.sort_by(|a, b| {
+            a.1.partial_cmp(&b.1)
+                .unwrap_or(CmpOrdering::Equal)
+                .then_with(|| a.0.cmp(&b.0))
+        });
+        assert_eq!(radius_hits, brute_hits);
+        assert_eq!(
+            index
+                .query_rect(SpatialRect {
+                    min_x: 2.0,
+                    min_y: 2.0,
+                    max_x: 4.0,
+                    max_y: 4.0
+                })
+                .len(),
+            9
+        );
+        assert_eq!(index.nearest(6.8, 6.9), Some(63));
+        assert!(index.remove(63));
+        assert_eq!(index.nearest(6.8, 6.9), Some(62));
     }
 
     #[test]
