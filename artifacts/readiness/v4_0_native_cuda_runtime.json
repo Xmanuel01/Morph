@@ -2,7 +2,7 @@
   "schema_version": 1,
   "contract_version": "v4.0-native-training-runtime",
   "scope": "enkai_native_cuda_runtime",
-  "generated_at_utc": "2026-05-12T07:39:27.438309+00:00",
+  "generated_at_utc": "2026-05-12T09:23:36.043269+00:00",
   "tools": {
     "nvcc": "/usr/local/cuda/bin/nvcc",
     "nvidia_smi": "/usr/bin/nvidia-smi"
@@ -24,34 +24,65 @@
     ],
     "exit_code": 0,
     "passed": true,
-    "elapsed_ms": 4029.037723001238,
-    "stdout_tail": "\nrunning 1 test\nENKAI_NATIVE_CUDA_EVIDENCE={\"backend\":\"enkai_native_cuda\",\"cpu_ms\":0.066248,\"cuda_memory\":{\"allocated_bytes\":12288,\"freed_bytes\":0,\"peak_bytes\":12288},\"cuda_ms\":117.01592500000001,\"ops\":[\"vec_add\",\"matmul\",\"softmax\",\"cross_entropy\"],\"pytorch_core_execution_dependency\":false,\"skipped\":false}\ntest native_cuda_backend_matches_cpu_for_core_training_ops ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s\n\n",
-    "stderr_tail": "warning: enkai_tensor@3.8.0: building Enkai first-party CUDA kernels with /usr/local/cuda/bin/nvcc\n   Compiling enkai_tensor v3.8.0 (/teamspace/studios/this_studio/Morph/enkai_tensor)\n    Finished `release` profile [optimized] target(s) in 3.68s\n     Running tests/native_cuda_runtime.rs (target/release/deps/native_cuda_runtime-2868d9579d696b43)\n"
+    "elapsed_ms": 678.7708269999939,
+    "stdout_tail": "\nrunning 2 tests\nENKAI_NATIVE_CUDA_EVIDENCE={\"backend\":\"enkai_native_cuda\",\"cpu_ms\":0.056438999999999996,\"cuda_memory\":{\"allocated_bytes\":12288,\"freed_bytes\":0,\"peak_bytes\":12288},\"cuda_ms\":191.15906199999998,\"ops\":[\"vec_add\",\"matmul\",\"matmul_cublas\",\"softmax\",\"cross_entropy\"],\"pytorch_core_execution_dependency\":false,\"skipped\":false}\ntest native_cuda_backend_matches_cpu_for_core_training_ops ... ok\nENKAI_NATIVE_CUDA_LARGE_MATMUL={\"backend\":\"enkai_native_cuda\",\"checksum\":0.17150264978408813,\"elapsed_ms\":8.292584,\"iterations\":5,\"kernel\":\"enkai_cuda_matmul_bias_cublas_f32\",\"pytorch_core_execution_dependency\":false,\"shape\":[512,512]}\ntest native_cuda_cublas_large_matmul_gate ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s\n\n",
+    "stderr_tail": "warning: enkai_tensor@3.8.0: building Enkai first-party CUDA kernels with /usr/local/cuda/bin/nvcc\n    Finished `release` profile [optimized] target(s) in 0.15s\n     Running tests/native_cuda_runtime.rs (target/release/deps/native_cuda_runtime-2868d9579d696b43)\n"
   },
   "enkai_native_cuda_evidence": {
     "backend": "enkai_native_cuda",
-    "cpu_ms": 0.066248,
+    "cpu_ms": 0.056438999999999996,
     "cuda_memory": {
       "allocated_bytes": 12288,
       "freed_bytes": 0,
       "peak_bytes": 12288
     },
-    "cuda_ms": 117.01592500000001,
+    "cuda_ms": 191.15906199999998,
     "ops": [
       "vec_add",
       "matmul",
+      "matmul_cublas",
       "softmax",
       "cross_entropy"
     ],
     "pytorch_core_execution_dependency": false,
-    "skipped": false
+    "skipped": false,
+    "large_matmul": {
+      "backend": "enkai_native_cuda",
+      "checksum": 0.17150264978408813,
+      "elapsed_ms": 8.292584,
+      "iterations": 5,
+      "kernel": "enkai_cuda_matmul_bias_cublas_f32",
+      "pytorch_core_execution_dependency": false,
+      "shape": [
+        512,
+        512
+      ],
+      "pytorch_eager_ms": 0.48423700002331316,
+      "speedup_vs_pytorch_eager": 0.058393981902783644
+    }
   },
   "pytorch_reference_only": {
     "available": true,
     "version": "2.11.0+cu128",
     "device": "NVIDIA L4",
-    "matmul_32x32_ms": 149.21696899909875,
-    "checksum": -0.024200040847063065
+    "matmul_32x32": {
+      "shape": [
+        32,
+        32
+      ],
+      "iterations": 10,
+      "elapsed_ms": 17.002127999944605,
+      "checksum": -0.24200040847063065
+    },
+    "matmul_512x512": {
+      "shape": [
+        512,
+        512
+      ],
+      "iterations": 5,
+      "elapsed_ms": 0.48423700002331316,
+      "checksum": 0.1711396872997284
+    }
   },
   "claim_policy": {
     "pytorch_is_reference_only": true,
