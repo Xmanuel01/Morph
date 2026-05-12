@@ -2,20 +2,56 @@
   "schema_version": 1,
   "contract_version": "v4.0-native-training-runtime",
   "scope": "enkai_native_cuda_runtime",
-  "generated_at_utc": "2026-05-12T04:55:33.477799+00:00",
+  "generated_at_utc": "2026-05-12T07:39:27.438309+00:00",
   "tools": {
-    "nvcc": null,
-    "nvidia_smi": null
+    "nvcc": "/usr/local/cuda/bin/nvcc",
+    "nvidia_smi": "/usr/bin/nvidia-smi"
   },
-  "require_cuda": false,
-  "native_cuda_cargo_test": null,
+  "require_cuda": true,
+  "native_cuda_cargo_test": {
+    "command": [
+      "cargo",
+      "test",
+      "-p",
+      "enkai_tensor",
+      "--release",
+      "--features",
+      "cuda-kernels",
+      "--test",
+      "native_cuda_runtime",
+      "--",
+      "--nocapture"
+    ],
+    "exit_code": 0,
+    "passed": true,
+    "elapsed_ms": 4029.037723001238,
+    "stdout_tail": "\nrunning 1 test\nENKAI_NATIVE_CUDA_EVIDENCE={\"backend\":\"enkai_native_cuda\",\"cpu_ms\":0.066248,\"cuda_memory\":{\"allocated_bytes\":12288,\"freed_bytes\":0,\"peak_bytes\":12288},\"cuda_ms\":117.01592500000001,\"ops\":[\"vec_add\",\"matmul\",\"softmax\",\"cross_entropy\"],\"pytorch_core_execution_dependency\":false,\"skipped\":false}\ntest native_cuda_backend_matches_cpu_for_core_training_ops ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s\n\n",
+    "stderr_tail": "warning: enkai_tensor@3.8.0: building Enkai first-party CUDA kernels with /usr/local/cuda/bin/nvcc\n   Compiling enkai_tensor v3.8.0 (/teamspace/studios/this_studio/Morph/enkai_tensor)\n    Finished `release` profile [optimized] target(s) in 3.68s\n     Running tests/native_cuda_runtime.rs (target/release/deps/native_cuda_runtime-2868d9579d696b43)\n"
+  },
   "enkai_native_cuda_evidence": {
-    "skipped": true,
-    "reason": "cuda hardware/toolchain not requested"
+    "backend": "enkai_native_cuda",
+    "cpu_ms": 0.066248,
+    "cuda_memory": {
+      "allocated_bytes": 12288,
+      "freed_bytes": 0,
+      "peak_bytes": 12288
+    },
+    "cuda_ms": 117.01592500000001,
+    "ops": [
+      "vec_add",
+      "matmul",
+      "softmax",
+      "cross_entropy"
+    ],
+    "pytorch_core_execution_dependency": false,
+    "skipped": false
   },
   "pytorch_reference_only": {
-    "available": false,
-    "reason": "not requested"
+    "available": true,
+    "version": "2.11.0+cu128",
+    "device": "NVIDIA L4",
+    "matmul_32x32_ms": 149.21696899909875,
+    "checksum": -0.024200040847063065
   },
   "claim_policy": {
     "pytorch_is_reference_only": true,
