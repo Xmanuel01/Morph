@@ -1,0 +1,32 @@
+{
+  "generated_by": "readiness_v4_0_llm_package_registry.py",
+  "packages": {
+    "enkai/tiny-llm": {
+      "versions": {
+        "1.0.0": {
+          "architecture": "tiny-transformer",
+          "manifest": "packages/enkai/tiny-llm/1.0.0/enkai.llm.json",
+          "manifest_digest": "b7abdf9228666656aeee9ac84e9fa3024332e6888ee4adee2ce83a99eaa832b2",
+          "tasks": [
+            "causal-lm",
+            "text-generation"
+          ]
+        }
+      }
+    },
+    "enkai/tokenizer-bpe": {
+      "versions": {
+        "1.0.0": {
+          "architecture": "byte-bpe",
+          "manifest": "packages/enkai/tokenizer-bpe/1.0.0/enkai.llm.json",
+          "manifest_digest": "6d1edd8a4b1c836e355eed9c4da452ab74fed0585ba161240547cce7843238e1",
+          "tasks": [
+            "tokenization"
+          ]
+        }
+      }
+    }
+  },
+  "schema": "enkai.llm.registry.index.v1",
+  "schema_version": 1
+}

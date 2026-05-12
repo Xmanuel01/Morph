@@ -1,0 +1,44 @@
+﻿import std::json
+
+// std::llm_registry (v1 package metadata helpers)
+// These helpers build stable manifest fragments for the filesystem-backed
+// LLM package registry. Hashing, lock resolution, and tamper checks are handled
+// by the registry verifier/installer boundary, not by package source code.
+
+pub fn package(name: String, version: String, family: String, architecture: String) ::
+    let out := json.parse("{\"schema\":\"enkai.llm.package.v1\",\"schema_version\":1,\"package\":\"\",\"version\":\"\",\"family\":\"\",\"architecture\":\"\",\"tasks\":[],\"dependencies\":[],\"files\":[]}")
+    out.package := name
+    out.version := version
+    out.family := family
+    out.architecture := architecture
+    return out
+::
+
+pub fn dependency(name: String, version: String) ::
+    let out := json.parse("{\"package\":\"\",\"version\":\"\"}")
+    out.package := name
+    out.version := version
+    return out
+::
+
+pub fn file(path: String, role: String, media_type: String, bytes: Int, sha256: String) ::
+    let out := json.parse("{\"path\":\"\",\"role\":\"\",\"media_type\":\"\",\"bytes\":0,\"sha256\":\"\"}")
+    out.path := path
+    out.role := role
+    out.media_type := media_type
+    out.bytes := bytes
+    out.sha256 := sha256
+    return out
+::
+
+pub fn runtime_cpu() ::
+    return json.parse("{\"devices\":[\"cpu\"],\"dtypes\":[\"fp32\"],\"requires_pytorch\":false,\"pytorch_reference_only\":true}")
+::
+
+pub fn runtime_cpu_cuda() ::
+    return json.parse("{\"devices\":[\"cpu\",\"cuda:0\"],\"dtypes\":[\"fp32\",\"fp16\",\"bf16\"],\"requires_pytorch\":false,\"pytorch_reference_only\":true}")
+::
+
+pub fn security() ::
+    return json.parse("{\"native_postinstall_hooks\":false,\"network_on_install\":false,\"requires_signature_for_remote_install\":true}")
+::

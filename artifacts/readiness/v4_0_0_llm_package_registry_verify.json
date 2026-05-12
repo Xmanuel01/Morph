@@ -1,0 +1,8 @@
+{
+  "all_passed": true,
+  "contract": "C:\\Users\\USER\\Desktop\\Morph\\enkai\\contracts\\v4_0_0_llm_package_registry.json",
+  "failures": [],
+  "generated_at_utc": "2026-05-12T18:03:43.324822+00:00",
+  "input": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\readiness\\v4_0_0_llm_package_registry.json",
+  "schema_version": 1
+}

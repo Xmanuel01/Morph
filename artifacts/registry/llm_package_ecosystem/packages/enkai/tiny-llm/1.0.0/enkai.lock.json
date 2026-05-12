@@ -1,0 +1,73 @@
+{
+  "lock_digest": "3cdba08373e5e13641d952bbaf44aff75d981c41b9cc04278ba13e059b5c9b13",
+  "packages": [
+    {
+      "files": [
+        {
+          "bytes": 81,
+          "path": "README.md",
+          "sha256": "ed6236947128f02eea0ee86b8b0d5c96973d275c2ae6ac29beb21d8cc9e7324e"
+        },
+        {
+          "bytes": 97,
+          "path": "model_card.md",
+          "sha256": "78af0b1fb65b81d875fa9a578abbd4b141e864b09584287a5802d38694f22cd1"
+        },
+        {
+          "bytes": 138,
+          "path": "config.json",
+          "sha256": "5d0edcc1ebc790cfa024ae1af8b25a47cab5f3cdfa8c83416c674f15ce8594a7"
+        },
+        {
+          "bytes": 63,
+          "path": "tokenizer.json",
+          "sha256": "8791d37dcb76955653258e0aaf43eb718c844299aa27b222408a188a6f7e83c3"
+        },
+        {
+          "bytes": 104,
+          "path": "weights.safetensors",
+          "sha256": "6a650d82126e6d580af82b7a81290f510e6ff95fa2c714a228370773699f5a23"
+        }
+      ],
+      "manifest_digest": "b7abdf9228666656aeee9ac84e9fa3024332e6888ee4adee2ce83a99eaa832b2",
+      "package": "enkai/tiny-llm",
+      "version": "1.0.0"
+    },
+    {
+      "files": [
+        {
+          "bytes": 86,
+          "path": "README.md",
+          "sha256": "a843f808dd9c0e1b5867c9dd8b580ce9f216c9d1d9f3c95986fe4b13e41af0c0"
+        },
+        {
+          "bytes": 97,
+          "path": "model_card.md",
+          "sha256": "78af0b1fb65b81d875fa9a578abbd4b141e864b09584287a5802d38694f22cd1"
+        },
+        {
+          "bytes": 130,
+          "path": "config.json",
+          "sha256": "08c6b269df8edccee4874e21af52f94dcc4dbb0767e055ff3d9e403a52a74651"
+        },
+        {
+          "bytes": 63,
+          "path": "tokenizer.json",
+          "sha256": "8791d37dcb76955653258e0aaf43eb718c844299aa27b222408a188a6f7e83c3"
+        },
+        {
+          "bytes": 104,
+          "path": "weights.safetensors",
+          "sha256": "6a650d82126e6d580af82b7a81290f510e6ff95fa2c714a228370773699f5a23"
+        }
+      ],
+      "manifest_digest": "6d1edd8a4b1c836e355eed9c4da452ab74fed0585ba161240547cce7843238e1",
+      "package": "enkai/tokenizer-bpe",
+      "version": "1.0.0"
+    }
+  ],
+  "resolver": "exact-v1",
+  "root": "enkai/tiny-llm@1.0.0",
+  "schema": "enkai.llm.lock.v1",
+  "schema_version": 1
+}

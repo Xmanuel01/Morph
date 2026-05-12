@@ -1,0 +1,8 @@
+{
+  "architecture": "tiny-transformer",
+  "context": 128,
+  "heads": 4,
+  "hidden_size": 64,
+  "layers": 2,
+  "vocab_size": 256
+}

@@ -1,0 +1,30 @@
+﻿{
+  "schema_version": 1,
+  "contract_version": "v4.0.0",
+  "scope": "llm_package_registry_ecosystem",
+  "required_manifest_schema": "enkai.llm.package.v1",
+  "required_lock_schema": "enkai.llm.lock.v1",
+  "required_gates": [
+    "package_manifest_validation",
+    "deterministic_lock_resolution",
+    "artifact_hash_integrity",
+    "dependency_resolution",
+    "tamper_rejection",
+    "conflict_rejection",
+    "no_native_postinstall_hooks",
+    "stable_api_surface"
+  ],
+  "required_artifacts": [
+    "artifacts/registry/llm_package_ecosystem/registry.index.json",
+    "artifacts/registry/llm_package_ecosystem/packages/enkai/tiny-llm/1.0.0/enkai.llm.json",
+    "artifacts/registry/llm_package_ecosystem/packages/enkai/tiny-llm/1.0.0/enkai.lock.json",
+    "artifacts/readiness/v4_0_0_llm_package_registry.json"
+  ],
+  "policy": {
+    "pytorch_allowed_as_reference_only": true,
+    "native_postinstall_hooks_allowed": false,
+    "lockfile_required_for_install_claims": true,
+    "hashes_required_for_all_package_files": true,
+    "semver_required": true
+  }
+}

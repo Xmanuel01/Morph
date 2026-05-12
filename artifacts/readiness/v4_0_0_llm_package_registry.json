@@ -1,0 +1,48 @@
+{
+  "all_passed": true,
+  "conflict_validation": {
+    "issues": [
+      "unresolved dependency enkai/tokenizer-bpe@2.0.0"
+    ],
+    "ok": false
+  },
+  "contract_version": "v4.0.0",
+  "failures": [],
+  "gates": {
+    "artifact_hash_integrity": true,
+    "conflict_rejection": true,
+    "dependency_resolution": true,
+    "deterministic_lock_resolution": true,
+    "no_native_postinstall_hooks": true,
+    "package_manifest_validation": true,
+    "stable_api_surface": true,
+    "tamper_rejection": true
+  },
+  "generated_at_utc": "2026-05-12T18:03:37.394661+00:00",
+  "index_digest": "1c140f1701931eb58600a6c70abb9427b3165bf8ccdb110bffe56bb31dc32124",
+  "lock_digest": "3cdba08373e5e13641d952bbaf44aff75d981c41b9cc04278ba13e059b5c9b13",
+  "lockfile": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\registry\\llm_package_ecosystem\\packages\\enkai\\tiny-llm\\1.0.0\\enkai.lock.json",
+  "manifest": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\registry\\llm_package_ecosystem\\packages\\enkai\\tiny-llm\\1.0.0\\enkai.llm.json",
+  "manifest_digest": "b7abdf9228666656aeee9ac84e9fa3024332e6888ee4adee2ce83a99eaa832b2",
+  "production_claims": {
+    "llm_package_registry_ecosystem_proven": true,
+    "native_postinstall_hooks_allowed": false,
+    "pytorch_core_execution_dependency": false,
+    "remote_install_requires_signature": true
+  },
+  "registry_root": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\registry\\llm_package_ecosystem",
+  "root_package": "enkai/tiny-llm@1.0.0",
+  "schema_version": 1,
+  "scope": "llm_package_registry_ecosystem",
+  "tamper_validation": {
+    "issues": [
+      "file byte length mismatch: weights.safetensors",
+      "file hash mismatch: weights.safetensors"
+    ],
+    "ok": false
+  },
+  "validation": {
+    "issues": [],
+    "ok": true
+  }
+}

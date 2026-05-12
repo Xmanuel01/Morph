@@ -1,0 +1,76 @@
+{
+  "api": {
+    "stable_since": "4.0.0",
+    "symbols": [
+      "std::data.tokenize",
+      "std::model.load"
+    ]
+  },
+  "architecture": "byte-bpe",
+  "dependencies": [],
+  "family": "tokenizer",
+  "files": [
+    {
+      "bytes": 86,
+      "media_type": "text/markdown",
+      "path": "README.md",
+      "role": "readme",
+      "sha256": "a843f808dd9c0e1b5867c9dd8b580ce9f216c9d1d9f3c95986fe4b13e41af0c0"
+    },
+    {
+      "bytes": 97,
+      "media_type": "text/markdown",
+      "path": "model_card.md",
+      "role": "model_card",
+      "sha256": "78af0b1fb65b81d875fa9a578abbd4b141e864b09584287a5802d38694f22cd1"
+    },
+    {
+      "bytes": 130,
+      "media_type": "application/json",
+      "path": "config.json",
+      "role": "config",
+      "sha256": "08c6b269df8edccee4874e21af52f94dcc4dbb0767e055ff3d9e403a52a74651"
+    },
+    {
+      "bytes": 63,
+      "media_type": "application/json",
+      "path": "tokenizer.json",
+      "role": "tokenizer",
+      "sha256": "8791d37dcb76955653258e0aaf43eb718c844299aa27b222408a188a6f7e83c3"
+    },
+    {
+      "bytes": 104,
+      "media_type": "application/octet-stream",
+      "path": "weights.safetensors",
+      "role": "weights",
+      "sha256": "6a650d82126e6d580af82b7a81290f510e6ff95fa2c714a228370773699f5a23"
+    }
+  ],
+  "license": "Apache-2.0",
+  "manifest_digest": "6d1edd8a4b1c836e355eed9c4da452ab74fed0585ba161240547cce7843238e1",
+  "package": "enkai/tokenizer-bpe",
+  "runtime": {
+    "devices": [
+      "cpu",
+      "cuda:0"
+    ],
+    "dtypes": [
+      "fp32",
+      "fp16",
+      "bf16"
+    ],
+    "pytorch_reference_only": true,
+    "requires_pytorch": false
+  },
+  "schema": "enkai.llm.package.v1",
+  "schema_version": 1,
+  "security": {
+    "native_postinstall_hooks": false,
+    "network_on_install": false,
+    "requires_signature_for_remote_install": true
+  },
+  "tasks": [
+    "tokenization"
+  ],
+  "version": "1.0.0"
+}
