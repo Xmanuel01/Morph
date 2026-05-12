@@ -1261,6 +1261,8 @@ First tranche scope:
 - Memory planner with reuse evidence.
 - Fusion evidence for selected patterns.
 - Basic autograd/SGD MLP training proof.
+- Native AdamW optimizer proof for the bounded MLP.
+- Parallel deterministic CPU matmul/fused-matmul scaling.
 - CUDA/Triton backend hooks without production GPU claims.
 
 The readiness entrypoint is:

@@ -7,6 +7,7 @@
     "matmul",
     "mlp_forward",
     "mlp_training_step",
+    "mlp_training_adamw",
     "softmax_cross_entropy",
     "memory_stress"
   ],

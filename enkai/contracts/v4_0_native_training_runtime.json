@@ -10,6 +10,9 @@
     "memory_planner_stats",
     "fusion_engine_evidence",
     "basic_autograd_training_sgd",
+    "native_adamw_optimizer",
+    "parallel_cpu_matmul_backend",
+    "release_profile_benchmark_evidence",
     "cuda_triton_backend_hook_without_pytorch_dependency",
     "benchmark_harness_python_pytorch_reference_only",
     "no_performance_claim_without_json_evidence"
@@ -30,8 +33,10 @@
     "benchmark_matmul",
     "benchmark_mlp_forward",
     "benchmark_mlp_training_step",
+    "benchmark_mlp_training_adamw",
     "benchmark_softmax_cross_entropy",
-    "benchmark_memory_stress"
+    "benchmark_memory_stress",
+    "python_reference_speedup_ge_1_5_for_vector_add_and_matmul"
   ],
   "claim_policy": {
     "allow_claim_when_gate_green": "Enkai's native training runtime is up to X% faster than Python/PyTorch eager on selected benchmarked workloads.",

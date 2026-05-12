@@ -96,7 +96,7 @@ def source_checks(root: Path, contract: dict[str, Any]) -> dict[str, Any]:
     native = (root / "enkai_tensor" / "src" / "native_runtime.rs").read_text(encoding="utf-8")
     lib = (root / "enkai_tensor" / "src" / "lib.rs").read_text(encoding="utf-8")
     failures: list[str] = []
-    for token in ["TensorGraph", "GraphOp", "CpuBackend", "MemoryPlanner", "fused_add_relu", "fused_matmul_bias_relu", "train_mlp_sgd", "CudaBackendHook", "benchmark_native_runtime"]:
+    for token in ["TensorGraph", "GraphOp", "CpuBackend", "MemoryPlanner", "fused_add_relu", "fused_matmul_bias_relu", "train_mlp_sgd", "train_mlp_adamw", "AdamWConfig", "CudaBackendHook", "benchmark_native_runtime"]:
         if token not in native:
             failures.append(f"missing native runtime token: {token}")
     forbidden_patterns = ["use tch", "tch::", "pyo3", "python::", "torch::"]
@@ -117,11 +117,12 @@ def main() -> int:
     args = parser.parse_args()
     root = Path(args.workspace).resolve()
     contract = json.loads((root / args.contract).read_text(encoding="utf-8-sig"))
-    cargo = run(["cargo", "test", "-p", "enkai_tensor", "--test", "native_training_runtime", "--", "--nocapture"], root, timeout=300)
+    cargo = run(["cargo", "test", "-p", "enkai_tensor", "--release", "--test", "native_training_runtime", "--", "--nocapture"], root, timeout=600)
     evidence = parse_evidence(cargo.get("stdout_tail", ""))
     checks = source_checks(root, contract)
-    python = {"vector_add": py_vector_add(4096, 100), "matmul": py_matmul(32, 2)}
+    python = {"vector_add": py_vector_add(128 * 128, args.iterations), "matmul": py_matmul(128, args.iterations)}
     torch = torch_reference(128, args.iterations)
+    comparison: dict[str, Any] = {}
 
     failures: list[str] = []
     if not cargo["passed"]: failures.append("native runtime cargo test failed")
@@ -147,6 +148,31 @@ def main() -> int:
                 name = workload.removeprefix("benchmark_")
                 if evidence.get("benchmarks", {}).get(name) is None:
                     failures.append(f"missing benchmark evidence: {name}")
+        native_vector_ms = evidence.get("benchmarks", {}).get("vector_add", {}).get("elapsed_ms")
+        native_matmul_ms = evidence.get("benchmarks", {}).get("matmul", {}).get("elapsed_ms")
+        if native_vector_ms and native_vector_ms > 0:
+            comparison["vector_add_vs_python"] = {
+                "python_ms": python["vector_add"]["elapsed_ms"],
+                "enkai_ms": native_vector_ms,
+                "speedup": python["vector_add"]["elapsed_ms"] / native_vector_ms,
+            }
+            if comparison["vector_add_vs_python"]["speedup"] < 1.5:
+                failures.append("native vector_add is not at least 1.5x faster than Python baseline")
+        if native_matmul_ms and native_matmul_ms > 0:
+            comparison["matmul_vs_python"] = {
+                "python_ms": python["matmul"]["elapsed_ms"],
+                "enkai_ms": native_matmul_ms,
+                "speedup": python["matmul"]["elapsed_ms"] / native_matmul_ms,
+            }
+            if comparison["matmul_vs_python"]["speedup"] < 1.5:
+                failures.append("native matmul is not at least 1.5x faster than Python baseline")
+            if torch.get("available") and torch.get("eager", {}).get("elapsed_ms", 0) > 0:
+                comparison["matmul_vs_pytorch_eager"] = {
+                    "pytorch_eager_ms": torch["eager"]["elapsed_ms"],
+                    "enkai_ms": native_matmul_ms,
+                    "speedup": torch["eager"]["elapsed_ms"] / native_matmul_ms,
+                    "claim_allowed": torch["eager"]["elapsed_ms"] > native_matmul_ms,
+                }
 
     payload = {
         "schema_version": 1,
@@ -161,6 +187,7 @@ def main() -> int:
         "enkai_native_evidence": evidence,
         "python_reference": python,
         "pytorch_reference_only": torch,
+        "native_reference_comparison": comparison,
         "claim_policy": contract.get("claim_policy", {}),
         "all_passed": not failures,
         "failures": failures,

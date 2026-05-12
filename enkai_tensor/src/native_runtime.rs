@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::thread;
 use std::time::Instant;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -63,6 +64,13 @@ fn checked_len(shape: &[usize]) -> Result<usize, String> {
         acc.checked_mul(*dim)
             .ok_or_else(|| "tensor shape overflows usize".to_string())
     })
+}
+
+fn default_parallelism() -> usize {
+    thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1)
+        .clamp(1, 16)
 }
 
 #[derive(Clone, Debug, Default)]
@@ -137,12 +145,23 @@ pub trait ExecutionBackend {
 #[derive(Clone, Debug, Default)]
 pub struct CpuBackend {
     planner: MemoryPlanner,
+    parallelism: usize,
 }
 impl CpuBackend {
     pub fn new() -> Self {
         Self {
             planner: MemoryPlanner::new(),
+            parallelism: default_parallelism(),
         }
+    }
+    pub fn with_parallelism(parallelism: usize) -> Self {
+        Self {
+            planner: MemoryPlanner::new(),
+            parallelism: parallelism.max(1),
+        }
+    }
+    pub fn parallelism(&self) -> usize {
+        self.parallelism
     }
     pub fn release(&mut self, tensor: NativeTensor) {
         self.planner.release(tensor);
@@ -182,7 +201,7 @@ impl ExecutionBackend for CpuBackend {
             return Err(format!("matmul inner mismatch: {k} != {k2}"));
         }
         let mut out = self.planner.allocate(&[m, n])?;
-        matmul_into(a, b, &mut out)?;
+        matmul_parallel_into(a, b, &mut out, self.parallelism)?;
         Ok(out)
     }
 
@@ -389,6 +408,28 @@ pub fn fused_matmul_bias_relu<B: ExecutionBackend>(
     Ok(out)
 }
 
+pub fn fused_matmul_bias_relu_cpu(
+    backend: &mut CpuBackend,
+    a: &NativeTensor,
+    b: &NativeTensor,
+    bias: &NativeTensor,
+) -> Result<NativeTensor, String> {
+    let (m, k) = a.rows_cols()?;
+    let (k2, n) = b.rows_cols()?;
+    if k != k2 {
+        return Err(format!("matmul inner mismatch: {k} != {k2}"));
+    }
+    if bias.shape.as_slice() != [n] {
+        return Err(format!(
+            "matmul_bias_relu expected bias shape [{n}], got {:?}",
+            bias.shape
+        ));
+    }
+    let mut out = backend.zeros(&[m, n])?;
+    matmul_bias_relu_parallel_into(a, b, bias, &mut out, backend.parallelism())?;
+    Ok(out)
+}
+
 pub fn fused_softmax_cross_entropy(
     logits: &NativeTensor,
     targets: &[usize],
@@ -425,6 +466,34 @@ pub struct MlpTrainingReport {
     pub peak_memory_bytes: u64,
     pub allocated_bytes: u64,
     pub reuse_count: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct AdamWConfig {
+    pub lr: f32,
+    pub beta1: f32,
+    pub beta2: f32,
+    pub eps: f32,
+    pub weight_decay: f32,
+}
+
+impl Default for AdamWConfig {
+    fn default() -> Self {
+        Self {
+            lr: 1e-2,
+            beta1: 0.9,
+            beta2: 0.999,
+            eps: 1e-8,
+            weight_decay: 0.0,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AdamWState {
+    pub step: usize,
+    pub m: Vec<NativeTensor>,
+    pub v: Vec<NativeTensor>,
 }
 
 pub fn train_mlp_sgd(steps: usize, lr: f32) -> Result<MlpTrainingReport, String> {
@@ -464,6 +533,132 @@ pub fn train_mlp_sgd(steps: usize, lr: f32) -> Result<MlpTrainingReport, String>
         allocated_bytes: stats.allocated_bytes,
         reuse_count: stats.reuse_count,
     })
+}
+
+pub fn train_mlp_adamw(steps: usize, config: AdamWConfig) -> Result<MlpTrainingReport, String> {
+    let x = NativeTensor::from_vec(&[4, 2], vec![0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0])?;
+    let y = vec![0usize, 1, 1, 0];
+    let mut w1 = NativeTensor::from_vec(
+        &[2, 4],
+        vec![0.10, -0.20, 0.30, 0.25, -0.15, 0.35, -0.25, 0.20],
+    )?;
+    let mut b1 = NativeTensor::from_vec(&[4], vec![0.0; 4])?;
+    let mut w2 = NativeTensor::from_vec(
+        &[4, 2],
+        vec![0.25, -0.10, -0.30, 0.20, 0.15, 0.35, -0.20, -0.25],
+    )?;
+    let mut b2 = NativeTensor::from_vec(&[2], vec![0.0; 2])?;
+    let mut state = AdamWState::default();
+    let mut backend = CpuBackend::new();
+    let mut loss_initial = 0.0;
+    let mut loss_final = 0.0;
+
+    for step in 0..steps {
+        let (loss, grads) = mlp_loss_and_grads(&mut backend, &x, &y, &w1, &b1, &w2, &b2)?;
+        if step == 0 {
+            loss_initial = loss;
+        }
+        loss_final = loss;
+        adamw_step_multi(
+            [&mut w1, &mut b1, &mut w2, &mut b2],
+            [&grads.dw1, &grads.db1, &grads.dw2, &grads.db2],
+            &mut state,
+            &config,
+        )?;
+    }
+    let stats = backend.memory_stats();
+    Ok(MlpTrainingReport {
+        loss_initial,
+        loss_final,
+        steps,
+        peak_memory_bytes: stats.peak_bytes,
+        allocated_bytes: stats.allocated_bytes,
+        reuse_count: stats.reuse_count,
+    })
+}
+
+pub fn adamw_step_multi<const N: usize>(
+    params: [&mut NativeTensor; N],
+    grads: [&NativeTensor; N],
+    state: &mut AdamWState,
+    config: &AdamWConfig,
+) -> Result<(), String> {
+    if !(config.lr.is_finite()
+        && config.beta1.is_finite()
+        && config.beta2.is_finite()
+        && config.eps.is_finite()
+        && config.weight_decay.is_finite())
+    {
+        return Err("AdamW config contains non-finite value".to_string());
+    }
+    if config.lr <= 0.0
+        || !(0.0..1.0).contains(&config.beta1)
+        || !(0.0..1.0).contains(&config.beta2)
+        || config.eps <= 0.0
+    {
+        return Err("AdamW config out of range".to_string());
+    }
+    if state.m.is_empty() && state.v.is_empty() {
+        state.m = params
+            .iter()
+            .map(|p| NativeTensor::zeros(&p.shape))
+            .collect::<Result<Vec<_>, _>>()?;
+        state.v = params
+            .iter()
+            .map(|p| NativeTensor::zeros(&p.shape))
+            .collect::<Result<Vec<_>, _>>()?;
+    }
+    if state.m.len() != N || state.v.len() != N {
+        return Err(format!(
+            "AdamW state parameter count mismatch: expected {N}, got {}/{}",
+            state.m.len(),
+            state.v.len()
+        ));
+    }
+    state.step += 1;
+    let beta1_corr = 1.0 - config.beta1.powi(state.step as i32);
+    let beta2_corr = 1.0 - config.beta2.powi(state.step as i32);
+    for idx in 0..N {
+        adamw_update_param(
+            params[idx],
+            grads[idx],
+            &mut state.m[idx],
+            &mut state.v[idx],
+            config,
+            beta1_corr,
+            beta2_corr,
+        )?;
+    }
+    Ok(())
+}
+
+fn adamw_update_param(
+    param: &mut NativeTensor,
+    grad: &NativeTensor,
+    m: &mut NativeTensor,
+    v: &mut NativeTensor,
+    config: &AdamWConfig,
+    beta1_corr: f32,
+    beta2_corr: f32,
+) -> Result<(), String> {
+    same_shape(param, grad, "adamw param/grad")?;
+    same_shape(param, m, "adamw param/m")?;
+    same_shape(param, v, "adamw param/v")?;
+    for i in 0..param.len() {
+        let g = grad.data[i];
+        if !g.is_finite() {
+            return Err(format!("AdamW gradient at index {i} is non-finite"));
+        }
+        m.data[i] = config.beta1 * m.data[i] + (1.0 - config.beta1) * g;
+        v.data[i] = config.beta2 * v.data[i] + (1.0 - config.beta2) * g * g;
+        let m_hat = m.data[i] / beta1_corr.max(f32::MIN_POSITIVE);
+        let v_hat = v.data[i] / beta2_corr.max(f32::MIN_POSITIVE);
+        if config.weight_decay != 0.0 {
+            param.data[i] -= config.lr * config.weight_decay * param.data[i];
+        }
+        param.data[i] -= config.lr * m_hat / (v_hat.sqrt() + config.eps);
+    }
+    Ok(())
 }
 
 pub fn mlp_forward_loss<B: ExecutionBackend>(backend: &mut B) -> Result<f32, String> {
@@ -627,6 +822,14 @@ pub fn benchmark_native_runtime(iterations: usize) -> Result<serde_json::Value, 
     let training = train_mlp_sgd(200, 0.4)?;
     let training_ms = started.elapsed().as_secs_f64() * 1000.0;
 
+    let adamw_training = train_mlp_adamw(
+        200,
+        AdamWConfig {
+            lr: 0.05,
+            ..AdamWConfig::default()
+        },
+    )?;
+
     let mut stress_backend = CpuBackend::new();
     let started = Instant::now();
     let mut stress_checksum = 0.0;
@@ -662,7 +865,7 @@ pub fn benchmark_native_runtime(iterations: usize) -> Result<serde_json::Value, 
     let started = Instant::now();
     let mut fused_checksum = 0.0;
     for _ in 0..iterations {
-        let relu = fused_matmul_bias_relu(&mut fused_backend, &a, &b, &bias)?;
+        let relu = fused_matmul_bias_relu_cpu(&mut fused_backend, &a, &b, &bias)?;
         fused_checksum += fused_backend.sum(&relu)?;
         fused_backend.release(relu);
     }
@@ -691,14 +894,15 @@ pub fn benchmark_native_runtime(iterations: usize) -> Result<serde_json::Value, 
             "vector_add": {"elements": va.len(), "elapsed_ms": vector_add_ms, "checksum": vector_checksum, "memory": memory_stats_json(&vector_backend.memory_stats())},
             "matmul": {"shape": [n, n], "elapsed_ms": matmul_ms, "checksum": matmul_checksum, "memory": memory_stats_json(&matmul_backend.memory_stats())},
             "mlp_forward": {"elapsed_ms": mlp_forward_ms, "loss_sum": mlp_forward_loss_sum, "memory": memory_stats_json(&mlp_forward_backend.memory_stats())},
-            "mlp_training_step": {"elapsed_ms": training_ms, "steps": training.steps, "loss_initial": training.loss_initial, "loss_final": training.loss_final, "peak_memory_bytes": training.peak_memory_bytes},
+            "mlp_training_step": {"optimizer": "sgd", "elapsed_ms": training_ms, "steps": training.steps, "loss_initial": training.loss_initial, "loss_final": training.loss_final, "peak_memory_bytes": training.peak_memory_bytes},
+            "mlp_training_adamw": {"optimizer": "adamw", "steps": adamw_training.steps, "loss_initial": adamw_training.loss_initial, "loss_final": adamw_training.loss_final, "peak_memory_bytes": adamw_training.peak_memory_bytes, "reuse_count": adamw_training.reuse_count},
             "softmax_cross_entropy": {"unfused_ms": ce_unfused_ms, "fused_ms": ce_fused_ms},
             "memory_stress": {"elapsed_ms": memory_stress_ms, "checksum": stress_checksum, "memory": memory_stats_json(&stress_backend.memory_stats())}
         },
         "matmul_bias_relu": {"unfused_ms": unfused_ms, "fused_ms": fused_ms, "checksum_delta_abs": (checksum - fused_checksum).abs()},
         "softmax_cross_entropy": {"unfused_ms": ce_unfused_ms, "fused_ms": ce_fused_ms, "loss_delta_abs": (ce - ce_fused).abs()},
         "memory": {"unfused": memory_stats_json(&backend.memory_stats()), "fused": memory_stats_json(&fused_backend.memory_stats()), "ce_unfused": memory_stats_json(&ce_backend.memory_stats())},
-        "training": {"loss_initial": training.loss_initial, "loss_final": training.loss_final, "steps": training.steps, "peak_memory_bytes": training.peak_memory_bytes, "allocated_bytes": training.allocated_bytes, "reuse_count": training.reuse_count},
+        "training": {"loss_initial": training.loss_initial, "loss_final": training.loss_final, "steps": training.steps, "peak_memory_bytes": training.peak_memory_bytes, "allocated_bytes": training.allocated_bytes, "reuse_count": training.reuse_count, "adamw_loss_final": adamw_training.loss_final},
         "claims": {"pytorch_core_execution_dependency": false, "python_core_execution_dependency": false, "cuda_without_pytorch": "hook_only_not_claimed"}
     }))
 }
@@ -715,6 +919,116 @@ fn broadcast_bias(bias: &NativeTensor, rows: usize) -> Result<NativeTensor, Stri
         }
     }
     Ok(out)
+}
+
+fn matmul_parallel_into(
+    a: &NativeTensor,
+    b: &NativeTensor,
+    out: &mut NativeTensor,
+    requested_threads: usize,
+) -> Result<(), String> {
+    let (m, k) = a.rows_cols()?;
+    let (k2, n) = b.rows_cols()?;
+    if k != k2 || out.shape.as_slice() != [m, n] {
+        return Err("matmul output shape mismatch".to_string());
+    }
+    let work = m.saturating_mul(n).saturating_mul(k);
+    let threads = requested_threads.min(m).max(1);
+    if threads == 1 || work < 1_000_000 {
+        return matmul_into(a, b, out);
+    }
+    let rows_per_chunk = (m + threads - 1) / threads;
+    thread::scope(|scope| {
+        for (chunk_idx, chunk) in out.data.chunks_mut(rows_per_chunk * n).enumerate() {
+            let start_row = chunk_idx * rows_per_chunk;
+            scope.spawn(move || {
+                let rows = chunk.len() / n;
+                for local_row in 0..rows {
+                    let row = start_row + local_row;
+                    let out_row = local_row * n;
+                    for j in 0..n {
+                        chunk[out_row + j] = 0.0;
+                    }
+                    for kk in 0..k {
+                        let aik = a.data[row * k + kk];
+                        let b_row = kk * n;
+                        for j in 0..n {
+                            chunk[out_row + j] += aik * b.data[b_row + j];
+                        }
+                    }
+                }
+            });
+        }
+    });
+    Ok(())
+}
+
+fn matmul_bias_relu_parallel_into(
+    a: &NativeTensor,
+    b: &NativeTensor,
+    bias: &NativeTensor,
+    out: &mut NativeTensor,
+    requested_threads: usize,
+) -> Result<(), String> {
+    let (m, k) = a.rows_cols()?;
+    let (k2, n) = b.rows_cols()?;
+    if k != k2 || out.shape.as_slice() != [m, n] {
+        return Err("matmul_bias_relu output shape mismatch".to_string());
+    }
+    if bias.shape.as_slice() != [n] {
+        return Err(format!(
+            "matmul_bias_relu expected bias shape [{n}], got {:?}",
+            bias.shape
+        ));
+    }
+    let work = m.saturating_mul(n).saturating_mul(k);
+    let threads = requested_threads.min(m).max(1);
+    if threads == 1 || work < 1_000_000 {
+        for row in 0..m {
+            let out_row = row * n;
+            for col in 0..n {
+                out.data[out_row + col] = bias.data[col];
+            }
+            for kk in 0..k {
+                let aik = a.data[row * k + kk];
+                let b_row = kk * n;
+                for col in 0..n {
+                    out.data[out_row + col] += aik * b.data[b_row + col];
+                }
+            }
+            for col in 0..n {
+                out.data[out_row + col] = out.data[out_row + col].max(0.0);
+            }
+        }
+        return Ok(());
+    }
+    let rows_per_chunk = (m + threads - 1) / threads;
+    thread::scope(|scope| {
+        for (chunk_idx, chunk) in out.data.chunks_mut(rows_per_chunk * n).enumerate() {
+            let start_row = chunk_idx * rows_per_chunk;
+            scope.spawn(move || {
+                let rows = chunk.len() / n;
+                for local_row in 0..rows {
+                    let row = start_row + local_row;
+                    let out_row = local_row * n;
+                    for col in 0..n {
+                        chunk[out_row + col] = bias.data[col];
+                    }
+                    for kk in 0..k {
+                        let aik = a.data[row * k + kk];
+                        let b_row = kk * n;
+                        for col in 0..n {
+                            chunk[out_row + col] += aik * b.data[b_row + col];
+                        }
+                    }
+                    for col in 0..n {
+                        chunk[out_row + col] = chunk[out_row + col].max(0.0);
+                    }
+                }
+            });
+        }
+    });
+    Ok(())
 }
 
 fn matmul_into(a: &NativeTensor, b: &NativeTensor, out: &mut NativeTensor) -> Result<(), String> {

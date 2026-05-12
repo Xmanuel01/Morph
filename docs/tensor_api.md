@@ -307,6 +307,8 @@ The first native tranche provides:
 - `MemoryPlanner` metrics for peak bytes, allocated bytes, freed bytes, live bytes, and reuse count.
 - Fusion helpers for add+ReLU, matmul+bias, and softmax+cross-entropy equivalence evidence.
 - A basic MLP SGD training loop with manual backward rules for the bounded graph.
+- A native AdamW optimizer path for the bounded MLP training proof.
+- Parallel CPU matmul/fused-matmul execution with deterministic row-partitioned output.
 - `CudaBackendHook` as a non-PyTorch CUDA/Triton extension point. It is a hook only until CUDA execution has separate hardware-backed proof.
 
 Performance language is gated by `artifacts/readiness/v4_0_native_training_runtime.json`.
@@ -314,3 +316,6 @@ Do not claim broad PyTorch or CUDA superiority from this tranche. The acceptable
 wording after green evidence is:
 
 `Enkai's native training runtime is up to X% faster than Python/PyTorch eager on selected benchmarked workloads.`
+
+The v4.0 readiness script runs the native runtime tests in release mode so
+performance evidence is not collected from an unoptimized debug build.
