@@ -912,7 +912,7 @@ mod runtime {
                 enkai_cuda_matmul_bias_f32(
                     da.ptr,
                     db.ptr,
-                    dbias.as_ref().map(|buf| buf.ptr).unwrap_or(ptr::null()),
+                    dbias.as_ref().map(|buf| buf.ptr).unwrap_or(ptr::null_mut()),
                     out.ptr,
                     m as i64,
                     n as i64,
