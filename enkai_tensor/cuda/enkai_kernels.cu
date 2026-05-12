@@ -1,16 +1,24 @@
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
 #include <cublas_v2.h>
+#include <cublasLt.h>
 #include <math_constants.h>
 #include <stdint.h>
 
 extern "C" {
 
 static cublasHandle_t enkai_cublas_handle = nullptr;
+static cublasLtHandle_t enkai_cublaslt_handle = nullptr;
 
 int enkai_cuda_cublas_ready() {
     if (enkai_cublas_handle) return 0;
     cublasStatus_t status = cublasCreate(&enkai_cublas_handle);
+    return status == CUBLAS_STATUS_SUCCESS ? 0 : (int)status;
+}
+
+int enkai_cuda_cublaslt_ready() {
+    if (enkai_cublaslt_handle) return 0;
+    cublasStatus_t status = cublasLtCreate(&enkai_cublaslt_handle);
     return status == CUBLAS_STATUS_SUCCESS ? 0 : (int)status;
 }
 
@@ -600,6 +608,100 @@ int enkai_cuda_matmul_bias_cublas_f32(const float* a, const float* b, const floa
         enkai_add_bias_inplace_f32_kernel<<<(unsigned int)blocks, threads, 0, stream>>>(out, bias, m, n);
         return (int)cudaGetLastError();
     }
+    return (int)cudaGetLastError();
+}
+
+int enkai_cuda_matmul_bias_cublaslt_f32(const float* a, const float* b, const float* bias, float* out, int64_t m, int64_t n, int64_t k, cudaStream_t stream) {
+    if (!a || !b || !out || m <= 0 || n <= 0 || k <= 0) return 1;
+    int ready = enkai_cuda_cublaslt_ready();
+    if (ready != 0) return ready;
+
+    cublasLtMatmulDesc_t op_desc = nullptr;
+    cublasLtMatrixLayout_t a_desc = nullptr;
+    cublasLtMatrixLayout_t b_desc = nullptr;
+    cublasLtMatrixLayout_t c_desc = nullptr;
+    cublasLtMatrixLayout_t d_desc = nullptr;
+    cublasLtMatmulPreference_t preference = nullptr;
+    cublasLtMatmulHeuristicResult_t heuristic = {};
+    int returned_results = 0;
+    cublasStatus_t s = CUBLAS_STATUS_SUCCESS;
+
+    const float alpha = 1.0f;
+    const float beta = 0.0f;
+    const cublasOperation_t trans = CUBLAS_OP_N;
+    const cublasLtOrder_t row_major = CUBLASLT_ORDER_ROW;
+    const size_t workspace_bytes = 0;
+
+    s = cublasLtMatmulDescCreate(&op_desc, CUBLAS_COMPUTE_32F_FAST_TF32, CUDA_R_32F);
+    if (s != CUBLAS_STATUS_SUCCESS) goto cleanup;
+    s = cublasLtMatmulDescSetAttribute(op_desc, CUBLASLT_MATMUL_DESC_TRANSA, &trans, sizeof(trans));
+    if (s != CUBLAS_STATUS_SUCCESS) goto cleanup;
+    s = cublasLtMatmulDescSetAttribute(op_desc, CUBLASLT_MATMUL_DESC_TRANSB, &trans, sizeof(trans));
+    if (s != CUBLAS_STATUS_SUCCESS) goto cleanup;
+
+    s = cublasLtMatrixLayoutCreate(&a_desc, CUDA_R_32F, m, k, k);
+    if (s != CUBLAS_STATUS_SUCCESS) goto cleanup;
+    s = cublasLtMatrixLayoutCreate(&b_desc, CUDA_R_32F, k, n, n);
+    if (s != CUBLAS_STATUS_SUCCESS) goto cleanup;
+    s = cublasLtMatrixLayoutCreate(&c_desc, CUDA_R_32F, m, n, n);
+    if (s != CUBLAS_STATUS_SUCCESS) goto cleanup;
+    s = cublasLtMatrixLayoutCreate(&d_desc, CUDA_R_32F, m, n, n);
+    if (s != CUBLAS_STATUS_SUCCESS) goto cleanup;
+
+    s = cublasLtMatrixLayoutSetAttribute(a_desc, CUBLASLT_MATRIX_LAYOUT_ORDER, &row_major, sizeof(row_major));
+    if (s != CUBLAS_STATUS_SUCCESS) goto cleanup;
+    s = cublasLtMatrixLayoutSetAttribute(b_desc, CUBLASLT_MATRIX_LAYOUT_ORDER, &row_major, sizeof(row_major));
+    if (s != CUBLAS_STATUS_SUCCESS) goto cleanup;
+    s = cublasLtMatrixLayoutSetAttribute(c_desc, CUBLASLT_MATRIX_LAYOUT_ORDER, &row_major, sizeof(row_major));
+    if (s != CUBLAS_STATUS_SUCCESS) goto cleanup;
+    s = cublasLtMatrixLayoutSetAttribute(d_desc, CUBLASLT_MATRIX_LAYOUT_ORDER, &row_major, sizeof(row_major));
+    if (s != CUBLAS_STATUS_SUCCESS) goto cleanup;
+
+    s = cublasLtMatmulPreferenceCreate(&preference);
+    if (s != CUBLAS_STATUS_SUCCESS) goto cleanup;
+    s = cublasLtMatmulPreferenceSetAttribute(preference, CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES, &workspace_bytes, sizeof(workspace_bytes));
+    if (s != CUBLAS_STATUS_SUCCESS) goto cleanup;
+    s = cublasLtMatmulAlgoGetHeuristic(enkai_cublaslt_handle, op_desc, a_desc, b_desc, c_desc, d_desc, preference, 1, &heuristic, &returned_results);
+    if (s != CUBLAS_STATUS_SUCCESS || returned_results == 0) {
+        s = s == CUBLAS_STATUS_SUCCESS ? CUBLAS_STATUS_NOT_SUPPORTED : s;
+        goto cleanup;
+    }
+
+    s = cublasLtMatmul(
+        enkai_cublaslt_handle,
+        op_desc,
+        &alpha,
+        a,
+        a_desc,
+        b,
+        b_desc,
+        &beta,
+        out,
+        c_desc,
+        out,
+        d_desc,
+        &heuristic.algo,
+        nullptr,
+        0,
+        stream
+    );
+    if (s == CUBLAS_STATUS_SUCCESS && bias) {
+        int threads = 256;
+        int64_t total = m * n;
+        int64_t blocks = (total + threads - 1) / threads;
+        enkai_add_bias_inplace_f32_kernel<<<(unsigned int)blocks, threads, 0, stream>>>(out, bias, m, n);
+        cudaError_t e = cudaGetLastError();
+        if (e != cudaSuccess) s = CUBLAS_STATUS_EXECUTION_FAILED;
+    }
+
+cleanup:
+    if (preference) cublasLtMatmulPreferenceDestroy(preference);
+    if (d_desc) cublasLtMatrixLayoutDestroy(d_desc);
+    if (c_desc) cublasLtMatrixLayoutDestroy(c_desc);
+    if (b_desc) cublasLtMatrixLayoutDestroy(b_desc);
+    if (a_desc) cublasLtMatrixLayoutDestroy(a_desc);
+    if (op_desc) cublasLtMatmulDescDestroy(op_desc);
+    if (s != CUBLAS_STATUS_SUCCESS) return (int)s;
     return (int)cudaGetLastError();
 }
 

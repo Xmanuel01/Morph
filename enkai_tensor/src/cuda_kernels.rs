@@ -42,6 +42,7 @@ pub fn kernel_manifest() -> serde_json::Value {
             {"name": "bias_gelu", "symbol": "enkai_cuda_bias_gelu_bf16", "dtype": "bf16", "class": "fusion"},
             {"name": "matmul_bias", "symbol": "enkai_cuda_matmul_bias_f32", "dtype": "fp32", "class": "fusion"},
             {"name": "matmul_bias", "symbol": "enkai_cuda_matmul_bias_cublas_f32", "dtype": "fp32", "class": "cublas_fusion"},
+            {"name": "matmul_bias", "symbol": "enkai_cuda_matmul_bias_cublaslt_f32", "dtype": "fp32_tf32_accumulate", "class": "cublaslt_tensor_core_candidate"},
             {"name": "matmul_bias", "symbol": "enkai_cuda_matmul_bias_f16", "dtype": "fp16", "class": "fusion"},
             {"name": "matmul_bias", "symbol": "enkai_cuda_matmul_bias_bf16", "dtype": "bf16", "class": "fusion"},
             {"name": "layernorm", "symbol": "enkai_cuda_layernorm_f32", "dtype": "fp32", "class": "normalization"},
@@ -598,6 +599,17 @@ extern "C" {
         k: i64,
         stream: *mut std::ffi::c_void,
     ) -> i32;
+    pub fn enkai_cuda_matmul_bias_cublaslt_f32(
+        a: *const f32,
+        b: *const f32,
+        bias: *const f32,
+        out: *mut f32,
+        m: i64,
+        n: i64,
+        k: i64,
+        stream: *mut std::ffi::c_void,
+    ) -> i32;
+    pub fn enkai_cuda_cublaslt_ready() -> i32;
     pub fn enkai_cuda_matmul_bias_f16(
         a: *const std::ffi::c_void,
         b: *const std::ffi::c_void,
@@ -914,6 +926,76 @@ mod runtime {
         }
         let bias_ptr = bias.map(|buf| buf.as_ptr()).unwrap_or(ptr::null());
         unsafe {
+            let cublaslt_status = enkai_cuda_matmul_bias_cublaslt_f32(
+                a.as_ptr(),
+                b.as_ptr(),
+                bias_ptr,
+                out.as_mut_ptr(),
+                m as i64,
+                n as i64,
+                k as i64,
+                ptr::null_mut(),
+            );
+            if cublaslt_status != 0 {
+                let cublas_status = enkai_cuda_matmul_bias_cublas_f32(
+                    a.as_ptr(),
+                    b.as_ptr(),
+                    bias_ptr,
+                    out.as_mut_ptr(),
+                    m as i64,
+                    n as i64,
+                    k as i64,
+                    ptr::null_mut(),
+                );
+                if cublas_status != 0 {
+                    check(
+                        enkai_cuda_matmul_bias_f32(
+                            a.as_ptr(),
+                            b.as_ptr(),
+                            bias_ptr,
+                            out.as_mut_ptr(),
+                            m as i64,
+                            n as i64,
+                            k as i64,
+                            ptr::null_mut(),
+                        ),
+                        "enkai_cuda_matmul_bias_f32 resident fallback",
+                    )?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn matmul_accel_path() -> &'static str {
+        unsafe {
+            if enkai_cuda_cublaslt_ready() == 0 {
+                "cublaslt_tensor_core_candidate"
+            } else {
+                "cublas"
+            }
+        }
+    }
+
+    pub fn matmul_bias_f32_device_cublas(
+        a: &CudaF32Buffer,
+        b: &CudaF32Buffer,
+        bias: Option<&CudaF32Buffer>,
+        out: &mut CudaF32Buffer,
+        m: usize,
+        n: usize,
+        k: usize,
+    ) -> Result<(), String> {
+        if a.len() != m * k || b.len() != k * n || out.len() != m * n {
+            return Err("E_CUDA_SHAPE: resident matmul input shape mismatch".to_string());
+        }
+        if let Some(bias) = bias {
+            if bias.len() != n {
+                return Err("E_CUDA_SHAPE: resident matmul bias length mismatch".to_string());
+            }
+        }
+        let bias_ptr = bias.map(|buf| buf.as_ptr()).unwrap_or(ptr::null());
+        unsafe {
             let cublas_status = enkai_cuda_matmul_bias_cublas_f32(
                 a.as_ptr(),
                 b.as_ptr(),
@@ -941,6 +1023,85 @@ mod runtime {
             }
         }
         Ok(())
+    }
+
+    pub fn matmul_bias_f32_device_cublaslt(
+        a: &CudaF32Buffer,
+        b: &CudaF32Buffer,
+        bias: Option<&CudaF32Buffer>,
+        out: &mut CudaF32Buffer,
+        m: usize,
+        n: usize,
+        k: usize,
+    ) -> Result<(), String> {
+        if a.len() != m * k || b.len() != k * n || out.len() != m * n {
+            return Err("E_CUDA_SHAPE: resident matmul input shape mismatch".to_string());
+        }
+        if let Some(bias) = bias {
+            if bias.len() != n {
+                return Err("E_CUDA_SHAPE: resident matmul bias length mismatch".to_string());
+            }
+        }
+        let bias_ptr = bias.map(|buf| buf.as_ptr()).unwrap_or(ptr::null());
+        unsafe {
+            check(
+                enkai_cuda_matmul_bias_cublaslt_f32(
+                    a.as_ptr(),
+                    b.as_ptr(),
+                    bias_ptr,
+                    out.as_mut_ptr(),
+                    m as i64,
+                    n as i64,
+                    k as i64,
+                    ptr::null_mut(),
+                ),
+                "enkai_cuda_matmul_bias_cublaslt_f32",
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn matmul_bias_f32_host_cublaslt(
+        a: &[f32],
+        b: &[f32],
+        bias: Option<&[f32]>,
+        m: usize,
+        n: usize,
+        k: usize,
+    ) -> Result<Vec<f32>, String> {
+        if a.len() != m * k || b.len() != k * n {
+            return Err("E_CUDA_SHAPE: matmul input shape mismatch".to_string());
+        }
+        if let Some(bias) = bias {
+            if bias.len() != n {
+                return Err("E_CUDA_SHAPE: matmul bias length mismatch".to_string());
+            }
+        }
+        let da = DeviceBuffer::from_host(a)?;
+        let db = DeviceBuffer::from_host(b)?;
+        let dbias = match bias {
+            Some(values) => Some(DeviceBuffer::from_host(values)?),
+            None => None,
+        };
+        let out = DeviceBuffer::<f32>::uninit(m * n)?;
+        let bias_ptr = dbias.as_ref().map(|buf| buf.ptr).unwrap_or(ptr::null_mut());
+        unsafe {
+            check(
+                enkai_cuda_matmul_bias_cublaslt_f32(
+                    da.ptr,
+                    db.ptr,
+                    bias_ptr,
+                    out.ptr,
+                    m as i64,
+                    n as i64,
+                    k as i64,
+                    ptr::null_mut(),
+                ),
+                "enkai_cuda_matmul_bias_cublaslt_f32",
+            )?;
+        }
+        synchronize()?;
+        out.to_host()
     }
 
     pub fn vec_add_f32_host(a: &[f32], b: &[f32]) -> Result<Vec<f32>, String> {
@@ -1002,7 +1163,7 @@ mod runtime {
         let out = DeviceBuffer::<f32>::uninit(m * n)?;
         let bias_ptr = dbias.as_ref().map(|buf| buf.ptr).unwrap_or(ptr::null_mut());
         unsafe {
-            let cublas_status = enkai_cuda_matmul_bias_cublas_f32(
+            let cublaslt_status = enkai_cuda_matmul_bias_cublaslt_f32(
                 da.ptr,
                 db.ptr,
                 bias_ptr,
@@ -1012,20 +1173,32 @@ mod runtime {
                 k as i64,
                 ptr::null_mut(),
             );
-            if cublas_status != 0 {
-                check(
-                    enkai_cuda_matmul_bias_f32(
-                        da.ptr,
-                        db.ptr,
-                        bias_ptr,
-                        out.ptr,
-                        m as i64,
-                        n as i64,
-                        k as i64,
-                        ptr::null_mut(),
-                    ),
-                    "enkai_cuda_matmul_bias_f32 fallback",
-                )?;
+            if cublaslt_status != 0 {
+                let cublas_status = enkai_cuda_matmul_bias_cublas_f32(
+                    da.ptr,
+                    db.ptr,
+                    bias_ptr,
+                    out.ptr,
+                    m as i64,
+                    n as i64,
+                    k as i64,
+                    ptr::null_mut(),
+                );
+                if cublas_status != 0 {
+                    check(
+                        enkai_cuda_matmul_bias_f32(
+                            da.ptr,
+                            db.ptr,
+                            bias_ptr,
+                            out.ptr,
+                            m as i64,
+                            n as i64,
+                            k as i64,
+                            ptr::null_mut(),
+                        ),
+                        "enkai_cuda_matmul_bias_f32 fallback",
+                    )?;
+                }
             }
         }
         synchronize()?;
@@ -1175,6 +1348,40 @@ pub fn cuda_matmul_bias_f32_host(
     runtime::matmul_bias_f32_host(a, b, bias, m, n, k)
 }
 
+#[cfg(feature = "cuda-kernels")]
+pub fn cuda_matmul_accel_path() -> &'static str {
+    runtime::matmul_accel_path()
+}
+
+#[cfg(not(feature = "cuda-kernels"))]
+pub fn cuda_matmul_accel_path() -> &'static str {
+    "cuda_unavailable"
+}
+
+#[cfg(feature = "cuda-kernels")]
+pub fn cuda_matmul_bias_f32_host_cublaslt(
+    a: &[f32],
+    b: &[f32],
+    bias: Option<&[f32]>,
+    m: usize,
+    n: usize,
+    k: usize,
+) -> Result<Vec<f32>, String> {
+    runtime::matmul_bias_f32_host_cublaslt(a, b, bias, m, n, k)
+}
+
+#[cfg(not(feature = "cuda-kernels"))]
+pub fn cuda_matmul_bias_f32_host_cublaslt(
+    _a: &[f32],
+    _b: &[f32],
+    _bias: Option<&[f32]>,
+    _m: usize,
+    _n: usize,
+    _k: usize,
+) -> Result<Vec<f32>, String> {
+    Err("E_CUDA_UNAVAILABLE: build without cuda-kernels feature".to_string())
+}
+
 #[cfg(not(feature = "cuda-kernels"))]
 pub fn cuda_matmul_bias_f32_host(
     _a: &[f32],
@@ -1244,6 +1451,32 @@ pub fn cuda_matmul_bias_f32_device(
     k: usize,
 ) -> Result<(), String> {
     runtime::matmul_bias_f32_device(a, b, bias, out, m, n, k)
+}
+
+#[cfg(feature = "cuda-kernels")]
+pub fn cuda_matmul_bias_f32_device_cublas(
+    a: &CudaF32Buffer,
+    b: &CudaF32Buffer,
+    bias: Option<&CudaF32Buffer>,
+    out: &mut CudaF32Buffer,
+    m: usize,
+    n: usize,
+    k: usize,
+) -> Result<(), String> {
+    runtime::matmul_bias_f32_device_cublas(a, b, bias, out, m, n, k)
+}
+
+#[cfg(feature = "cuda-kernels")]
+pub fn cuda_matmul_bias_f32_device_cublaslt(
+    a: &CudaF32Buffer,
+    b: &CudaF32Buffer,
+    bias: Option<&CudaF32Buffer>,
+    out: &mut CudaF32Buffer,
+    m: usize,
+    n: usize,
+    k: usize,
+) -> Result<(), String> {
+    runtime::matmul_bias_f32_device_cublaslt(a, b, bias, out, m, n, k)
 }
 
 #[cfg(not(feature = "cuda-kernels"))]

@@ -135,7 +135,8 @@ fn native_cuda_cublas_large_matmul_gate() {
 #[test]
 fn native_cuda_resident_cublas_matmul_gate() {
     use enkai_tensor::cuda_kernels::{
-        cuda_matmul_bias_f32_device, cuda_synchronize, CudaF32Buffer,
+        cuda_matmul_accel_path, cuda_matmul_bias_f32_device, cuda_matmul_bias_f32_device_cublas,
+        cuda_synchronize, CudaF32Buffer,
     };
 
     if !CudaNativeBackend::available() {
@@ -152,6 +153,18 @@ fn native_cuda_resident_cublas_matmul_gate() {
     let da = CudaF32Buffer::from_host(&a).unwrap();
     let db = CudaF32Buffer::from_host(&b).unwrap();
     let mut out = CudaF32Buffer::zeros(n * n).unwrap();
+    let mut cublas_out = CudaF32Buffer::zeros(n * n).unwrap();
+    let accel_path = cuda_matmul_accel_path();
+
+    cuda_matmul_bias_f32_device_cublas(&da, &db, None, &mut cublas_out, n, n, n).unwrap();
+    cuda_synchronize().unwrap();
+    let cublas_started = std::time::Instant::now();
+    for _ in 0..iters {
+        cuda_matmul_bias_f32_device_cublas(&da, &db, None, &mut cublas_out, n, n, n).unwrap();
+    }
+    cuda_synchronize().unwrap();
+    let cublas_elapsed_ms = cublas_started.elapsed().as_secs_f64() * 1000.0;
+
     cuda_matmul_bias_f32_device(&da, &db, None, &mut out, n, n, n).unwrap();
     cuda_synchronize().unwrap();
     let started = std::time::Instant::now();
@@ -166,12 +179,16 @@ fn native_cuda_resident_cublas_matmul_gate() {
         "ENKAI_NATIVE_CUDA_RESIDENT_MATMUL={}",
         serde_json::json!({
             "backend": "enkai_native_cuda",
-            "kernel": "enkai_cuda_matmul_bias_cublas_f32",
+            "kernel": accel_path,
+            "fallback_kernel": "enkai_cuda_matmul_bias_cublas_f32",
             "mode": "device_resident",
             "shape": [n, n],
             "iterations": iters,
             "elapsed_ms": elapsed_ms,
             "per_iter_ms": elapsed_ms / iters as f64,
+            "cublas_baseline_elapsed_ms": cublas_elapsed_ms,
+            "cublas_baseline_per_iter_ms": cublas_elapsed_ms / iters as f64,
+            "speedup_vs_internal_cublas": cublas_elapsed_ms / elapsed_ms,
             "checksum": checksum,
             "pytorch_core_execution_dependency": false
         })
