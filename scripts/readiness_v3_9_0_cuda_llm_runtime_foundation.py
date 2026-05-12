@@ -336,7 +336,8 @@ def main() -> int:
     py_info = resolve_python(py_cmd, root)
     torch_info = torch_lib_dir(py_cmd, root)
     pytorch = run_pytorch_reference(py_cmd, contract["bounded_model"], work_dir, root)
-    enkai_cuda = run_enkai_cuda_reference(root, py_info, torch_info) if torch_info.get("passed") else {"passed": False, "metrics": {"skipped": True, "reason": "torch unavailable"}, "cargo": None}
+    torch_ready = bool(torch_info.get("process", {}).get("passed") and torch_info.get("cuda_available"))
+    enkai_cuda = run_enkai_cuda_reference(root, py_info, torch_info) if torch_ready else {"passed": False, "metrics": {"skipped": True, "reason": "torch unavailable"}, "cargo": None}
 
     failures: list[str] = []
     if not backend_checks["passed"]: failures.append("backend catalog source checks failed")
