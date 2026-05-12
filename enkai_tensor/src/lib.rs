@@ -4537,15 +4537,18 @@ pub extern "C" fn enkai_tensor_lm_session_eval(session: i64) -> i64 {
                     return 0;
                 }
             };
-            match forward_lm_tensors_internal(
-                &session.params,
-                &session.spec,
-                session.input,
-                session.targets,
-                session.batch_size,
-                session.seq_len,
-                false,
-            ) {
+            let result = tch::no_grad(|| {
+                forward_lm_tensors_internal(
+                    &session.params,
+                    &session.spec,
+                    session.input,
+                    session.targets,
+                    session.batch_size,
+                    session.seq_len,
+                    false,
+                )
+            });
+            match result {
                 Ok(handle) => handle,
                 Err(err) => {
                     set_error(err);
