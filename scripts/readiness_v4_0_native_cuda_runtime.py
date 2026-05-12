@@ -28,7 +28,10 @@ def parse_evidence(stdout: str) -> dict[str, Any]:
     evidence = {"missing": True}
     for line in stdout.splitlines():
         if line.startswith("ENKAI_NATIVE_CUDA_EVIDENCE="):
+            large = evidence.get("large_matmul")
             evidence = json.loads(line.split("=", 1)[1])
+            if large is not None:
+                evidence["large_matmul"] = large
         if line.startswith("ENKAI_NATIVE_CUDA_LARGE_MATMUL="):
             if evidence.get("missing"):
                 evidence = {}
