@@ -15,7 +15,7 @@ use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
 use std::ptr;
 #[cfg(feature = "torch")]
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 #[cfg(feature = "torch")]
 use std::sync::Mutex;
 
@@ -1175,7 +1175,29 @@ fn env_flag_enabled(key: &str) -> bool {
 }
 
 #[cfg(feature = "torch")]
-static NEXT_HANDLE: AtomicI64 = AtomicI64::new(1);
+static NEXT_HANDLE: AtomicU64 = AtomicU64::new(1);
+
+#[cfg(feature = "torch")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HandleKind {
+    Tensor = 1,
+    Device = 2,
+    Optimizer = 3,
+    Scaler = 4,
+    LmSession = 5,
+}
+
+#[cfg(feature = "torch")]
+impl HandleKind {
+    const TAG_SHIFT: u64 = 56;
+    const PAYLOAD_MASK: u64 = (1u64 << Self::TAG_SHIFT) - 1;
+    const OPAQUE_SALT: u64 = 0x00a5_17c3_9e37_79b9;
+    const OPAQUE_STRIDE: u64 = 0x0000_0000_01f1_2357;
+
+    fn tag(self) -> u64 {
+        (self as u64) << Self::TAG_SHIFT
+    }
+}
 
 #[cfg(feature = "torch")]
 static TENSORS: Lazy<Mutex<HashMap<i64, TensorEntry>>> = Lazy::new(|| Mutex::new(HashMap::new()));
@@ -1223,8 +1245,39 @@ fn file_sha256(path: &str) -> Result<String, String> {
 }
 
 #[cfg(feature = "torch")]
-fn next_handle() -> i64 {
-    NEXT_HANDLE.fetch_add(1, Ordering::SeqCst)
+fn next_handle(kind: HandleKind) -> i64 {
+    let sequence = NEXT_HANDLE.fetch_add(1, Ordering::SeqCst);
+    let payload = sequence
+        .wrapping_mul(HandleKind::OPAQUE_STRIDE)
+        .wrapping_add(HandleKind::OPAQUE_SALT)
+        & HandleKind::PAYLOAD_MASK;
+    (kind.tag() | payload) as i64
+}
+
+#[cfg(feature = "torch")]
+fn handle_kind(handle: i64) -> Option<HandleKind> {
+    if handle <= 0 {
+        return None;
+    }
+    match ((handle as u64) >> HandleKind::TAG_SHIFT) & 0x7f {
+        1 => Some(HandleKind::Tensor),
+        2 => Some(HandleKind::Device),
+        3 => Some(HandleKind::Optimizer),
+        4 => Some(HandleKind::Scaler),
+        5 => Some(HandleKind::LmSession),
+        _ => None,
+    }
+}
+
+#[cfg(feature = "torch")]
+fn require_handle_kind(handle: i64, expected: HandleKind, label: &str) -> Result<(), String> {
+    match handle_kind(handle) {
+        Some(actual) if actual == expected => Ok(()),
+        Some(actual) => Err(format!(
+            "Invalid {label} handle kind: expected {expected:?}, found {actual:?}"
+        )),
+        None => Err(format!("Invalid {label} handle: opaque handle tag missing")),
+    }
 }
 
 #[cfg(feature = "torch")]
@@ -1234,7 +1287,7 @@ fn register_tensor(t: Tensor) -> i64 {
     }
     match TENSORS.lock() {
         Ok(mut guard) => {
-            let id = next_handle();
+            let id = next_handle(HandleKind::Tensor);
             if let Ok(mut freed) = TENSOR_FREED.lock() {
                 freed.remove(&id);
             }
@@ -1261,7 +1314,7 @@ fn register_device(d: Device) -> i64 {
     }
     match DEVICES.lock() {
         Ok(mut guard) => {
-            let id = next_handle();
+            let id = next_handle(HandleKind::Device);
             if let Ok(mut freed) = DEVICE_FREED.lock() {
                 freed.remove(&id);
             }
@@ -1288,7 +1341,7 @@ fn register_opt(state: AdamWState) -> i64 {
     }
     match OPT_STATES.lock() {
         Ok(mut guard) => {
-            let id = next_handle();
+            let id = next_handle(HandleKind::Optimizer);
             if let Ok(mut freed) = OPT_FREED.lock() {
                 freed.remove(&id);
             }
@@ -1309,7 +1362,7 @@ fn register_scaler(state: GradScalerState) -> i64 {
     }
     match SCALERS.lock() {
         Ok(mut guard) => {
-            let id = next_handle();
+            let id = next_handle(HandleKind::Scaler);
             if let Ok(mut freed) = SCALER_FREED.lock() {
                 freed.remove(&id);
             }
@@ -1330,7 +1383,7 @@ fn register_lm_session(state: LmSession) -> i64 {
     }
     match LM_SESSIONS.lock() {
         Ok(mut guard) => {
-            let id = next_handle();
+            let id = next_handle(HandleKind::LmSession);
             if let Ok(mut freed) = LM_SESSION_FREED.lock() {
                 freed.remove(&id);
             }
@@ -1349,6 +1402,7 @@ fn get_tensor(handle: i64) -> Result<Tensor, String> {
     if !require_tch_backend() {
         return Err("backend not supported".to_string());
     }
+    require_handle_kind(handle, HandleKind::Tensor, "tensor")?;
     if let Ok(freed) = TENSOR_FREED.lock() {
         if freed.contains(&handle) {
             return Err("Stale tensor handle (freed)".to_string());
@@ -1367,6 +1421,9 @@ fn get_tensor(handle: i64) -> Result<Tensor, String> {
 fn get_tensors(handles: &[i64]) -> Result<Vec<Tensor>, String> {
     if !require_tch_backend() {
         return Err("backend not supported".to_string());
+    }
+    for handle in handles {
+        require_handle_kind(*handle, HandleKind::Tensor, "tensor")?;
     }
     if let Ok(freed) = TENSOR_FREED.lock() {
         for handle in handles {
@@ -1394,6 +1451,7 @@ fn get_device(handle: i64) -> Result<Device, String> {
     if !require_tch_backend() {
         return Err("backend not supported".to_string());
     }
+    require_handle_kind(handle, HandleKind::Device, "device")?;
     if let Ok(freed) = DEVICE_FREED.lock() {
         if freed.contains(&handle) {
             return Err("Stale device handle (freed)".to_string());
@@ -1413,6 +1471,7 @@ fn get_lm_session(handle: i64) -> Result<LmSession, String> {
     if !require_tch_backend() {
         return Err("backend not supported".to_string());
     }
+    require_handle_kind(handle, HandleKind::LmSession, "lm session")?;
     if let Ok(freed) = LM_SESSION_FREED.lock() {
         if freed.contains(&handle) {
             return Err("Stale lm session handle (freed)".to_string());
@@ -1431,6 +1490,7 @@ fn get_opt_mut(handle: i64) -> Result<AdamWState, String> {
     if !require_tch_backend() {
         return Err("backend not supported".to_string());
     }
+    require_handle_kind(handle, HandleKind::Optimizer, "optimizer")?;
     if let Ok(freed) = OPT_FREED.lock() {
         if freed.contains(&handle) {
             return Err("Stale optimizer handle (freed)".to_string());
@@ -1447,6 +1507,10 @@ fn get_opt_mut(handle: i64) -> Result<AdamWState, String> {
 
 #[cfg(feature = "torch")]
 fn update_tensor(handle: i64, tensor: Tensor) {
+    if let Err(err) = require_handle_kind(handle, HandleKind::Tensor, "tensor") {
+        set_error(err);
+        return;
+    }
     if let Ok(mut guard) = TENSORS.lock() {
         if let Some(entry) = guard.get_mut(&handle) {
             entry.tensor = tensor;
@@ -1460,6 +1524,10 @@ fn update_tensor(handle: i64, tensor: Tensor) {
 
 #[cfg(feature = "torch")]
 fn update_opt(handle: i64, state: AdamWState) {
+    if let Err(err) = require_handle_kind(handle, HandleKind::Optimizer, "optimizer") {
+        set_error(err);
+        return;
+    }
     if let Ok(mut guard) = OPT_STATES.lock() {
         if let Some(entry) = guard.get_mut(&handle) {
             entry.state = state;
@@ -1473,6 +1541,10 @@ fn update_opt(handle: i64, state: AdamWState) {
 
 #[cfg(feature = "torch")]
 fn set_opt_params(handle: i64, params: Vec<i64>) {
+    if let Err(err) = require_handle_kind(handle, HandleKind::Optimizer, "optimizer") {
+        set_error(err);
+        return;
+    }
     if let Ok(mut guard) = OPT_PARAMS.lock() {
         guard.insert(handle, params);
     } else {
@@ -1482,6 +1554,7 @@ fn set_opt_params(handle: i64, params: Vec<i64>) {
 
 #[cfg(feature = "torch")]
 fn get_opt_params(handle: i64) -> Result<Vec<i64>, String> {
+    require_handle_kind(handle, HandleKind::Optimizer, "optimizer")?;
     if let Ok(freed) = OPT_FREED.lock() {
         if freed.contains(&handle) {
             return Err("Stale optimizer handle (freed)".to_string());
@@ -1497,6 +1570,10 @@ fn get_opt_params(handle: i64) -> Result<Vec<i64>, String> {
 
 #[cfg(feature = "torch")]
 fn set_opt_hyper(handle: i64, hyper: AdamWHyper) {
+    if let Err(err) = require_handle_kind(handle, HandleKind::Optimizer, "optimizer") {
+        set_error(err);
+        return;
+    }
     if let Ok(mut guard) = OPT_HYPER.lock() {
         guard.insert(handle, hyper);
     } else {
@@ -1506,6 +1583,7 @@ fn set_opt_hyper(handle: i64, hyper: AdamWHyper) {
 
 #[cfg(feature = "torch")]
 fn get_opt_hyper(handle: i64) -> Result<AdamWHyper, String> {
+    require_handle_kind(handle, HandleKind::Optimizer, "optimizer")?;
     if let Ok(freed) = OPT_FREED.lock() {
         if freed.contains(&handle) {
             return Err("Stale optimizer handle (freed)".to_string());
@@ -1579,6 +1657,7 @@ fn zero_grad_params(params: &[i64]) -> Result<(), String> {
 
 #[cfg(feature = "torch")]
 fn get_scaler_mut(handle: i64) -> Result<GradScalerState, String> {
+    require_handle_kind(handle, HandleKind::Scaler, "scaler")?;
     if let Ok(freed) = SCALER_FREED.lock() {
         if freed.contains(&handle) {
             return Err("Stale scaler handle (freed)".to_string());
@@ -1594,6 +1673,10 @@ fn get_scaler_mut(handle: i64) -> Result<GradScalerState, String> {
 
 #[cfg(feature = "torch")]
 fn update_scaler(handle: i64, state: GradScalerState) {
+    if let Err(err) = require_handle_kind(handle, HandleKind::Scaler, "scaler") {
+        set_error(err);
+        return;
+    }
     if let Ok(mut guard) = SCALERS.lock() {
         guard.insert(handle, state);
     } else {
@@ -1871,9 +1954,13 @@ pub extern "C" fn enkai_tensor_free(handle: i64) -> c_int {
         #[cfg(feature = "torch")]
         {
             guard_backend!(1);
+            if let Err(err) = require_handle_kind(handle, HandleKind::Tensor, "tensor") {
+                set_error(err);
+                return 1;
+            }
             if let Ok(freed) = TENSOR_FREED.lock() {
                 if freed.contains(&handle) {
-                    set_error("tensor handle already freed");
+                    set_error("Stale tensor handle (freed)");
                     return 1;
                 }
             }
@@ -1881,7 +1968,7 @@ pub extern "C" fn enkai_tensor_free(handle: i64) -> c_int {
                 Ok(mut guard) => match guard.get_mut(&handle) {
                     Some(entry) => {
                         if entry.refcount == 0 {
-                            set_error("tensor handle already freed");
+                            set_error("Stale tensor handle (freed)");
                             return 1;
                         }
                         entry.refcount -= 1;
@@ -1919,9 +2006,13 @@ pub extern "C" fn enkai_tensor_retain(handle: i64) -> c_int {
         clear_error();
         #[cfg(feature = "torch")]
         {
+            if let Err(err) = require_handle_kind(handle, HandleKind::Tensor, "tensor") {
+                set_error(err);
+                return 1;
+            }
             if let Ok(freed) = TENSOR_FREED.lock() {
                 if freed.contains(&handle) {
-                    set_error("tensor handle already freed");
+                    set_error("Stale tensor handle (freed)");
                     return 1;
                 }
             }
@@ -2331,9 +2422,13 @@ pub extern "C" fn enkai_tensor_device_free(handle: i64) -> c_int {
         #[cfg(feature = "torch")]
         {
             guard_backend!(1);
+            if let Err(err) = require_handle_kind(handle, HandleKind::Device, "device") {
+                set_error(err);
+                return 1;
+            }
             if let Ok(freed) = DEVICE_FREED.lock() {
                 if freed.contains(&handle) {
-                    set_error("device handle already freed");
+                    set_error("Stale device handle (freed)");
                     return 1;
                 }
             }
@@ -2341,7 +2436,7 @@ pub extern "C" fn enkai_tensor_device_free(handle: i64) -> c_int {
                 Ok(mut guard) => match guard.get_mut(&handle) {
                     Some(entry) => {
                         if entry.refcount == 0 {
-                            set_error("device handle already freed");
+                            set_error("Stale device handle (freed)");
                             return 1;
                         }
                         entry.refcount -= 1;
@@ -4576,9 +4671,13 @@ pub extern "C" fn enkai_tensor_lm_session_free(session: i64) -> c_int {
         clear_error();
         #[cfg(feature = "torch")]
         {
+            if let Err(err) = require_handle_kind(session, HandleKind::LmSession, "lm session") {
+                set_error(err);
+                return 1;
+            }
             if let Ok(freed) = LM_SESSION_FREED.lock() {
                 if freed.contains(&session) {
-                    set_error("lm session handle already freed");
+                    set_error("Stale lm session handle (freed)");
                     return 1;
                 }
             }
@@ -4586,7 +4685,7 @@ pub extern "C" fn enkai_tensor_lm_session_free(session: i64) -> c_int {
                 Ok(mut guard) => match guard.get_mut(&session) {
                     Some(entry) => {
                         if entry.refcount == 0 {
-                            set_error("lm session handle already freed");
+                            set_error("Stale lm session handle (freed)");
                             return 1;
                         }
                         entry.refcount -= 1;
@@ -5014,9 +5113,13 @@ pub extern "C" fn enkai_tensor_opt_free(handle: i64) -> c_int {
                 set_error("backend 'torch' not selected");
                 return 1;
             }
+            if let Err(err) = require_handle_kind(handle, HandleKind::Optimizer, "optimizer") {
+                set_error(err);
+                return 1;
+            }
             if let Ok(freed) = OPT_FREED.lock() {
                 if freed.contains(&handle) {
-                    set_error("optimizer handle already freed");
+                    set_error("Stale optimizer handle (freed)");
                     return 1;
                 }
             }
@@ -5026,7 +5129,7 @@ pub extern "C" fn enkai_tensor_opt_free(handle: i64) -> c_int {
                 match guard.get_mut(&handle) {
                     Some(entry) => {
                         if entry.refcount == 0 {
-                            set_error("optimizer handle already freed");
+                            set_error("Stale optimizer handle (freed)");
                             return 1;
                         }
                         entry.refcount -= 1;
@@ -5137,6 +5240,10 @@ pub extern "C" fn enkai_amp_scaler_retain(handle: i64) -> c_int {
         clear_error();
         #[cfg(feature = "torch")]
         {
+            if let Err(err) = require_handle_kind(handle, HandleKind::Scaler, "scaler") {
+                set_error(err);
+                return 1;
+            }
             if let Ok(mut guard) = SCALERS.lock() {
                 match guard.get_mut(&handle) {
                     Some(state) => {
@@ -5167,11 +5274,15 @@ pub extern "C" fn enkai_amp_scaler_free(handle: i64) -> c_int {
         clear_error();
         #[cfg(feature = "torch")]
         {
+            if let Err(err) = require_handle_kind(handle, HandleKind::Scaler, "scaler") {
+                set_error(err);
+                return 1;
+            }
             if let Ok(mut guard) = SCALERS.lock() {
                 match guard.get_mut(&handle) {
                     Some(state) => {
                         if state.refcount == 0 {
-                            set_error("scaler already freed");
+                            set_error("Stale scaler handle (freed)");
                             return 1;
                         }
                         state.refcount -= 1;
@@ -5647,9 +5758,13 @@ pub extern "C" fn enkai_opt_retain(handle: i64) -> c_int {
         clear_error();
         #[cfg(feature = "torch")]
         {
+            if let Err(err) = require_handle_kind(handle, HandleKind::Optimizer, "optimizer") {
+                set_error(err);
+                return 1;
+            }
             if let Ok(freed) = OPT_FREED.lock() {
                 if freed.contains(&handle) {
-                    set_error("optimizer handle already freed");
+                    set_error("Stale optimizer handle (freed)");
                     return 1;
                 }
             }
@@ -5685,9 +5800,13 @@ pub extern "C" fn enkai_tensor_device_retain(handle: i64) -> c_int {
         clear_error();
         #[cfg(feature = "torch")]
         {
+            if let Err(err) = require_handle_kind(handle, HandleKind::Device, "device") {
+                set_error(err);
+                return 1;
+            }
             if let Ok(freed) = DEVICE_FREED.lock() {
                 if freed.contains(&handle) {
-                    set_error("device handle already freed");
+                    set_error("Stale device handle (freed)");
                     return 1;
                 }
             }
