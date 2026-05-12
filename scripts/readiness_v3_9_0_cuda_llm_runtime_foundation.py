@@ -284,7 +284,7 @@ with torch.no_grad():
             nn.init.ones_(module.weight)
             nn.init.zeros_(module.bias)
     nn.init.normal_(model.pos, mean=0.0, std=0.02)
-opt = torch.optim.AdamW(model.parameters(), lr=1e-3)
+opt = torch.optim.AdamW(model.parameters(), lr=1e-3, foreach=False, fused=False)
 data = torch.randint(0, vocab, (batch, seq), device=device)
 target = torch.roll(data, shifts=-1, dims=1)
 torch.cuda.synchronize(device)
@@ -329,17 +329,38 @@ cursor_path = tmp_dir / "data_cursor.json"
 rng_path = tmp_dir / "rng_state.pt"
 cuda_rng_path = tmp_dir / "cuda_rng_state.pt"
 integrity = tmp_dir / "integrity.json"
+tensor_index_path = tmp_dir / "tensor_index.json"
 ckpt_started = time.perf_counter()
 torch.save(model.state_dict(), model_path)
 torch.save(opt.state_dict(), optim_path)
 torch.save(torch.get_rng_state(), rng_path)
 torch.save(torch.cuda.get_rng_state_all(), cuda_rng_path)
-meta_path.write_text(json.dumps({"format_version": 1, "rng_state_file": rng_path.name, "cuda_rng_state_file": cuda_rng_path.name, "model_cfg": model_cfg}), encoding="utf-8")
+tensor_index = []
+for name, tensor in model.state_dict().items():
+    cpu_tensor = tensor.detach().cpu().contiguous()
+    tensor_index.append({
+        "name": name,
+        "shape": list(cpu_tensor.shape),
+        "dtype": str(cpu_tensor.dtype),
+        "sha256": hashlib.sha256(cpu_tensor.numpy().tobytes()).hexdigest(),
+    })
+for state_key, state in opt.state_dict().get("state", {}).items():
+    for slot_name, value in state.items():
+        if torch.is_tensor(value):
+            cpu_tensor = value.detach().cpu().contiguous()
+            tensor_index.append({
+                "name": f"optimizer.{state_key}.{slot_name}",
+                "shape": list(cpu_tensor.shape),
+                "dtype": str(cpu_tensor.dtype),
+                "sha256": hashlib.sha256(cpu_tensor.numpy().tobytes()).hexdigest(),
+            })
+tensor_index_path.write_text(json.dumps({"version": 1, "entries": tensor_index}, sort_keys=True), encoding="utf-8")
+meta_path.write_text(json.dumps({"format_version": 1, "rng_state_file": rng_path.name, "cuda_rng_state_file": cuda_rng_path.name, "model_cfg": model_cfg, "optimizer_mode": "adamw_foreach_false_fused_false", "tensor_index_file": tensor_index_path.name}), encoding="utf-8")
 cursor_path.write_text(json.dumps({"dataset": "synthetic_bounded_transformer", "batch": 0, "seq": int(seq), "replay_seed": 1337}), encoding="utf-8")
-for path in [model_path, optim_path, rng_path, cuda_rng_path, meta_path, cursor_path]:
+for path in [model_path, optim_path, rng_path, cuda_rng_path, meta_path, cursor_path, tensor_index_path]:
     with open(path, "rb") as f:
         os.fsync(f.fileno())
-hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in [model_path, optim_path, rng_path, cuda_rng_path, meta_path, cursor_path]}
+hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in [model_path, optim_path, rng_path, cuda_rng_path, meta_path, cursor_path, tensor_index_path]}
 integrity.write_text(json.dumps({"version": 1, "files": hashes}, sort_keys=True), encoding="utf-8")
 with open(integrity, "rb") as f:
     os.fsync(f.fileno())
