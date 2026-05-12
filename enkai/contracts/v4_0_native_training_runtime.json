@@ -14,6 +14,8 @@
     "parallel_cpu_matmul_backend",
     "release_profile_benchmark_evidence",
     "cuda_triton_backend_hook_without_pytorch_dependency",
+    "native_cuda_execution_without_pytorch_dependency",
+    "native_cuda_hardware_gated_benchmark",
     "benchmark_harness_python_pytorch_reference_only",
     "no_performance_claim_without_json_evidence"
   ],
@@ -36,7 +38,11 @@
     "benchmark_mlp_training_adamw",
     "benchmark_softmax_cross_entropy",
     "benchmark_memory_stress",
-    "python_reference_speedup_ge_1_5_for_vector_add_and_matmul"
+    "python_reference_speedup_ge_1_5_for_vector_add_and_matmul",
+    "native_cuda_vec_add_correctness",
+    "native_cuda_matmul_correctness",
+    "native_cuda_softmax_correctness",
+    "native_cuda_cross_entropy_correctness"
   ],
   "claim_policy": {
     "allow_claim_when_gate_green": "Enkai's native training runtime is up to X% faster than Python/PyTorch eager on selected benchmarked workloads.",
@@ -44,5 +50,7 @@
     "cuda_status": "hook_only_until_non_pytorch_cuda_backend_verifier_is_green"
   },
   "output_report": "artifacts/readiness/v4_0_native_training_runtime.json",
-  "verify_report": "artifacts/readiness/v4_0_native_training_runtime_verify.json"
+  "verify_report": "artifacts/readiness/v4_0_native_training_runtime_verify.json",
+  "cuda_output_report": "artifacts/readiness/v4_0_native_cuda_runtime.json",
+  "cuda_verify_report": "artifacts/readiness/v4_0_native_cuda_runtime_verify.json"
 }

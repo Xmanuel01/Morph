@@ -96,7 +96,7 @@ def source_checks(root: Path, contract: dict[str, Any]) -> dict[str, Any]:
     native = (root / "enkai_tensor" / "src" / "native_runtime.rs").read_text(encoding="utf-8")
     lib = (root / "enkai_tensor" / "src" / "lib.rs").read_text(encoding="utf-8")
     failures: list[str] = []
-    for token in ["TensorGraph", "GraphOp", "CpuBackend", "MemoryPlanner", "fused_add_relu", "fused_matmul_bias_relu", "train_mlp_sgd", "train_mlp_adamw", "AdamWConfig", "CudaBackendHook", "benchmark_native_runtime"]:
+    for token in ["TensorGraph", "GraphOp", "CpuBackend", "CudaNativeBackend", "MemoryPlanner", "fused_add_relu", "fused_matmul_bias_relu", "train_mlp_sgd", "train_mlp_adamw", "AdamWConfig", "CudaBackendHook", "benchmark_native_runtime"]:
         if token not in native:
             failures.append(f"missing native runtime token: {token}")
     forbidden_patterns = ["use tch", "tch::", "pyo3", "python::", "torch::"]

@@ -733,3 +733,399 @@ extern "C" {
         stream: *mut std::ffi::c_void,
     ) -> i32;
 }
+
+#[cfg(feature = "cuda-kernels")]
+#[allow(non_snake_case)]
+mod runtime {
+    use std::ffi::{c_int, c_void};
+    use std::marker::PhantomData;
+    use std::mem;
+    use std::ptr;
+
+    use super::*;
+
+    const CUDA_SUCCESS: c_int = 0;
+    const CUDA_MEMCPY_HOST_TO_DEVICE: c_int = 1;
+    const CUDA_MEMCPY_DEVICE_TO_HOST: c_int = 2;
+
+    extern "C" {
+        fn cudaGetDeviceCount(count: *mut c_int) -> c_int;
+        fn cudaMalloc(ptr: *mut *mut c_void, size: usize) -> c_int;
+        fn cudaFree(ptr: *mut c_void) -> c_int;
+        fn cudaMemcpy(dst: *mut c_void, src: *const c_void, count: usize, kind: c_int) -> c_int;
+        fn cudaDeviceSynchronize() -> c_int;
+    }
+
+    fn check(code: c_int, context: &str) -> Result<(), String> {
+        if code == CUDA_SUCCESS {
+            Ok(())
+        } else {
+            Err(format!(
+                "E_CUDA_RUNTIME: {context} failed with cuda error {code}"
+            ))
+        }
+    }
+
+    pub fn device_count() -> Result<i32, String> {
+        let mut count = 0;
+        unsafe { check(cudaGetDeviceCount(&mut count), "cudaGetDeviceCount")? };
+        Ok(count)
+    }
+
+    pub fn synchronize() -> Result<(), String> {
+        unsafe { check(cudaDeviceSynchronize(), "cudaDeviceSynchronize") }
+    }
+
+    struct DeviceBuffer<T> {
+        ptr: *mut T,
+        len: usize,
+        _marker: PhantomData<T>,
+    }
+
+    impl<T: Copy> DeviceBuffer<T> {
+        fn uninit(len: usize) -> Result<Self, String> {
+            let mut raw = ptr::null_mut();
+            let bytes = len
+                .checked_mul(mem::size_of::<T>())
+                .ok_or_else(|| "E_CUDA_RUNTIME: device allocation size overflow".to_string())?;
+            unsafe { check(cudaMalloc(&mut raw, bytes), "cudaMalloc")? };
+            Ok(Self {
+                ptr: raw.cast::<T>(),
+                len,
+                _marker: PhantomData,
+            })
+        }
+
+        fn from_host(values: &[T]) -> Result<Self, String> {
+            let buffer = Self::uninit(values.len())?;
+            let bytes = values
+                .len()
+                .checked_mul(mem::size_of::<T>())
+                .ok_or_else(|| "E_CUDA_RUNTIME: host copy size overflow".to_string())?;
+            unsafe {
+                check(
+                    cudaMemcpy(
+                        buffer.ptr.cast::<c_void>(),
+                        values.as_ptr().cast::<c_void>(),
+                        bytes,
+                        CUDA_MEMCPY_HOST_TO_DEVICE,
+                    ),
+                    "cudaMemcpy host->device",
+                )?;
+            }
+            Ok(buffer)
+        }
+
+        fn to_host(&self) -> Result<Vec<T>, String>
+        where
+            T: Default,
+        {
+            let mut out = vec![T::default(); self.len];
+            let bytes = self
+                .len
+                .checked_mul(mem::size_of::<T>())
+                .ok_or_else(|| "E_CUDA_RUNTIME: device copy size overflow".to_string())?;
+            unsafe {
+                check(
+                    cudaMemcpy(
+                        out.as_mut_ptr().cast::<c_void>(),
+                        self.ptr.cast::<c_void>(),
+                        bytes,
+                        CUDA_MEMCPY_DEVICE_TO_HOST,
+                    ),
+                    "cudaMemcpy device->host",
+                )?;
+            }
+            Ok(out)
+        }
+    }
+
+    impl<T> Drop for DeviceBuffer<T> {
+        fn drop(&mut self) {
+            if !self.ptr.is_null() {
+                unsafe {
+                    let _ = cudaFree(self.ptr.cast::<c_void>());
+                }
+            }
+        }
+    }
+
+    pub fn vec_add_f32_host(a: &[f32], b: &[f32]) -> Result<Vec<f32>, String> {
+        if a.len() != b.len() {
+            return Err("E_CUDA_SHAPE: vec_add input length mismatch".to_string());
+        }
+        let da = DeviceBuffer::from_host(a)?;
+        let db = DeviceBuffer::from_host(b)?;
+        let out = DeviceBuffer::<f32>::uninit(a.len())?;
+        unsafe {
+            check(
+                enkai_cuda_vec_add_f32(da.ptr, db.ptr, out.ptr, a.len() as i64, ptr::null_mut()),
+                "enkai_cuda_vec_add_f32",
+            )?;
+        }
+        synchronize()?;
+        out.to_host()
+    }
+
+    pub fn vec_mul_f32_host(a: &[f32], b: &[f32]) -> Result<Vec<f32>, String> {
+        if a.len() != b.len() {
+            return Err("E_CUDA_SHAPE: vec_mul input length mismatch".to_string());
+        }
+        let da = DeviceBuffer::from_host(a)?;
+        let db = DeviceBuffer::from_host(b)?;
+        let out = DeviceBuffer::<f32>::uninit(a.len())?;
+        unsafe {
+            check(
+                enkai_cuda_vec_mul_f32(da.ptr, db.ptr, out.ptr, a.len() as i64, ptr::null_mut()),
+                "enkai_cuda_vec_mul_f32",
+            )?;
+        }
+        synchronize()?;
+        out.to_host()
+    }
+
+    pub fn matmul_bias_f32_host(
+        a: &[f32],
+        b: &[f32],
+        bias: Option<&[f32]>,
+        m: usize,
+        n: usize,
+        k: usize,
+    ) -> Result<Vec<f32>, String> {
+        if a.len() != m * k || b.len() != k * n {
+            return Err("E_CUDA_SHAPE: matmul input shape mismatch".to_string());
+        }
+        if let Some(bias) = bias {
+            if bias.len() != n {
+                return Err("E_CUDA_SHAPE: matmul bias length mismatch".to_string());
+            }
+        }
+        let da = DeviceBuffer::from_host(a)?;
+        let db = DeviceBuffer::from_host(b)?;
+        let dbias = match bias {
+            Some(values) => Some(DeviceBuffer::from_host(values)?),
+            None => None,
+        };
+        let out = DeviceBuffer::<f32>::uninit(m * n)?;
+        unsafe {
+            check(
+                enkai_cuda_matmul_bias_f32(
+                    da.ptr,
+                    db.ptr,
+                    dbias.as_ref().map(|buf| buf.ptr).unwrap_or(ptr::null()),
+                    out.ptr,
+                    m as i64,
+                    n as i64,
+                    k as i64,
+                    ptr::null_mut(),
+                ),
+                "enkai_cuda_matmul_bias_f32",
+            )?;
+        }
+        synchronize()?;
+        out.to_host()
+    }
+
+    pub fn softmax_f32_host(x: &[f32], rows: usize, cols: usize) -> Result<Vec<f32>, String> {
+        if x.len() != rows * cols {
+            return Err("E_CUDA_SHAPE: softmax input shape mismatch".to_string());
+        }
+        let dx = DeviceBuffer::from_host(x)?;
+        let out = DeviceBuffer::<f32>::uninit(x.len())?;
+        unsafe {
+            check(
+                enkai_cuda_softmax_f32(dx.ptr, out.ptr, rows as i64, cols as i64, ptr::null_mut()),
+                "enkai_cuda_softmax_f32",
+            )?;
+        }
+        synchronize()?;
+        out.to_host()
+    }
+
+    pub fn cross_entropy_losses_f32_host(
+        logits: &[f32],
+        targets: &[i64],
+        rows: usize,
+        cols: usize,
+    ) -> Result<Vec<f32>, String> {
+        if logits.len() != rows * cols || targets.len() != rows {
+            return Err("E_CUDA_SHAPE: cross_entropy input shape mismatch".to_string());
+        }
+        let dlogits = DeviceBuffer::from_host(logits)?;
+        let dtargets = DeviceBuffer::from_host(targets)?;
+        let losses = DeviceBuffer::<f32>::uninit(rows)?;
+        unsafe {
+            check(
+                enkai_cuda_cross_entropy_forward_f32(
+                    dlogits.ptr,
+                    dtargets.ptr,
+                    losses.ptr,
+                    rows as i64,
+                    cols as i64,
+                    ptr::null_mut(),
+                ),
+                "enkai_cuda_cross_entropy_forward_f32",
+            )?;
+        }
+        synchronize()?;
+        losses.to_host()
+    }
+
+    pub fn adamw_update_f32_host(
+        param: &[f32],
+        grad: &[f32],
+        m: &[f32],
+        v: &[f32],
+        lr: f32,
+        beta1: f32,
+        beta2: f32,
+        eps: f32,
+        wd: f32,
+        step: i64,
+    ) -> Result<(Vec<f32>, Vec<f32>, Vec<f32>), String> {
+        if param.len() != grad.len() || param.len() != m.len() || param.len() != v.len() {
+            return Err("E_CUDA_SHAPE: adamw input length mismatch".to_string());
+        }
+        let dparam = DeviceBuffer::from_host(param)?;
+        let dgrad = DeviceBuffer::from_host(grad)?;
+        let dm = DeviceBuffer::from_host(m)?;
+        let dv = DeviceBuffer::from_host(v)?;
+        unsafe {
+            check(
+                enkai_cuda_adamw_update_f32(
+                    dparam.ptr,
+                    dgrad.ptr,
+                    dm.ptr,
+                    dv.ptr,
+                    param.len() as i64,
+                    lr,
+                    beta1,
+                    beta2,
+                    eps,
+                    wd,
+                    step,
+                    ptr::null_mut(),
+                ),
+                "enkai_cuda_adamw_update_f32",
+            )?;
+        }
+        synchronize()?;
+        Ok((dparam.to_host()?, dm.to_host()?, dv.to_host()?))
+    }
+}
+
+#[cfg(feature = "cuda-kernels")]
+pub fn cuda_device_count() -> Result<i32, String> {
+    runtime::device_count()
+}
+
+#[cfg(not(feature = "cuda-kernels"))]
+pub fn cuda_device_count() -> Result<i32, String> {
+    Err("E_CUDA_UNAVAILABLE: build without cuda-kernels feature".to_string())
+}
+
+#[cfg(feature = "cuda-kernels")]
+pub fn cuda_vec_add_f32_host(a: &[f32], b: &[f32]) -> Result<Vec<f32>, String> {
+    runtime::vec_add_f32_host(a, b)
+}
+
+#[cfg(not(feature = "cuda-kernels"))]
+pub fn cuda_vec_add_f32_host(_a: &[f32], _b: &[f32]) -> Result<Vec<f32>, String> {
+    Err("E_CUDA_UNAVAILABLE: build without cuda-kernels feature".to_string())
+}
+
+#[cfg(feature = "cuda-kernels")]
+pub fn cuda_vec_mul_f32_host(a: &[f32], b: &[f32]) -> Result<Vec<f32>, String> {
+    runtime::vec_mul_f32_host(a, b)
+}
+
+#[cfg(not(feature = "cuda-kernels"))]
+pub fn cuda_vec_mul_f32_host(_a: &[f32], _b: &[f32]) -> Result<Vec<f32>, String> {
+    Err("E_CUDA_UNAVAILABLE: build without cuda-kernels feature".to_string())
+}
+
+#[cfg(feature = "cuda-kernels")]
+pub fn cuda_matmul_bias_f32_host(
+    a: &[f32],
+    b: &[f32],
+    bias: Option<&[f32]>,
+    m: usize,
+    n: usize,
+    k: usize,
+) -> Result<Vec<f32>, String> {
+    runtime::matmul_bias_f32_host(a, b, bias, m, n, k)
+}
+
+#[cfg(not(feature = "cuda-kernels"))]
+pub fn cuda_matmul_bias_f32_host(
+    _a: &[f32],
+    _b: &[f32],
+    _bias: Option<&[f32]>,
+    _m: usize,
+    _n: usize,
+    _k: usize,
+) -> Result<Vec<f32>, String> {
+    Err("E_CUDA_UNAVAILABLE: build without cuda-kernels feature".to_string())
+}
+
+#[cfg(feature = "cuda-kernels")]
+pub fn cuda_softmax_f32_host(x: &[f32], rows: usize, cols: usize) -> Result<Vec<f32>, String> {
+    runtime::softmax_f32_host(x, rows, cols)
+}
+
+#[cfg(not(feature = "cuda-kernels"))]
+pub fn cuda_softmax_f32_host(_x: &[f32], _rows: usize, _cols: usize) -> Result<Vec<f32>, String> {
+    Err("E_CUDA_UNAVAILABLE: build without cuda-kernels feature".to_string())
+}
+
+#[cfg(feature = "cuda-kernels")]
+pub fn cuda_cross_entropy_losses_f32_host(
+    logits: &[f32],
+    targets: &[i64],
+    rows: usize,
+    cols: usize,
+) -> Result<Vec<f32>, String> {
+    runtime::cross_entropy_losses_f32_host(logits, targets, rows, cols)
+}
+
+#[cfg(not(feature = "cuda-kernels"))]
+pub fn cuda_cross_entropy_losses_f32_host(
+    _logits: &[f32],
+    _targets: &[i64],
+    _rows: usize,
+    _cols: usize,
+) -> Result<Vec<f32>, String> {
+    Err("E_CUDA_UNAVAILABLE: build without cuda-kernels feature".to_string())
+}
+
+#[cfg(feature = "cuda-kernels")]
+pub fn cuda_adamw_update_f32_host(
+    param: &[f32],
+    grad: &[f32],
+    m: &[f32],
+    v: &[f32],
+    lr: f32,
+    beta1: f32,
+    beta2: f32,
+    eps: f32,
+    wd: f32,
+    step: i64,
+) -> Result<(Vec<f32>, Vec<f32>, Vec<f32>), String> {
+    runtime::adamw_update_f32_host(param, grad, m, v, lr, beta1, beta2, eps, wd, step)
+}
+
+#[cfg(not(feature = "cuda-kernels"))]
+pub fn cuda_adamw_update_f32_host(
+    _param: &[f32],
+    _grad: &[f32],
+    _m: &[f32],
+    _v: &[f32],
+    _lr: f32,
+    _beta1: f32,
+    _beta2: f32,
+    _eps: f32,
+    _wd: f32,
+    _step: i64,
+) -> Result<(Vec<f32>, Vec<f32>, Vec<f32>), String> {
+    Err("E_CUDA_UNAVAILABLE: build without cuda-kernels feature".to_string())
+}

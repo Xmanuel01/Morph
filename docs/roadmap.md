@@ -1263,11 +1263,20 @@ First tranche scope:
 - Basic autograd/SGD MLP training proof.
 - Native AdamW optimizer proof for the bounded MLP.
 - Parallel deterministic CPU matmul/fused-matmul scaling.
-- CUDA/Triton backend hooks without production GPU claims.
+- Non-PyTorch native CUDA execution for the first bounded op set:
+  vector add, multiply, matmul, softmax, and cross-entropy.
+- Triton backend hooks without production GPU claims.
 
 The readiness entrypoint is:
 
 ```bash
 python scripts/readiness_v4_0_native_training_runtime.py --workspace .
 python scripts/verify_v4_0_native_training_runtime.py --workspace .
+```
+
+The hardware-gated CUDA proof is:
+
+```bash
+python scripts/readiness_v4_0_native_cuda_runtime.py --workspace . --require-cuda
+python scripts/verify_v4_0_native_cuda_runtime.py --workspace . --require-cuda
 ```

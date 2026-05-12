@@ -260,6 +260,116 @@ impl CudaBackendHook {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct CudaNativeBackend {
+    stats: MemoryStats,
+}
+
+impl CudaNativeBackend {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn available() -> bool {
+        crate::cuda_kernels::cuda_device_count()
+            .map(|count| count > 0)
+            .unwrap_or(false)
+    }
+}
+
+impl ExecutionBackend for CudaNativeBackend {
+    fn name(&self) -> &'static str {
+        "enkai_native_cuda"
+    }
+
+    fn zeros(&mut self, shape: &[usize]) -> Result<NativeTensor, String> {
+        let tensor = NativeTensor::zeros(shape)?;
+        self.stats.allocated_bytes = self.stats.allocated_bytes.saturating_add(tensor.bytes());
+        self.stats.live_bytes = self.stats.live_bytes.saturating_add(tensor.bytes());
+        self.stats.peak_bytes = self.stats.peak_bytes.max(self.stats.live_bytes);
+        Ok(tensor)
+    }
+
+    fn add(&mut self, a: &NativeTensor, b: &NativeTensor) -> Result<NativeTensor, String> {
+        same_shape(a, b, "cuda add")?;
+        let data = crate::cuda_kernels::cuda_vec_add_f32_host(&a.data, &b.data)?;
+        self.track_alloc((data.len() * std::mem::size_of::<f32>()) as u64);
+        NativeTensor::from_vec(&a.shape, data)
+    }
+
+    fn mul(&mut self, a: &NativeTensor, b: &NativeTensor) -> Result<NativeTensor, String> {
+        same_shape(a, b, "cuda multiply")?;
+        let data = crate::cuda_kernels::cuda_vec_mul_f32_host(&a.data, &b.data)?;
+        self.track_alloc((data.len() * std::mem::size_of::<f32>()) as u64);
+        NativeTensor::from_vec(&a.shape, data)
+    }
+
+    fn matmul(&mut self, a: &NativeTensor, b: &NativeTensor) -> Result<NativeTensor, String> {
+        let (m, k) = a.rows_cols()?;
+        let (k2, n) = b.rows_cols()?;
+        if k != k2 {
+            return Err(format!("cuda matmul inner mismatch: {k} != {k2}"));
+        }
+        let data = crate::cuda_kernels::cuda_matmul_bias_f32_host(&a.data, &b.data, None, m, n, k)?;
+        self.track_alloc((data.len() * std::mem::size_of::<f32>()) as u64);
+        NativeTensor::from_vec(&[m, n], data)
+    }
+
+    fn relu(&mut self, x: &NativeTensor) -> Result<NativeTensor, String> {
+        let data = x.data.iter().map(|v| v.max(0.0)).collect::<Vec<_>>();
+        self.track_alloc((data.len() * std::mem::size_of::<f32>()) as u64);
+        NativeTensor::from_vec(&x.shape, data)
+    }
+
+    fn softmax(&mut self, x: &NativeTensor) -> Result<NativeTensor, String> {
+        let (rows, cols) = x.rows_cols()?;
+        let data = crate::cuda_kernels::cuda_softmax_f32_host(&x.data, rows, cols)?;
+        self.track_alloc((data.len() * std::mem::size_of::<f32>()) as u64);
+        NativeTensor::from_vec(&x.shape, data)
+    }
+
+    fn cross_entropy(&mut self, logits: &NativeTensor, targets: &[usize]) -> Result<f32, String> {
+        let (rows, cols) = logits.rows_cols()?;
+        let targets_i64 = targets.iter().map(|v| *v as i64).collect::<Vec<_>>();
+        let losses = crate::cuda_kernels::cuda_cross_entropy_losses_f32_host(
+            &logits.data,
+            &targets_i64,
+            rows,
+            cols,
+        )?;
+        if losses.iter().any(|v| !v.is_finite()) {
+            return Err("E_CUDA_NUMERIC: cross entropy produced non-finite loss".to_string());
+        }
+        Ok(losses.iter().copied().sum::<f32>() / rows as f32)
+    }
+
+    fn mean(&mut self, x: &NativeTensor) -> Result<f32, String> {
+        Ok(self.sum(x)? / x.len() as f32)
+    }
+
+    fn sum(&mut self, x: &NativeTensor) -> Result<f32, String> {
+        Ok(x.data.iter().copied().sum())
+    }
+
+    fn release(&mut self, tensor: NativeTensor) {
+        let bytes = tensor.bytes();
+        self.stats.live_bytes = self.stats.live_bytes.saturating_sub(bytes);
+        self.stats.freed_bytes = self.stats.freed_bytes.saturating_add(bytes);
+    }
+
+    fn memory_stats(&self) -> MemoryStats {
+        self.stats.clone()
+    }
+}
+
+impl CudaNativeBackend {
+    fn track_alloc(&mut self, bytes: u64) {
+        self.stats.allocated_bytes = self.stats.allocated_bytes.saturating_add(bytes);
+        self.stats.live_bytes = self.stats.live_bytes.saturating_add(bytes);
+        self.stats.peak_bytes = self.stats.peak_bytes.max(self.stats.live_bytes);
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum GraphOp {
     Input(NativeTensor),

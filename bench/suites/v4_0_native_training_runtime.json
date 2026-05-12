@@ -9,7 +9,11 @@
     "mlp_training_step",
     "mlp_training_adamw",
     "softmax_cross_entropy",
-    "memory_stress"
+    "memory_stress",
+    "native_cuda_vec_add",
+    "native_cuda_matmul",
+    "native_cuda_softmax",
+    "native_cuda_cross_entropy"
   ],
   "backends": {
     "primary": "enkai_native_cpu",

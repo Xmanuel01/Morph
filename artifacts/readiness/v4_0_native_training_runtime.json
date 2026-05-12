@@ -2,7 +2,7 @@
   "schema_version": 1,
   "contract_version": "v4.0-native-training-runtime",
   "scope": "enkai_native_training_runtime_foundation",
-  "generated_at_utc": "2026-05-12T04:40:17.931814+00:00",
+  "generated_at_utc": "2026-05-12T04:56:41.691277+00:00",
   "host": {
     "platform": "Windows-11-10.0.26200-SP0",
     "python": "3.13.3",
@@ -28,15 +28,15 @@
     ],
     "exit_code": 0,
     "passed": true,
-    "elapsed_ms": 392.61809999879915,
-    "stdout_tail": "\nrunning 6 tests\ntest graph_ir_executes_native_cpu_ops ... ok\ntest fusion_matches_unfused_add_relu ... ok\ntest parallel_cpu_matmul_matches_single_threaded_backend ... ok\ntest adamw_training_reduces_loss_more_than_sgd_on_bounded_mlp ... ok\ntest mlp_sgd_training_reduces_loss_without_torch ... ok\nENKAI_NATIVE_RUNTIME_EVIDENCE={\"benchmarks\":{\"matmul\":{\"checksum\":0.09656757116317749,\"elapsed_ms\":2.8655999999999997,\"memory\":{\"allocated_bytes\":65536,\"freed_bytes\":131072,\"live_bytes\":0,\"peak_bytes\":65536,\"reuse_count\":1},\"shape\":[128,128]},\"memory_stress\":{\"checksum\":4032.0,\"elapsed_ms\":2.6904,\"memory\":{\"allocated_bytes\":4194304,\"freed_bytes\":8388608,\"live_bytes\":0,\"peak_bytes\":4194304,\"reuse_count\":64}},\"mlp_forward\":{\"elapsed_ms\":0.0144,\"loss_sum\":1.3594979047775269,\"memory\":{\"allocated_bytes\":320,\"freed_bytes\":0,\"live_bytes\":320,\"peak_bytes\":320,\"reuse_count\":0}},\"mlp_training_adamw\":{\"loss_final\":0.0014352202415466309,\"loss_initial\":0.6797489523887634,\"optimizer\":\"adamw\",\"peak_memory_bytes\":192,\"reuse_count\":796,\"steps\":200},\"mlp_training_step\":{\"elapsed_ms\":0.4282,\"loss_final\":0.017403483390808105,\"loss_initial\":0.6797489523887634,\"optimizer\":\"sgd\",\"peak_memory_bytes\":192,\"steps\":200},\"softmax_cross_entropy\":{\"fused_ms\":0.17049999999999998,\"unfused_ms\":0.2523},\"vector_add\":{\"checksum\":-1.3000000715255737,\"elapsed_ms\":0.1033,\"elements\":16384,\"memory\":{\"allocated_bytes\":65536,\"freed_bytes\":131072,\"live_bytes\":0,\"peak_bytes\":65536,\"reuse_count\":1}}},\"claims\":{\"cuda_without_pytorch\":\"hook_only_not_claimed\",\"python_core_execution_dependency\":false,\"pytorch_core_execution_dependency\":false},\"cuda_backend_hook\":\"enkai_native_cuda_hook unavailable: CUDA/Triton backend hook reserved; no PyTorch execution dependency\",\"iterations\":2,\"matmul_bias_relu\":{\"checksum_delta_abs\":0.0,\"fused_ms\":2.907,\"unfused_ms\":3.7121},\"memory\":{\"ce_unfused\":{\"allocated_bytes\":131072,\"freed_bytes\":0,\"live_bytes\":131072,\"peak_bytes\":131072,\"reuse_count\":0},\"fused\":{\"allocated_bytes\":65536,\"freed_bytes\":131072,\"live_bytes\":0,\"peak_bytes\":65536,\"reuse_count\":1},\"unfused\":{\"allocated_bytes\":196608,\"freed_bytes\":393216,\"live_bytes\":0,\"peak_bytes\":196608,\"reuse_count\":3}},\"runtime\":\"enkai_native_training_runtime_cpu\",\"schema_version\":1,\"softmax_cross_entropy\":{\"fused_ms\":0.17049999999999998,\"loss_delta_abs\":0.0,\"unfused_ms\":0.2523},\"training\":{\"adamw_loss_final\":0.0014352202415466309,\"allocated_bytes\":192,\"loss_final\":0.017403483390808105,\"loss_initial\":0.6797489523887634,\"peak_memory_bytes\":192,\"reuse_count\":796,\"steps\":200}}\ntest benchmark_emits_evidence_and_cuda_hook_is_not_pytorch ... ok\n\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s\n\n",
-    "stderr_tail": "    Finished `release` profile [optimized] target(s) in 0.21s\n     Running tests\\native_training_runtime.rs (target\\release\\deps\\native_training_runtime-527c9c92d1adf3ae.exe)\n"
+    "elapsed_ms": 7544.227300000784,
+    "stdout_tail": "\nrunning 6 tests\ntest fusion_matches_unfused_add_relu ... ok\ntest graph_ir_executes_native_cpu_ops ... ok\ntest parallel_cpu_matmul_matches_single_threaded_backend ... ok\ntest mlp_sgd_training_reduces_loss_without_torch ... ok\ntest adamw_training_reduces_loss_more_than_sgd_on_bounded_mlp ... ok\nENKAI_NATIVE_RUNTIME_EVIDENCE={\"benchmarks\":{\"matmul\":{\"checksum\":0.09656757116317749,\"elapsed_ms\":3.5048000000000004,\"memory\":{\"allocated_bytes\":65536,\"freed_bytes\":131072,\"live_bytes\":0,\"peak_bytes\":65536,\"reuse_count\":1},\"shape\":[128,128]},\"memory_stress\":{\"checksum\":4032.0,\"elapsed_ms\":2.1574,\"memory\":{\"allocated_bytes\":4194304,\"freed_bytes\":8388608,\"live_bytes\":0,\"peak_bytes\":4194304,\"reuse_count\":64}},\"mlp_forward\":{\"elapsed_ms\":0.0126,\"loss_sum\":1.3594979047775269,\"memory\":{\"allocated_bytes\":320,\"freed_bytes\":0,\"live_bytes\":320,\"peak_bytes\":320,\"reuse_count\":0}},\"mlp_training_adamw\":{\"loss_final\":0.0014352202415466309,\"loss_initial\":0.6797489523887634,\"optimizer\":\"adamw\",\"peak_memory_bytes\":192,\"reuse_count\":796,\"steps\":200},\"mlp_training_step\":{\"elapsed_ms\":0.3778,\"loss_final\":0.017403483390808105,\"loss_initial\":0.6797489523887634,\"optimizer\":\"sgd\",\"peak_memory_bytes\":192,\"steps\":200},\"softmax_cross_entropy\":{\"fused_ms\":0.1552,\"unfused_ms\":0.2335},\"vector_add\":{\"checksum\":-1.3000000715255737,\"elapsed_ms\":0.0775,\"elements\":16384,\"memory\":{\"allocated_bytes\":65536,\"freed_bytes\":131072,\"live_bytes\":0,\"peak_bytes\":65536,\"reuse_count\":1}}},\"claims\":{\"cuda_without_pytorch\":\"hook_only_not_claimed\",\"python_core_execution_dependency\":false,\"pytorch_core_execution_dependency\":false},\"cuda_backend_hook\":\"enkai_native_cuda_hook unavailable: CUDA/Triton backend hook reserved; no PyTorch execution dependency\",\"iterations\":2,\"matmul_bias_relu\":{\"checksum_delta_abs\":0.0,\"fused_ms\":2.255,\"unfused_ms\":3.6157},\"memory\":{\"ce_unfused\":{\"allocated_bytes\":131072,\"freed_bytes\":0,\"live_bytes\":131072,\"peak_bytes\":131072,\"reuse_count\":0},\"fused\":{\"allocated_bytes\":65536,\"freed_bytes\":131072,\"live_bytes\":0,\"peak_bytes\":65536,\"reuse_count\":1},\"unfused\":{\"allocated_bytes\":196608,\"freed_bytes\":393216,\"live_bytes\":0,\"peak_bytes\":196608,\"reuse_count\":3}},\"runtime\":\"enkai_native_training_runtime_cpu\",\"schema_version\":1,\"softmax_cross_entropy\":{\"fused_ms\":0.1552,\"loss_delta_abs\":0.0,\"unfused_ms\":0.2335},\"training\":{\"adamw_loss_final\":0.0014352202415466309,\"allocated_bytes\":192,\"loss_final\":0.017403483390808105,\"loss_initial\":0.6797489523887634,\"peak_memory_bytes\":192,\"reuse_count\":796,\"steps\":200}}\ntest benchmark_emits_evidence_and_cuda_hook_is_not_pytorch ... ok\n\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n\n",
+    "stderr_tail": "   Compiling enkai_tensor v3.8.0 (C:\\Users\\USER\\Desktop\\Morph\\enkai_tensor)\n    Finished `release` profile [optimized] target(s) in 7.32s\n     Running tests\\native_training_runtime.rs (target\\release\\deps\\native_training_runtime-527c9c92d1adf3ae.exe)\n"
   },
   "enkai_native_evidence": {
     "benchmarks": {
       "matmul": {
         "checksum": 0.09656757116317749,
-        "elapsed_ms": 2.8655999999999997,
+        "elapsed_ms": 3.5048000000000004,
         "memory": {
           "allocated_bytes": 65536,
           "freed_bytes": 131072,
@@ -51,7 +51,7 @@
       },
       "memory_stress": {
         "checksum": 4032.0,
-        "elapsed_ms": 2.6904,
+        "elapsed_ms": 2.1574,
         "memory": {
           "allocated_bytes": 4194304,
           "freed_bytes": 8388608,
@@ -61,7 +61,7 @@
         }
       },
       "mlp_forward": {
-        "elapsed_ms": 0.0144,
+        "elapsed_ms": 0.0126,
         "loss_sum": 1.3594979047775269,
         "memory": {
           "allocated_bytes": 320,
@@ -80,7 +80,7 @@
         "steps": 200
       },
       "mlp_training_step": {
-        "elapsed_ms": 0.4282,
+        "elapsed_ms": 0.3778,
         "loss_final": 0.017403483390808105,
         "loss_initial": 0.6797489523887634,
         "optimizer": "sgd",
@@ -88,12 +88,12 @@
         "steps": 200
       },
       "softmax_cross_entropy": {
-        "fused_ms": 0.17049999999999998,
-        "unfused_ms": 0.2523
+        "fused_ms": 0.1552,
+        "unfused_ms": 0.2335
       },
       "vector_add": {
         "checksum": -1.3000000715255737,
-        "elapsed_ms": 0.1033,
+        "elapsed_ms": 0.0775,
         "elements": 16384,
         "memory": {
           "allocated_bytes": 65536,
@@ -113,8 +113,8 @@
     "iterations": 2,
     "matmul_bias_relu": {
       "checksum_delta_abs": 0.0,
-      "fused_ms": 2.907,
-      "unfused_ms": 3.7121
+      "fused_ms": 2.255,
+      "unfused_ms": 3.6157
     },
     "memory": {
       "ce_unfused": {
@@ -142,9 +142,9 @@
     "runtime": "enkai_native_training_runtime_cpu",
     "schema_version": 1,
     "softmax_cross_entropy": {
-      "fused_ms": 0.17049999999999998,
+      "fused_ms": 0.1552,
       "loss_delta_abs": 0.0,
-      "unfused_ms": 0.2523
+      "unfused_ms": 0.2335
     },
     "training": {
       "adamw_loss_final": 0.0014352202415466309,
@@ -158,11 +158,11 @@
   },
   "python_reference": {
     "vector_add": {
-      "elapsed_ms": 11.314900002616923,
+      "elapsed_ms": 10.528400001931004,
       "checksum": -650.0
     },
     "matmul": {
-      "elapsed_ms": 2177.3384000007354,
+      "elapsed_ms": 1594.513600000937,
       "checksum": 0.4830000000007102
     }
   },
@@ -172,14 +172,14 @@
   },
   "native_reference_comparison": {
     "vector_add_vs_python": {
-      "python_ms": 11.314900002616923,
-      "enkai_ms": 0.1033,
-      "speedup": 109.534365949825
+      "python_ms": 10.528400001931004,
+      "enkai_ms": 0.0775,
+      "speedup": 135.85032260556136
     },
     "matmul_vs_python": {
-      "python_ms": 2177.3384000007354,
-      "enkai_ms": 2.8655999999999997,
-      "speedup": 759.8193746512896
+      "python_ms": 1594.513600000937,
+      "enkai_ms": 3.5048000000000004,
+      "speedup": 454.9513809635177
     }
   },
   "claim_policy": {

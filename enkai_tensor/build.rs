@@ -62,6 +62,26 @@ fn build_cuda() {
         build.flag("-Xcompiler=-fPIC");
     }
     build.compile("enkai_cuda_kernels");
+
+    if let Ok(home) = env::var("CUDA_HOME").or_else(|_| env::var("CUDA_PATH")) {
+        let home = Path::new(&home);
+        if cfg!(windows) {
+            println!(
+                "cargo:rustc-link-search=native={}",
+                home.join("lib").join("x64").display()
+            );
+        } else {
+            println!(
+                "cargo:rustc-link-search=native={}",
+                home.join("lib64").display()
+            );
+            println!(
+                "cargo:rustc-link-search=native={}",
+                home.join("lib").display()
+            );
+        }
+    }
+    println!("cargo:rustc-link-lib=dylib=cudart");
 }
 
 fn build_rocm() {

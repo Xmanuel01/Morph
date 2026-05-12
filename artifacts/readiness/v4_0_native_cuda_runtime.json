@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "contract_version": "v4.0-native-training-runtime",
+  "scope": "enkai_native_cuda_runtime",
+  "generated_at_utc": "2026-05-12T04:55:33.477799+00:00",
+  "tools": {
+    "nvcc": null,
+    "nvidia_smi": null
+  },
+  "require_cuda": false,
+  "native_cuda_cargo_test": null,
+  "enkai_native_cuda_evidence": {
+    "skipped": true,
+    "reason": "cuda hardware/toolchain not requested"
+  },
+  "pytorch_reference_only": {
+    "available": false,
+    "reason": "not requested"
+  },
+  "claim_policy": {
+    "pytorch_is_reference_only": true,
+    "claim_without_require_cuda_green": false,
+    "forbidden_claims": [
+      "faster than CUDA",
+      "full PyTorch parity"
+    ]
+  },
+  "all_passed": true,
+  "failures": []
+}

@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "input": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\readiness\\v4_0_native_cuda_runtime.json",
+  "generated_at_utc": "2026-05-12T04:55:33.684974+00:00",
+  "require_cuda": false,
+  "all_passed": true,
+  "failures": []
+}

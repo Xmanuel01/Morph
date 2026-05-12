@@ -309,7 +309,11 @@ The first native tranche provides:
 - A basic MLP SGD training loop with manual backward rules for the bounded graph.
 - A native AdamW optimizer path for the bounded MLP training proof.
 - Parallel CPU matmul/fused-matmul execution with deterministic row-partitioned output.
-- `CudaBackendHook` as a non-PyTorch CUDA/Triton extension point. It is a hook only until CUDA execution has separate hardware-backed proof.
+- `CudaNativeBackend` as the first non-PyTorch CUDA execution path for CUDA
+  vector add, multiply, matmul, softmax, and cross-entropy. This path copies
+  host tensors to device memory, launches Enkai CUDA kernels, and copies results
+  back; it does not route execution through PyTorch.
+- `CudaBackendHook` remains the Triton/future-GPU extension point.
 
 Performance language is gated by `artifacts/readiness/v4_0_native_training_runtime.json`.
 Do not claim broad PyTorch or CUDA superiority from this tranche. The acceptable
@@ -319,3 +323,14 @@ wording after green evidence is:
 
 The v4.0 readiness script runs the native runtime tests in release mode so
 performance evidence is not collected from an unoptimized debug build.
+
+CUDA evidence is hardware-gated. On a CUDA host with `nvcc` and a CUDA-enabled
+PyTorch reference environment, run:
+
+```bash
+python scripts/readiness_v4_0_native_cuda_runtime.py --workspace . --require-cuda
+python scripts/verify_v4_0_native_cuda_runtime.py --workspace . --require-cuda
+```
+
+If `--require-cuda` is omitted, the script may archive a skipped report on
+non-CUDA machines, but no CUDA performance claim is allowed.
