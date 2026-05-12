@@ -975,6 +975,50 @@ fn spatial_queries_and_rng_streams_are_deterministic() {
 }
 
 #[test]
+fn spatial_rtree_frontier_is_deterministic_and_bounded() {
+    let mut source = String::from("import std::spatial\nlet idx := spatial.make()\n");
+    for id in 0..64 {
+        let x = (id % 8) as f64;
+        let y = (id / 8) as f64;
+        source.push_str(&format!("spatial.upsert(idx, {id}, {x}, {y})\n"));
+    }
+    source.push_str(
+        "spatial.upsert(idx, 63, 0.25, 0.25)\n\
+         let near := spatial.radius(idx, 0.0, 0.0, 1.5)\n\
+         let nearest := spatial.nearest(idx, 0.2, 0.2)?\n\
+         let occ := spatial.occupancy(idx, 0.0, 0.0, 2.0, 2.0)\n\
+         let removed := spatial.remove(idx, 0)\n\
+         let nearest_after := spatial.nearest(idx, 0.0, 0.0)?\n\
+         mut out := near[0] * 1000000 + near[1] * 10000 + nearest * 100 + occ\n\
+         if removed ::\n\
+             out := out * 100 + nearest_after\n\
+         ::\n\
+         out\n",
+    );
+    let result = run_value(&source);
+    assert_eq!(result, Value::Int(63631063));
+
+    let invalid = run_result(
+        "import std::spatial\n\
+         let idx := spatial.make()\n\
+         spatial.upsert(idx, 1, 1e309, 0.0)\n",
+    )
+    .expect_err("non-finite spatial coordinates should fail");
+    assert_eq!(invalid.message, "spatial.upsert expects finite coordinates");
+
+    let bounds = run_result(
+        "import std::spatial\n\
+         let idx := spatial.make()\n\
+         spatial.occupancy(idx, 1.0, 0.0, 0.0, 1.0)\n",
+    )
+    .expect_err("invalid occupancy rectangle should fail");
+    assert_eq!(
+        bounds.message,
+        "spatial.occupancy expects min bounds <= max bounds"
+    );
+}
+
+#[test]
 fn snn_runtime_and_agent_environment_kernel_work() {
     let snn = run_value(
         "import std::snn\n\

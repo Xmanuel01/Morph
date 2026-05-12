@@ -53,6 +53,7 @@ const DEFAULT_SPARSE_MAX_NNZ: usize = 1_000_000;
 const DEFAULT_DENSE_MAX_LEN: usize = 1_000_000;
 const DEFAULT_EVENT_MAX_LEN: usize = 1_000_000;
 const DEFAULT_POOL_MAX_CAPACITY: usize = 1_000_000;
+const DEFAULT_SPATIAL_MAX_ENTITIES: usize = 1_000_000;
 
 #[derive(Debug)]
 struct CallFrame {
@@ -12087,11 +12088,24 @@ impl VM {
         let entity_id = value_as_int(&entity_id)?;
         let x = value_as_float_like(&x)?;
         let y = value_as_float_like(&y)?;
+        if !x.is_finite() || !y.is_finite() {
+            return Err(RuntimeError::new(
+                "spatial.upsert expects finite coordinates",
+            ));
+        }
         match spatial {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::SpatialIndex(inner) => {
                     let mut inner = inner.borrow_mut();
-                    inner.positions.insert(entity_id, (x, y));
+                    if !inner.positions.contains_key(&entity_id) {
+                        ensure_runtime_len_within_limit(
+                            inner.positions.len().saturating_add(1),
+                            "ENKAI_SPATIAL_MAX_ENTITIES",
+                            DEFAULT_SPATIAL_MAX_ENTITIES,
+                            "spatial.upsert exceeds ENKAI_SPATIAL_MAX_ENTITIES",
+                        )?;
+                    }
+                    inner.upsert(entity_id, x, y);
                     let native_upsert = if let (Some(handle), Some(bindings)) =
                         (inner.native.clone(), self.sim_accel_bindings())
                     {
@@ -12124,7 +12138,7 @@ impl VM {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::SpatialIndex(inner) => {
                     let mut inner = inner.borrow_mut();
-                    let removed = inner.positions.remove(&entity_id).is_some();
+                    let removed = inner.remove(entity_id);
                     let native_removed = if let (Some(handle), Some(bindings)) =
                         (inner.native.clone(), self.sim_accel_bindings())
                     {
@@ -12161,6 +12175,11 @@ impl VM {
         let x = value_as_float_like(&x)?;
         let y = value_as_float_like(&y)?;
         let radius = value_as_float_like(&radius)?;
+        if !x.is_finite() || !y.is_finite() {
+            return Err(RuntimeError::new(
+                "spatial.radius expects finite coordinates",
+            ));
+        }
         if radius < 0.0 || !radius.is_finite() {
             return Err(RuntimeError::new(
                 "spatial.radius expects finite radius >= 0",
@@ -12169,7 +12188,7 @@ impl VM {
         match spatial {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::SpatialIndex(inner) => {
-                    let inner = inner.borrow();
+                    let mut inner = inner.borrow_mut();
                     let native_ids = if let (Some(handle), Some(bindings)) =
                         (inner.native.clone(), self.sim_accel_bindings())
                     {
@@ -12193,25 +12212,9 @@ impl VM {
                             ids.into_iter().map(Value::Int).collect(),
                         )))));
                     }
-                    let radius_sq = radius * radius;
-                    let mut ids: Vec<(f64, i64)> = inner
-                        .positions
-                        .iter()
-                        .filter_map(|(id, (px, py))| {
-                            let dx = px - x;
-                            let dy = py - y;
-                            let dist_sq = dx * dx + dy * dy;
-                            (dist_sq <= radius_sq).then_some((dist_sq, *id))
-                        })
-                        .collect();
-                    ids.sort_by(|left, right| {
-                        left.0
-                            .partial_cmp(&right.0)
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                            .then_with(|| left.1.cmp(&right.1))
-                    });
+                    let ids = inner.radius(x, y, radius);
                     Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(
-                        ids.into_iter().map(|(_, id)| Value::Int(id)).collect(),
+                        ids.into_iter().map(Value::Int).collect(),
                     )))))
                 }
                 _ => Err(RuntimeError::new("spatial.radius expects SpatialIndex")),
@@ -12228,10 +12231,15 @@ impl VM {
     ) -> Result<Value, RuntimeError> {
         let x = value_as_float_like(&x)?;
         let y = value_as_float_like(&y)?;
+        if !x.is_finite() || !y.is_finite() {
+            return Err(RuntimeError::new(
+                "spatial.nearest expects finite coordinates",
+            ));
+        }
         match spatial {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::SpatialIndex(inner) => {
-                    let inner = inner.borrow();
+                    let mut inner = inner.borrow_mut();
                     let native_id = if let (Some(handle), Some(bindings)) =
                         (inner.native.clone(), self.sim_accel_bindings())
                     {
@@ -12252,21 +12260,7 @@ impl VM {
                         self.note_spatial_native_call();
                         return Ok(if id >= 0 { Value::Int(id) } else { Value::Null });
                     }
-                    let nearest = inner
-                        .positions
-                        .iter()
-                        .map(|(id, (px, py))| {
-                            let dx = px - x;
-                            let dy = py - y;
-                            (dx * dx + dy * dy, *id)
-                        })
-                        .min_by(|left, right| {
-                            left.0
-                                .partial_cmp(&right.0)
-                                .unwrap_or(std::cmp::Ordering::Equal)
-                                .then_with(|| left.1.cmp(&right.1))
-                        });
-                    Ok(nearest.map(|(_, id)| Value::Int(id)).unwrap_or(Value::Null))
+                    Ok(inner.nearest(x, y).map(Value::Int).unwrap_or(Value::Null))
                 }
                 _ => Err(RuntimeError::new("spatial.nearest expects SpatialIndex")),
             },
@@ -12286,10 +12280,18 @@ impl VM {
         let min_y = value_as_float_like(&min_y)?;
         let max_x = value_as_float_like(&max_x)?;
         let max_y = value_as_float_like(&max_y)?;
+        if !min_x.is_finite() || !min_y.is_finite() || !max_x.is_finite() || !max_y.is_finite() {
+            return Err(RuntimeError::new("spatial.occupancy expects finite bounds"));
+        }
+        if min_x > max_x || min_y > max_y {
+            return Err(RuntimeError::new(
+                "spatial.occupancy expects min bounds <= max bounds",
+            ));
+        }
         match spatial {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::SpatialIndex(inner) => {
-                    let inner = inner.borrow();
+                    let mut inner = inner.borrow_mut();
                     let native_count = if let (Some(handle), Some(bindings)) =
                         (inner.native.clone(), self.sim_accel_bindings())
                     {
@@ -12312,11 +12314,7 @@ impl VM {
                         self.note_spatial_native_call();
                         return Ok(count);
                     }
-                    Ok(inner
-                        .positions
-                        .values()
-                        .filter(|(x, y)| *x >= min_x && *x <= max_x && *y >= min_y && *y <= max_y)
-                        .count() as i64)
+                    Ok(inner.occupancy(min_x, min_y, max_x, max_y) as i64)
                 }
                 _ => Err(RuntimeError::new("spatial.occupancy expects SpatialIndex")),
             },

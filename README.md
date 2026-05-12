@@ -86,6 +86,8 @@ Status (v3.8.0)
   `ENKAI_SPARSE_MAX_INDEX`, `ENKAI_SPARSE_MAX_NNZ`, `ENKAI_DENSE_MAX_LEN`,
   `ENKAI_EVENT_MAX_LEN`, and `ENKAI_POOL_MAX_CAPACITY` can raise or lower those limits for
   controlled deployments.
+- `std::spatial` uses a deterministic packed R-tree for radius, nearest-neighbor, and
+  occupancy queries; `ENKAI_SPATIAL_MAX_ENTITIES` bounds index size for production runs.
 - Adam-0 reference stack and release evidence:
   - deterministic baseline: `examples/adam0_100.enk`
   - bounded reference package: `examples/adam0_reference/main.enk`

@@ -275,10 +275,13 @@ ENKAI_SPARSE_MAX_NNZ         maximum sparse non-zero entries per value
 ENKAI_DENSE_MAX_LEN          maximum dense list/buffer length accepted by sparse ops
 ENKAI_EVENT_MAX_LEN          maximum pending events per event queue
 ENKAI_POOL_MAX_CAPACITY      maximum fixed/growable pool capacity
+ENKAI_SPATIAL_MAX_ENTITIES   maximum entities in one spatial index
 ```
 
-These defaults protect `std::sparse`, `std::event`, and `std::pool` from accidental
-unbounded allocation while keeping deterministic VM fallback behavior.
+These defaults protect `std::sparse`, `std::event`, `std::pool`, and `std::spatial`
+from accidental unbounded allocation while keeping deterministic VM fallback behavior.
+`std::spatial` uses a packed R-tree index for radius, nearest-neighbor, and occupancy
+queries, with stable tie-breaking by entity id.
 
 ## 11. JSON Example
 

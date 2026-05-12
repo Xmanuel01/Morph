@@ -319,6 +319,298 @@ impl ValuePoolState {
 pub struct SpatialIndexState {
     pub positions: BTreeMap<i64, (f64, f64)>,
     pub native: Option<Value>,
+    tree: PackedRTree,
+    tree_dirty: bool,
+}
+
+#[derive(Debug, Default)]
+struct PackedRTree {
+    root: Option<RTreeNode>,
+}
+
+#[derive(Debug, Clone)]
+struct RTreeEntry {
+    id: i64,
+    x: f64,
+    y: f64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RTreeBounds {
+    min_x: f64,
+    min_y: f64,
+    max_x: f64,
+    max_y: f64,
+}
+
+#[derive(Debug, Clone)]
+enum RTreeNode {
+    Leaf {
+        bounds: RTreeBounds,
+        entries: Vec<RTreeEntry>,
+    },
+    Branch {
+        bounds: RTreeBounds,
+        children: Vec<RTreeNode>,
+    },
+}
+
+impl RTreeBounds {
+    fn point(x: f64, y: f64) -> Self {
+        Self {
+            min_x: x,
+            min_y: y,
+            max_x: x,
+            max_y: y,
+        }
+    }
+
+    fn from_entries(entries: &[RTreeEntry]) -> Self {
+        let mut bounds = Self::point(entries[0].x, entries[0].y);
+        for entry in &entries[1..] {
+            bounds.expand(entry.x, entry.y);
+        }
+        bounds
+    }
+
+    fn from_children(children: &[RTreeNode]) -> Self {
+        let mut bounds = children[0].bounds();
+        for child in &children[1..] {
+            bounds.expand_bounds(child.bounds());
+        }
+        bounds
+    }
+
+    fn expand(&mut self, x: f64, y: f64) {
+        self.min_x = self.min_x.min(x);
+        self.min_y = self.min_y.min(y);
+        self.max_x = self.max_x.max(x);
+        self.max_y = self.max_y.max(y);
+    }
+
+    fn expand_bounds(&mut self, other: RTreeBounds) {
+        self.min_x = self.min_x.min(other.min_x);
+        self.min_y = self.min_y.min(other.min_y);
+        self.max_x = self.max_x.max(other.max_x);
+        self.max_y = self.max_y.max(other.max_y);
+    }
+
+    fn intersects_circle(&self, x: f64, y: f64, radius_sq: f64) -> bool {
+        let closest_x = x.clamp(self.min_x, self.max_x);
+        let closest_y = y.clamp(self.min_y, self.max_y);
+        let dx = closest_x - x;
+        let dy = closest_y - y;
+        dx * dx + dy * dy <= radius_sq
+    }
+
+    fn intersects_rect(&self, min_x: f64, min_y: f64, max_x: f64, max_y: f64) -> bool {
+        self.min_x <= max_x && self.max_x >= min_x && self.min_y <= max_y && self.max_y >= min_y
+    }
+
+    fn distance_sq(&self, x: f64, y: f64) -> f64 {
+        let closest_x = x.clamp(self.min_x, self.max_x);
+        let closest_y = y.clamp(self.min_y, self.max_y);
+        let dx = closest_x - x;
+        let dy = closest_y - y;
+        dx * dx + dy * dy
+    }
+}
+
+impl RTreeNode {
+    const FANOUT: usize = 16;
+
+    fn bounds(&self) -> RTreeBounds {
+        match self {
+            RTreeNode::Leaf { bounds, .. } | RTreeNode::Branch { bounds, .. } => *bounds,
+        }
+    }
+
+    fn radius(&self, x: f64, y: f64, radius_sq: f64, out: &mut Vec<(f64, i64)>) {
+        if !self.bounds().intersects_circle(x, y, radius_sq) {
+            return;
+        }
+        match self {
+            RTreeNode::Leaf { entries, .. } => {
+                for entry in entries {
+                    let dx = entry.x - x;
+                    let dy = entry.y - y;
+                    let dist_sq = dx * dx + dy * dy;
+                    if dist_sq <= radius_sq {
+                        out.push((dist_sq, entry.id));
+                    }
+                }
+            }
+            RTreeNode::Branch { children, .. } => {
+                for child in children {
+                    child.radius(x, y, radius_sq, out);
+                }
+            }
+        }
+    }
+
+    fn occupancy(&self, min_x: f64, min_y: f64, max_x: f64, max_y: f64) -> usize {
+        if !self.bounds().intersects_rect(min_x, min_y, max_x, max_y) {
+            return 0;
+        }
+        match self {
+            RTreeNode::Leaf { entries, .. } => entries
+                .iter()
+                .filter(|entry| {
+                    entry.x >= min_x && entry.x <= max_x && entry.y >= min_y && entry.y <= max_y
+                })
+                .count(),
+            RTreeNode::Branch { children, .. } => children
+                .iter()
+                .map(|child| child.occupancy(min_x, min_y, max_x, max_y))
+                .sum(),
+        }
+    }
+
+    fn nearest(&self, x: f64, y: f64, best: &mut Option<(f64, i64)>) {
+        let best_distance = best.map(|(distance, _)| distance).unwrap_or(f64::INFINITY);
+        if self.bounds().distance_sq(x, y) > best_distance {
+            return;
+        }
+        match self {
+            RTreeNode::Leaf { entries, .. } => {
+                for entry in entries {
+                    let dx = entry.x - x;
+                    let dy = entry.y - y;
+                    let dist_sq = dx * dx + dy * dy;
+                    let replace = match *best {
+                        Some((best_dist, best_id)) => {
+                            dist_sq < best_dist || (dist_sq == best_dist && entry.id < best_id)
+                        }
+                        None => true,
+                    };
+                    if replace {
+                        *best = Some((dist_sq, entry.id));
+                    }
+                }
+            }
+            RTreeNode::Branch { children, .. } => {
+                let mut ordered: Vec<&RTreeNode> = children.iter().collect();
+                ordered.sort_by(|left, right| {
+                    left.bounds()
+                        .distance_sq(x, y)
+                        .partial_cmp(&right.bounds().distance_sq(x, y))
+                        .unwrap_or(Ordering::Equal)
+                });
+                for child in ordered {
+                    child.nearest(x, y, best);
+                }
+            }
+        }
+    }
+}
+
+impl PackedRTree {
+    fn rebuild(&mut self, positions: &BTreeMap<i64, (f64, f64)>) {
+        let mut entries: Vec<RTreeEntry> = positions
+            .iter()
+            .map(|(id, (x, y))| RTreeEntry {
+                id: *id,
+                x: *x,
+                y: *y,
+            })
+            .collect();
+        entries.sort_by(|left, right| {
+            left.x
+                .partial_cmp(&right.x)
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| left.y.partial_cmp(&right.y).unwrap_or(Ordering::Equal))
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        let mut nodes: Vec<RTreeNode> = entries
+            .chunks(RTreeNode::FANOUT)
+            .map(|chunk| {
+                let entries = chunk.to_vec();
+                RTreeNode::Leaf {
+                    bounds: RTreeBounds::from_entries(&entries),
+                    entries,
+                }
+            })
+            .collect();
+        while nodes.len() > 1 {
+            nodes.sort_by(|left, right| {
+                left.bounds()
+                    .min_x
+                    .partial_cmp(&right.bounds().min_x)
+                    .unwrap_or(Ordering::Equal)
+                    .then_with(|| {
+                        left.bounds()
+                            .min_y
+                            .partial_cmp(&right.bounds().min_y)
+                            .unwrap_or(Ordering::Equal)
+                    })
+            });
+            nodes = nodes
+                .chunks(RTreeNode::FANOUT)
+                .map(|chunk| {
+                    let children = chunk.to_vec();
+                    RTreeNode::Branch {
+                        bounds: RTreeBounds::from_children(&children),
+                        children,
+                    }
+                })
+                .collect();
+        }
+        self.root = nodes.pop();
+    }
+}
+
+impl SpatialIndexState {
+    pub fn upsert(&mut self, entity_id: i64, x: f64, y: f64) {
+        self.positions.insert(entity_id, (x, y));
+        self.tree_dirty = true;
+    }
+
+    pub fn remove(&mut self, entity_id: i64) -> bool {
+        let removed = self.positions.remove(&entity_id).is_some();
+        if removed {
+            self.tree_dirty = true;
+        }
+        removed
+    }
+
+    pub fn radius(&mut self, x: f64, y: f64, radius: f64) -> Vec<i64> {
+        self.ensure_tree();
+        let Some(root) = self.tree.root.as_ref() else {
+            return Vec::new();
+        };
+        let mut ids = Vec::new();
+        root.radius(x, y, radius * radius, &mut ids);
+        ids.sort_by(|left, right| {
+            left.0
+                .partial_cmp(&right.0)
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| left.1.cmp(&right.1))
+        });
+        ids.into_iter().map(|(_, id)| id).collect()
+    }
+
+    pub fn nearest(&mut self, x: f64, y: f64) -> Option<i64> {
+        self.ensure_tree();
+        let mut best = None;
+        self.tree.root.as_ref()?.nearest(x, y, &mut best);
+        best.map(|(_, id)| id)
+    }
+
+    pub fn occupancy(&mut self, min_x: f64, min_y: f64, max_x: f64, max_y: f64) -> usize {
+        self.ensure_tree();
+        self.tree
+            .root
+            .as_ref()
+            .map(|root| root.occupancy(min_x, min_y, max_x, max_y))
+            .unwrap_or(0)
+    }
+
+    fn ensure_tree(&mut self) {
+        if self.tree_dirty {
+            self.tree.rebuild(&self.positions);
+            self.tree_dirty = false;
+        }
+    }
 }
 
 #[derive(Debug)]
