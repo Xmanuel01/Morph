@@ -236,19 +236,40 @@ vocab = int(model_cfg["vocab_size"]); hidden = int(model_cfg["hidden_size"])
 layers = int(model_cfg["layers"]); heads = int(model_cfg["heads"])
 batch = int(model_cfg["batch_size"]); seq = int(model_cfg["seq_len"])
 train_steps = int(model_cfg["train_steps"]); eval_steps = int(model_cfg["eval_steps"])
+class TinyBlock(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.ln1 = nn.LayerNorm(hidden)
+        self.qkv = nn.Linear(hidden, hidden * 3)
+        self.proj = nn.Linear(hidden, hidden)
+        self.ln2 = nn.LayerNorm(hidden)
+        self.fc1 = nn.Linear(hidden, hidden * 4)
+        self.fc2 = nn.Linear(hidden * 4, hidden)
+    def forward(self, x, causal_mask):
+        bsz, seq_len, _ = x.shape
+        h = self.ln1(x)
+        qkv = self.qkv(h).view(bsz, seq_len, 3, heads, hidden // heads).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]
+        att = (q @ k.transpose(-2, -1)) * ((hidden // heads) ** -0.5)
+        att = att.masked_fill(~causal_mask, float("-inf")).softmax(dim=-1)
+        ctx = (att @ v).transpose(1, 2).contiguous().view(bsz, seq_len, hidden)
+        x = x + self.proj(ctx)
+        h = self.ln2(x)
+        x = x + self.fc2(F.gelu(self.fc1(h), approximate="none"))
+        return x
 class TinyDecoder(nn.Module):
     def __init__(self):
         super().__init__()
         self.embed = nn.Embedding(vocab, hidden)
         self.pos = nn.Parameter(torch.zeros(seq, hidden))
-        layer = nn.TransformerEncoderLayer(d_model=hidden, nhead=heads, dim_feedforward=hidden * 4, dropout=0.0, batch_first=True, activation="gelu")
-        self.blocks = nn.TransformerEncoder(layer, num_layers=layers)
+        self.blocks = nn.ModuleList([TinyBlock() for _ in range(layers)])
         self.ln = nn.LayerNorm(hidden)
-        self.head = nn.Linear(hidden, vocab, bias=False)
+        self.head = nn.Linear(hidden, vocab, bias=True)
     def forward(self, tokens):
         x = self.embed(tokens) + self.pos[:tokens.shape[1]].unsqueeze(0)
-        mask = torch.triu(torch.ones(tokens.shape[1], tokens.shape[1], device=tokens.device), diagonal=1).bool()
-        x = self.blocks(x, mask=mask)
+        causal_mask = torch.tril(torch.ones(tokens.shape[1], tokens.shape[1], device=tokens.device, dtype=torch.bool)).unsqueeze(0).unsqueeze(0)
+        for block in self.blocks:
+            x = block(x, causal_mask)
         return self.head(self.ln(x))
 model = TinyDecoder().to(device)
 opt = torch.optim.AdamW(model.parameters(), lr=1e-3)
