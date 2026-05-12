@@ -78,7 +78,8 @@ fn cuda_llm_train_eval_checkpoint_foundation() {
 
         let batch_size = 2i64;
         let seq_len = 32i64;
-        let steps = 4usize;
+        let steps = 16usize;
+        let eval_steps = 16usize;
         let total = (batch_size * seq_len) as usize;
         let input_ids: Vec<u32> = (0..total).map(|i| (i % 128) as u32).collect();
         let target_ids: Vec<u32> = (0..total).map(|i| ((i + 1) % 128) as u32).collect();
@@ -128,8 +129,11 @@ fn cuda_llm_train_eval_checkpoint_foundation() {
         let train_elapsed = train_started.elapsed().as_secs_f64().max(1e-9);
 
         let eval_started = Instant::now();
-        let eval_loss = enkai_tensor::enkai_tensor_lm_session_eval(session);
-        assert!(eval_loss > 0, "forward eval: {}", last_error());
+        let mut eval_loss = 0;
+        for _ in 0..eval_steps {
+            eval_loss = enkai_tensor::enkai_tensor_lm_session_eval(session);
+            assert!(eval_loss > 0, "forward eval: {}", last_error());
+        }
         let eval_elapsed = eval_started.elapsed().as_secs_f64().max(1e-9);
         let eval_checksum = enkai_tensor::enkai_tensor_item(eval_loss);
 
@@ -170,7 +174,7 @@ fn cuda_llm_train_eval_checkpoint_foundation() {
         emit(json!({
             "skipped": false,
             "train_tokens_per_sec": (batch_size as f64 * seq_len as f64 * steps as f64) / train_elapsed,
-            "eval_tokens_per_sec": (batch_size as f64 * seq_len as f64) / eval_elapsed,
+            "eval_tokens_per_sec": (batch_size as f64 * seq_len as f64 * eval_steps as f64) / eval_elapsed,
             "peak_memory_bytes": checkpoint_bytes.max(1),
             "checkpoint_write_bytes_per_sec": checkpoint_bytes as f64 / checkpoint_elapsed,
             "checkpoint_resume_ms": 1,

@@ -10,8 +10,8 @@
     "hidden_size": 64,
     "layers": 2,
     "heads": 4,
-    "train_steps": 4,
-    "eval_steps": 4
+    "train_steps": 16,
+    "eval_steps": 16
   },
   "metrics": [
     "train_tokens_per_sec",
