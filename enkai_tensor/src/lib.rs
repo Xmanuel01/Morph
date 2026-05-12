@@ -4487,15 +4487,18 @@ pub extern "C" fn enkai_tensor_lm_session_train_step(session: i64) -> i64 {
                     return 0;
                 }
             };
-            let loss = match forward_lm_tensors_internal(
-                &session.params,
-                &session.spec,
-                session.input,
-                session.targets,
-                session.batch_size,
-                session.seq_len,
-                true,
-            ) {
+            let result = tch::autocast(true, || {
+                forward_lm_tensors_internal(
+                    &session.params,
+                    &session.spec,
+                    session.input,
+                    session.targets,
+                    session.batch_size,
+                    session.seq_len,
+                    true,
+                )
+            });
+            let loss = match result {
                 Ok(handle) => handle,
                 Err(err) => {
                     set_error(err);
@@ -4538,15 +4541,17 @@ pub extern "C" fn enkai_tensor_lm_session_eval(session: i64) -> i64 {
                 }
             };
             let result = tch::no_grad(|| {
-                forward_lm_tensors_internal(
-                    &session.params,
-                    &session.spec,
-                    session.input,
-                    session.targets,
-                    session.batch_size,
-                    session.seq_len,
-                    false,
-                )
+                tch::autocast(true, || {
+                    forward_lm_tensors_internal(
+                        &session.params,
+                        &session.spec,
+                        session.input,
+                        session.targets,
+                        session.batch_size,
+                        session.seq_len,
+                        false,
+                    )
+                })
             });
             match result {
                 Ok(handle) => handle,
