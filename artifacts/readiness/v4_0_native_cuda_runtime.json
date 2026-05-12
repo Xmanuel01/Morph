@@ -2,7 +2,7 @@
   "schema_version": 1,
   "contract_version": "v4.0-native-training-runtime",
   "scope": "enkai_native_cuda_runtime",
-  "generated_at_utc": "2026-05-12T09:41:19.955146+00:00",
+  "generated_at_utc": "2026-05-12T10:00:16.500811+00:00",
   "tools": {
     "nvcc": "/usr/local/cuda/bin/nvcc",
     "nvidia_smi": "/usr/bin/nvidia-smi"
@@ -24,19 +24,19 @@
     ],
     "exit_code": 0,
     "passed": true,
-    "elapsed_ms": 4663.29532199984,
-    "stdout_tail": "\nrunning 3 tests\nENKAI_NATIVE_CUDA_EVIDENCE={\"backend\":\"enkai_native_cuda\",\"cpu_ms\":0.197579,\"cuda_memory\":{\"allocated_bytes\":12288,\"freed_bytes\":0,\"peak_bytes\":12288},\"cuda_ms\":208.11912900000002,\"ops\":[\"vec_add\",\"matmul\",\"matmul_cublas\",\"softmax\",\"cross_entropy\"],\"pytorch_core_execution_dependency\":false,\"skipped\":false}\ntest native_cuda_backend_matches_cpu_for_core_training_ops ... ok\nENKAI_NATIVE_CUDA_RESIDENT_MATMUL={\"backend\":\"enkai_native_cuda\",\"checksum\":0.03430052846670151,\"elapsed_ms\":4.163513,\"iterations\":20,\"kernel\":\"enkai_cuda_matmul_bias_cublas_f32\",\"mode\":\"device_resident\",\"per_iter_ms\":0.20817565,\"pytorch_core_execution_dependency\":false,\"shape\":[512,512]}\ntest native_cuda_resident_cublas_matmul_gate ... ok\nENKAI_NATIVE_CUDA_LARGE_MATMUL={\"backend\":\"enkai_native_cuda\",\"checksum\":0.17150264978408813,\"elapsed_ms\":10.99204,\"iterations\":5,\"kernel\":\"enkai_cuda_matmul_bias_cublas_f32\",\"pytorch_core_execution_dependency\":false,\"shape\":[512,512]}\ntest native_cuda_cublas_large_matmul_gate ... ok\n\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.34s\n\n",
-    "stderr_tail": "warning: enkai_tensor@3.8.0: building Enkai first-party CUDA kernels with /usr/local/cuda/bin/nvcc\n   Compiling enkai_tensor v3.8.0 (/teamspace/studios/this_studio/Morph/enkai_tensor)\n    Finished `release` profile [optimized] target(s) in 4.11s\n     Running tests/native_cuda_runtime.rs (target/release/deps/native_cuda_runtime-2868d9579d696b43)\n"
+    "elapsed_ms": 4215.5870720002895,
+    "stdout_tail": "\nrunning 3 tests\nENKAI_NATIVE_CUDA_EVIDENCE={\"backend\":\"enkai_native_cuda\",\"cpu_ms\":0.103582,\"cuda_memory\":{\"allocated_bytes\":12288,\"freed_bytes\":0,\"peak_bytes\":12288},\"cuda_ms\":200.142518,\"ops\":[\"vec_add\",\"matmul\",\"matmul_cublas\",\"softmax\",\"cross_entropy\"],\"pytorch_core_execution_dependency\":false,\"skipped\":false}\ntest native_cuda_backend_matches_cpu_for_core_training_ops ... ok\nENKAI_NATIVE_CUDA_RESIDENT_MATMUL={\"backend\":\"enkai_native_cuda\",\"checksum\":0.03430052846670151,\"elapsed_ms\":3.675869,\"iterations\":20,\"kernel\":\"enkai_cuda_matmul_bias_cublas_f32\",\"mode\":\"device_resident\",\"per_iter_ms\":0.18379345,\"pytorch_core_execution_dependency\":false,\"shape\":[512,512]}\ntest native_cuda_resident_cublas_matmul_gate ... ok\nENKAI_NATIVE_CUDA_LARGE_MATMUL={\"backend\":\"enkai_native_cuda\",\"checksum\":0.17150264978408813,\"elapsed_ms\":10.061528000000001,\"iterations\":5,\"kernel\":\"enkai_cuda_matmul_bias_cublas_f32\",\"pytorch_core_execution_dependency\":false,\"shape\":[512,512]}\ntest native_cuda_cublas_large_matmul_gate ... ok\n\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.33s\n\n",
+    "stderr_tail": "warning: enkai_tensor@3.8.0: building Enkai first-party CUDA kernels with /usr/local/cuda/bin/nvcc\n   Compiling enkai_tensor v3.8.0 (/teamspace/studios/this_studio/Morph/enkai_tensor)\n    Finished `release` profile [optimized] target(s) in 3.68s\n     Running tests/native_cuda_runtime.rs (target/release/deps/native_cuda_runtime-2868d9579d696b43)\n"
   },
   "enkai_native_cuda_evidence": {
     "backend": "enkai_native_cuda",
-    "cpu_ms": 0.197579,
+    "cpu_ms": 0.103582,
     "cuda_memory": {
       "allocated_bytes": 12288,
       "freed_bytes": 0,
       "peak_bytes": 12288
     },
-    "cuda_ms": 208.11912900000002,
+    "cuda_ms": 200.142518,
     "ops": [
       "vec_add",
       "matmul",
@@ -49,23 +49,23 @@
     "resident_matmul": {
       "backend": "enkai_native_cuda",
       "checksum": 0.03430052846670151,
-      "elapsed_ms": 4.163513,
+      "elapsed_ms": 3.675869,
       "iterations": 20,
       "kernel": "enkai_cuda_matmul_bias_cublas_f32",
       "mode": "device_resident",
-      "per_iter_ms": 0.20817565,
+      "per_iter_ms": 0.18379345,
       "pytorch_core_execution_dependency": false,
       "shape": [
         512,
         512
       ],
-      "pytorch_eager_ms": 0.5493229998592142,
-      "speedup_vs_pytorch_eager": 0.13193738073093902
+      "pytorch_eager_ms": 0.6020259997967514,
+      "speedup_vs_pytorch_eager": 0.16377787124534401
     },
     "large_matmul": {
       "backend": "enkai_native_cuda",
       "checksum": 0.17150264978408813,
-      "elapsed_ms": 10.99204,
+      "elapsed_ms": 10.061528000000001,
       "iterations": 5,
       "kernel": "enkai_cuda_matmul_bias_cublas_f32",
       "pytorch_core_execution_dependency": false,
@@ -73,8 +73,8 @@
         512,
         512
       ],
-      "pytorch_eager_ms": 0.5493229998592142,
-      "speedup_vs_pytorch_eager": 0.049974617983487526
+      "pytorch_eager_ms": 0.6020259997967514,
+      "speedup_vs_pytorch_eager": 0.05983445057219454
     }
   },
   "pytorch_reference_only": {
@@ -87,17 +87,21 @@
         32
       ],
       "iterations": 10,
-      "elapsed_ms": 16.523019000032946,
-      "checksum": -0.24200040847063065
+      "elapsed_ms": 0.24921199974414776,
+      "per_iter_ms": 0.024921199974414776,
+      "checksum": -0.024200040847063065,
+      "timing_scope": "resident_loop_with_device_sync_no_host_copy"
     },
     "matmul_512x512": {
       "shape": [
         512,
         512
       ],
-      "iterations": 5,
-      "elapsed_ms": 0.5493229998592142,
-      "checksum": 0.1711396872997284
+      "iterations": 20,
+      "elapsed_ms": 0.6020259997967514,
+      "per_iter_ms": 0.03010129998983757,
+      "checksum": 0.03422793745994568,
+      "timing_scope": "resident_loop_with_device_sync_no_host_copy"
     }
   },
   "claim_policy": {
