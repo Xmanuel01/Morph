@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "contract_version": "v3.9.0",
+  "scope": "distributed_gpu_execution",
+  "generated_at_utc": "2026-05-12T18:25:50.125605+00:00",
+  "host": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "C:\\Python313\\python.exe",
+    "cwd": "C:\\Users\\USER\\Desktop\\Morph"
+  },
+  "commands": [
+    {
+      "command": [
+        "C:\\Python313\\python.exe",
+        "scripts/gpu_harness.py",
+        "multi"
+      ],
+      "exit_code": 1,
+      "passed": false,
+      "elapsed_ms": 353,
+      "stdout_tail": "BLOCKED: nvidia-smi not available (evidence=C:\\Users\\USER\\Desktop\\Morph\\artifacts\\gpu\\multi_gpu_evidence.json)\n",
+      "stderr_tail": "Could not find platform independent libraries <prefix>\n"
+    }
+  ],
+  "two_rank": {
+    "exists": true,
+    "passed": false,
+    "status": "BLOCKED",
+    "reason": "nvidia-smi not available",
+    "payload": {
+      "schema_version": 1,
+      "gate": "multi_gpu_parity",
+      "timestamp_utc": "2026-05-12T18:25:50+00:00",
+      "status": "BLOCKED",
+      "world_size": 2,
+      "required_gpu_count": 2,
+      "detected_gpu_count": 0,
+      "reason": "nvidia-smi not available",
+      "env": {
+        "ENKAI_ENABLE_DIST": "1",
+        "ENKAI_RUN_MULTI_GPU_TESTS": "1",
+        "ENKAI_SINGLE_GPU_GREEN": "1"
+      },
+      "production_claims": {
+        "distributed_gpu_execution_proven": false,
+        "claim_without_hardware_evidence": false
+      }
+    }
+  },
+  "four_rank_soak": {
+    "exists": false,
+    "passed": false,
+    "error": "missing artifact: C:\\Users\\USER\\Desktop\\Morph\\artifacts\\gpu\\soak_4gpu_evidence.json"
+  },
+  "production_claims": {
+    "distributed_gpu_execution_proven": false,
+    "four_gpu_soak_proven": false,
+    "claim_without_hardware_evidence": false
+  },
+  "all_passed": false,
+  "failures": [
+    "2-rank distributed GPU evidence BLOCKED: nvidia-smi not available"
+  ]
+}

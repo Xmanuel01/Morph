@@ -17,5 +17,5 @@ if command -v python >/dev/null 2>&1; then
   exec python "$runner" multi
 fi
 
-echo "SKIPPED: python runtime not found (install python3)"
-exit 0
+echo "BLOCKED: python runtime not found (install python3)" >&2
+exit 1

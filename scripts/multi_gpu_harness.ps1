@@ -18,5 +18,5 @@ if ($python) {
     exit $LASTEXITCODE
 }
 
-Write-Host "SKIPPED: python runtime not found (install Python or use py launcher)"
-exit 0
+Write-Error "BLOCKED: python runtime not found (install Python or use py launcher)"
+exit 1

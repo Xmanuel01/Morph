@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "gate": "multi_gpu_parity",
+  "timestamp_utc": "2026-05-12T18:25:50+00:00",
+  "status": "BLOCKED",
+  "world_size": 2,
+  "required_gpu_count": 2,
+  "detected_gpu_count": 0,
+  "reason": "nvidia-smi not available",
+  "env": {
+    "ENKAI_ENABLE_DIST": "1",
+    "ENKAI_RUN_MULTI_GPU_TESTS": "1",
+    "ENKAI_SINGLE_GPU_GREEN": "1"
+  },
+  "production_claims": {
+    "distributed_gpu_execution_proven": false,
+    "claim_without_hardware_evidence": false
+  }
+}

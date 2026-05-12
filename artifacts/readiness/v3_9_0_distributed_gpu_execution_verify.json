@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "contract": "C:\\Users\\USER\\Desktop\\Morph\\enkai\\contracts\\v3_9_0_distributed_gpu_execution.json",
+  "input": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\readiness\\v3_9_0_distributed_gpu_execution.json",
+  "generated_at_utc": "2026-05-12T18:25:50.555060+00:00",
+  "all_passed": false,
+  "failures": [
+    "evidence all_passed expected True",
+    "two_rank evidence did not pass (BLOCKED: nvidia-smi not available)",
+    "two_rank status expected PASS, found BLOCKED",
+    "distributed_gpu_execution_proven expected True"
+  ]
+}

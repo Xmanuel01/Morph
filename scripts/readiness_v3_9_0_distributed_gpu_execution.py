@@ -106,7 +106,7 @@ def main() -> int:
     if not multi.get("passed"):
         failures.append(failed_artifact_message("2-rank distributed GPU", multi))
     multi_payload = multi.get("payload", {}) if isinstance(multi.get("payload"), dict) else {}
-    if multi_payload:
+    if multi_payload and multi_payload.get("status") == contract["two_rank_requirements"]["required_status"]:
         if int(multi_payload.get("world_size", 0)) != int(contract["two_rank_requirements"]["world_size"]):
             failures.append("2-rank evidence world_size mismatch")
         checks = multi_payload.get("checks", {})
