@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import platform
 import re
@@ -300,6 +301,19 @@ for _ in range(train_steps):
     if not torch.isfinite(loss).all().item():
         raise RuntimeError("pytorch reference loss is NaN/Inf")
     loss.backward()
+    grad_l2 = 0.0
+    param_l2 = 0.0
+    for parameter in model.parameters():
+        if parameter.grad is None:
+            raise RuntimeError("pytorch reference missing gradient")
+        if not torch.isfinite(parameter.grad).all().item():
+            raise RuntimeError("pytorch reference gradient contains NaN/Inf")
+        if not torch.isfinite(parameter).all().item():
+            raise RuntimeError("pytorch reference parameter contains NaN/Inf")
+        grad_l2 += float(parameter.grad.detach().pow(2).sum().cpu())
+        param_l2 += float(parameter.detach().pow(2).sum().cpu())
+    if not math.isfinite(grad_l2) or not math.isfinite(param_l2):
+        raise RuntimeError("pytorch reference norm accounting produced NaN/Inf")
     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
     opt.step()
     losses.append(float(loss.detach().cpu()))
