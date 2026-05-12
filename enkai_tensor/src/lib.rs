@@ -3624,6 +3624,29 @@ unsafe fn forward_lm_internal(
     if handles.len() < 6 {
         return Err("lm_forward: params list too short".to_string());
     }
+    let input_slice = std::slice::from_raw_parts(input_ptr, input_len);
+    let target_slice = std::slice::from_raw_parts(target_ptr, target_len);
+    let input_i64: Vec<i64> = input_slice.iter().map(|v| *v as i64).collect();
+    let target_i64: Vec<i64> = target_slice.iter().map(|v| *v as i64).collect();
+    let input = Tensor::f_from_slice(&input_i64)
+        .map_err(|err| err.to_string())?
+        .view([batch_size, seq_len]);
+    let targets = Tensor::f_from_slice(&target_i64)
+        .map_err(|err| err.to_string())?
+        .view([batch_size, seq_len]);
+    forward_lm_tensors_internal(&handles, spec, input, targets, batch_size, seq_len, training)
+}
+
+#[cfg(feature = "torch")]
+unsafe fn forward_lm_tensors_internal(
+    handles: &[i64],
+    spec: &LmArchSpec,
+    input: Tensor,
+    targets: Tensor,
+    batch_size: i64,
+    seq_len: i64,
+    training: bool,
+) -> Result<i64, String> {
     let tok_embed = ensure_requires_grad(get_tensor(handles[0])?);
     let pos_embed = ensure_requires_grad(get_tensor(handles[1])?);
     let d_model = tok_embed.size()[1];
@@ -3649,18 +3672,8 @@ unsafe fn forward_lm_internal(
     let head_b = ensure_requires_grad(get_tensor(handles[handles.len() - 1])?);
 
     let device = tok_embed.device();
-    let input_slice = std::slice::from_raw_parts(input_ptr, input_len);
-    let target_slice = std::slice::from_raw_parts(target_ptr, target_len);
-    let input_i64: Vec<i64> = input_slice.iter().map(|v| *v as i64).collect();
-    let target_i64: Vec<i64> = target_slice.iter().map(|v| *v as i64).collect();
-    let input = Tensor::f_from_slice(&input_i64)
-        .map_err(|err| err.to_string())?
-        .to_device(device)
-        .view([batch_size, seq_len]);
-    let targets = Tensor::f_from_slice(&target_i64)
-        .map_err(|err| err.to_string())?
-        .to_device(device)
-        .view([batch_size, seq_len]);
+    let input = input.to_device(device).view([batch_size, seq_len]);
+    let targets = targets.to_device(device).view([batch_size, seq_len]);
 
     let tok = Tensor::embedding(&tok_embed, &input, -1, false, false);
     let pos = pos_embed
@@ -3743,6 +3756,7 @@ unsafe fn forward_lm_internal(
         return Err("lm_forward: loss is NaN/Inf".to_string());
     }
     Ok(register_tensor(loss))
+
 }
 
 /// Initialize a tiny transformer language model and return parameter handles as JSON.
@@ -4087,6 +4101,156 @@ pub unsafe extern "C" fn enkai_tensor_forward_lm(
             let _ = batch_size;
             let _ = seq_len;
             let _ = training;
+            set_error("torch backend not enabled");
+            0
+        }
+    })
+}
+
+#[no_mangle]
+/// # Safety
+/// `ids_ptr` must be valid for `ids_len` elements.
+pub unsafe extern "C" fn enkai_tensor_ids_u32(
+    ids_ptr: *const u32,
+    ids_len: usize,
+    batch_size: i64,
+    seq_len: i64,
+    device_handle: i64,
+) -> i64 {
+    ffi_guard(0, || {
+        clear_error();
+        #[cfg(feature = "torch")]
+        {
+            if batch_size <= 0 || seq_len <= 0 || ids_len != (batch_size * seq_len) as usize {
+                set_error("ids_u32: invalid dimensions");
+                return 0;
+            }
+            let device = match get_device(device_handle) {
+                Ok(d) => d,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            let ids = std::slice::from_raw_parts(ids_ptr, ids_len);
+            let ids_i64: Vec<i64> = ids.iter().map(|v| *v as i64).collect();
+            match Tensor::f_from_slice(&ids_i64) {
+                Ok(t) => register_tensor(t.to_device(device).view([batch_size, seq_len])),
+                Err(err) => {
+                    set_error(err.to_string());
+                    0
+                }
+            }
+        }
+        #[cfg(not(feature = "torch"))]
+        {
+            let _ = ids_ptr;
+            let _ = ids_len;
+            let _ = batch_size;
+            let _ = seq_len;
+            let _ = device_handle;
+            set_error("torch backend not enabled");
+            0
+        }
+    })
+}
+
+#[no_mangle]
+/// # Safety
+/// `params_json` and `spec_json` must be valid C strings.
+pub unsafe extern "C" fn enkai_tensor_lm_train_step_handles(
+    params_json: *const c_char,
+    spec_json: *const c_char,
+    input_handle: i64,
+    target_handle: i64,
+    batch_size: i64,
+    seq_len: i64,
+    opt: i64,
+) -> i64 {
+    ffi_guard(0, || {
+        clear_error();
+        #[cfg(feature = "torch")]
+        {
+            let params_json = match cstr_to_string(params_json) {
+                Ok(v) => v,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            let spec_json = match cstr_to_string(spec_json) {
+                Ok(v) => v,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            let params = match parse_handle_list(&params_json) {
+                Ok(list) => list,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            let spec = match LmArchSpec::from_json(&spec_json) {
+                Ok(v) => v,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            let input = match get_tensor(input_handle) {
+                Ok(t) => t,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            let targets = match get_tensor(target_handle) {
+                Ok(t) => t,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            let hyper = match get_opt_hyper(opt) {
+                Ok(h) => h,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            let loss = match forward_lm_tensors_internal(
+                &params, &spec, input, targets, batch_size, seq_len, true,
+            ) {
+                Ok(handle) => handle,
+                Err(err) => {
+                    set_error(err);
+                    return 0;
+                }
+            };
+            if enkai_tensor_backward(loss) != 0 {
+                return 0;
+            }
+            if let Err(err) = adamw_step_params(opt, &params, hyper) {
+                set_error(err);
+                return 0;
+            }
+            if let Err(err) = zero_grad_params(&params) {
+                set_error(err);
+                return 0;
+            }
+            loss
+        }
+        #[cfg(not(feature = "torch"))]
+        {
+            let _ = params_json;
+            let _ = spec_json;
+            let _ = input_handle;
+            let _ = target_handle;
+            let _ = batch_size;
+            let _ = seq_len;
+            let _ = opt;
             set_error("torch backend not enabled");
             0
         }

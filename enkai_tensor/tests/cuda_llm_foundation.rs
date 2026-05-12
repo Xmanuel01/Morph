@@ -82,6 +82,22 @@ fn cuda_llm_train_eval_checkpoint_foundation() {
         let total = (batch_size * seq_len) as usize;
         let input_ids: Vec<u32> = (0..total).map(|i| (i % 128) as u32).collect();
         let target_ids: Vec<u32> = (0..total).map(|i| ((i + 1) % 128) as u32).collect();
+        let input_handle = enkai_tensor::enkai_tensor_ids_u32(
+            input_ids.as_ptr(),
+            input_ids.len(),
+            batch_size,
+            seq_len,
+            device,
+        );
+        assert!(input_handle > 0, "input ids tensor: {}", last_error());
+        let target_handle = enkai_tensor::enkai_tensor_ids_u32(
+            target_ids.as_ptr(),
+            target_ids.len(),
+            batch_size,
+            seq_len,
+            device,
+        );
+        assert!(target_handle > 0, "target ids tensor: {}", last_error());
 
         let opt =
             enkai_tensor::enkai_opt_adamw_create(params_json.as_ptr(), 1e-3, 0.9, 0.999, 1e-8, 0.0);
@@ -91,13 +107,11 @@ fn cuda_llm_train_eval_checkpoint_foundation() {
         let mut loss_initial = 0.0;
         let mut loss_final = 0.0;
         for step in 0..steps {
-            let loss = enkai_tensor::enkai_tensor_lm_train_step(
+            let loss = enkai_tensor::enkai_tensor_lm_train_step_handles(
                 params_json.as_ptr(),
                 spec.as_ptr(),
-                input_ids.as_ptr(),
-                input_ids.len(),
-                target_ids.as_ptr(),
-                target_ids.len(),
+                input_handle,
+                target_handle,
                 batch_size,
                 seq_len,
                 opt,
@@ -156,6 +170,8 @@ fn cuda_llm_train_eval_checkpoint_foundation() {
         }
 
         let _ = enkai_tensor::enkai_tensor_opt_free(opt);
+        let _ = enkai_tensor::enkai_tensor_free(input_handle);
+        let _ = enkai_tensor::enkai_tensor_free(target_handle);
         let _ = enkai_tensor::enkai_tensor_device_free(device);
 
         emit(json!({
