@@ -325,6 +325,9 @@ with torch.no_grad():
         eval_logits = model(data)
         if not torch.isfinite(eval_logits).all().item():
             raise RuntimeError("pytorch reference eval logits contain NaN/Inf")
+        eval_norm = float(eval_logits.detach().pow(2).sum().cpu())
+        if not math.isfinite(eval_norm):
+            raise RuntimeError("pytorch reference eval norm accounting produced NaN/Inf")
         checksum += float(eval_logits.sum().detach().cpu())
 torch.cuda.synchronize(device)
 eval_elapsed = max(time.perf_counter() - eval_start, 1e-9)
@@ -345,6 +348,7 @@ cuda_rng_path = tmp_dir / "cuda_rng_state.pt"
 integrity = tmp_dir / "integrity.json"
 tensor_index_path = tmp_dir / "tensor_index.json"
 manifest_path = tmp_dir / "manifest.json"
+provenance_path = tmp_dir / "provenance.json"
 ckpt_started = time.perf_counter()
 torch.save(model.state_dict(), model_path)
 torch.save(opt.state_dict(), optim_path)
@@ -388,12 +392,30 @@ manifest_path.write_text(json.dumps({
         "requires_tensor_hash_validation": True,
     },
 }, sort_keys=True), encoding="utf-8")
+provenance_path.write_text(json.dumps({
+    "schema_version": 1,
+    "created_by": "v3_9_0_cuda_llm_runtime_foundation",
+    "reference_backend": "pytorch_cuda",
+    "safety_checks": [
+        "loss_finite",
+        "logits_finite",
+        "gradient_finite_per_parameter",
+        "parameter_finite_per_parameter",
+        "tensor_index_sha256",
+        "file_integrity_sha256",
+        "atomic_directory_rename"
+    ],
+    "hardware": {
+        "device": torch.cuda.get_device_name(0),
+        "cuda_version": torch.version.cuda,
+    },
+}, sort_keys=True), encoding="utf-8")
 meta_path.write_text(json.dumps({"format_version": 1, "rng_state_file": rng_path.name, "cuda_rng_state_file": cuda_rng_path.name, "model_cfg": model_cfg, "optimizer_mode": "adamw_foreach_false_fused_false", "tensor_index_file": tensor_index_path.name}), encoding="utf-8")
 cursor_path.write_text(json.dumps({"dataset": "synthetic_bounded_transformer", "batch": 0, "seq": int(seq), "replay_seed": 1337}), encoding="utf-8")
-for path in [model_path, optim_path, rng_path, cuda_rng_path, meta_path, cursor_path, tensor_index_path, manifest_path]:
+for path in [model_path, optim_path, rng_path, cuda_rng_path, meta_path, cursor_path, tensor_index_path, manifest_path, provenance_path]:
     with open(path, "rb") as f:
         os.fsync(f.fileno())
-hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in [model_path, optim_path, rng_path, cuda_rng_path, meta_path, cursor_path, tensor_index_path, manifest_path]}
+hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in [model_path, optim_path, rng_path, cuda_rng_path, meta_path, cursor_path, tensor_index_path, manifest_path, provenance_path]}
 integrity.write_text(json.dumps({"version": 1, "files": hashes}, sort_keys=True), encoding="utf-8")
 with open(integrity, "rb") as f:
     os.fsync(f.fileno())
