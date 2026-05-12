@@ -676,6 +676,50 @@ fn sparse_invalid_indices_fail_consistently() {
 }
 
 #[test]
+fn sparse_and_pool_guardrails_reject_unbounded_runtime_shapes() {
+    let row_err = run_result(
+        "import std::sparse\n\
+         let m := sparse.matrix()\n\
+         sparse.set(m, 1000001, 0, 1.0)\n",
+    )
+    .expect_err("sparse matrix row above default guardrail should fail");
+    assert_eq!(
+        row_err.message,
+        "sparse.set row exceeds ENKAI_SPARSE_MAX_INDEX"
+    );
+
+    let vector_err = run_result(
+        "import std::sparse\n\
+         let v := sparse.vector()\n\
+         sparse.set_vector(v, 1000001, 1.0)\n",
+    )
+    .expect_err("sparse vector index above default guardrail should fail");
+    assert_eq!(
+        vector_err.message,
+        "sparse.set_vector index exceeds ENKAI_SPARSE_MAX_INDEX"
+    );
+
+    let pool_err = run_result(
+        "import std::pool\n\
+         pool.make(1000001)\n",
+    )
+    .expect_err("pool capacity above default guardrail should fail");
+    assert_eq!(
+        pool_err.message,
+        "pool.make exceeds ENKAI_POOL_MAX_CAPACITY"
+    );
+
+    let dense_err = run_result(
+        "import std::sparse\n\
+         let v := sparse.vector()\n\
+         sparse.set_vector(v, 0, 1.0)\n\
+         sparse.dot(v, [1e309])\n",
+    )
+    .expect_err("non-finite dense values should fail before sparse compute");
+    assert_eq!(dense_err.message, "Dense values must be finite");
+}
+
+#[test]
 fn event_queue_orders_by_time_then_insertion() {
     let result = run_value(
         "import std::event\n\

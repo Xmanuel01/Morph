@@ -48,6 +48,12 @@ use crate::object::{
 use crate::tokenizer::{bytes_to_ids, ids_to_bytes, Tokenizer, TrainConfig};
 use crate::value::{object_allocation_count, ObjRef, Value};
 
+const DEFAULT_SPARSE_MAX_INDEX: usize = 1_000_000;
+const DEFAULT_SPARSE_MAX_NNZ: usize = 1_000_000;
+const DEFAULT_DENSE_MAX_LEN: usize = 1_000_000;
+const DEFAULT_EVENT_MAX_LEN: usize = 1_000_000;
+const DEFAULT_POOL_MAX_CAPACITY: usize = 1_000_000;
+
 #[derive(Debug)]
 struct CallFrame {
     func_index: u16,
@@ -11301,8 +11307,20 @@ impl VM {
     }
 
     fn sparse_get(&mut self, matrix: Value, row: Value, col: Value) -> Result<Value, RuntimeError> {
-        let row = value_as_non_negative_int(&row, "sparse.get expects row >= 0")?;
-        let col = value_as_non_negative_int(&col, "sparse.get expects col >= 0")?;
+        let row = value_as_bounded_non_negative_index(
+            &row,
+            "sparse.get expects row >= 0",
+            "ENKAI_SPARSE_MAX_INDEX",
+            DEFAULT_SPARSE_MAX_INDEX,
+            "sparse.get row exceeds ENKAI_SPARSE_MAX_INDEX",
+        )?;
+        let col = value_as_bounded_non_negative_index(
+            &col,
+            "sparse.get expects col >= 0",
+            "ENKAI_SPARSE_MAX_INDEX",
+            DEFAULT_SPARSE_MAX_INDEX,
+            "sparse.get col exceeds ENKAI_SPARSE_MAX_INDEX",
+        )?;
         match matrix {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::SparseMatrix(inner) => Ok(inner
@@ -11325,8 +11343,20 @@ impl VM {
         col: Value,
         value: Value,
     ) -> Result<(), RuntimeError> {
-        let row = value_as_non_negative_int(&row, "sparse.set expects row >= 0")?;
-        let col = value_as_non_negative_int(&col, "sparse.set expects col >= 0")?;
+        let row = value_as_bounded_non_negative_index(
+            &row,
+            "sparse.set expects row >= 0",
+            "ENKAI_SPARSE_MAX_INDEX",
+            DEFAULT_SPARSE_MAX_INDEX,
+            "sparse.set row exceeds ENKAI_SPARSE_MAX_INDEX",
+        )?;
+        let col = value_as_bounded_non_negative_index(
+            &col,
+            "sparse.set expects col >= 0",
+            "ENKAI_SPARSE_MAX_INDEX",
+            DEFAULT_SPARSE_MAX_INDEX,
+            "sparse.set col exceeds ENKAI_SPARSE_MAX_INDEX",
+        )?;
         let value = value_as_float_like(&value)?;
         if !value.is_finite() {
             return Err(RuntimeError::new("sparse.set expects finite value"));
@@ -11338,6 +11368,14 @@ impl VM {
                     if value == 0.0 {
                         inner.data.remove(&(row, col));
                     } else {
+                        if !inner.data.contains_key(&(row, col)) {
+                            ensure_runtime_len_within_limit(
+                                inner.data.len().saturating_add(1),
+                                "ENKAI_SPARSE_MAX_NNZ",
+                                DEFAULT_SPARSE_MAX_NNZ,
+                                "sparse.set exceeds ENKAI_SPARSE_MAX_NNZ",
+                            )?;
+                        }
                         inner.data.insert((row, col), value);
                     }
                     if let (Some(handle), Some(bindings)) =
@@ -11359,7 +11397,13 @@ impl VM {
     }
 
     fn sparse_vector_get(&mut self, vector: Value, index: Value) -> Result<Value, RuntimeError> {
-        let index = value_as_non_negative_int(&index, "sparse.get_vector expects index >= 0")?;
+        let index = value_as_bounded_non_negative_index(
+            &index,
+            "sparse.get_vector expects index >= 0",
+            "ENKAI_SPARSE_MAX_INDEX",
+            DEFAULT_SPARSE_MAX_INDEX,
+            "sparse.get_vector index exceeds ENKAI_SPARSE_MAX_INDEX",
+        )?;
         match vector {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::SparseVector(inner) => Ok(inner
@@ -11381,7 +11425,13 @@ impl VM {
         index: Value,
         value: Value,
     ) -> Result<(), RuntimeError> {
-        let index = value_as_non_negative_int(&index, "sparse.set_vector expects index >= 0")?;
+        let index = value_as_bounded_non_negative_index(
+            &index,
+            "sparse.set_vector expects index >= 0",
+            "ENKAI_SPARSE_MAX_INDEX",
+            DEFAULT_SPARSE_MAX_INDEX,
+            "sparse.set_vector index exceeds ENKAI_SPARSE_MAX_INDEX",
+        )?;
         let value = value_as_float_like(&value)?;
         if !value.is_finite() {
             return Err(RuntimeError::new("sparse.set_vector expects finite value"));
@@ -11393,6 +11443,14 @@ impl VM {
                     if value == 0.0 {
                         inner.data.remove(&index);
                     } else {
+                        if !inner.data.contains_key(&index) {
+                            ensure_runtime_len_within_limit(
+                                inner.data.len().saturating_add(1),
+                                "ENKAI_SPARSE_MAX_NNZ",
+                                DEFAULT_SPARSE_MAX_NNZ,
+                                "sparse.set_vector exceeds ENKAI_SPARSE_MAX_NNZ",
+                            )?;
+                        }
                         inner.data.insert(index, value);
                     }
                     if let (Some(handle), Some(bindings)) =
@@ -11577,6 +11635,15 @@ impl VM {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::EventQueue(inner) => {
                     let mut inner = inner.borrow_mut();
+                    ensure_runtime_len_within_limit(
+                        inner.items.len().saturating_add(1),
+                        "ENKAI_EVENT_MAX_LEN",
+                        DEFAULT_EVENT_MAX_LEN,
+                        "event.push exceeds ENKAI_EVENT_MAX_LEN",
+                    )?;
+                    if inner.next_seq == u64::MAX {
+                        return Err(RuntimeError::new("event.push sequence overflow"));
+                    }
                     let seq = inner.next_seq;
                     inner.next_seq = inner.next_seq.saturating_add(1);
                     inner.items.push(crate::object::ScheduledEvent {
@@ -11734,6 +11801,16 @@ impl VM {
             },
         )?;
         let capacity = capacity as usize;
+        ensure_runtime_len_within_limit(
+            capacity,
+            "ENKAI_POOL_MAX_CAPACITY",
+            DEFAULT_POOL_MAX_CAPACITY,
+            if growable {
+                "pool.make_growable exceeds ENKAI_POOL_MAX_CAPACITY"
+            } else {
+                "pool.make exceeds ENKAI_POOL_MAX_CAPACITY"
+            },
+        )?;
         let native = self.sim_accel_bindings().and_then(|bindings| {
             bindings
                 .pool_new
@@ -11812,11 +11889,18 @@ impl VM {
                     }
                     if inner.items.len() >= inner.capacity {
                         if inner.growable {
-                            inner.capacity = inner
+                            let next_capacity = inner
                                 .capacity
                                 .max(1)
                                 .saturating_mul(2)
                                 .max(inner.items.len().saturating_add(1));
+                            ensure_runtime_len_within_limit(
+                                next_capacity,
+                                "ENKAI_POOL_MAX_CAPACITY",
+                                DEFAULT_POOL_MAX_CAPACITY,
+                                "pool.release grow exceeds ENKAI_POOL_MAX_CAPACITY",
+                            )?;
+                            inner.capacity = next_capacity;
                         } else {
                             inner.dropped_on_full = inner.dropped_on_full.saturating_add(1);
                             return Ok(false);
@@ -15862,6 +15946,38 @@ fn parse_env_usize(name: &str) -> Option<usize> {
     raw.trim().parse::<usize>().ok()
 }
 
+fn runtime_limit_usize(name: &str, default: usize) -> usize {
+    parse_env_usize(name).unwrap_or(default).max(1)
+}
+
+fn value_as_bounded_non_negative_index(
+    value: &Value,
+    negative_message: &str,
+    env_name: &str,
+    default_limit: usize,
+    limit_message: &str,
+) -> Result<i64, RuntimeError> {
+    let index = value_as_non_negative_int(value, negative_message)?;
+    let limit = runtime_limit_usize(env_name, default_limit);
+    if (index as usize) > limit {
+        return Err(RuntimeError::new(limit_message));
+    }
+    Ok(index)
+}
+
+fn ensure_runtime_len_within_limit(
+    len: usize,
+    env_name: &str,
+    default_limit: usize,
+    message: &str,
+) -> Result<(), RuntimeError> {
+    let limit = runtime_limit_usize(env_name, default_limit);
+    if len > limit {
+        return Err(RuntimeError::new(message));
+    }
+    Ok(())
+}
+
 fn parse_non_negative_usize(value: &Value, error: &str) -> Result<usize, RuntimeError> {
     match value {
         Value::Int(i) if *i >= 0 => Ok(*i as usize),
@@ -18935,7 +19051,7 @@ fn value_as_record(
 }
 
 fn value_as_dense_f64(value: &Value) -> Result<Vec<f64>, RuntimeError> {
-    match value {
+    let out = match value {
         Value::Obj(obj) => match obj.as_obj() {
             Obj::List(values) => values
                 .borrow()
@@ -18957,7 +19073,17 @@ fn value_as_dense_f64(value: &Value) -> Result<Vec<f64>, RuntimeError> {
             _ => Err(RuntimeError::new("Expected dense List or Buffer value")),
         },
         _ => Err(RuntimeError::new("Expected dense List or Buffer value")),
+    }?;
+    ensure_runtime_len_within_limit(
+        out.len(),
+        "ENKAI_DENSE_MAX_LEN",
+        DEFAULT_DENSE_MAX_LEN,
+        "dense input exceeds ENKAI_DENSE_MAX_LEN",
+    )?;
+    if out.iter().any(|value| !value.is_finite()) {
+        return Err(RuntimeError::new("Dense values must be finite"));
     }
+    Ok(out)
 }
 
 fn native_placeholder(name: &str, arity: u16) -> Value {

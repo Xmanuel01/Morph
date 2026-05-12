@@ -267,6 +267,19 @@ std::tls             TLS inspection helpers
 std::zstd            compression helpers
 ```
 
+Bounded runtime guardrails:
+
+```text
+ENKAI_SPARSE_MAX_INDEX       maximum sparse row/column/vector index
+ENKAI_SPARSE_MAX_NNZ         maximum sparse non-zero entries per value
+ENKAI_DENSE_MAX_LEN          maximum dense list/buffer length accepted by sparse ops
+ENKAI_EVENT_MAX_LEN          maximum pending events per event queue
+ENKAI_POOL_MAX_CAPACITY      maximum fixed/growable pool capacity
+```
+
+These defaults protect `std::sparse`, `std::event`, and `std::pool` from accidental
+unbounded allocation while keeping deterministic VM fallback behavior.
+
 ## 11. JSON Example
 
 ```enkai

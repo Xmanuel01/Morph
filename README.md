@@ -82,6 +82,10 @@ Status (v3.8.0)
 - `std::sparse`, `std::event`, and `std::pool` now keep the same public API while using
   native-backed acceleration through `enkai_native` when available; deterministic runtime
   fallbacks remain active when acceleration is unavailable or disabled with `ENKAI_SIM_ACCEL=0`
+- `std::sparse`, `std::event`, and `std::pool` enforce bounded-runtime guardrails by default:
+  `ENKAI_SPARSE_MAX_INDEX`, `ENKAI_SPARSE_MAX_NNZ`, `ENKAI_DENSE_MAX_LEN`,
+  `ENKAI_EVENT_MAX_LEN`, and `ENKAI_POOL_MAX_CAPACITY` can raise or lower those limits for
+  controlled deployments.
 - Adam-0 reference stack and release evidence:
   - deterministic baseline: `examples/adam0_100.enk`
   - bounded reference package: `examples/adam0_reference/main.enk`
