@@ -22,6 +22,7 @@ use std::sync::Mutex;
 mod accelerator_kernels;
 mod backend;
 mod cuda_kernels;
+pub mod native_runtime;
 #[cfg_attr(not(feature = "torch"), allow(unused_imports))]
 use backend::{backend_is_cpu, backend_is_torch, current_backend, set_backend, BackendKind};
 #[cfg(feature = "torch")]

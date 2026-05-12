@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "contract_version": "v4.0-native-training-runtime",
+  "scope": "enkai_native_training_runtime_foundation",
+  "generated_at_utc": "2026-05-12T04:30:40.336980+00:00",
+  "host": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.13.3",
+    "cwd": "C:\\Users\\USER\\Desktop\\Morph"
+  },
+  "contract": "C:\\Users\\USER\\Desktop\\Morph\\enkai\\contracts\\v4_0_native_training_runtime.json",
+  "suite": "bench/suites/v4_0_native_training_runtime.json",
+  "source_checks": {
+    "passed": true,
+    "failures": []
+  },
+  "native_cargo_test": {
+    "command": [
+      "cargo",
+      "test",
+      "-p",
+      "enkai_tensor",
+      "--test",
+      "native_training_runtime",
+      "--",
+      "--nocapture"
+    ],
+    "exit_code": 0,
+    "passed": true,
+    "elapsed_ms": 1296.0925000006682,
+    "stdout_tail": "\nrunning 4 tests\ntest graph_ir_executes_native_cpu_ops ... ok\ntest fusion_matches_unfused_add_relu ... ok\ntest mlp_sgd_training_reduces_loss_without_torch ... ok\nENKAI_NATIVE_RUNTIME_EVIDENCE={\"benchmarks\":{\"matmul\":{\"checksum\":0.09656757116317749,\"elapsed_ms\":264.3494,\"memory\":{\"allocated_bytes\":65536,\"freed_bytes\":131072,\"live_bytes\":0,\"peak_bytes\":65536,\"reuse_count\":1},\"shape\":[128,128]},\"memory_stress\":{\"checksum\":4032.0,\"elapsed_ms\":10.0079,\"memory\":{\"allocated_bytes\":4194304,\"freed_bytes\":8388608,\"live_bytes\":0,\"peak_bytes\":4194304,\"reuse_count\":64}},\"mlp_forward\":{\"elapsed_ms\":0.0391,\"loss_sum\":1.3594979047775269,\"memory\":{\"allocated_bytes\":320,\"freed_bytes\":0,\"live_bytes\":320,\"peak_bytes\":320,\"reuse_count\":0}},\"mlp_training_step\":{\"elapsed_ms\":6.1525,\"loss_final\":0.017403483390808105,\"loss_initial\":0.6797489523887634,\"peak_memory_bytes\":192,\"steps\":200},\"softmax_cross_entropy\":{\"fused_ms\":3.0278,\"unfused_ms\":3.6643},\"vector_add\":{\"checksum\":-1.3000000715255737,\"elapsed_ms\":2.9943999999999997,\"elements\":16384,\"memory\":{\"allocated_bytes\":65536,\"freed_bytes\":131072,\"live_bytes\":0,\"peak_bytes\":65536,\"reuse_count\":1}}},\"claims\":{\"cuda_without_pytorch\":\"hook_only_not_claimed\",\"python_core_execution_dependency\":false,\"pytorch_core_execution_dependency\":false},\"cuda_backend_hook\":\"enkai_native_cuda_hook unavailable: CUDA/Triton backend hook reserved; no PyTorch execution dependency\",\"iterations\":2,\"matmul_bias_relu\":{\"checksum_delta_abs\":0.0,\"fused_ms\":273.9263,\"unfused_ms\":246.7826},\"memory\":{\"ce_unfused\":{\"allocated_bytes\":131072,\"freed_bytes\":0,\"live_bytes\":131072,\"peak_bytes\":131072,\"reuse_count\":0},\"fused\":{\"allocated_bytes\":65536,\"freed_bytes\":131072,\"live_bytes\":0,\"peak_bytes\":65536,\"reuse_count\":1},\"unfused\":{\"allocated_bytes\":196608,\"freed_bytes\":393216,\"live_bytes\":0,\"peak_bytes\":196608,\"reuse_count\":3}},\"runtime\":\"enkai_native_training_runtime_cpu\",\"schema_version\":1,\"softmax_cross_entropy\":{\"fused_ms\":3.0278,\"loss_delta_abs\":0.0,\"unfused_ms\":3.6643},\"training\":{\"allocated_bytes\":192,\"loss_final\":0.017403483390808105,\"loss_initial\":0.6797489523887634,\"peak_memory_bytes\":192,\"reuse_count\":796,\"steps\":200}}\ntest benchmark_emits_evidence_and_cuda_hook_is_not_pytorch ... ok\n\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.81s\n\n",
+    "stderr_tail": "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.25s\n     Running tests\\native_training_runtime.rs (target\\debug\\deps\\native_training_runtime-9991c163015722b3.exe)\n"
+  },
+  "enkai_native_evidence": {
+    "benchmarks": {
+      "matmul": {
+        "checksum": 0.09656757116317749,
+        "elapsed_ms": 264.3494,
+        "memory": {
+          "allocated_bytes": 65536,
+          "freed_bytes": 131072,
+          "live_bytes": 0,
+          "peak_bytes": 65536,
+          "reuse_count": 1
+        },
+        "shape": [
+          128,
+          128
+        ]
+      },
+      "memory_stress": {
+        "checksum": 4032.0,
+        "elapsed_ms": 10.0079,
+        "memory": {
+          "allocated_bytes": 4194304,
+          "freed_bytes": 8388608,
+          "live_bytes": 0,
+          "peak_bytes": 4194304,
+          "reuse_count": 64
+        }
+      },
+      "mlp_forward": {
+        "elapsed_ms": 0.0391,
+        "loss_sum": 1.3594979047775269,
+        "memory": {
+          "allocated_bytes": 320,
+          "freed_bytes": 0,
+          "live_bytes": 320,
+          "peak_bytes": 320,
+          "reuse_count": 0
+        }
+      },
+      "mlp_training_step": {
+        "elapsed_ms": 6.1525,
+        "loss_final": 0.017403483390808105,
+        "loss_initial": 0.6797489523887634,
+        "peak_memory_bytes": 192,
+        "steps": 200
+      },
+      "softmax_cross_entropy": {
+        "fused_ms": 3.0278,
+        "unfused_ms": 3.6643
+      },
+      "vector_add": {
+        "checksum": -1.3000000715255737,
+        "elapsed_ms": 2.9943999999999997,
+        "elements": 16384,
+        "memory": {
+          "allocated_bytes": 65536,
+          "freed_bytes": 131072,
+          "live_bytes": 0,
+          "peak_bytes": 65536,
+          "reuse_count": 1
+        }
+      }
+    },
+    "claims": {
+      "cuda_without_pytorch": "hook_only_not_claimed",
+      "python_core_execution_dependency": false,
+      "pytorch_core_execution_dependency": false
+    },
+    "cuda_backend_hook": "enkai_native_cuda_hook unavailable: CUDA/Triton backend hook reserved; no PyTorch execution dependency",
+    "iterations": 2,
+    "matmul_bias_relu": {
+      "checksum_delta_abs": 0.0,
+      "fused_ms": 273.9263,
+      "unfused_ms": 246.7826
+    },
+    "memory": {
+      "ce_unfused": {
+        "allocated_bytes": 131072,
+        "freed_bytes": 0,
+        "live_bytes": 131072,
+        "peak_bytes": 131072,
+        "reuse_count": 0
+      },
+      "fused": {
+        "allocated_bytes": 65536,
+        "freed_bytes": 131072,
+        "live_bytes": 0,
+        "peak_bytes": 65536,
+        "reuse_count": 1
+      },
+      "unfused": {
+        "allocated_bytes": 196608,
+        "freed_bytes": 393216,
+        "live_bytes": 0,
+        "peak_bytes": 196608,
+        "reuse_count": 3
+      }
+    },
+    "runtime": "enkai_native_training_runtime_cpu",
+    "schema_version": 1,
+    "softmax_cross_entropy": {
+      "fused_ms": 3.0278,
+      "loss_delta_abs": 0.0,
+      "unfused_ms": 3.6643
+    },
+    "training": {
+      "allocated_bytes": 192,
+      "loss_final": 0.017403483390808105,
+      "loss_initial": 0.6797489523887634,
+      "peak_memory_bytes": 192,
+      "reuse_count": 796,
+      "steps": 200
+    }
+  },
+  "python_reference": {
+    "vector_add": {
+      "elapsed_ms": 31.454599997232435,
+      "checksum": -5200.0
+    },
+    "matmul": {
+      "elapsed_ms": 6.523299998661969,
+      "checksum": -0.04840000000000088
+    }
+  },
+  "pytorch_reference_only": {
+    "available": false,
+    "reason": "torch import failed: No module named 'torch'"
+  },
+  "claim_policy": {
+    "allow_claim_when_gate_green": "Enkai's native training runtime is up to X% faster than Python/PyTorch eager on selected benchmarked workloads.",
+    "forbidden_claims": [
+      "faster than CUDA",
+      "full PyTorch parity",
+      "GPU production complete"
+    ],
+    "cuda_status": "hook_only_until_non_pytorch_cuda_backend_verifier_is_green"
+  },
+  "all_passed": true,
+  "failures": []
+}

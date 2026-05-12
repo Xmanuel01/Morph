@@ -294,3 +294,23 @@ CPU-runtime OOM guard, not a GPU allocator or full lifetime planner.
 
 
 
+
+## v4.0 Native Training Runtime Direction
+
+The v4.0 native-training-runtime branch starts moving Enkai training execution
+away from PyTorch as a core engine. PyTorch remains allowed only in reference
+benchmark scripts and correctness comparison tests.
+
+The first native tranche provides:
+- `enkai_tensor::native_runtime::TensorGraph` and `GraphOp` as an Enkai-owned tensor graph IR.
+- `CpuBackend` for native CPU execution of zeros, add, multiply, matmul, ReLU, softmax, cross-entropy, mean, and sum.
+- `MemoryPlanner` metrics for peak bytes, allocated bytes, freed bytes, live bytes, and reuse count.
+- Fusion helpers for add+ReLU, matmul+bias, and softmax+cross-entropy equivalence evidence.
+- A basic MLP SGD training loop with manual backward rules for the bounded graph.
+- `CudaBackendHook` as a non-PyTorch CUDA/Triton extension point. It is a hook only until CUDA execution has separate hardware-backed proof.
+
+Performance language is gated by `artifacts/readiness/v4_0_native_training_runtime.json`.
+Do not claim broad PyTorch or CUDA superiority from this tranche. The acceptable
+wording after green evidence is:
+
+`Enkai's native training runtime is up to X% faster than Python/PyTorch eager on selected benchmarked workloads.`

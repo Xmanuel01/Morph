@@ -1248,3 +1248,24 @@ v0.3 (done)
 - Local path dependencies in Enkai.toml
 - Expand stdlib: strings + fs (policy-gated)
 - Keep AI primitives as stubs unless testable
+
+## v4.0 Native Training Runtime Branch
+
+`v4.0-native-training-runtime` begins the native execution line. The objective is
+not to use PyTorch as Enkai's execution engine. PyTorch is retained only as a
+reference baseline in benchmark/comparison scripts.
+
+First tranche scope:
+- Native Tensor Graph IR.
+- CPU execution backend.
+- Memory planner with reuse evidence.
+- Fusion evidence for selected patterns.
+- Basic autograd/SGD MLP training proof.
+- CUDA/Triton backend hooks without production GPU claims.
+
+The readiness entrypoint is:
+
+```bash
+python scripts/readiness_v4_0_native_training_runtime.py --workspace .
+python scripts/verify_v4_0_native_training_runtime.py --workspace .
+```

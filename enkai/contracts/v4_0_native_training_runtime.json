@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "contract_version": "v4.0-native-training-runtime",
+  "scope": "enkai_native_training_runtime_foundation",
+  "status": "foundation_contract",
+  "purpose": "Move Enkai training execution away from PyTorch as a core engine by adding a first-party native CPU graph/runtime with CUDA/Triton hooks and benchmark evidence.",
+  "required_surfaces": [
+    "enkai_tensor_graph_ir",
+    "enkai_native_cpu_execution_engine",
+    "memory_planner_stats",
+    "fusion_engine_evidence",
+    "basic_autograd_training_sgd",
+    "cuda_triton_backend_hook_without_pytorch_dependency",
+    "benchmark_harness_python_pytorch_reference_only",
+    "no_performance_claim_without_json_evidence"
+  ],
+  "required_ops": ["matmul", "add", "multiply", "relu", "softmax", "cross_entropy", "mean", "sum", "zeros"],
+  "core_forbidden_dependencies": ["python", "pytorch", "tch"],
+  "reference_only_allowed": ["scripts/readiness_v4_0_native_training_runtime.py"],
+  "required_metrics": [
+    "fusion_checksum_delta_abs",
+    "fusion_loss_delta_abs",
+    "memory_peak_bytes",
+    "memory_allocated_bytes",
+    "memory_freed_bytes",
+    "memory_reuse_count",
+    "training_loss_initial",
+    "training_loss_final",
+    "benchmark_vector_add",
+    "benchmark_matmul",
+    "benchmark_mlp_forward",
+    "benchmark_mlp_training_step",
+    "benchmark_softmax_cross_entropy",
+    "benchmark_memory_stress"
+  ],
+  "claim_policy": {
+    "allow_claim_when_gate_green": "Enkai's native training runtime is up to X% faster than Python/PyTorch eager on selected benchmarked workloads.",
+    "forbidden_claims": ["faster than CUDA", "full PyTorch parity", "GPU production complete"],
+    "cuda_status": "hook_only_until_non_pytorch_cuda_backend_verifier_is_green"
+  },
+  "output_report": "artifacts/readiness/v4_0_native_training_runtime.json",
+  "verify_report": "artifacts/readiness/v4_0_native_training_runtime_verify.json"
+}

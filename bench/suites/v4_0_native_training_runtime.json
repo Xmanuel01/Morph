@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "suite": "v4_0_native_training_runtime",
+  "description": "Native Enkai CPU training runtime foundation with Python/PyTorch reference-only comparison hooks.",
+  "workloads": [
+    "vector_add",
+    "matmul",
+    "mlp_forward",
+    "mlp_training_step",
+    "softmax_cross_entropy",
+    "memory_stress"
+  ],
+  "backends": {
+    "primary": "enkai_native_cpu",
+    "future_gpu": ["enkai_native_cuda", "enkai_triton"],
+    "reference_only": ["python", "pytorch_eager", "pytorch_compile"]
+  },
+  "claim_policy": "Performance claims require generated benchmark JSON evidence and must be scoped to selected workloads."
+}
