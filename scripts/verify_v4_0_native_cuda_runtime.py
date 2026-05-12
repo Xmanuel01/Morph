@@ -32,6 +32,14 @@ def main() -> int:
                 failures.append(f"missing CUDA op proof: {op}")
         if not evidence.get("resident_matmul"):
             failures.append("missing resident CUDA matmul proof")
+        resident = evidence.get("resident_matmul", {})
+        if resident:
+            if resident.get("kernel") != "cublaslt_tensor_core_candidate":
+                failures.append("resident CUDA matmul did not use the cuBLASLt/Tensor Core candidate path")
+            if resident.get("speedup_vs_internal_cublas", 0.0) < 1.5:
+                failures.append("resident CUDA cuBLASLt path did not clear 1.5x internal cuBLAS speedup gate")
+            if resident.get("speedup_vs_pytorch_eager", 0.0) < 1.5:
+                failures.append("resident CUDA cuBLASLt path did not clear 1.5x PyTorch eager speedup gate")
         if not report.get("pytorch_reference_only", {}).get("available"):
             failures.append("PyTorch CUDA reference comparison missing")
     payload = {

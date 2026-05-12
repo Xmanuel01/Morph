@@ -148,6 +148,8 @@ def main() -> int:
         if torch_large.get("elapsed_ms", 0) > 0 and resident.get("elapsed_ms", 0) > 0:
             resident["pytorch_eager_ms"] = torch_large["elapsed_ms"]
             resident["speedup_vs_pytorch_eager"] = torch_large["elapsed_ms"] / resident["elapsed_ms"]
+        if "checksum" in resident and "checksum" in torch_large:
+            resident["checksum_abs_delta_vs_pytorch"] = abs(resident["checksum"] - torch_large["checksum"])
 
     payload = {
         "schema_version": 1,
