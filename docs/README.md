@@ -23,7 +23,8 @@ release ledgers.
 15. `docs/52_cli_and_style.md` - complete official CLI/style summary.
 16. `docs/tensor_api.md` - AI-native tensor API, current acceleration boundaries, and proof gates.
 17. `docs/54_llm_package_registry.md` - stable LLM package manifests, lockfiles, dependency resolution, and integrity gates.
-18. `docs/Enkai.spec` - normative language reference.
+18. `docs/55_app_platform_closure.md` - bounded MySQL, gRPC, and mobile platform closure proof.
+19. `docs/Enkai.spec` - normative language reference.
 
 ## Official CLI For Users
 
@@ -67,6 +68,7 @@ it as planned or proof-ready, not closed.
 7. `docs/44_native_extension_abi_policy.md`, `docs/45_deployment_rollback_runbook.md`, `docs/46_benchmark_profiling_guide.md`, `docs/47_gpu_operator_preflight.md`.
 8. `docs/48_release_dashboard.md`, `docs/49_v3_0_0_quality_assurance.md`, `docs/50_strict_selfhost_contract.md`, `docs/51_full_frontend_frontier.md`.
 9. `docs/54_llm_package_registry.md` for the `v4.0` LLM package/model ecosystem tranche.
+10. `docs/55_app_platform_closure.md` for bounded MySQL, gRPC, and mobile platform closure.
 
 ## Historical Docs
 

@@ -8053,6 +8053,10 @@ impl VM {
             | "db_postgres_close"
             | "db_mysql_open"
             | "db_mysql_exec"
+            | "db_mysql_exec_many"
+            | "db_mysql_transaction_begin"
+            | "db_mysql_transaction_commit"
+            | "db_mysql_transaction_rollback"
             | "db_mysql_close" => {
                 capability = Some(vec!["db".to_string(), "write".to_string()]);
             }

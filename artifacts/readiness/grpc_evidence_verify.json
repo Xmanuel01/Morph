@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "status": "ok",
+  "conversation_id": "grpc-1778612004170-1",
+  "stream_events": 4,
+  "probe": "artifacts/grpc/probe.json"
+}

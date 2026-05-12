@@ -375,6 +375,24 @@ fn std_db_mysql_open_failure_is_none() {
 }
 
 #[test]
+fn std_db_mysql_transaction_apis_fail_closed_for_invalid_handle() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    copy_std_modules(temp.path());
+    let source = "import std::db\n\
+        policy default ::\n\
+            allow db.write\n\
+            allow db.read\n\
+        ::policy\n\
+        let begin := db.mysql_transaction_begin(-1)\n\
+        let commit := db.mysql_transaction_commit(-1)\n\
+        let rollback := db.mysql_transaction_rollback(-1)\n\
+        let exec_many := db.mysql_exec_many(-1, \"select 1\", 2)\n\
+        begin == false and commit == false and rollback == false and exec_many == -1\n";
+    let value = run_package(temp.path(), "main.enk", source).expect("run");
+    assert_eq!(value, Value::Bool(true));
+}
+
+#[test]
 fn std_analysis_csv_group_and_describe() {
     let temp = tempfile::tempdir().expect("tempdir");
     copy_std_modules(temp.path());

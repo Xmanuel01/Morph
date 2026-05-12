@@ -1,0 +1,9 @@
+{
+  "expo": {
+    "name": "mobile-chat",
+    "slug": "mobile-chat",
+    "version": "1.0.0",
+    "sdkVersion": "52.0.0",
+    "platforms": ["ios", "android", "web"]
+  }
+}

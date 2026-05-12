@@ -1,0 +1,35 @@
+﻿{
+  "schema_version": 1,
+  "contract_version": "v4.0.0",
+  "scope": "app_platform_mysql_grpc_mobile_closure",
+  "required_gates": [
+    "mysql_transaction_api_surface",
+    "mysql_fail_closed_without_live_service",
+    "grpc_health_ready_chat_stream",
+    "grpc_conversation_persistence",
+    "mobile_strict_deploy_validation",
+    "mobile_sdk_snapshot_and_package",
+    "no_unproven_external_service_claim"
+  ],
+  "required_artifacts": [
+    "artifacts/readiness/grpc_smoke.json",
+    "artifacts/readiness/grpc_evidence_verify.json",
+    "artifacts/readiness/deploy_mobile_smoke.json",
+    "artifacts/readiness/deploy_mobile_evidence_verify.json",
+    "artifacts/readiness/v4_0_0_app_platform_closure.json"
+  ],
+  "mysql_policy": {
+    "live_mysql_required_for_external_db_claim": true,
+    "fail_closed_without_live_service_is_acceptable_for_local_closure": true,
+    "required_std_functions": [
+      "mysql_open",
+      "mysql_close",
+      "mysql_transaction_begin",
+      "mysql_transaction_commit",
+      "mysql_transaction_rollback",
+      "mysql_exec",
+      "mysql_exec_many",
+      "mysql_query"
+    ]
+  }
+}

@@ -1,0 +1,1 @@
+{"id":"grpc-1778612004170-1","messages":[{"content":"grpc smoke","role":"user"},{"content":"hello from enkai","role":"assistant"}],"reply":"hello from enkai","schema_version":1,"source":"grpc-stream","updated_ms":1778612004176,"user_text":"grpc smoke"}

@@ -1,0 +1,2 @@
+{"api_version":"v1","conversation_id":"grpc-1778612004170-1","prompt_bytes":10,"protocol":"grpc","rpc":"Chat","ts_ms":1778612004172}
+{"api_version":"v1","conversation_id":"grpc-1778612004170-1","prompt_bytes":10,"protocol":"grpc","rpc":"StreamChat","ts_ms":1778612004185}

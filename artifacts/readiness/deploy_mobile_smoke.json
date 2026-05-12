@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "mode": "mobile",
+  "report": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\readiness\\deploy_mobile.json",
+  "sdk_snapshot": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\mobile\\sdk_api.snapshot.json",
+  "app_json": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\mobile\\app.json",
+  "package_json": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\mobile\\package.json"
+}

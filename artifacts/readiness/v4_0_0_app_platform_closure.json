@@ -1,0 +1,164 @@
+{
+  "all_passed": true,
+  "artifacts": {
+    "artifacts/readiness/deploy_mobile_evidence_verify.json": {
+      "error": null,
+      "ok": true,
+      "payload": {
+        "profile": "mobile",
+        "report": "artifacts/readiness/deploy_mobile.json",
+        "schema_version": 1,
+        "status": "ok",
+        "target": "mobile"
+      }
+    },
+    "artifacts/readiness/deploy_mobile_smoke.json": {
+      "error": null,
+      "ok": true,
+      "payload": {
+        "app_json": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\mobile\\app.json",
+        "mode": "mobile",
+        "package_json": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\mobile\\package.json",
+        "report": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\readiness\\deploy_mobile.json",
+        "schema_version": 1,
+        "sdk_snapshot": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\mobile\\sdk_api.snapshot.json"
+      }
+    },
+    "artifacts/readiness/grpc_evidence_verify.json": {
+      "error": null,
+      "ok": true,
+      "payload": {
+        "conversation_id": "grpc-1778612004170-1",
+        "probe": "artifacts/grpc/probe.json",
+        "schema_version": 1,
+        "status": "ok",
+        "stream_events": 4
+      }
+    },
+    "artifacts/readiness/grpc_smoke.json": {
+      "error": null,
+      "ok": true,
+      "payload": {
+        "conversation_backup": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\grpc\\conversation_state.backup.json",
+        "conversation_state": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\grpc\\conversation_state.json",
+        "grpc_port": 56625,
+        "http_port": 56624,
+        "mode": "grpc",
+        "probe": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\grpc\\probe.json",
+        "schema_version": 1,
+        "serve_exit_code": 0,
+        "serve_stderr": "",
+        "serve_stdout": "",
+        "server_log": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\grpc\\server.jsonl",
+        "service_dir": "C:\\Users\\USER\\AppData\\Local\\Temp\\enkai_readiness_grpc_ajxycl9_\\grpc-service"
+      }
+    }
+  },
+  "commands": [
+    {
+      "command": [
+        "C:\\Users\\USER\\Desktop\\Morph\\target\\debug\\enkai.exe",
+        "--version"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stderr_tail": "",
+      "stdout_tail": "Enkai v3.8.0 (cli 3.8.0)\n"
+    },
+    {
+      "command": [
+        "py",
+        "scripts/readiness_grpc_smoke.py",
+        "--enkai-bin",
+        "C:\\Users\\USER\\Desktop\\Morph\\target\\debug\\enkai.exe",
+        "--workspace",
+        ".",
+        "--output",
+        "artifacts/readiness/grpc_smoke.json"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stderr_tail": "Could not find platform independent libraries <prefix>\n",
+      "stdout_tail": ""
+    },
+    {
+      "command": [
+        "py",
+        "scripts/verify_grpc_evidence.py",
+        "--summary",
+        "artifacts/readiness/grpc_smoke.json",
+        "--probe",
+        "artifacts/grpc/probe.json",
+        "--server-log",
+        "artifacts/grpc/server.jsonl",
+        "--conversation-state",
+        "artifacts/grpc/conversation_state.json",
+        "--output",
+        "artifacts/readiness/grpc_evidence_verify.json"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stderr_tail": "Could not find platform independent libraries <prefix>\n",
+      "stdout_tail": ""
+    },
+    {
+      "command": [
+        "py",
+        "scripts/readiness_mobile_scaffold_smoke.py",
+        "--enkai-bin",
+        "C:\\Users\\USER\\Desktop\\Morph\\target\\debug\\enkai.exe",
+        "--workspace",
+        ".",
+        "--output",
+        "artifacts/readiness/deploy_mobile_smoke.json"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stderr_tail": "Could not find platform independent libraries <prefix>\n",
+      "stdout_tail": "Scaffold created at C:\\Users\\USER\\AppData\\Local\\Temp\\enkai_readiness_mobile_0tt1hpww\\mobile-chat\n{\n  \"schema_version\": 1,\n  \"profile\": \"mobile\",\n  \"project_dir\": \"C:\\\\Users\\\\USER\\\\AppData\\\\Local\\\\Temp\\\\enkai_readiness_mobile_0tt1hpww\\\\mobile-chat\",\n  \"strict\": true,\n  \"success\": true,\n  \"issue_count\": 0,\n  \"issues\": []\n}\n[deploy-validate] ok profile=mobile project=C:\\Users\\USER\\AppData\\Local\\Temp\\enkai_readiness_mobile_0tt1hpww\\mobile-chat\n"
+    },
+    {
+      "command": [
+        "py",
+        "scripts/verify_mobile_scaffold_evidence.py",
+        "--summary",
+        "artifacts/readiness/deploy_mobile_smoke.json",
+        "--report",
+        "artifacts/readiness/deploy_mobile.json",
+        "--sdk-snapshot",
+        "artifacts/mobile/sdk_api.snapshot.json",
+        "--app-json",
+        "artifacts/mobile/app.json",
+        "--package-json",
+        "artifacts/mobile/package.json",
+        "--output",
+        "artifacts/readiness/deploy_mobile_evidence_verify.json"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stderr_tail": "Could not find platform independent libraries <prefix>\n",
+      "stdout_tail": ""
+    }
+  ],
+  "contract_version": "v4.0.0",
+  "failures": [],
+  "gates": {
+    "grpc_conversation_persistence": true,
+    "grpc_health_ready_chat_stream": true,
+    "mobile_sdk_snapshot_and_package": true,
+    "mobile_strict_deploy_validation": true,
+    "mysql_fail_closed_without_live_service": true,
+    "mysql_transaction_api_surface": true,
+    "no_unproven_external_service_claim": true
+  },
+  "generated_at_utc": "2026-05-12T18:53:27.423289+00:00",
+  "production_claims": {
+    "external_production_deployment_claimed": false,
+    "grpc_local_end_to_end_proven": true,
+    "live_mysql_service_proven": false,
+    "mobile_scaffold_package_closure_proven": true,
+    "mysql_api_closure_proven": true
+  },
+  "schema_version": 1,
+  "scope": "app_platform_mysql_grpc_mobile_closure"
+}

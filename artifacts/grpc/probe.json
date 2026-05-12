@@ -1,0 +1,43 @@
+{
+  "address": "http://127.0.0.1:56625",
+  "chat": {
+    "api_version": "v1",
+    "id": "grpc-1778612004170-1",
+    "reply": "hello from enkai backend"
+  },
+  "health": {
+    "api_version": "v1",
+    "status": "ok"
+  },
+  "ready": {
+    "api_version": "v1",
+    "status": "ready"
+  },
+  "schema_version": 1,
+  "stream": [
+    {
+      "api_version": "v1",
+      "conversation_id": "grpc-1778612004170-1",
+      "event": "token",
+      "value": "hello"
+    },
+    {
+      "api_version": "v1",
+      "conversation_id": "grpc-1778612004170-1",
+      "event": "token",
+      "value": " from"
+    },
+    {
+      "api_version": "v1",
+      "conversation_id": "grpc-1778612004170-1",
+      "event": "token",
+      "value": " enkai"
+    },
+    {
+      "api_version": "v1",
+      "conversation_id": "grpc-1778612004170-1",
+      "event": "done",
+      "value": ""
+    }
+  ]
+}

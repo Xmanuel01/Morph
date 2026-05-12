@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "status": "ok",
+  "profile": "mobile",
+  "target": "mobile",
+  "report": "artifacts/readiness/deploy_mobile.json"
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "mode": "grpc",
+  "service_dir": "C:\\Users\\USER\\AppData\\Local\\Temp\\enkai_readiness_grpc_ajxycl9_\\grpc-service",
+  "http_port": 56624,
+  "grpc_port": 56625,
+  "probe": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\grpc\\probe.json",
+  "server_log": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\grpc\\server.jsonl",
+  "conversation_state": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\grpc\\conversation_state.json",
+  "conversation_backup": "C:\\Users\\USER\\Desktop\\Morph\\artifacts\\grpc\\conversation_state.backup.json",
+  "serve_exit_code": 0,
+  "serve_stdout": "",
+  "serve_stderr": ""
+}

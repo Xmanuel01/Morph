@@ -3460,6 +3460,36 @@ pub extern "C" fn db_mysql_close(handle: i64) -> u8 {
     }
 }
 
+fn mysql_transaction(handle: i64, sql: &str) -> u8 {
+    if handle <= 0 {
+        return 0;
+    }
+    let mut table = match mysql_table().lock() {
+        Ok(table) => table,
+        Err(_) => return 0,
+    };
+    let client = match table.get_mut(&handle) {
+        Some(client) => client,
+        None => return 0,
+    };
+    u8::from(client.query_drop(sql).is_ok())
+}
+
+#[no_mangle]
+pub extern "C" fn db_mysql_transaction_begin(handle: i64) -> u8 {
+    mysql_transaction(handle, "START TRANSACTION")
+}
+
+#[no_mangle]
+pub extern "C" fn db_mysql_transaction_commit(handle: i64) -> u8 {
+    mysql_transaction(handle, "COMMIT")
+}
+
+#[no_mangle]
+pub extern "C" fn db_mysql_transaction_rollback(handle: i64) -> u8 {
+    mysql_transaction(handle, "ROLLBACK")
+}
+
 #[no_mangle]
 pub extern "C" fn db_mysql_exec(handle: i64, sql_ptr: *const u8, sql_len: usize) -> i64 {
     if handle <= 0 {
@@ -3481,6 +3511,38 @@ pub extern "C" fn db_mysql_exec(handle: i64, sql_ptr: *const u8, sql_len: usize)
         Ok(_) => client.affected_rows() as i64,
         Err(_) => -1,
     }
+}
+
+#[no_mangle]
+pub extern "C" fn db_mysql_exec_many(
+    handle: i64,
+    sql_ptr: *const u8,
+    sql_len: usize,
+    count: i64,
+) -> i64 {
+    if handle <= 0 || count < 0 {
+        return -1;
+    }
+    let sql = match string_from_raw(sql_ptr, sql_len) {
+        Some(sql) => sql,
+        None => return -1,
+    };
+    let mut table = match mysql_table().lock() {
+        Ok(table) => table,
+        Err(_) => return -1,
+    };
+    let client = match table.get_mut(&handle) {
+        Some(client) => client,
+        None => return -1,
+    };
+    let mut affected = 0_i64;
+    for _ in 0..count {
+        if client.query_drop(&sql).is_err() {
+            return -1;
+        }
+        affected = affected.saturating_add(client.affected_rows() as i64);
+    }
+    affected
 }
 
 fn mysql_value_to_json(value: &MyValue) -> serde_json::Value {
@@ -6556,5 +6618,20 @@ mod tests {
             enkai_free(split.ptr, split.len);
             enkai_free(split2.ptr, split2.len);
         }
+    }
+
+    #[test]
+    fn mysql_transaction_apis_fail_closed_for_invalid_handles() {
+        let sql = "select 1";
+        assert_eq!(db_mysql_transaction_begin(-1), 0);
+        assert_eq!(db_mysql_transaction_commit(-1), 0);
+        assert_eq!(db_mysql_transaction_rollback(-1), 0);
+        assert_eq!(db_mysql_exec_many(-1, sql.as_ptr(), sql.len(), 2), -1);
+        let rows = db_mysql_query(-1, sql.as_ptr(), sql.len());
+        let text = string_from_raw(rows.ptr, rows.len).expect("rows utf8");
+        unsafe {
+            enkai_free(rows.ptr, rows.len);
+        }
+        assert_eq!(text, "[]");
     }
 }
