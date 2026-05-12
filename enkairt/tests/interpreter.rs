@@ -1065,6 +1065,61 @@ fn snn_runtime_and_agent_environment_kernel_work() {
 }
 
 #[test]
+fn snn_batched_kernel_matches_scalar_frontier_and_rejects_invalid_policy() {
+    let result = run_value(
+        "import std::snn\n\
+         let net := snn.make(3)\n\
+         snn.set_threshold(net, 0, 0.4)\n\
+         snn.set_threshold(net, 1, 0.4)\n\
+         snn.set_threshold(net, 2, 0.5)\n\
+         snn.connect(net, 0, 1, 0.5)\n\
+         snn.connect(net, 1, 2, 0.75)\n\
+         let batch := snn.step_batch(net, [[1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]])\n\
+         let potentials := snn.potentials(net)\n\
+         batch[0][0] * 100000 + batch[1][0] * 1000 + batch[2][0] * 10 + potentials[0]\n",
+    );
+    assert_eq!(result, Value::Float(1020.0));
+
+    let decay = run_result(
+        "import std::snn\n\
+         let net := snn.make(2)\n\
+         snn.set_decay(net, 1.5)\n",
+    )
+    .expect_err("invalid SNN decay should fail");
+    assert_eq!(
+        decay.message,
+        "snn.set_decay expects finite value in [0, 1]"
+    );
+
+    let weight = run_result(
+        "import std::snn\n\
+         let net := snn.make(2)\n\
+         snn.connect(net, 0, 1, 1e309)\n",
+    )
+    .expect_err("invalid SNN weight should fail");
+    assert_eq!(weight.message, "snn.connect expects finite weight");
+}
+
+#[test]
+fn snn_batch_native_and_vm_paths_match_for_seeded_scenarios() {
+    let source = "import std::snn\n\
+         let net := snn.make(4)\n\
+         snn.set_threshold(net, 0, 0.4)\n\
+         snn.set_threshold(net, 1, 0.5)\n\
+         snn.set_threshold(net, 2, 0.6)\n\
+         snn.set_threshold(net, 3, 0.7)\n\
+         snn.connect(net, 0, 1, 0.25)\n\
+         snn.connect(net, 1, 2, 0.50)\n\
+         snn.connect(net, 2, 3, 0.75)\n\
+         let batch := snn.step_batch(net, [[1.0, 0.0, 0.0, 0.0], [0.0, 0.3, 0.0, 0.0], [0.0, 0.0, 0.3, 0.0], [0.0, 0.0, 0.0, 0.3]])\n\
+         let potentials := snn.potentials(net)\n\
+         batch[0][0] * 100000 + batch[1][0] * 10000 + batch[2][0] * 1000 + batch[3][0] * 100 + potentials[3] * 10\n";
+    let native = run_value_with_accel(source, cfg!(not(windows)));
+    let fallback = run_value_with_accel(source, false);
+    assert_eq!(native, fallback);
+}
+
+#[test]
 fn sparse_native_and_vm_paths_match_for_seeded_scenarios() {
     for case in 0..8_u64 {
         let mut seed = 100 + case;

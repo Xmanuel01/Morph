@@ -34,6 +34,10 @@ pub fn step(network: SnnNetwork, input) ::
     return snn.step(network, input)
 ::
 
+pub fn step_batch(network: SnnNetwork, inputs) ::
+    return snn.step_batch(network, inputs)
+::
+
 pub fn spikes(network: SnnNetwork) ::
     return snn.spikes(network)
 ::

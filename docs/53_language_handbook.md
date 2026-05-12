@@ -276,12 +276,17 @@ ENKAI_DENSE_MAX_LEN          maximum dense list/buffer length accepted by sparse
 ENKAI_EVENT_MAX_LEN          maximum pending events per event queue
 ENKAI_POOL_MAX_CAPACITY      maximum fixed/growable pool capacity
 ENKAI_SPATIAL_MAX_ENTITIES   maximum entities in one spatial index
+ENKAI_SNN_MAX_NEURONS        maximum neurons in one SNN network
+ENKAI_SNN_MAX_BATCH          maximum rows accepted by snn.step_batch
 ```
 
 These defaults protect `std::sparse`, `std::event`, `std::pool`, and `std::spatial`
 from accidental unbounded allocation while keeping deterministic VM fallback behavior.
 `std::spatial` uses a packed R-tree index for radius, nearest-neighbor, and occupancy
 queries, with stable tie-breaking by entity id.
+`std::snn` exposes `snn.step` for one input vector and `snn.step_batch` for row-major
+batches. Batched stepping uses the same deterministic kernel as scalar stepping and uses
+the native runtime kernel when `enkai_native` acceleration is available.
 
 ## 11. JSON Example
 

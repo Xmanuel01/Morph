@@ -137,6 +137,7 @@ struct NativeSnnNetwork {
     thresholds: Vec<f64>,
     decay: f64,
     synapses: BTreeMap<(usize, usize), f64>,
+    outgoing_edges: Vec<Vec<(usize, f64)>>,
     last_spikes: Vec<u8>,
 }
 
@@ -148,8 +149,49 @@ impl NativeSnnNetwork {
             thresholds: vec![1.0; neuron_count],
             decay: 0.95,
             synapses: BTreeMap::new(),
+            outgoing_edges: vec![Vec::new(); neuron_count],
             last_spikes: vec![0; neuron_count],
         }
+    }
+
+    fn connect(&mut self, from: usize, to: usize, weight: f64) {
+        if weight == 0.0 {
+            self.synapses.remove(&(from, to));
+            self.outgoing_edges[from].retain(|(target, _)| *target != to);
+            return;
+        }
+        self.synapses.insert((from, to), weight);
+        let edges = &mut self.outgoing_edges[from];
+        if let Some((_, existing)) = edges.iter_mut().find(|(target, _)| *target == to) {
+            *existing = weight;
+        } else {
+            edges.push((to, weight));
+            edges.sort_by_key(|(target, _)| *target);
+        }
+    }
+
+    fn step_kernel(&mut self, inputs: &[f64]) -> Vec<u8> {
+        let mut recurrent = vec![0.0; self.neuron_count];
+        for (from, fired) in self.last_spikes.iter().copied().enumerate() {
+            if fired == 0 {
+                continue;
+            }
+            for (to, weight) in &self.outgoing_edges[from] {
+                recurrent[*to] += *weight;
+            }
+        }
+        let mut spikes = vec![0u8; self.neuron_count];
+        for idx in 0..self.neuron_count {
+            let next = self.potentials[idx] * self.decay + inputs[idx] + recurrent[idx];
+            if next >= self.thresholds[idx] {
+                self.potentials[idx] = 0.0;
+                spikes[idx] = 1;
+            } else {
+                self.potentials[idx] = next;
+            }
+        }
+        self.last_spikes.clone_from(&spikes);
+        spikes
     }
 }
 
@@ -314,6 +356,15 @@ fn snn_step_slice(potentials: &[f64], spikes: &[u8]) -> FfiSlice {
         bytes.extend_from_slice(&value.to_le_bytes());
     }
     bytes.extend_from_slice(spikes);
+    make_slice(bytes)
+}
+
+fn snn_batch_step_slice(potentials: &[f64], batch_spikes: &[u8]) -> FfiSlice {
+    let mut bytes = Vec::with_capacity(potentials.len() * 8 + batch_spikes.len());
+    for value in potentials {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    bytes.extend_from_slice(batch_spikes);
     make_slice(bytes)
 }
 
@@ -2103,11 +2154,7 @@ pub unsafe extern "C" fn sim_snn_connect(ptr: *mut c_void, from: i64, to: i64, w
     if from >= net.neuron_count || to >= net.neuron_count {
         return 0;
     }
-    if weight == 0.0 {
-        net.synapses.remove(&(from, to));
-    } else {
-        net.synapses.insert((from, to), weight);
-    }
+    net.connect(from, to, weight);
     1
 }
 
@@ -2130,24 +2177,39 @@ pub unsafe extern "C" fn sim_snn_step(
     if inputs.len() != net.neuron_count {
         return null_slice();
     }
-    let mut recurrent = vec![0.0; net.neuron_count];
-    for ((from, to), weight) in &net.synapses {
-        if net.last_spikes.get(*from).copied().unwrap_or(0) != 0 {
-            recurrent[*to] += *weight;
-        }
-    }
-    let mut spikes = vec![0u8; net.neuron_count];
-    for idx in 0..net.neuron_count {
-        let next = net.potentials[idx] * net.decay + inputs[idx] + recurrent[idx];
-        if next >= net.thresholds[idx] {
-            net.potentials[idx] = 0.0;
-            spikes[idx] = 1;
-        } else {
-            net.potentials[idx] = next;
-        }
-    }
-    net.last_spikes.clone_from(&spikes);
+    let spikes = net.step_kernel(&inputs);
     snn_step_slice(&net.potentials, &spikes)
+}
+
+#[no_mangle]
+/// # Safety
+/// The caller must pass a valid SNN handle and a readable dense f64 batch buffer.
+/// The buffer is row-major with `batch_len * neuron_count` f64 values.
+pub unsafe extern "C" fn sim_snn_step_batch(
+    ptr: *mut c_void,
+    input_ptr: *const u8,
+    input_len: usize,
+) -> FfiSlice {
+    let Some(net) =
+        (unsafe { typed_handle_mut::<NativeSnnNetwork>(ptr, OpaqueHandleKind::SnnNetwork) })
+    else {
+        return null_slice();
+    };
+    let Some(inputs) = f64_vec_from_raw(input_ptr, input_len) else {
+        return null_slice();
+    };
+    if net.neuron_count == 0 || inputs.len() % net.neuron_count != 0 {
+        return null_slice();
+    }
+    let batch_len = inputs.len() / net.neuron_count;
+    let mut batch_spikes = Vec::with_capacity(batch_len * net.neuron_count);
+    for row in inputs.chunks_exact(net.neuron_count) {
+        if row.iter().any(|value| !value.is_finite()) {
+            return null_slice();
+        }
+        batch_spikes.extend_from_slice(&net.step_kernel(row));
+    }
+    snn_batch_step_slice(&net.potentials, &batch_spikes)
 }
 
 #[no_mangle]
@@ -5840,6 +5902,32 @@ mod tests {
         assert_eq!(unsafe { sim_snn_get_potential(network, 0) }, 0.0);
         assert_eq!(unsafe { sim_snn_get_decay(network) }, 0.95);
         unsafe {
+            enkai_handle_free(network);
+        }
+    }
+
+    #[test]
+    fn sim_snn_batched_step_matches_native_kernel_frontier() {
+        let _guard = native_handle_test_guard();
+        let network = sim_snn_network_new(3);
+        assert!(!network.is_null());
+        unsafe {
+            assert_eq!(sim_snn_set_threshold(network, 0, 0.4), 1);
+            assert_eq!(sim_snn_set_threshold(network, 1, 0.4), 1);
+            assert_eq!(sim_snn_set_threshold(network, 2, 0.5), 1);
+            assert_eq!(sim_snn_connect(network, 0, 1, 0.5), 1);
+            assert_eq!(sim_snn_connect(network, 1, 2, 0.75), 1);
+        }
+        let mut input = Vec::new();
+        for value in [1.0_f64, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] {
+            input.extend_from_slice(&value.to_le_bytes());
+        }
+        let out = unsafe { sim_snn_step_batch(network, input.as_ptr(), input.len()) };
+        assert_eq!(out.len, 33);
+        let bytes = unsafe { std::slice::from_raw_parts(out.ptr, out.len) };
+        assert_eq!(&bytes[24..], &[1, 0, 0, 0, 1, 0, 0, 0, 1]);
+        unsafe {
+            enkai_free(out.ptr, out.len);
             enkai_handle_free(network);
         }
     }

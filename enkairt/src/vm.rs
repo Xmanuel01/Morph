@@ -54,6 +54,8 @@ const DEFAULT_DENSE_MAX_LEN: usize = 1_000_000;
 const DEFAULT_EVENT_MAX_LEN: usize = 1_000_000;
 const DEFAULT_POOL_MAX_CAPACITY: usize = 1_000_000;
 const DEFAULT_SPATIAL_MAX_ENTITIES: usize = 1_000_000;
+const DEFAULT_SNN_MAX_NEURONS: usize = 1_000_000;
+const DEFAULT_SNN_MAX_BATCH: usize = 65_536;
 
 #[derive(Debug)]
 struct CallFrame {
@@ -144,6 +146,7 @@ struct SimAccelBindings {
     snn_get_decay: FfiFunction,
     snn_connect: FfiFunction,
     snn_step: FfiFunction,
+    snn_step_batch: FfiFunction,
 }
 
 impl SimAccelBindings {
@@ -371,6 +374,12 @@ impl SimAccelBindings {
             snn_step: bind(
                 loader,
                 "sim_snn_step",
+                vec![FfiType::Handle, FfiType::Buffer],
+                FfiType::Buffer,
+            )?,
+            snn_step_batch: bind(
+                loader,
+                "sim_snn_step_batch",
                 vec![FfiType::Handle, FfiType::Buffer],
                 FfiType::Buffer,
             )?,
@@ -2427,6 +2436,7 @@ impl VM {
             ("set_decay", 2),
             ("get_decay", 1),
             ("step", 2),
+            ("step_batch", 2),
             ("spikes", 1),
             ("potentials", 1),
             ("synapses", 1),
@@ -7550,6 +7560,18 @@ impl VM {
                             self.stack.push(value);
                             return Ok(());
                         }
+                        if nf.name == "snn.step_batch" {
+                            let network = args.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("snn.step_batch expects network")
+                            })?;
+                            let inputs = args.get(1).cloned().ok_or_else(|| {
+                                RuntimeError::new("snn.step_batch expects inputs")
+                            })?;
+                            self.stack.truncate(callee_index);
+                            let value = self.snn_step_batch(network, inputs)?;
+                            self.stack.push(value);
+                            return Ok(());
+                        }
                         if nf.name == "snn.spikes" {
                             let network = args
                                 .first()
@@ -12326,6 +12348,12 @@ impl VM {
         let neuron_count =
             value_as_non_negative_int(&neuron_count, "snn.make expects neuron_count >= 0")?
                 as usize;
+        ensure_runtime_len_within_limit(
+            neuron_count,
+            "ENKAI_SNN_MAX_NEURONS",
+            DEFAULT_SNN_MAX_NEURONS,
+            "snn.make exceeds ENKAI_SNN_MAX_NEURONS",
+        )?;
         let sparse_native = self
             .sim_accel_bindings()
             .and_then(|bindings| bindings.sparse_matrix_new.call(&[]).ok());
@@ -12355,6 +12383,9 @@ impl VM {
         let from_idx = value_as_non_negative_int(&from, "snn.connect expects from >= 0")?;
         let to_idx = value_as_non_negative_int(&to, "snn.connect expects to >= 0")?;
         let weight = value_as_float_like(&weight)?;
+        if !weight.is_finite() {
+            return Err(RuntimeError::new("snn.connect expects finite weight"));
+        }
         match network {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::SnnNetwork(inner) => {
@@ -12377,6 +12408,10 @@ impl VM {
                         Value::Int(to_idx),
                         Value::Float(weight),
                     )?;
+                    {
+                        let mut inner = inner.borrow_mut();
+                        inner.connect(from_idx as usize, to_idx as usize, weight);
+                    }
                     let native_connect = if let (Some(handle), Some(bindings)) =
                         (handle, self.sim_accel_bindings())
                     {
@@ -12411,6 +12446,9 @@ impl VM {
     ) -> Result<(), RuntimeError> {
         let index = value_as_non_negative_int(&index, "snn.set_potential expects index >= 0")?;
         let value = value_as_float_like(&value)?;
+        if !value.is_finite() {
+            return Err(RuntimeError::new("snn.set_potential expects finite value"));
+        }
         match network {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::SnnNetwork(inner) => {
@@ -12473,6 +12511,9 @@ impl VM {
     ) -> Result<(), RuntimeError> {
         let index = value_as_non_negative_int(&index, "snn.set_threshold expects index >= 0")?;
         let value = value_as_float_like(&value)?;
+        if !value.is_finite() {
+            return Err(RuntimeError::new("snn.set_threshold expects finite value"));
+        }
         match network {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::SnnNetwork(inner) => {
@@ -12529,6 +12570,11 @@ impl VM {
 
     fn snn_set_decay(&mut self, network: Value, value: Value) -> Result<(), RuntimeError> {
         let value = value_as_float_like(&value)?;
+        if !(0.0..=1.0).contains(&value) || !value.is_finite() {
+            return Err(RuntimeError::new(
+                "snn.set_decay expects finite value in [0, 1]",
+            ));
+        }
         match network {
             Value::Obj(obj) => match obj.as_obj() {
                 Obj::SnnNetwork(inner) => {
@@ -12610,45 +12656,92 @@ impl VM {
                         self.note_snn_native_call();
                         return Ok(value);
                     }
-                    let mut recurrent = vec![0.0; neuron_count];
-                    let synapses = inner.synapses.clone();
-                    if let Value::Obj(syn_obj) = synapses {
-                        if let Obj::SparseMatrix(matrix) = syn_obj.as_obj() {
-                            for ((from, to), weight) in matrix.borrow().data.iter() {
-                                let from_idx = *from as usize;
-                                let to_idx = *to as usize;
-                                if from_idx < inner.last_spikes.len()
-                                    && to_idx < recurrent.len()
-                                    && inner.last_spikes[from_idx]
-                                {
-                                    recurrent[to_idx] += *weight;
-                                }
-                            }
-                        }
-                    }
-                    let mut spikes = vec![false; neuron_count];
-                    for idx in 0..neuron_count {
-                        let mut next = inner.potentials[idx] * inner.decay + input_vec[idx];
-                        next += recurrent[idx];
-                        let fired = next >= inner.thresholds[idx];
-                        if fired {
-                            next = 0.0;
-                        }
-                        inner.potentials[idx] = next;
-                        spikes[idx] = fired;
-                    }
-                    inner.last_spikes = spikes.clone();
+                    let fired_indices = inner.step_kernel(&input_vec);
                     Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(
-                        spikes
+                        fired_indices
                             .into_iter()
-                            .enumerate()
-                            .filter_map(|(idx, fired)| fired.then_some(Value::Int(idx as i64)))
+                            .map(|idx| Value::Int(idx as i64))
                             .collect(),
                     )))))
                 }
                 _ => Err(RuntimeError::new("snn.step expects SnnNetwork")),
             },
             _ => Err(RuntimeError::new("snn.step expects SnnNetwork")),
+        }
+    }
+
+    fn snn_step_batch(&mut self, network: Value, inputs: Value) -> Result<Value, RuntimeError> {
+        let batch = value_as_dense_batch_f64(&inputs, "snn.step_batch expects inputs")?;
+        ensure_runtime_len_within_limit(
+            batch.len(),
+            "ENKAI_SNN_MAX_BATCH",
+            DEFAULT_SNN_MAX_BATCH,
+            "snn.step_batch exceeds ENKAI_SNN_MAX_BATCH",
+        )?;
+        match network {
+            Value::Obj(obj) => match obj.as_obj() {
+                Obj::SnnNetwork(inner) => {
+                    let mut inner = inner.borrow_mut();
+                    let neuron_count = inner.neuron_count;
+                    let native_step = if let (Some(handle), Some(bindings)) =
+                        (inner.native.clone(), self.sim_accel_bindings())
+                    {
+                        let encoded = encode_f64_batch_buffer(&batch, neuron_count);
+                        if let Ok(buffer) = bindings.snn_step_batch.call(&[handle, encoded]) {
+                            if let Ok((potentials, spike_rows)) =
+                                decode_snn_batch_step_buffer(buffer, neuron_count, batch.len())
+                            {
+                                inner.potentials = potentials;
+                                if let Some(last) = spike_rows.last() {
+                                    inner.last_spikes = last.clone();
+                                }
+                                Some(Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                                    spike_rows
+                                        .into_iter()
+                                        .map(|row| {
+                                            Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                                                row.into_iter()
+                                                    .enumerate()
+                                                    .filter_map(|(idx, fired)| {
+                                                        fired.then_some(Value::Int(idx as i64))
+                                                    })
+                                                    .collect(),
+                                            ))))
+                                        })
+                                        .collect(),
+                                )))))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                    if let Some(value) = native_step {
+                        self.note_snn_native_call();
+                        return Ok(value);
+                    }
+                    let mut out = Vec::with_capacity(batch.len());
+                    for dense in batch {
+                        let mut input_vec = vec![0.0; neuron_count];
+                        for (idx, value) in dense.into_iter().take(neuron_count).enumerate() {
+                            input_vec[idx] = value;
+                        }
+                        let fired = inner.step_kernel(&input_vec);
+                        out.push(Value::Obj(ObjRef::new(Obj::List(RefCell::new(
+                            fired
+                                .into_iter()
+                                .map(|idx| Value::Int(idx as i64))
+                                .collect(),
+                        )))));
+                    }
+                    Ok(Value::Obj(ObjRef::new(Obj::List(RefCell::new(out)))))
+                }
+                _ => Err(RuntimeError::new("snn.step_batch expects SnnNetwork")),
+            },
+            _ => Err(RuntimeError::new("snn.step_batch expects SnnNetwork")),
         }
     }
 
@@ -15012,6 +15105,17 @@ fn encode_f64_buffer(values: &[f64]) -> Value {
     buffer_value(bytes)
 }
 
+fn encode_f64_batch_buffer(rows: &[Vec<f64>], width: usize) -> Value {
+    let mut bytes = Vec::with_capacity(rows.len() * width * 8);
+    for row in rows {
+        for idx in 0..width {
+            let value = row.get(idx).copied().unwrap_or(0.0);
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+    }
+    buffer_value(bytes)
+}
+
 fn decode_f64_buffer(value: Value) -> Result<Vec<f64>, RuntimeError> {
     let bytes = value_as_buffer(&value)?;
     if bytes.len() % 8 != 0 {
@@ -15107,6 +15211,39 @@ fn decode_snn_step_buffer(
         .iter()
         .map(|flag| *flag != 0)
         .collect();
+    Ok((potentials, spikes))
+}
+
+fn decode_snn_batch_step_buffer(
+    value: Value,
+    neuron_count: usize,
+    batch_len: usize,
+) -> Result<(Vec<f64>, Vec<Vec<bool>>), RuntimeError> {
+    let bytes = value_as_buffer(&value)?;
+    let potentials_len = neuron_count
+        .checked_mul(8)
+        .ok_or_else(|| RuntimeError::new("native SNN batch payload size overflow"))?;
+    let spikes_len = neuron_count
+        .checked_mul(batch_len)
+        .ok_or_else(|| RuntimeError::new("native SNN batch payload size overflow"))?;
+    let expected = potentials_len
+        .checked_add(spikes_len)
+        .ok_or_else(|| RuntimeError::new("native SNN batch payload size overflow"))?;
+    if bytes.len() != expected {
+        return Err(RuntimeError::new(
+            "native SNN batch step returned invalid payload length",
+        ));
+    }
+    let mut potentials = Vec::with_capacity(neuron_count);
+    for chunk in bytes[..potentials_len].chunks_exact(8) {
+        let mut raw = [0u8; 8];
+        raw.copy_from_slice(chunk);
+        potentials.push(f64::from_le_bytes(raw));
+    }
+    let mut spikes = Vec::with_capacity(batch_len);
+    for row in bytes[potentials_len..].chunks_exact(neuron_count) {
+        spikes.push(row.iter().map(|flag| *flag != 0).collect());
+    }
     Ok((potentials, spikes))
 }
 
@@ -19082,6 +19219,20 @@ fn value_as_dense_f64(value: &Value) -> Result<Vec<f64>, RuntimeError> {
         return Err(RuntimeError::new("Dense values must be finite"));
     }
     Ok(out)
+}
+
+fn value_as_dense_batch_f64(value: &Value, message: &str) -> Result<Vec<Vec<f64>>, RuntimeError> {
+    match value {
+        Value::Obj(obj) => match obj.as_obj() {
+            Obj::List(rows) => rows
+                .borrow()
+                .iter()
+                .map(value_as_dense_f64)
+                .collect::<Result<Vec<_>, _>>(),
+            _ => Err(RuntimeError::new(message)),
+        },
+        _ => Err(RuntimeError::new(message)),
+    }
 }
 
 fn native_placeholder(name: &str, arity: u16) -> Value {

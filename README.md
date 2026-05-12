@@ -88,6 +88,9 @@ Status (v3.8.0)
   controlled deployments.
 - `std::spatial` uses a deterministic packed R-tree for radius, nearest-neighbor, and
   occupancy queries; `ENKAI_SPATIAL_MAX_ENTITIES` bounds index size for production runs.
+- `std::snn` supports scalar and batched stepping; the runtime keeps a deterministic
+  adjacency kernel and uses the native `enkai_native` batched SNN kernel when acceleration
+  is available.
 - Adam-0 reference stack and release evidence:
   - deterministic baseline: `examples/adam0_100.enk`
   - bounded reference package: `examples/adam0_reference/main.enk`

@@ -621,6 +621,7 @@ pub struct SnnNetworkState {
     pub decay: f64,
     pub last_spikes: Vec<bool>,
     pub synapses: Value,
+    pub outgoing_edges: Vec<Vec<(usize, f64)>>,
     pub native: Option<Value>,
 }
 
@@ -633,8 +634,52 @@ impl SnnNetworkState {
             decay: 0.95,
             last_spikes: vec![false; neuron_count],
             synapses,
+            outgoing_edges: vec![Vec::new(); neuron_count],
             native,
         }
+    }
+
+    pub fn connect(&mut self, from: usize, to: usize, weight: f64) {
+        let edges = &mut self.outgoing_edges[from];
+        if weight == 0.0 {
+            edges.retain(|(target, _)| *target != to);
+            return;
+        }
+        if let Some((_, existing)) = edges.iter_mut().find(|(target, _)| *target == to) {
+            *existing = weight;
+        } else {
+            edges.push((to, weight));
+            edges.sort_by_key(|(target, _)| *target);
+        }
+    }
+
+    pub fn step_kernel(&mut self, input: &[f64]) -> Vec<usize> {
+        let mut recurrent = vec![0.0; self.neuron_count];
+        for (from_idx, fired) in self.last_spikes.iter().copied().enumerate() {
+            if !fired {
+                continue;
+            }
+            for (to_idx, weight) in &self.outgoing_edges[from_idx] {
+                recurrent[*to_idx] += *weight;
+            }
+        }
+
+        let mut fired_indices = Vec::new();
+        let mut next_spikes = vec![false; self.neuron_count];
+        for idx in 0..self.neuron_count {
+            let mut next =
+                self.potentials[idx] * self.decay + input.get(idx).copied().unwrap_or(0.0);
+            next += recurrent[idx];
+            let fired = next >= self.thresholds[idx];
+            if fired {
+                next = 0.0;
+                fired_indices.push(idx);
+            }
+            self.potentials[idx] = next;
+            next_spikes[idx] = fired;
+        }
+        self.last_spikes = next_spikes;
+        fired_indices
     }
 }
 
