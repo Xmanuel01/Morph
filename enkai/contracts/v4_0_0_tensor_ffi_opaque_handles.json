@@ -1,0 +1,35 @@
+﻿{
+    "schema_version":  1,
+    "contract_version":  "v4.0.0",
+    "scope":  "tensor_ffi_opaque_handle_closure",
+    "required_gates":  [
+                           "opaque_capability_policy_exported",
+                           "non_sequential_token_generation",
+                           "kind_tag_validation",
+                           "checksum_validation",
+                           "registry_membership_validation",
+                           "stale_handle_rejection",
+                           "wrong_kind_rejection",
+                           "amp_optimizer_device_tensor_handle_coverage"
+                       ],
+    "required_source_markers":  [
+                                    "HANDLE_SECRET",
+                                    "handle_checksum",
+                                    "CHECKSUM_SHIFT",
+                                    "opaque handle checksum invalid",
+                                    "enkai_tensor_handle_abi_policy",
+                                    "Stale tensor handle",
+                                    "Stale device handle"
+                                ],
+    "required_tests":  [
+                           "ffi_handles_are_opaque_typed_and_stale_checked",
+                           "ffi_handle_abi_policy_is_machine_readable",
+                           "amp_scaler_retain_and_double_free"
+                       ],
+    "production_claim_policy":  {
+                                    "raw_sequential_ids_allowed":  false,
+                                    "unguarded_handle_registry_lookup_allowed":  false,
+                                    "forged_tag_only_handles_allowed":  false,
+                                    "stale_handle_reuse_allowed":  false
+                                }
+}

@@ -10,6 +10,13 @@ fn last_error() -> String {
     unsafe { CStr::from_ptr(ptr).to_string_lossy().into_owned() }
 }
 
+unsafe fn ffi_string(ptr: *mut std::ffi::c_char, len: usize) -> String {
+    let text = CStr::from_ptr(ptr).to_string_lossy().into_owned();
+    enkai_tensor::enkai_tensor_string_free(ptr);
+    assert_eq!(text.len(), len);
+    text
+}
+
 #[test]
 fn ffi_handles_are_opaque_typed_and_stale_checked() {
     assert_eq!(
@@ -54,6 +61,14 @@ fn ffi_handles_are_opaque_typed_and_stale_checked() {
         last_error()
     );
 
+    let forged_tensor = (tensor as u64 ^ (1_u64 << 40)) as i64;
+    assert_ne!(enkai_tensor::enkai_tensor_retain(forged_tensor), 0);
+    assert!(
+        last_error().contains("opaque handle checksum invalid"),
+        "forged handles should fail checksum validation, got: {}",
+        last_error()
+    );
+
     assert_eq!(enkai_tensor::enkai_tensor_free(tensor), 0);
     assert_ne!(enkai_tensor::enkai_tensor_retain(tensor), 0);
     assert!(
@@ -69,4 +84,22 @@ fn ffi_handles_are_opaque_typed_and_stale_checked() {
         "freed device handles must be reported as stale, got: {}",
         last_error()
     );
+}
+
+#[test]
+fn ffi_handle_abi_policy_is_machine_readable() {
+    let mut ptr: *mut std::ffi::c_char = std::ptr::null_mut();
+    let mut len: usize = 0;
+    assert_eq!(
+        enkai_tensor::enkai_tensor_handle_abi_policy(&mut ptr, &mut len),
+        0,
+        "policy export failed: {}",
+        last_error()
+    );
+    assert!(!ptr.is_null());
+    let text = unsafe { ffi_string(ptr, len) };
+    assert!(text.contains("\"handle_representation\":\"opaque_capability_token\""));
+    assert!(text.contains("\"raw_sequential_ids_allowed\":false"));
+    assert!(text.contains("\"checksum_required\":true"));
+    assert!(text.contains("\"stale_handle_rejection_required\":true"));
 }

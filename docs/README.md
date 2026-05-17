@@ -24,7 +24,8 @@ release ledgers.
 16. `docs/tensor_api.md` - AI-native tensor API, current acceleration boundaries, and proof gates.
 17. `docs/54_llm_package_registry.md` - stable LLM package manifests, lockfiles, dependency resolution, and integrity gates.
 18. `docs/55_app_platform_closure.md` - bounded and live MySQL, gRPC, and mobile platform closure proof.
-19. `docs/Enkai.spec` - normative language reference.
+19. `docs/56_tensor_ffi_opaque_handles.md` - tensor FFI opaque capability-token handle closure.
+20. `docs/Enkai.spec` - normative language reference.
 
 ## Official CLI For Users
 
@@ -69,6 +70,7 @@ it as planned or proof-ready, not closed.
 8. `docs/48_release_dashboard.md`, `docs/49_v3_0_0_quality_assurance.md`, `docs/50_strict_selfhost_contract.md`, `docs/51_full_frontend_frontier.md`.
 9. `docs/54_llm_package_registry.md` for the `v4.0` LLM package/model ecosystem tranche.
 10. `docs/55_app_platform_closure.md` for bounded MySQL, gRPC, and mobile platform closure.
+11. `docs/56_tensor_ffi_opaque_handles.md` for tensor FFI handle-hardening closure.
 
 ## Historical Docs
 

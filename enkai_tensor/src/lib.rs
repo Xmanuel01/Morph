@@ -1126,6 +1126,46 @@ pub extern "C" fn enkai_tensor_last_error() -> *const c_char {
     })
 }
 
+#[no_mangle]
+pub extern "C" fn enkai_tensor_handle_abi_policy(
+    out_json: *mut *mut c_char,
+    out_len: *mut usize,
+) -> c_int {
+    ffi_guard(1, || {
+        if out_json.is_null() || out_len.is_null() {
+            set_error("handle ABI policy: null output pointer");
+            return 1;
+        }
+        let payload = serde_json::json!({
+            "schema_version": 1,
+            "scope": "enkai_tensor_handle_abi",
+            "handle_representation": "opaque_capability_token",
+            "raw_sequential_ids_allowed": false,
+            "kind_tag_required": true,
+            "checksum_required": cfg!(feature = "torch"),
+            "registry_membership_required": true,
+            "stale_handle_rejection_required": true,
+            "wrong_kind_rejection_required": true,
+            "legacy_integer_transport": "compatibility_only_not_identity",
+            "production_claim": "handles are opaque capability tokens even when transported through C-compatible i64 slots"
+        })
+        .to_string();
+        unsafe {
+            *out_len = payload.len();
+            match CString::new(payload) {
+                Ok(cstr) => {
+                    *out_json = cstr.into_raw();
+                    0
+                }
+                Err(_) => {
+                    set_error("handle ABI policy contained null byte");
+                    1
+                }
+            }
+        }
+    })
+}
+
 fn cstr_to_string(ptr: *const c_char) -> Result<String, String> {
     if ptr.is_null() {
         return Err("Null string pointer".to_string());
@@ -1190,7 +1230,9 @@ enum HandleKind {
 #[cfg(feature = "torch")]
 impl HandleKind {
     const TAG_SHIFT: u64 = 56;
-    const PAYLOAD_MASK: u64 = (1u64 << Self::TAG_SHIFT) - 1;
+    const CHECKSUM_SHIFT: u64 = 40;
+    const CHECKSUM_MASK: u64 = 0xffff;
+    const PAYLOAD_MASK: u64 = (1u64 << Self::CHECKSUM_SHIFT) - 1;
     const OPAQUE_SALT: u64 = 0x00a5_17c3_9e37_79b9;
     const OPAQUE_STRIDE: u64 = 0x0000_0000_01f1_2357;
 
@@ -1198,6 +1240,16 @@ impl HandleKind {
         (self as u64) << Self::TAG_SHIFT
     }
 }
+
+#[cfg(feature = "torch")]
+static HANDLE_SECRET: Lazy<u64> = Lazy::new(|| {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos() as u64)
+        .unwrap_or(0);
+    let addr = (&NEXT_HANDLE as *const AtomicU64 as usize) as u64;
+    mix_handle_bits(now ^ addr ^ HandleKind::OPAQUE_SALT)
+});
 
 #[cfg(feature = "torch")]
 static TENSORS: Lazy<Mutex<HashMap<i64, TensorEntry>>> = Lazy::new(|| Mutex::new(HashMap::new()));
@@ -1245,17 +1297,33 @@ fn file_sha256(path: &str) -> Result<String, String> {
 }
 
 #[cfg(feature = "torch")]
+fn mix_handle_bits(mut x: u64) -> u64 {
+    x ^= x >> 30;
+    x = x.wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    x ^= x >> 27;
+    x = x.wrapping_mul(0x94d0_49bb_1331_11eb);
+    x ^ (x >> 31)
+}
+
+#[cfg(feature = "torch")]
+fn handle_checksum(kind: HandleKind, payload: u64) -> u64 {
+    let mixed = mix_handle_bits(payload ^ kind.tag() ^ *HANDLE_SECRET);
+    ((mixed >> 32) ^ (mixed >> 16) ^ mixed) & HandleKind::CHECKSUM_MASK
+}
+
+#[cfg(feature = "torch")]
 fn next_handle(kind: HandleKind) -> i64 {
     let sequence = NEXT_HANDLE.fetch_add(1, Ordering::SeqCst);
     let payload = sequence
         .wrapping_mul(HandleKind::OPAQUE_STRIDE)
         .wrapping_add(HandleKind::OPAQUE_SALT)
         & HandleKind::PAYLOAD_MASK;
-    (kind.tag() | payload) as i64
+    let checksum = handle_checksum(kind, payload);
+    (kind.tag() | (checksum << HandleKind::CHECKSUM_SHIFT) | payload) as i64
 }
 
 #[cfg(feature = "torch")]
-fn handle_kind(handle: i64) -> Option<HandleKind> {
+fn raw_handle_kind(handle: i64) -> Option<HandleKind> {
     if handle <= 0 {
         return None;
     }
@@ -1270,13 +1338,33 @@ fn handle_kind(handle: i64) -> Option<HandleKind> {
 }
 
 #[cfg(feature = "torch")]
+fn handle_kind(handle: i64) -> Result<HandleKind, String> {
+    let kind = raw_handle_kind(handle)
+        .ok_or_else(|| "Invalid handle: opaque handle tag missing".to_string())?;
+    let raw = handle as u64;
+    let payload = raw & HandleKind::PAYLOAD_MASK;
+    let checksum = (raw >> HandleKind::CHECKSUM_SHIFT) & HandleKind::CHECKSUM_MASK;
+    let expected = handle_checksum(kind, payload);
+    if checksum != expected {
+        return Err("Invalid handle: opaque handle checksum invalid".to_string());
+    }
+    Ok(kind)
+}
+
+#[cfg(feature = "torch")]
 fn require_handle_kind(handle: i64, expected: HandleKind, label: &str) -> Result<(), String> {
     match handle_kind(handle) {
-        Some(actual) if actual == expected => Ok(()),
-        Some(actual) => Err(format!(
+        Ok(actual) if actual == expected => Ok(()),
+        Ok(actual) => Err(format!(
             "Invalid {label} handle kind: expected {expected:?}, found {actual:?}"
         )),
-        None => Err(format!("Invalid {label} handle: opaque handle tag missing")),
+        Err(err) if err.contains("tag missing") => {
+            Err(format!("Invalid {label} handle: opaque handle tag missing"))
+        }
+        Err(err) if err.contains("checksum invalid") => Err(format!(
+            "Invalid {label} handle: opaque handle checksum invalid"
+        )),
+        Err(err) => Err(err),
     }
 }
 

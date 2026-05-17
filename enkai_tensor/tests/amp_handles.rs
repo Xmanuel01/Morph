@@ -14,12 +14,14 @@ fn amp_scaler_retain_and_double_free() {
     // Retain should succeed.
     assert_eq!(enkai_tensor::enkai_amp_scaler_retain(scaler), 0);
 
-    // Free twice should flag double-free on second call.
+    // The first free releases the retained reference, the second releases the
+    // original handle, and any later free must be rejected as stale.
+    assert_eq!(enkai_tensor::enkai_amp_scaler_free(scaler), 0);
     assert_eq!(enkai_tensor::enkai_amp_scaler_free(scaler), 0);
     assert_ne!(
         enkai_tensor::enkai_amp_scaler_free(scaler),
         0,
-        "second free must error"
+        "free after final release must error"
     );
 }
 
