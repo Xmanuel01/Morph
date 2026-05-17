@@ -1,0 +1,39 @@
+﻿{
+  "schema_version": 1,
+  "contract_version": "v4.0.0",
+  "scope": "live_app_platform_production_closure",
+  "required_gates": [
+    "live_mysql_transaction_roundtrip",
+    "deployed_grpc_probe_roundtrip",
+    "mobile_signed_artifact_verified",
+    "mobile_release_metadata_present",
+    "no_placeholder_or_scaffold_claim"
+  ],
+  "required_inputs": {
+    "mysql": [
+      "ENKAI_LIVE_MYSQL_URL"
+    ],
+    "grpc": [
+      "ENKAI_GRPC_DEPLOYED_URL"
+    ],
+    "mobile": [
+      "ENKAI_MOBILE_SIGNED_ARTIFACT"
+    ]
+  },
+  "optional_inputs": {
+    "mysql": [
+      "ENKAI_MYSQL_CLI"
+    ],
+    "mobile": [
+      "ENKAI_MOBILE_SBOM",
+      "ENKAI_MOBILE_SIGNATURE_SHA256",
+      "ENKAI_MOBILE_SIGNING_ATTESTATION"
+    ]
+  },
+  "production_claim_policy": {
+    "requires_live_external_mysql": true,
+    "requires_deployed_grpc_endpoint": true,
+    "requires_signed_mobile_artifact": true,
+    "local_scaffold_artifacts_are_not_sufficient": true
+  }
+}

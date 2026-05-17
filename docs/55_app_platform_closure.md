@@ -92,3 +92,39 @@ end-to-end evidence, and mobile package validation evidence are green.
 It does not mean external service production closure. Live MySQL, managed gRPC,
 and signed mobile release proofs must be added as separate hardware/service
 tranches before making those broader claims.
+
+## Live Production Closure
+
+The broader production claim requires real external service evidence. Local
+scaffold artifacts are not enough.
+
+Run:
+
+```powershell
+py scripts\verify_v4_0_0_live_app_platform_closure.py --workspace .
+```
+
+Required inputs:
+
+- `ENKAI_LIVE_MYSQL_URL`: live `mysql://user:pass@host:port/database` target.
+- `ENKAI_GRPC_DEPLOYED_URL`: deployed gRPC/HTTP probe endpoint accepted by
+  `enkai grpc probe --address`.
+- `ENKAI_MOBILE_SIGNED_ARTIFACT`: signed `.apk`, `.aab`, or `.ipa` artifact.
+- `ENKAI_MOBILE_SBOM`: release metadata/SBOM file for the mobile artifact.
+
+Optional inputs:
+
+- `ENKAI_MYSQL_CLI`: path to the `mysql` CLI when it is not on `PATH`.
+- `ENKAI_MOBILE_SIGNATURE_SHA256`: expected SHA-256 digest of the signed mobile
+  artifact.
+- `ENKAI_MOBILE_SIGNING_ATTESTATION`: JSON attestation for mobile signing,
+  required for `.ipa` verification on non-macOS hosts.
+
+The verifier writes:
+
+```text
+artifacts/readiness/v4_0_0_live_app_platform_closure.json
+```
+
+If any live credential or artifact is missing, the verifier records `BLOCKED`
+instead of treating scaffold evidence as production evidence.

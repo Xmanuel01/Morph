@@ -1,0 +1,56 @@
+{
+  "all_passed": false,
+  "blockers": [
+    {
+      "reason": "missing ENKAI_LIVE_MYSQL_URL",
+      "surface": "mysql"
+    },
+    {
+      "reason": "missing ENKAI_GRPC_DEPLOYED_URL",
+      "surface": "grpc"
+    },
+    {
+      "reason": "missing ENKAI_MOBILE_SIGNED_ARTIFACT",
+      "surface": "mobile"
+    }
+  ],
+  "contract_version": "v4.0.0",
+  "failures": [
+    "live_mysql_transaction_roundtrip",
+    "deployed_grpc_probe_roundtrip",
+    "mobile_signed_artifact_verified",
+    "mobile_release_metadata_present"
+  ],
+  "gates": {
+    "deployed_grpc_probe_roundtrip": false,
+    "live_mysql_transaction_roundtrip": false,
+    "mobile_release_metadata_present": false,
+    "mobile_signed_artifact_verified": false,
+    "no_placeholder_or_scaffold_claim": true
+  },
+  "generated_at_utc": "2026-05-17T16:22:05.639374+00:00",
+  "grpc": {
+    "passed": false,
+    "reason": "missing ENKAI_GRPC_DEPLOYED_URL",
+    "status": "BLOCKED"
+  },
+  "mobile": {
+    "passed": false,
+    "reason": "missing ENKAI_MOBILE_SIGNED_ARTIFACT",
+    "status": "BLOCKED"
+  },
+  "mysql": {
+    "passed": false,
+    "reason": "missing ENKAI_LIVE_MYSQL_URL",
+    "status": "BLOCKED"
+  },
+  "production_claims": {
+    "broad_app_platform_production_closure_proven": false,
+    "deployed_grpc_proven": false,
+    "live_external_mysql_proven": false,
+    "scaffold_only_claim": false,
+    "signed_mobile_artifact_proven": false
+  },
+  "schema_version": 1,
+  "scope": "live_app_platform_production_closure"
+}

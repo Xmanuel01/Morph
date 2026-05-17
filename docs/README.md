@@ -23,7 +23,7 @@ release ledgers.
 15. `docs/52_cli_and_style.md` - complete official CLI/style summary.
 16. `docs/tensor_api.md` - AI-native tensor API, current acceleration boundaries, and proof gates.
 17. `docs/54_llm_package_registry.md` - stable LLM package manifests, lockfiles, dependency resolution, and integrity gates.
-18. `docs/55_app_platform_closure.md` - bounded MySQL, gRPC, and mobile platform closure proof.
+18. `docs/55_app_platform_closure.md` - bounded and live MySQL, gRPC, and mobile platform closure proof.
 19. `docs/Enkai.spec` - normative language reference.
 
 ## Official CLI For Users
