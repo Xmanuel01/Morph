@@ -2467,7 +2467,7 @@ pub unsafe extern "C" fn sim_snn_step_batch(
     let Some(inputs) = f64_vec_from_raw(input_ptr, input_len) else {
         return null_slice();
     };
-    if net.neuron_count == 0 || inputs.len() % net.neuron_count != 0 {
+    if net.neuron_count == 0 || inputs.is_empty() || inputs.len() % net.neuron_count != 0 {
         return null_slice();
     }
     let batch_len = inputs.len() / net.neuron_count;
@@ -2479,6 +2479,26 @@ pub unsafe extern "C" fn sim_snn_step_batch(
         batch_spikes.extend_from_slice(&net.step_kernel(row));
     }
     snn_batch_step_slice(&net.potentials, &batch_spikes)
+}
+
+#[no_mangle]
+pub extern "C" fn sim_snn_runtime_policy_json() -> FfiSlice {
+    string_slice(
+        serde_json::json!({
+            "schema_version": 1,
+            "scope": "native_snn_batched_runtime",
+            "handle_kind": "SnnNetwork",
+            "batch_kernel": "sim_snn_step_batch",
+            "single_ffi_call_per_batch": true,
+            "row_major_f64_input": true,
+            "payload": "potentials_f64_then_batch_spikes_u8",
+            "invalid_input_fail_closed": true,
+            "finite_input_required": true,
+            "outgoing_edge_adjacency": true,
+            "deterministic_order": true,
+        })
+        .to_string(),
+    )
 }
 
 #[no_mangle]
@@ -6314,6 +6334,59 @@ mod tests {
         unsafe {
             enkai_free(out.ptr, out.len);
             enkai_handle_free(network);
+        }
+    }
+
+    #[test]
+    fn sim_snn_batched_step_rejects_invalid_inputs_fail_closed() {
+        let _guard = native_handle_test_guard();
+        let network = sim_snn_network_new(3);
+        assert!(!network.is_null());
+
+        let empty = unsafe { sim_snn_step_batch(network, std::ptr::null(), 0) };
+        assert_eq!(empty.len, 0);
+        assert!(empty.ptr.is_null());
+
+        let mut short = Vec::new();
+        for value in [1.0_f64, 0.0] {
+            short.extend_from_slice(&value.to_le_bytes());
+        }
+        let short_out = unsafe { sim_snn_step_batch(network, short.as_ptr(), short.len()) };
+        assert_eq!(short_out.len, 0);
+        assert!(short_out.ptr.is_null());
+
+        let mut non_finite = Vec::new();
+        for value in [1.0_f64, f64::INFINITY, 0.0] {
+            non_finite.extend_from_slice(&value.to_le_bytes());
+        }
+        let non_finite_out =
+            unsafe { sim_snn_step_batch(network, non_finite.as_ptr(), non_finite.len()) };
+        assert_eq!(non_finite_out.len, 0);
+        assert!(non_finite_out.ptr.is_null());
+
+        let invalid_handle =
+            unsafe { sim_snn_step_batch(std::ptr::null_mut(), short.as_ptr(), short.len()) };
+        assert_eq!(invalid_handle.len, 0);
+        assert!(invalid_handle.ptr.is_null());
+
+        unsafe {
+            enkai_handle_free(network);
+        }
+    }
+
+    #[test]
+    fn sim_snn_runtime_policy_is_machine_readable() {
+        let policy = sim_snn_runtime_policy_json();
+        assert!(policy.len > 0);
+        let bytes = unsafe { std::slice::from_raw_parts(policy.ptr, policy.len) };
+        let json: serde_json::Value = serde_json::from_slice(bytes).expect("policy json");
+        assert_eq!(json["scope"], "native_snn_batched_runtime");
+        assert_eq!(json["batch_kernel"], "sim_snn_step_batch");
+        assert_eq!(json["single_ffi_call_per_batch"], true);
+        assert_eq!(json["invalid_input_fail_closed"], true);
+        assert_eq!(json["outgoing_edge_adjacency"], true);
+        unsafe {
+            enkai_free(policy.ptr, policy.len);
         }
     }
 

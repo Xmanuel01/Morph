@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "contract_version": "v4.0.0",
+  "scope": "native_snn_batched_kernel_closure",
+  "required_gates": [
+    "native_batch_kernel_exported",
+    "std_step_batch_exported",
+    "vm_single_native_call_per_batch",
+    "fail_closed_invalid_batch_inputs",
+    "deterministic_native_vm_equivalence",
+    "adjacency_backed_recurrent_kernel",
+    "policy_export_machine_readable"
+  ],
+  "required_source_markers": [
+    "struct NativeSnnNetwork",
+    "outgoing_edges",
+    "fn step_kernel",
+    "pub unsafe extern \"C\" fn sim_snn_step_batch",
+    "inputs.is_empty()",
+    "row.iter().any(|value| !value.is_finite())",
+    "sim_snn_runtime_policy_json",
+    "single_ffi_call_per_batch",
+    "snn.step_batch"
+  ],
+  "required_tests": [
+    "sim_snn_batched_step_matches_native_kernel_frontier",
+    "sim_snn_batched_step_rejects_invalid_inputs_fail_closed",
+    "sim_snn_runtime_policy_is_machine_readable",
+    "snn_batched_kernel_matches_scalar_frontier_and_rejects_invalid_policy",
+    "snn_batch_native_and_vm_paths_match_for_seeded_scenarios"
+  ],
+  "production_claim_policy": {
+    "per_row_ffi_loop_allowed_for_native_path": false,
+    "non_finite_batch_inputs_allowed": false,
+    "empty_batch_allowed": false,
+    "native_vm_divergence_allowed": false,
+    "full_neuromorphic_gpu_platform_claimed": false
+  }
+}
