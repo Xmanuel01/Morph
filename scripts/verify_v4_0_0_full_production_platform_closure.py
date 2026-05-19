@@ -73,6 +73,12 @@ def main() -> int:
             failures.append(f"{surface['id']}: claim_without_hardware_evidence is true")
         surfaces.append(record)
 
+    blocked_surfaces = [surface for surface in surfaces if not surface["all_passed"] or not surface["claim_passed"]]
+    open_blockers = {
+        surface["id"]: surface.get("failures", [])
+        for surface in blocked_surfaces
+    }
+
     result = {
         "schema_version": 1,
         "contract_version": contract["contract_version"],
@@ -80,6 +86,13 @@ def main() -> int:
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "contract": str((root / args.contract).resolve()),
         "surfaces": surfaces,
+        "blocked_surfaces": [surface["id"] for surface in blocked_surfaces],
+        "open_blockers": open_blockers,
+        "closure_policy": {
+            "broad_platform_claim_allowed": not failures,
+            "partial_surface_override_allowed": False,
+            "hardware_or_external_evidence_required": True,
+        },
         "production_claims": {
             "full_production_platform_proven": not failures,
             "claim_without_all_surfaces_green": False,

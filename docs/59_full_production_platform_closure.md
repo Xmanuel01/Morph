@@ -1,15 +1,40 @@
 # Full Production Platform Closure
 
-This is the umbrella production claim for Enkai v4.0 platform work.
+This is the umbrella production gate for Enkai. It prevents broad platform claims unless every required bounded, live external, and hardware-backed surface is green.
 
 ## Rule
 
-The full production platform claim is valid only when every required lower-level closure surface is green. A single partial, blocked, stale, smoke-only, or hardware-missing proof blocks the umbrella claim.
+A broad "full production platform" claim is allowed only when all required surface artifacts pass and all required production claims are true.
 
-The verifier is:
+The verifier is intentionally strict. It does not allow a partial surface to be overridden by documentation wording, scaffold tests, smoke tests, or synthetic evidence.
 
-```text
-scripts/verify_v4_0_0_full_production_platform_closure.py
+## Required Surfaces
+
+The umbrella closure currently requires these surfaces:
+
+- Tensor FFI opaque handles
+- Native SNN batched kernels
+- Native spatial R-tree indexing
+- LLM package registry closure
+- Bounded app platform closure
+- Live app platform closure
+- Multi-node orchestration closure
+
+## Live / Hardware Requirements
+
+Some surfaces cannot be completed on a normal local workstation:
+
+- Live app platform requires external MySQL, deployed gRPC, and signed/mobile deployment evidence.
+- Multi-node orchestration requires a real 2+ GPU host with fresh distributed evidence.
+
+If those are missing, the correct status is blocked, not production-grade.
+
+## Verification
+
+Run:
+
+```powershell
+py scripts\verify_v4_0_0_full_production_platform_closure.py --workspace .
 ```
 
 The output artifact is:
@@ -18,30 +43,13 @@ The output artifact is:
 artifacts/readiness/v4_0_0_full_production_platform_closure.json
 ```
 
-## Required Surfaces
+The artifact includes:
 
-The umbrella gate requires these artifacts to be present and green:
-
-- `artifacts/readiness/v4_0_0_tensor_ffi_opaque_handles.json`
-- `artifacts/readiness/v4_0_0_native_snn_batched_kernels.json`
-- `artifacts/readiness/v4_0_0_spatial_rtree_native.json`
-- `artifacts/readiness/v4_0_0_llm_package_registry_verify.json`
-- `artifacts/readiness/v4_0_0_app_platform_closure.json`
-- `artifacts/readiness/v4_0_0_live_app_platform_closure.json`
-- `artifacts/readiness/v4_0_0_multi_node_orchestration_closure.json`
-
-## Live Evidence Requirements
-
-The live app platform proof must include real external MySQL, deployed gRPC, and signed/mobile deployment evidence. The multi-node orchestration proof must include real 2+ GPU execution evidence with distinct GPU UUIDs, rank logs, parity checks, and process exit codes.
+- `blocked_surfaces`
+- `open_blockers`
+- `closure_policy`
+- `production_claims.full_production_platform_proven`
 
 ## Current Interpretation
 
-If this verifier fails, Enkai may still have bounded production-grade slices, but the broad full production platform claim is not closed. The correct status is blocked until the failed surface artifacts become green.
-
-## Commands
-
-```powershell
-py scripts\verify_v4_0_0_full_production_platform_closure.py --workspace .
-```
-
-If the verifier fails, inspect the `failures` array in the output artifact and close those lower-level proofs first.
+If `full_production_platform_proven` is false, do not claim the whole platform is complete. Use the individual green surface claims only.

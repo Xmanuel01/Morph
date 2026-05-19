@@ -1,5 +1,14 @@
 {
   "all_passed": false,
+  "blocked_surfaces": [
+    "live_app_platform",
+    "multi_node_orchestration"
+  ],
+  "closure_policy": {
+    "broad_platform_claim_allowed": false,
+    "hardware_or_external_evidence_required": true,
+    "partial_surface_override_allowed": false
+  },
   "contract": "C:\\Users\\USER\\Desktop\\Morph\\enkai\\contracts\\v4_0_0_full_production_platform_closure.json",
   "contract_version": "v4.0.0",
   "failures": [
@@ -8,7 +17,37 @@
     "multi_node_orchestration: artifact is not green",
     "multi_node_orchestration: production claim multi_node_orchestration_proven is not true"
   ],
-  "generated_at_utc": "2026-05-19T06:08:16.578737+00:00",
+  "generated_at_utc": "2026-05-19T06:15:06.527822+00:00",
+  "open_blockers": {
+    "live_app_platform": [
+      "live_mysql_transaction_roundtrip",
+      "deployed_grpc_probe_roundtrip",
+      "mobile_signed_artifact_verified",
+      "mobile_release_metadata_present"
+    ],
+    "multi_node_orchestration": [
+      "live GPU count below requirement: found 0, need 2",
+      "evidence status expected PASS, found BLOCKED",
+      "blocked/skipped evidence cannot close production multi-node orchestration",
+      "evidence is stale: 155.64h > 48h",
+      "required distributed check failed: loss_parity",
+      "required distributed check failed: grad_parity",
+      "rank report count mismatch",
+      "evidence must include at least two distinct GPU UUIDs",
+      "missing archived artifact path: baseline_log",
+      "missing archived artifact path: rank0_log",
+      "missing archived artifact path: rank1_log",
+      "missing archived artifact path: rank0_grads",
+      "missing archived artifact path: rank1_grads",
+      "missing archived artifact path: stdout_baseline",
+      "missing archived artifact path: stderr_baseline",
+      "missing archived artifact path: stdout_rank0",
+      "missing archived artifact path: stderr_rank0",
+      "missing archived artifact path: stdout_rank1",
+      "missing archived artifact path: stderr_rank1",
+      "rank 0 exit code expected 0, found None"
+    ]
+  },
   "production_claims": {
     "blocked_partials_remaining": true,
     "claim_without_all_surfaces_green": false,
