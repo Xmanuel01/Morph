@@ -27,7 +27,8 @@ release ledgers.
 19. `docs/56_tensor_ffi_opaque_handles.md` - tensor FFI opaque capability-token handle closure.
 20. `docs/57_native_snn_batched_kernels.md` - native SNN batched kernel closure.
 21. `docs/58_multi_node_orchestration_closure.md` - real-hardware multi-node orchestration closure.
-22. `docs/Enkai.spec` - normative language reference.
+22. `docs/59_full_production_platform_closure.md` - umbrella full production platform closure gate.
+23. `docs/Enkai.spec` - normative language reference.
 
 ## Official CLI For Users
 
@@ -75,6 +76,7 @@ it as planned or proof-ready, not closed.
 11. `docs/56_tensor_ffi_opaque_handles.md` for tensor FFI handle-hardening closure.
 12. `docs/57_native_snn_batched_kernels.md` for native SNN batched kernel closure.
 13. `docs/58_multi_node_orchestration_closure.md` for real-hardware multi-node orchestration closure.
+14. `docs/59_full_production_platform_closure.md` for the umbrella full production platform closure gate.
 
 ## Historical Docs
 

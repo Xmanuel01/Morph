@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "contract_version": "v4.0.0",
+  "scope": "full_production_platform_closure",
+  "status": "umbrella_live_evidence_required_contract",
+  "purpose": "Prevent broad full-production-platform claims unless all bounded and live external/hardware closure proofs are green.",
+  "required_surfaces": [
+    {
+      "id": "tensor_ffi_opaque_handles",
+      "artifact": "artifacts/readiness/v4_0_0_tensor_ffi_opaque_handles.json",
+      "requires_all_passed": true,
+      "claim": "tensor_ffi_opaque_handles_proven"
+    },
+    {
+      "id": "native_snn_batched_kernels",
+      "artifact": "artifacts/readiness/v4_0_0_native_snn_batched_kernels.json",
+      "requires_all_passed": true,
+      "claim": "native_batched_snn_kernel_proven"
+    },
+    {
+      "id": "spatial_rtree_native",
+      "artifact": "artifacts/readiness/v4_0_0_spatial_rtree_native.json",
+      "requires_all_passed": true,
+      "claim": "native_spatial_rtree_proven"
+    },
+    {
+      "id": "llm_package_registry",
+      "artifact": "artifacts/readiness/v4_0_0_llm_package_registry_verify.json",
+      "requires_all_passed": true
+    },
+    {
+      "id": "bounded_app_platform",
+      "artifact": "artifacts/readiness/v4_0_0_app_platform_closure.json",
+      "requires_all_passed": true
+    },
+    {
+      "id": "live_app_platform",
+      "artifact": "artifacts/readiness/v4_0_0_live_app_platform_closure.json",
+      "requires_all_passed": true,
+      "claim": "live_app_platform_proven"
+    },
+    {
+      "id": "multi_node_orchestration",
+      "artifact": "artifacts/readiness/v4_0_0_multi_node_orchestration_closure.json",
+      "requires_all_passed": true,
+      "claim": "multi_node_orchestration_proven"
+    }
+  ],
+  "production_gate_policy": {
+    "missing_surface_artifact": "blocked_not_passed",
+    "failed_surface_artifact": "blocked_not_passed",
+    "blocked_hardware_or_external_evidence": "blocked_not_passed",
+    "synthetic_or_smoke_only_evidence": "blocked_not_passed",
+    "claim_without_all_surfaces_green": "forbidden"
+  },
+  "output_report": "artifacts/readiness/v4_0_0_full_production_platform_closure.json"
+}
