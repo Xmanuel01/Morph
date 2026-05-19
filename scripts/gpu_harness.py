@@ -37,6 +37,47 @@ def gpu_count() -> int:
     return sum(1 for line in out.splitlines() if line.strip())
 
 
+def gpu_inventory() -> list[dict[str, Any]]:
+    if shutil.which("nvidia-smi") is None:
+        return []
+    query = [
+        "nvidia-smi",
+        "--query-gpu=index,uuid,name,driver_version,memory.total",
+        "--format=csv,noheader,nounits",
+    ]
+    try:
+        out = subprocess.check_output(query, text=True, stderr=subprocess.STDOUT)
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return []
+    gpus: list[dict[str, Any]] = []
+    for line in out.splitlines():
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) < 5:
+            continue
+        index, uuid, name, driver, memory_total_mib = parts[:5]
+        try:
+            parsed_index: int | str = int(index)
+        except ValueError:
+            parsed_index = index
+        gpus.append(
+            {
+                "index": parsed_index,
+                "uuid": uuid,
+                "name": name,
+                "driver_version": driver,
+                "memory_total_mib": memory_total_mib,
+            }
+        )
+    return gpus
+
+
+def git_commit() -> str | None:
+    try:
+        return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(ROOT), text=True).strip()
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return None
+
+
 def choose_master_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
@@ -225,7 +266,8 @@ def write_blocked_gpu_evidence(
     required_gpu_count: int,
 ) -> pathlib.Path:
     artifacts_dir = resolve_artifacts_dir()
-    detected_gpu_count = gpu_count() if shutil.which("nvidia-smi") else 0
+    detected_gpus = gpu_inventory()
+    detected_gpu_count = len(detected_gpus)
     report = {
         "schema_version": 1,
         "gate": gate,
@@ -234,6 +276,7 @@ def write_blocked_gpu_evidence(
         "world_size": world_size,
         "required_gpu_count": required_gpu_count,
         "detected_gpu_count": detected_gpu_count,
+        "detected_gpus": detected_gpus,
         "reason": reason,
         "env": {
             "ENKAI_ENABLE_DIST": os.environ.get("ENKAI_ENABLE_DIST"),
@@ -551,6 +594,7 @@ def run_multi() -> int:
     grad_ok = abs(g0 - g1) <= tol_grad
     passed = loss_ok and grad_ok
 
+    inventory = gpu_inventory()
     report = {
         "schema_version": 1,
         "gate": "multi_gpu_parity",
@@ -558,6 +602,14 @@ def run_multi() -> int:
         "status": "PASS" if passed else "FAIL",
         "world_size": 2,
         "backend": backend,
+        "host": {
+            "platform": sys.platform,
+            "hostname": socket.gethostname(),
+            "git_commit": git_commit(),
+            "python": sys.executable,
+        },
+        "gpus": inventory,
+        "gpu_uuids": [gpu.get("uuid") for gpu in inventory[:2]],
         "tolerances": {"loss": tol_loss, "grad": tol_grad},
         "checks": {"loss_parity": loss_ok, "grad_parity": grad_ok},
         "baseline": {
@@ -584,13 +636,19 @@ def run_multi() -> int:
             },
         ],
         "artifacts": {
+            "baseline_log": str((artifacts_dir / "baseline.jsonl").resolve()),
+            "rank0_log": str((artifacts_dir / "rank0.jsonl").resolve()),
+            "rank1_log": str((artifacts_dir / "rank1.jsonl").resolve()),
             "rank0_grads": str((artifacts_dir / "rank0_grads.json").resolve()),
             "rank1_grads": str((artifacts_dir / "rank1_grads.json").resolve()),
+            "stdout_baseline": str(base_stdout.resolve()),
+            "stderr_baseline": str(base_stderr.resolve()),
             "stdout_rank0": str((artifacts_dir / "multi_gpu_rank0.stdout.log").resolve()),
             "stderr_rank0": str((artifacts_dir / "multi_gpu_rank0.stderr.log").resolve()),
             "stdout_rank1": str((artifacts_dir / "multi_gpu_rank1.stdout.log").resolve()),
             "stderr_rank1": str((artifacts_dir / "multi_gpu_rank1.stderr.log").resolve()),
         },
+        "rank_process_exit_codes": exits,
         "distributed_runtime_sec": distributed_runtime,
     }
     evidence_path = artifacts_dir / "multi_gpu_evidence.json"
@@ -765,6 +823,13 @@ def run_soak4() -> int:
         "gate": "soak_4gpu",
         "timestamp_utc": now_iso(),
         "status": status,
+        "host": {
+            "platform": sys.platform,
+            "hostname": socket.gethostname(),
+            "git_commit": git_commit(),
+            "python": sys.executable,
+        },
+        "gpus": gpu_inventory(),
         "runtime_hours": round(runtime_hours, 4),
         "min_hours": min_hours,
         "launcher_mode": "custom" if launcher else "first_party",

@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "contract_version": "v4.0.0",
+  "scope": "multi_node_orchestration_hardware_closure",
+  "status": "real_hardware_required_contract",
+  "purpose": "Close multi-node/distributed GPU orchestration only when live 2+ GPU execution evidence exists and passes strict parity/artifact gates.",
+  "required_gates": [
+    "real_two_plus_gpu_hardware",
+    "single_gpu_cuda_llm_foundation_green",
+    "two_rank_data_parallel_execution",
+    "distributed_gradient_parity",
+    "distributed_loss_parity",
+    "rank_artifact_archival",
+    "rank_exit_code_archival",
+    "fresh_evidence_window",
+    "no_blocked_or_synthetic_evidence"
+  ],
+  "two_rank_requirements": {
+    "world_size": 2,
+    "requires_cuda_devices": 2,
+    "requires_distinct_gpu_uuids": true,
+    "required_artifact": "artifacts/gpu/multi_gpu_evidence.json",
+    "required_status": "PASS",
+    "maximum_evidence_age_hours": 48,
+    "required_checks": ["loss_parity", "grad_parity"],
+    "required_artifacts": [
+      "baseline_log",
+      "rank0_log",
+      "rank1_log",
+      "rank0_grads",
+      "rank1_grads",
+      "stdout_baseline",
+      "stderr_baseline",
+      "stdout_rank0",
+      "stderr_rank0",
+      "stdout_rank1",
+      "stderr_rank1"
+    ]
+  },
+  "production_gate_policy": {
+    "cuda_unavailable": "blocked_not_passed",
+    "fewer_than_two_gpus": "blocked_not_passed",
+    "missing_two_rank_artifact": "blocked_not_passed",
+    "stale_artifact": "blocked_not_passed",
+    "synthetic_or_blocked_artifact": "blocked_not_passed"
+  },
+  "output_report": "artifacts/readiness/v4_0_0_multi_node_orchestration_closure.json"
+}
